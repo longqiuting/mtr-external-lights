@@ -49,9 +49,11 @@ build_one() {
     return
   fi
 
-  local out="$ROOT/$dir/build/libs/mtr-external-lights-0.1.0.jar"
-  cp -f "$out" "$DESK/mtr-external-lights-0.1.0+$mc.jar"
-  echo "   ok -> 桌面/mtr-external-lights-0.1.0+$mc.jar ($(stat -c%s "$out") 字节)"
+  local ver
+  ver=$(grep -m1 '^mod_version=' "$ROOT/$dir/gradle.properties" | cut -d= -f2)
+  local out="$ROOT/$dir/build/libs/mtr-external-lights-$ver.jar"
+  cp -f "$out" "$DESK/mtr-external-lights-$ver+$mc.jar"
+  echo "   ok -> 桌面/mtr-external-lights-$ver+$mc.jar ($(stat -c%s "$out") 字节)"
 }
 
 for d in "$@"; do
