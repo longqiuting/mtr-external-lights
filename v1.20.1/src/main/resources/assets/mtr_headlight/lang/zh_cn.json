@@ -1,0 +1,43 @@
+{
+  "modmenu.nameTranslation.mtr_headlight": "MTR外部光源",
+  "modmenu.descriptionTranslation.mtr_headlight": "为 MTR 列车添加动态车头灯与车尾灯。仅客户端，对 MTR 只读不写：不放置方块，也不修改列车逻辑。",
+  "key.categories.mtr_headlight": "MTR外部光源",
+  "key.mtr_headlight.open_config": "打开配置界面",
+
+  "screen.mtr_headlight.config": "MTR外部光源",
+  "screen.mtr_headlight.status.on": "动态光源：运行中",
+  "screen.mtr_headlight.status.off": "动态光源：已关闭",
+
+  "opt.master.on": "总开关：已启用（点击停用）",
+  "opt.master.off": "总开关：已停用（点击启用）",
+  "opt.distance": "渲染距离：%s 格",
+  "opt.headLuminance": "车灯亮度：%s / 15",
+  "opt.headLength": "光束长度：%s 格",
+  "opt.railLight.on": "轨道光照：已开启（点击关闭）",
+  "opt.railLight.off": "轨道光照：已关闭（点击开启）",
+  "opt.railGlow.on": "轨道光带：已绘制（点击关闭）",
+  "opt.railGlow.off": "轨道光带：未绘制（点击开启）",
+
+  "btn.sidings": "按侧线配置…",
+  "btn.reload": "立即重载光源",
+  "btn.done": "完成",
+  "btn.back": "返回",
+  "btn.resetSiding": "恢复为跟随全局",
+
+  "tip.needWorld": "请先进入存档",
+  "hint.followGlobal": "（跟随全局）",
+  "hint.json": "其余参数（车尾灯、高度、性能调度、光带宽度）见 config/mtr-headlight.json",
+  "hint.author": "作者：厦航在拍车的无名机长 (kigurumiLTY)",
+
+  "sidings.title": "按侧线配置",
+  "sidings.hint": "点击一条侧线，单独设置它的灯光参数",
+  "sidings.empty": "请先创建侧线",
+  "sidings.emptyHint": "在 MTR 仪表板里创建侧线后，这里会列出全部侧线",
+  "sidings.state.on": "启用",
+  "sidings.state.off": "已停用",
+  "sidings.state.custom": "自定义",
+  "sidings.unnamed": "未命名侧线",
+
+  "detail.title": "侧线 #%s %s",
+  "detail.subtitle": "%s"
+}

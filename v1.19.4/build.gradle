@@ -1,0 +1,66 @@
+plugins {
+    id 'fabric-loom' version '1.11.8'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+repositories {
+    mavenCentral()
+    flatDir { dirs '../libs' }
+}
+
+loom {
+    mixin {
+        // Refmap for the NTE/ANTE injections (loom also generates it by default, kept explicit).
+        defaultRefmapName = "mtr-headlight.refmap.json"
+    }
+}
+
+sourceSets {
+    main {
+        java { srcDirs = ['../common/src/main/java', 'src/main/java'] }
+        resources { srcDirs = ['src/main/resources'] }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    // LambDynamicLights 2.x（老版本线：DynamicLightSource 点光源 API）
+    modCompileOnly files("../libs/lambdynamiclights-2.3.1+1.19.4.jar")
+    // MTR 用 compileOnly 跳过 remap；另需配套的 intermediary MC jar。named jar 必须排在它前面，
+    // 否则 com.mojang.* 这类非混淆类和它的参数类型会解析到 intermediary 那一份。
+    compileOnly files("C:/Users/AD/.gradle/caches/fabric-loom/minecraftMaven/net/minecraft/minecraft-merged/1.19.4-net.fabricmc.yarn.1_19_4.1.19.4+build.2-v2/minecraft-merged-1.19.4-net.fabricmc.yarn.1_19_4.1.19.4+build.2-v2.jar")
+    compileOnly files("C:/Users/AD/.gradle/caches/fabric-loom/minecraftMaven/net/minecraft/minecraft-merged-intermediary/1.19.4-net.fabricmc.yarn.1_19_4.1.19.4+build.2-v2/minecraft-merged-intermediary-1.19.4-net.fabricmc.yarn.1_19_4.1.19.4+build.2-v2.jar")
+    compileOnly files("../libs/MTR-fabric-1.19.4-3.2.2-hotfix-1.jar")
+    // NTE 0.3.3（Modrinth mtr-nte，ANTE 的前身，未 remap，包名 cn.zbx1425.*）：编译期只为 NTE
+    // mixin 提供 MeshBuildingRailChunk；运行期由已安装的 NTE 提供。不能做 remap。
+    compileOnly files("../libs/MTR-NTE-fabric-1.19.4-0.3.3.jar")
+    modCompileOnly files("../libs/modmenu-6.3.1.jar")
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 17
+    it.options.encoding = "UTF-8"
+}
+
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}

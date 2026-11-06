@@ -1,0 +1,55 @@
+plugins {
+    id 'fabric-loom' version '1.11.8'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+repositories {
+    mavenCentral()
+    // MTR / LambDynamicLights API 不在可达的 maven 上发布，用本地 libs 目录（flatDir 比 files() 更被 Loom 认）
+    flatDir { dirs 'libs' }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    // LambDynamicLights API (extracted from META-INF/jars of lambdynamiclights-4.4.0+1.20.1.jar)
+    modCompileOnly files("libs/lambdynamiclights-api-4.4.0+1.20.1.jar")
+    // Minecraft Transit Railway (read-only usage: ClientData.TRAINS / Train / Rail)
+    // 用 compileOnly 而非 modCompileOnly：MTR 的 jar 内部有方法名与 vanilla 映射冲突
+    // (mtr/screen/WidgetShorterSlider 的 renderButton)，Loom 1.11 会因此判定 remap 失败。
+    // 我们只是编译期读它的类、运行期由实例里的 MTR 提供，因此跳过 remap。
+    // MTR 的 jar 未经 remap（见上），它签名里引用的是 intermediary 名的 MC 类型
+    // （例如 net.minecraft.class_243 = Vec3d）。把这个 intermediary 名的 MC jar 只加进
+    // 编译期 classpath 让签名可解析；运行期是同一个类，边界处用 (Vec3d)(Object) 过渡。
+    compileOnly files("C:/Users/AD/.gradle/caches/fabric-loom/minecraftMaven/net/minecraft/minecraft-merged-intermediary/1.20.1-net.fabricmc.yarn.1_20_1.1.20.1+build.10-v2/minecraft-merged-intermediary-1.20.1-net.fabricmc.yarn.1_20_1.1.20.1+build.10-v2.jar")
+    compileOnly files("libs/MTR-fabric-1.20.1-3.6.4.2.jar")
+    // Mod Menu(模组菜单) 的 API：只用来让模组列表能打开配置界面，运行期由实例里的 Mod Menu 提供
+    modCompileOnly files("libs/modmenu-7.2.2.jar")
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 17
+    it.options.encoding = "UTF-8"
+}
+
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}

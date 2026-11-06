@@ -1,0 +1,15 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "dev.js.mtrheadlight.mixin.fangsu",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "mtr-headlight.refmap.json",
+  "plugin": "dev.js.mtrheadlight.mixin.FangsuMixinPlugin",
+  "priority": 1500,
+  "client": [
+    "FangsuTurnoutRenderMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

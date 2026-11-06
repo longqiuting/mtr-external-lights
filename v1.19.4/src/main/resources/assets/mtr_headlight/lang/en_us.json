@@ -1,0 +1,43 @@
+{
+  "modmenu.nameTranslation.mtr_headlight": "MTR external lights",
+  "modmenu.descriptionTranslation.mtr_headlight": "Adds dynamic head and tail lights to Minecraft Transit Railway trains. Client side only, read-only towards MTR: no blocks are placed and no train logic is modified.",
+  "key.categories.mtr_headlight": "MTR external lights",
+  "key.mtr_headlight.open_config": "Open config screen",
+
+  "screen.mtr_headlight.config": "MTR external lights",
+  "screen.mtr_headlight.status.on": "Dynamic lights: running",
+  "screen.mtr_headlight.status.off": "Dynamic lights: off",
+
+  "opt.master.on": "Master switch: on (click to turn off)",
+  "opt.master.off": "Master switch: off (click to turn on)",
+  "opt.distance": "Render distance: %s blocks",
+  "opt.headLuminance": "Head light level: %s / 15",
+  "opt.headLength": "Beam length: %s blocks",
+  "opt.railLight.on": "Rail light: on (click to turn off)",
+  "opt.railLight.off": "Rail light: off (click to turn on)",
+  "opt.railGlow.on": "Rail glow: drawn (click to turn off)",
+  "opt.railGlow.off": "Rail glow: not drawn (click to turn on)",
+
+  "btn.sidings": "Per-siding settings…",
+  "btn.reload": "Reload lights now",
+  "btn.done": "Done",
+  "btn.back": "Back",
+  "btn.resetSiding": "Use global values",
+
+  "tip.needWorld": "Join a world first",
+  "hint.followGlobal": " (global)",
+  "hint.json": "Other values (tail light, height, relight tuning, glow width) are in config/mtr-headlight.json",
+  "hint.author": "by 厦航在拍车的无名机长 (kigurumiLTY)",
+
+  "sidings.title": "Per-siding settings",
+  "sidings.hint": "Click a siding to set its light parameters",
+  "sidings.empty": "Create a siding first",
+  "sidings.emptyHint": "Once sidings exist in the MTR dashboard, they will be listed here",
+  "sidings.state.on": "On",
+  "sidings.state.off": "Off",
+  "sidings.state.custom": "Custom",
+  "sidings.unnamed": "Unnamed siding",
+
+  "detail.title": "Siding #%s %s",
+  "detail.subtitle": "%s"
+}

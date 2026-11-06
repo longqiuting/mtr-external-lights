@@ -1,0 +1,16 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "dev.js.mtrheadlight.mixin.ante",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "mtr-headlight.refmap.json",
+  "plugin": "dev.js.mtrheadlight.mixin.AnteMixinPlugin",
+  "priority": 1500,
+  "client": [
+    "AnteBrightnessMixin",
+    "AnteInstancedBrightnessMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

@@ -1,0 +1,75 @@
+plugins {
+    id 'fabric-loom' version '1.11.8'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+repositories {
+    mavenCentral()
+    // MTR / LambDynamicLights API / Mod Menu 都不在可达的 maven 上，统一走仓库根目录的 libs
+    flatDir { dirs '../libs' }
+}
+
+loom {
+    mixin {
+        // Refmap for the ANTE/vanilla injections (loom also generates it by default, kept explicit).
+        defaultRefmapName = "mtr-headlight.refmap.json"
+    }
+}
+
+sourceSets {
+    main {
+        java { srcDirs = ['../common/src/main/java', 'src/main/java'] }
+        resources { srcDirs = ['src/main/resources'] }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    // LambDynamicLights API（从 lambdynamiclights-4.4.0+1.20.1.jar 的 META-INF/jars 里取出）
+    modCompileOnly files("../libs/lambdynamiclights-api-4.4.0+1.20.1.jar")
+    // MTR 用 compileOnly 跳过 remap（它内部有方法名与 vanilla 映射冲突，Loom 会判定 remap 失败）；
+    // 它的签名引用 intermediary 名的 MC 类型，所以需要配套的 intermediary MC jar。
+    // MTR 用 compileOnly 跳过 remap。named jar 必须排在 intermediary 前面，否则 com.mojang.*
+    // 这类非混淆类（RenderSystem / GameRenderer …）会解析到 intermediary 那一份。
+    compileOnly files("C:/Users/AD/.gradle/caches/fabric-loom/minecraftMaven/net/minecraft/minecraft-merged/1.20.1-net.fabricmc.yarn.1_20_1.1.20.1+build.10-v2/minecraft-merged-1.20.1-net.fabricmc.yarn.1_20_1.1.20.1+build.10-v2.jar")
+    compileOnly files("C:/Users/AD/.gradle/caches/fabric-loom/minecraftMaven/net/minecraft/minecraft-merged-intermediary/1.20.1-net.fabricmc.yarn.1_20_1.1.20.1+build.10-v2/minecraft-merged-intermediary-1.20.1-net.fabricmc.yarn.1_20_1.1.20.1+build.10-v2.jar")
+    compileOnly files("../libs/MTR-fabric-1.20.1-3.6.4.2.jar")
+    // ANTE 1.1.0（未 remap，类名带 fabric. 前缀，内部引用 intermediary 名）：只为 mixin 与
+    // RailRenderDispatcher#registerLightUpdate 编译期使用；运行期由已安装的 ANTE 提供。
+    compileOnly files("../libs/MTR-ANTE-1.1.0+1.20.1.jar")
+    // Mod Menu：只用来让模组列表能打开配置界面
+    modCompileOnly files("../libs/modmenu-7.2.2.jar")
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 17
+    it.options.encoding = "UTF-8"
+    // 方速（fangsu）mixin 的目标类只在运行期存在（有意不放进 libs、不产生编译期依赖），
+    // 所以 Mixin 注解处理器「soft target 找不到」这条消息必须降级：默认是 ERROR，会把
+    // @Mixin(targets = "com.fangsu....") 直接判成编译失败。只影响这一条消息，其它校验
+    // （shadow/overwrite/注入器描述符）照旧生效。
+    it.options.compilerArgs += ['-AMSG_MIXIN_SOFT_TARGET_NOT_FOUND=disabled']
+}
+
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}

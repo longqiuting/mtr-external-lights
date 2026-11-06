@@ -1,0 +1,22 @@
+# Gradle / build output
+build/
+.gradle/
+run/
+out/
+
+# Local dependency jars (MTR / ANTE / NTE / LDL / Fabric API ...) — fetched per machine
+libs/
+
+# Loom cache and mapped jars
+.loom/
+*.mapped.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Built mod jars (kept on the desktop, not in the repo)
+dist/
+*.jar
+!gradle/wrapper/gradle-wrapper.jar

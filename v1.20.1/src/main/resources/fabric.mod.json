@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "mtr_headlight",
+  "version": "${version}",
+  "name": "MTR external lights",
+  "description": "Adds dynamic head and tail lights to Minecraft Transit Railway trains. Client side only, read-only towards MTR: no blocks are placed and no train logic is modified.",
+  "authors": [
+    "厦航在拍车的无名机长 (kigurumiLTY)"
+  ],
+  "license": "MIT",
+  "icon": "icon.png",
+  "environment": "client",
+  "mixins": [
+    "mtr_headlight.ante.mixins.json",
+    "mtr_headlight.fangsu.mixins.json"
+  ],
+  "entrypoints": {
+    "client": [
+      "dev.js.mtrheadlight.MtrHeadlightClient"
+    ],
+    "lambdynlights:initializer": [
+      "dev.js.mtrheadlight.MtrHeadlightDynamicLights"
+    ],
+    "modmenu": [
+      "dev.js.mtrheadlight.ModMenuIntegration"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.9",
+    "minecraft": "~1.20.1",
+    "java": ">=17",
+    "fabric-api": "*",
+    "lambdynlights": ">=4.4.0",
+    "lambdynlights_api": ">=4.4.0",
+    "mtr": "*"
+  }
+}
