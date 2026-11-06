@@ -13,7 +13,7 @@ package dev.js.mtrheadlight;
  * aims for.
  */
 public final class RailDiag {
-    private static final boolean ENABLED = true;
+    private static final boolean ENABLED = false;
     private static final int LOG_EVERY_TICKS = 100;
 
     private static long calls;
@@ -117,6 +117,39 @@ public final class RailDiag {
                     queuedCount, skippedCount, rebuiltCount, starved, pending, trains);
         } catch (Throwable t) {
             // Logging must never break the tick.
+        }
+    }
+
+    private static int loggedLdl2Sources = -1;
+    private static int loggedLdl2Moved = -1;
+    private static int loggedLdl2Relight = -1;
+
+    /**
+     * Ldl2Backend (MC 1.18.2 / 1.19.2 / 1.19.4) proof-of-life line:
+     * {@code sources} is how many point lights are registered with LambDynamicLights,
+     * {@code moved} how many reported a position or luminance change in the window, and
+     * {@code relight} how many chunk-section rebuilds we asked LDL for. A train that is visibly
+     * moving must show {@code moved > 0} and {@code relight > 0}; if {@code relight} stays 0 the
+     * light can never appear, which is the bug this counter exists to catch.
+     *
+     * <p>Called at most once per five seconds from the render thread; silent when nothing moved.
+     * Turn the whole diagnostics block off by setting {@link #ENABLED} to {@code false}.
+     */
+    public static void ldl2(final int sources, final int moved, final int relight) {
+        if (!ENABLED) {
+            return;
+        }
+        if (sources == loggedLdl2Sources && moved == loggedLdl2Moved && relight == loggedLdl2Relight) {
+            return;
+        }
+        loggedLdl2Sources = sources;
+        loggedLdl2Moved = moved;
+        loggedLdl2Relight = relight;
+        try {
+            MtrHeadlightClient.LOGGER.info("[mtr-headlight] ldl2: sources={} moved={} relight={}",
+                    sources, moved, relight);
+        } catch (Throwable t) {
+            // Logging must never break the render pass.
         }
     }
 

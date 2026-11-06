@@ -58,6 +58,7 @@ public final class LightController {
             // The light engine drops everything on world change, so drop our bookkeeping too.
             ACTIVE.clear();
             LightBackends.backend().clearAll();
+            TrainPose.clearCache();
             lastWorld = world;
             tickCounter = 0L;
         }
@@ -66,15 +67,17 @@ public final class LightController {
             return;
         }
 
-        if (!cfg.enabled) {
-            // Master switch off: drop everything right away, or the last light stays lit forever
-            // where the train was.
+        if (!cfg.enabled || !cfg.dynamicLight) {
+            // Master switch (or the dynamic-light child) off: drop everything right away, or the
+            // last light stays lit forever where the train was.
             clear();
             return;
         }
 
         tickCounter++;
         final LightBackend backend = LightBackends.backend();
+        // Diagnostics only, on this thread: never from inside an engine callback.
+        backend.tick();
         final Vec3d eye = client.player.getPos();
         final Set<String> seen = new HashSet<>();
 
@@ -93,10 +96,20 @@ public final class LightController {
             // applied immediately - waiting for the missing-tick timeout would leave a lit train
             // sitting in the depot for ten seconds after the player switched its siding off.
             final HeadlightConfig.Effective eff = cfg.effectiveFor(train.sidingId);
-            if (!eff.enabled) {
+            if (!eff.enabled || !eff.dynamicLight) {
                 final Tracked stale = ACTIVE.remove(key);
                 if (stale != null) {
                     stale.remove(backend, key);
+                }
+                continue;
+            }
+            // A train that has not left its depot (still in the vehicle shed) must not shine:
+            // MTR's isOnRoute flag, plus a strictly movement-based latch for a stale flag - see
+            // DepartureState.
+            if (!DepartureState.departed(train)) {
+                final Tracked inShed = ACTIVE.remove(key);
+                if (inShed != null) {
+                    inShed.remove(backend, key);
                 }
                 continue;
             }
@@ -106,17 +119,21 @@ public final class LightController {
 
             Tracked tracked = ACTIVE.get(key);
             if (tracked == null) {
-                tracked = new Tracked(train.isReversed());
+                tracked = new Tracked();
                 ACTIVE.put(key, tracked);
             }
 
             // 折返时 railProgress 会反向；用它判断哪一端是车头（MTR 的 isReversed() 在终点站不一定会翻转）。
-            final TrainPose pose = TrainPose.of(train, tracked.updateDirection(train.getRailProgress()));
+            // swapEnds 等价于"整列车朝反方向跑"，所以两者折叠成一个布尔量交给 TrainPose，
+            // 头/尾端由 pose 自己给出，几何里不再有第二处换端分支。
+            final boolean reversed = DepartureState.reversed(train, train.isReversed()) ^ cfg.swapEnds;
+            final TrainPose pose = TrainPose.ofShared(train, reversed);
             if (pose.front() == Vec3d.ZERO && pose.rear() == Vec3d.ZERO) {
                 continue;
             }
 
             // Per-end judgement: the beam belongs to the front car, the tail light to the rear car.
+            // Both distances use the same boundary the light is built from.
             final double frontDistance = pose.front().distanceTo(eye);
             final double rearDistance = pose.rear().distanceTo(eye);
 
@@ -135,8 +152,8 @@ public final class LightController {
                 continue;
             }
 
-            final Segment head = headSegment(pose, cfg, eff);
-            final Segment tail = tailSegment(pose, cfg, eff);
+            final EndLight head = headSegment(pose, cfg, eff);
+            final EndLight tail = tailSegment(pose, cfg, eff);
 
             tracked.update(backend, key, head, tail,
                     frontDistance <= viewLimit, rearDistance <= viewLimit, eff);
@@ -176,41 +193,32 @@ public final class LightController {
         RailRelightHooks.tick(cfg, tickCounter);
     }
 
-    private static Segment headSegment(final TrainPose pose, final HeadlightConfig cfg,
-                                       final HeadlightConfig.Effective eff) {
-        Vec3d fwd = pose.forward();
-        if (fwd == Vec3d.ZERO) {
-            return null;
-        }
-        if (cfg.swapEnds) {
-            fwd = fwd.multiply(-1.0D);
-        }
-        final Vec3d front = cfg.swapEnds ? pose.rear() : pose.front();
-        final Vec3d rear = cfg.swapEnds ? pose.front() : pose.rear();
-        final double y = Math.max(front.y, rear.y) + cfg.heightOffset;
-        final Vec3d start = new Vec3d(front.x + fwd.x * cfg.headOffset, y, front.z + fwd.z * cfg.headOffset);
-        final Vec3d end = new Vec3d(start.x + fwd.x * eff.headLength, start.y - 0.60D,
-                start.z + fwd.z * eff.headLength);
-        return new Segment(start, end);
+    /**
+     * Head light: on the leading face of the front car, along that car's own tangent. The end and
+     * the heading both come from {@link TrainPose}, which resolved reversal and {@code swapEnds}
+     * already - so this is the same geometry {@link BeamGlow} draws and the rail bake bakes.
+     */
+    private static EndLight headSegment(final TrainPose pose, final HeadlightConfig cfg,
+                                        final HeadlightConfig.Effective eff) {
+        return endSegment(pose.front(), pose.forward(), cfg.headOffsetClamped(), eff.headLength,
+                HeadlightConfig.HEAD_TIP_DROP, cfg.heightOffset);
     }
 
-    private static Segment tailSegment(final TrainPose pose, final HeadlightConfig cfg,
-                                       final HeadlightConfig.Effective eff) {
-        Vec3d fwd = pose.forward();
-        if (fwd == Vec3d.ZERO) {
+    /** Tail light: on the trailing face of the last car, along that car's tangent, reversed. */
+    private static EndLight tailSegment(final TrainPose pose, final HeadlightConfig cfg,
+                                        final HeadlightConfig.Effective eff) {
+        return endSegment(pose.rear(), pose.backward(), cfg.tailOffsetClamped(), eff.tailLength,
+                HeadlightConfig.TAIL_TIP_DROP, cfg.heightOffset);
+    }
+
+    /** One lamp; {@link EndLight} owns the arithmetic, this only rejects a degenerate heading. */
+    private static EndLight endSegment(final Vec3d base, final Vec3d dir, final double offset,
+                                       final double length, final double tipDrop,
+                                       final double height) {
+        if (dir == Vec3d.ZERO) {
             return null;
         }
-        if (cfg.swapEnds) {
-            fwd = fwd.multiply(-1.0D);
-        }
-        final Vec3d rear = cfg.swapEnds ? pose.front() : pose.rear();
-        final Vec3d front = cfg.swapEnds ? pose.rear() : pose.front();
-        final double y = Math.max(front.y, rear.y) + cfg.heightOffset;
-        final Vec3d back = fwd.multiply(-1.0D);
-        final Vec3d start = new Vec3d(rear.x + back.x * cfg.tailOffset, y, rear.z + back.z * cfg.tailOffset);
-        final Vec3d end = new Vec3d(start.x + back.x * eff.tailLength, start.y - 0.35D,
-                start.z + back.z * eff.tailLength);
-        return new Segment(start, end);
+        return EndLight.of(base, dir, offset, length, tipDrop, height);
     }
 
     private static List<TrainClient> snapshotTrains() {
@@ -221,47 +229,16 @@ public final class LightController {
         }
     }
 
-    /** A light segment in world space. */
-    private static final class Segment {
-        final Vec3d start;
-        final Vec3d end;
-
-        Segment(final Vec3d start, final Vec3d end) {
-            this.start = start;
-            this.end = end;
-        }
-    }
-
     /** Per-train bookkeeping; the two light segments live inside the backend under {@code key#head/#tail}. */
     private static final class Tracked {
         long lastSeen;
         Vec3d lastHeadStart = Vec3d.ZERO;
         Vec3d lastHeadEnd = Vec3d.ZERO;
-        /** Last seen rail progress; NaN until the first tick. */
-        private double lastProgress = Double.NaN;
-        /** True when the train is running against the path direction (front at the low-progress end). */
-        private boolean reversed;
+        // The travel direction is NOT kept here: DepartureState already derives it once per tick
+        // from the rail-progress delta, and both the light tick and the beam renderer read it from
+        // there, so the two cannot disagree about which end is the nose.
 
-        Tracked(final boolean reversedInitially) {
-            this.reversed = reversedInitially;
-        }
-
-        /**
-         * Follows the travel direction from the change in rail progress, so a terminus turnaround
-         * swaps the head and tail lights. Stops (delta ~ 0) keep the previous direction.
-         */
-        boolean updateDirection(final double progress) {
-            if (!Double.isNaN(lastProgress)) {
-                final double delta = progress - lastProgress;
-                if (Math.abs(delta) > 0.02D) {
-                    reversed = delta < 0.0D;
-                }
-            }
-            lastProgress = progress;
-            return reversed;
-        }
-
-        void update(final LightBackend backend, final String key, final Segment head, final Segment tail,
+        void update(final LightBackend backend, final String key, final EndLight head, final EndLight tail,
                     final boolean showHead, final boolean showTail, final HeadlightConfig.Effective eff) {
             if (head != null) {
                 lastHeadStart = head.start;

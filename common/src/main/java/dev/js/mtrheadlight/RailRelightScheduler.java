@@ -198,7 +198,7 @@ public final class RailRelightScheduler implements RailRelightHooks.Hook {
 
         // railLightAnySiding(): the global switch may be off while a siding overrides it on, in
         // which case the scheduler still has work to do for those trains only.
-        if (!cfg.enabled || !cfg.railLightAnySiding()) {
+        if (!cfg.enabled || !cfg.dynamicLight || !cfg.railLightAnySiding()) {
             clearQueue();
             tracked.clear();
             return;
@@ -298,12 +298,15 @@ public final class RailRelightScheduler implements RailRelightHooks.Hook {
             // Per-siding: the siding's own master switch and its rail-light switch both gate the
             // bake, so a siding with railLight off is never queued even when the global is on.
             final HeadlightConfig.Effective eff = cfg.effectiveFor(train.sidingId);
-            if (!eff.enabled || !eff.railLight) {
+            if (!eff.enabled || !eff.dynamicLight || !eff.railLight) {
                 release(train.id);
                 continue;
             }
 
-            final TrainPose pose = TrainPose.of(train);
+            // Same per-car pose the dynamic light and the beam sheet use: travel direction (with
+            // swapEnds folded in) picks which car is the nose, and each car carries its own tangent.
+            final TrainPose pose = TrainPose.ofShared(train,
+                    DepartureState.reversed(train, train.isReversed()) ^ cfg.swapEnds);
             final Vec3d front = pose.front();
             final Vec3d rear = pose.rear();
             if (front == Vec3d.ZERO && rear == Vec3d.ZERO) {
@@ -687,42 +690,26 @@ public final class RailRelightScheduler implements RailRelightHooks.Hook {
     private static int addBeam(final double[] out, final int offset, final TrainPose pose,
                                final HeadlightConfig cfg, final HeadlightConfig.Effective eff,
                                final boolean head) {
-        Vec3d forward = pose.forward();
+        // Per-car geometry, and the very same EndLight the LambDynamicLights line uses: lamp on the
+        // car face at that end, beam along THAT car's tangent (the tail's is negated by
+        // TrainPose#backward).
+        final Vec3d base = head ? pose.front() : pose.rear();
+        final Vec3d forward = head ? pose.forward() : pose.backward();
         if (forward == Vec3d.ZERO) {
             return 0;
         }
-        if (cfg.swapEnds) {
-            forward = forward.multiply(-1.0D);
-        }
-        final Vec3d front = cfg.swapEnds ? pose.rear() : pose.front();
-        final Vec3d rear = cfg.swapEnds ? pose.front() : pose.rear();
-        final double y = Math.max(front.y, rear.y) + cfg.heightOffset;
-        if (head) {
-            final Vec3d start = new Vec3d(front.x + forward.x * cfg.headOffset, y,
-                    front.z + forward.z * cfg.headOffset);
-            final Vec3d end = new Vec3d(start.x + forward.x * eff.headLength, start.y - 0.60D,
-                    start.z + forward.z * eff.headLength);
-            out[offset] = start.x;
-            out[offset + 1] = start.y;
-            out[offset + 2] = start.z;
-            out[offset + 3] = end.x;
-            out[offset + 4] = end.y;
-            out[offset + 5] = end.z;
-            out[offset + 6] = eff.headLuminance;
-        } else {
-            final Vec3d back = forward.multiply(-1.0D);
-            final Vec3d start = new Vec3d(rear.x + back.x * cfg.tailOffset, y,
-                    rear.z + back.z * cfg.tailOffset);
-            final Vec3d end = new Vec3d(start.x + back.x * eff.tailLength, start.y - 0.35D,
-                    start.z + back.z * eff.tailLength);
-            out[offset] = start.x;
-            out[offset + 1] = start.y;
-            out[offset + 2] = start.z;
-            out[offset + 3] = end.x;
-            out[offset + 4] = end.y;
-            out[offset + 5] = end.z;
-            out[offset + 6] = eff.tailLuminance;
-        }
+        final EndLight light = EndLight.of(base, forward,
+                head ? cfg.headOffsetClamped() : cfg.tailOffsetClamped(),
+                head ? eff.headLength : eff.tailLength,
+                head ? HeadlightConfig.HEAD_TIP_DROP : HeadlightConfig.TAIL_TIP_DROP,
+                cfg.heightOffset);
+        out[offset] = light.start.x;
+        out[offset + 1] = light.start.y;
+        out[offset + 2] = light.start.z;
+        out[offset + 3] = light.end.x;
+        out[offset + 4] = light.end.y;
+        out[offset + 5] = light.end.z;
+        out[offset + 6] = head ? eff.headLuminance : eff.tailLuminance;
         return 1;
     }
 

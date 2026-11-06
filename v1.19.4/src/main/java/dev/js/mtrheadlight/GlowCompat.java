@@ -41,8 +41,15 @@ final class GlowCompat {
                     .color(data[i + 3], data[i + 4], data[i + 5], data[i + 6])
                     .next();
         }
-        // 1.19.4: end() returns the built buffer, draw(BuiltBuffer).
-        BufferRenderer.draw(buffer.end());
+        // 1.19.4: end() returns the built buffer. Do NOT use BufferRenderer.draw(BuiltBuffer) here:
+        // in 1.19.4 that ends in VertexBuffer.draw() (no-arg), which only issues
+        // RenderSystem.drawElements(...) - it never uploads ModelViewMat/ProjMat, so the quad is
+        // transformed by whatever uniforms the position_color program still holds from its last
+        // user (GUI/HUD). The sheet then lands off-screen with no exception and nothing is drawn.
+        // drawWithGlobalProgram(...) is the 1.19.4 spelling of 1.19.2's drawWithShader(...): it
+        // calls VertexBuffer.draw(RenderSystem.getModelViewMatrix(),
+        // RenderSystem.getProjectionMatrix(), RenderSystem.getShader()).
+        BufferRenderer.drawWithGlobalProgram(buffer.end());
 
         RenderSystem.depthMask(true);
         RenderSystem.defaultBlendFunc();

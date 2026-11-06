@@ -22,4 +22,15 @@ public interface LightBackend {
 
     /** Drop everything (world change, master switch off, manual reload). */
     void clearAll();
+
+    /**
+     * Once per client tick, from the tick thread - deliberately <em>outside</em> any engine
+     * callback, so diagnostics may query the light engine here without re-entering a lock the
+     * engine already holds (see Ldl2Backend#tick on 1.19.4: doing that from inside
+     * {@code updateAll} deadlocks LDL's read/write lock).
+     *
+     * <p>No-op by default; only the backends that need it override this.
+     */
+    default void tick() {
+    }
 }

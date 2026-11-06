@@ -3,7 +3,7 @@ package dev.js.mtrheadlight;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 
 /**
- * Version-local hook for 1.20.1: the world-render callbacks (self-drawn rail band) and the key
+ * Version-local hook for 1.20.1: the world-render callbacks (self-drawn light beams) and the key
  * binding, plus the throttled rail relight scheduler.
  */
 public final class RenderHooks {
@@ -13,20 +13,21 @@ public final class RenderHooks {
     public static void init() {
         FangsuCompat.announce();
 
-        // The self-drawn band is opt-in (railGlow=false by default) and completely independent of
-        // the relight scheduler: it draws its own geometry and never queues a chunk.
+        // The beam sheets are our own geometry and completely independent of the relight
+        // scheduler: they draw themselves and never queue a chunk. The early/late pair exists so
+        // exactly one pass draws, depending on whether a shader pack composites after translucent.
         WorldRenderEvents.AFTER_ENTITIES.register(context -> {
             try {
-                RailGlow.render(context, false);
+                BeamGlow.render(context, false);
             } catch (Throwable t) {
-                MtrHeadlightClient.LOGGER.error("[mtr-headlight] rail glow failed", t);
+                MtrHeadlightClient.LOGGER.error("[mtr-headlight] beam glow failed", t);
             }
         });
         WorldRenderEvents.AFTER_TRANSLUCENT.register(context -> {
             try {
-                RailGlow.render(context, true);
+                BeamGlow.render(context, true);
             } catch (Throwable t) {
-                MtrHeadlightClient.LOGGER.error("[mtr-headlight] rail glow (late pass) failed", t);
+                MtrHeadlightClient.LOGGER.error("[mtr-headlight] beam glow (late pass) failed", t);
             }
         });
 

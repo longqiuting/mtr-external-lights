@@ -25,13 +25,47 @@ import java.util.Map;
 public final class HeadlightConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     /** Bumped when a default changes in a way an existing file has to be migrated onto. */
-    private static final int CONFIG_VERSION = 3;
+    private static final int CONFIG_VERSION = 4;
+
+    /** Default beam colours, also used when a JSON/override carries a malformed hex string. */
+    public static final int DEFAULT_HEAD_BEAM = 0xFFF3D6;
+    public static final int DEFAULT_TAIL_BEAM = 0xFF6A5A;
 
     /** Written by the mod; only used to migrate files that still hold old defaults. */
     public int configVersion = 0;
 
-    /** Master switch. */
+    /** Master switch. Gates both subsystems below ({@link #dynamicLight}, {@link #beamGlow}). */
     public boolean enabled = true;
+
+    /**
+     * Dynamic-light sub-switch, ANDed with {@link #enabled}.
+     *
+     * <p>The three switches are a strict hierarchy, not three independent flags:
+     * master off means neither subsystem runs; master on plus this off means "no dynamic light,
+     * but the light band may still be drawn"; and {@link #beamGlow} is the other child. Every
+     * consumer reads {@code enabled && dynamicLight} (or {@code enabled && beamGlow}) rather than
+     * either flag alone, so the combined state cannot be half-applied.
+     *
+     * <p>The baked rail light ({@link #railLight}) belongs to this subsystem: it is the same light
+     * value written into ANTE's rail vertices, so it is gated by the same switch.
+     */
+    public boolean dynamicLight = true;
+
+    /**
+     * A/B switch: whether our sources are handed to LambDynamicLights at all
+     * (MC 1.19.4 / LDL 2.3.1 only - the other versions' backends ignore it for now).
+     *
+     * <p>It exists to answer one question and nothing else: <b>is it us?</b> Turn it off and the
+     * mod stops calling {@code LambDynLights#addLightSource} entirely - zero sources of ours in
+     * LDL's set - while the beam band, the rail bake and everything else keep running. If the
+     * player's torch/held light starts working in that state, our registration is what broke LDL;
+     * if it does not, the cause is upstream of LDL and this switch proves it in one step.
+     *
+     * <p>Flippable in game - {@code /externallights ldlreg off} - so the comparison needs no
+     * restart and no world reload. Default {@code true} (normal operation).
+     */
+    public boolean ldlRegisterSources = true;
+
 
     /** Only lights for transport mode TRAIN (ignore boats / cable cars / planes). */
     public boolean onlyTrains = true;
@@ -40,7 +74,7 @@ public final class HeadlightConfig {
     public int headLuminance = 15;
     /** How many blocks the front beam reaches (segment length, linear falloff). */
     public double headLength = 11.0D;
-    /** Gap between the car's front face and the start of the beam. */
+    /** Gap between the car's front face and the start of the beam, clamped to [0, 2] blocks. */
     public double headOffset = 0.6D;
 
     /**
@@ -52,8 +86,33 @@ public final class HeadlightConfig {
     public double tailLength = 4.0D;
     public double tailOffset = 0.4D;
 
+    /** {@link #headOffset} clamped to the supported range [0, 2] blocks (shared by every consumer). */
+    public double headOffsetClamped() {
+        return clampOffset(headOffset);
+    }
+
+    /** {@link #tailOffset} clamped to the supported range [0, 2] blocks. */
+    public double tailOffsetClamped() {
+        return clampOffset(tailOffset);
+    }
+
+    private static double clampOffset(final double value) {
+        if (Double.isNaN(value)) {
+            return 0.0D;
+        }
+        return Math.max(0.0D, Math.min(2.0D, value));
+    }
+
     /** Height of the light segment relative to the rail top (block center height). */
     public double heightOffset = 0.85D;
+
+    /**
+     * How far a beam's tip drops below its lamp, in blocks. Shared by every consumer of the end
+     * geometry (dynamic light, rail bake) so they cannot drift apart; the beam sheet draws its own
+     * height from the ground instead.
+     */
+    public static final double HEAD_TIP_DROP = 0.60D;
+    public static final double TAIL_TIP_DROP = 0.35D;
 
     /** Trains farther than this from the player get no light behaviour at all. */
     public double maxDistance = 192.0D;
@@ -71,6 +130,10 @@ public final class HeadlightConfig {
     /**
      * If the beam comes out of the wrong end of the train (front/back of the pose array
      * is an MTR implementation detail we mirror, not a documented contract), flip this.
+     *
+     * <p>Flipping is exactly the same thing as travelling the other way, so every consumer folds
+     * it into one boolean - {@code reversed ^ swapEnds} - and {@link TrainPose} builds the ends
+     * from that. There is no separate swap branch in the light or beam geometry.
      */
     public boolean swapEnds = false;
 
@@ -214,27 +277,58 @@ public final class HeadlightConfig {
     public double railLightGain = 1.4D;
 
     /**
-     * Draw our own glowing band along the rails ahead of each train.
+     * Draw the head/tail <b>light beams</b> - our own additive geometry, independent of the baked
+     * rail light ({@link #railLight}) and of the relight scheduler.
      *
-     * <p>This is the fallback that used to take over automatically under a shader pack. It is a
-     * plain additive quad strip on top of the rail bed, so it costs nothing to the relight
-     * scheduler and never touches the baked light - the two are completely independent. It is
-     * <b>off by default</b> (the baked light is the normal path); turn it on only when a pack
-     * renders the baked light too dark, and tune it with the five values below.
+     * <p>This used to be a band sampled <em>along the path</em>, which made it look like the rail
+     * itself was glowing. A head light does not turn with the track, so the beam now leaves the
+     * nose along the train's heading in a <b>straight line</b> (see {@link BeamGlow}): a 3-block
+     * wide sheet that is brightest at the lamp and fades out along its length (exponential) and
+     * towards both edges (vertex alpha 1.0 in the centre -&gt; 0 at the rim).
      *
-     * <p>Nothing here switches itself on: an active shader pack does not enable it.
+     * <p>It is purely a car-light effect: the two can be switched on together and neither touches
+     * the other's state.
      */
-    public boolean railGlow = false;
-    /** Band width in blocks (the quads are centred on the rail bed's centre line). */
-    public double railGlowWidth = 1.2D;
-    /** Peak alpha of the band; additive blending, so 0.12 is "hint of light", not a plastic strip. */
-    public double railGlowAlpha = 0.12D;
-    /** How far the band is lifted above the rail surface, in blocks. Below 0.06 it is clipped. */
-    public double railGlowLift = 0.07D;
-    /** How many blocks ahead of the nose the band reaches. */
-    public double railGlowAhead = 14.0D;
-    /** Sample spacing along the path, in blocks. Smaller = smoother curve, more vertices. */
-    public double railGlowStep = 1.5D;
+    public boolean beamGlow = true;
+    /**
+     * How far from the player a beam is still generated. Deliberately its own value, separate
+     * from {@link #maxDistance} (the dynamic light / train visibility range): a long beam is
+     * visible much further away than it is worth computing.
+     */
+    public double beamDistance = 128.0D;
+    /** Length of the head beam in blocks, straight out of the nose. */
+    public double beamHeadLength = 16.0D;
+    /** Length of the tail beam in blocks. Kept much shorter than the head beam on purpose. */
+    public double beamTailLength = 4.0D;
+    /** Beam width in blocks (3 = the usual car width). Edges fade to fully transparent. */
+    public double beamWidth = 3.0D;
+    /** Head beam colour, {@code #RRGGBB}. Warm white by default (a halogen head light). */
+    public String beamHeadColor = "#FFF3D6";
+    /** Tail beam colour, {@code #RRGGBB}. Faint red by default. */
+    public String beamTailColor = "#FF6A5A";
+    /**
+     * Extra height of the beam above the surface under it, per end, in blocks - on top of
+     * {@link #beamLift}. The sheet itself always hugs the ground/rail surface (its x/z come from the
+     * train's 3D heading, its y from the heightmap below each sample), so these are small trims for
+     * "just clearing a raised rail bed", not a mounting height. 0 would put the sheet exactly on the
+     * ballast and z-fight with it.
+     */
+    public double beamHeadHeight = 0.15D;
+    public double beamTailHeight = 0.10D;
+    /**
+     * Base lift above the sampled surface, applied to both ends, so the sheet does not z-fight with
+     * the rail bed or the block top.
+     *
+     * <p><b>Where the height comes from.</b> Each sample point's x/z is the train's 3D heading
+     * advanced straight ahead (pitch included), and its y is the heightmap surface under that point
+     * ({@code MOTION_BLOCKING_NO_LEAVES}). When that sample is unavailable - air, a viaduct far above
+     * the terrain, an unloaded chunk, or a surface more than 3 blocks off the ray - the height of the
+     * beam's own origin (the rail point at that end of the train) is used instead. Both cases then
+     * get this lift plus that end's {@link #beamHeadHeight}/{@link #beamTailHeight}.
+     */
+    public double beamLift = 0.07D;
+    /** Peak alpha of the beam at the lamp. Additive blending, so 0.55 is a bright but not solid sheet. */
+    public double beamAlpha = 0.55D;
 
     // ---------------------------------------------------------------------------------------------
     // Per-siding overrides
@@ -243,7 +337,7 @@ public final class HeadlightConfig {
     /**
      * One siding's overrides. Every field is a <b>wrapper type on purpose</b>: {@code null} means
      * "no override, use the global value", which an primitive default could not express (a siding
-     * with {@code railGlow = false} and a siding with no glow opinion both have to be told apart
+     * with {@code beamGlow = false} and a siding with no beam opinion both have to be told apart
      * from a global {@code true}).
      *
      * <p>Written to JSON only for the fields that were set - Gson skips nulls - so an entry the
@@ -252,6 +346,8 @@ public final class HeadlightConfig {
     public static final class SidingSettings {
         /** Master switch for this siding's trains; {@code null} = follow the global master switch. */
         public Boolean enabled;
+        /** Dynamic-light sub-switch for this siding; {@code null} = follow the global one. */
+        public Boolean dynamicLight;
         public Double maxDistance;
         public Integer headLuminance;
         public Integer tailLuminance;
@@ -259,14 +355,26 @@ public final class HeadlightConfig {
         public Double tailLength;
         /** Bake this siding's beams into rail light; {@code null} = follow the global switch. */
         public Boolean railLight;
-        /** Draw the glowing band for this siding's trains; {@code null} = follow the global switch. */
-        public Boolean railGlow;
+        /** Draw the head/tail light beams for this siding's trains; {@code null} = follow the global switch. */
+        public Boolean beamGlow;
+        public Double beamDistance;
+        public Double beamHeadLength;
+        public Double beamTailLength;
+        public Double beamWidth;
+        public String beamHeadColor;
+        public String beamTailColor;
+        public Double beamHeadHeight;
+        public Double beamTailHeight;
 
         /** True when nothing is overridden, i.e. the entry is equivalent to deleting it. */
         public boolean isEmpty() {
-            return enabled == null && maxDistance == null && headLuminance == null
+            return enabled == null && dynamicLight == null && maxDistance == null
+                    && headLuminance == null
                     && tailLuminance == null && headLength == null && tailLength == null
-                    && railLight == null && railGlow == null;
+                    && railLight == null && beamGlow == null && beamDistance == null
+                    && beamHeadLength == null && beamTailLength == null && beamWidth == null
+                    && beamHeadColor == null && beamTailColor == null
+                    && beamHeadHeight == null && beamTailHeight == null;
         }
     }
 
@@ -277,27 +385,54 @@ public final class HeadlightConfig {
      */
     public static final class Effective {
         public final boolean enabled;
+        /** Dynamic light subsystem (the light band has its own {@link #beamGlow}). */
+        public final boolean dynamicLight;
         public final double maxDistance;
         public final int headLuminance;
         public final int tailLuminance;
         public final double headLength;
         public final double tailLength;
         public final boolean railLight;
-        public final boolean railGlow;
+        /** Draw the light beams for this train at all. */
+        public final boolean beamGlow;
+        /** Distance from the player beyond which no beam is generated (own range). */
+        public final double beamDistance;
+        public final double beamHeadLength;
+        public final double beamTailLength;
+        public final double beamWidth;
+        /** Resolved beam colours as 0xRRGGBB, already parsed and clamped. */
+        public final int beamHeadColor;
+        public final int beamTailColor;
+        public final double beamHeadHeight;
+        public final double beamTailHeight;
         /** True when at least one field came from {@link #sidingSettings} rather than the globals. */
         public final boolean overridden;
 
-        Effective(final boolean enabled, final double maxDistance, final int headLuminance,
+        Effective(final boolean enabled, final boolean dynamicLight, final double maxDistance,
+                  final int headLuminance,
                   final int tailLuminance, final double headLength, final double tailLength,
-                  final boolean railLight, final boolean railGlow, final boolean overridden) {
+                  final boolean railLight, final boolean beamGlow, final double beamDistance,
+                  final double beamHeadLength, final double beamTailLength, final double beamWidth,
+                  final int beamHeadColor, final int beamTailColor,
+                  final double beamHeadHeight, final double beamTailHeight,
+                  final boolean overridden) {
             this.enabled = enabled;
+            this.dynamicLight = dynamicLight;
             this.maxDistance = maxDistance;
             this.headLuminance = headLuminance;
             this.tailLuminance = tailLuminance;
             this.headLength = headLength;
             this.tailLength = tailLength;
             this.railLight = railLight;
-            this.railGlow = railGlow;
+            this.beamGlow = beamGlow;
+            this.beamDistance = beamDistance;
+            this.beamHeadLength = beamHeadLength;
+            this.beamTailLength = beamTailLength;
+            this.beamWidth = beamWidth;
+            this.beamHeadColor = beamHeadColor;
+            this.beamTailColor = beamTailColor;
+            this.beamHeadHeight = beamHeadHeight;
+            this.beamTailHeight = beamTailHeight;
             this.overridden = overridden;
         }
     }
@@ -310,25 +445,37 @@ public final class HeadlightConfig {
         final SidingSettings o = sidingId == 0L || sidingSettings == null
                 ? null : sidingSettings.get(Long.valueOf(sidingId));
         if (o == null) {
-            return new Effective(enabled, maxDistance, headLuminance, tailLuminance, headLength,
-                    tailLength, railLight, railGlow, false);
+            return new Effective(enabled, dynamicLight, maxDistance, headLuminance, tailLuminance,
+                    headLength, tailLength, railLight, beamGlow, beamDistance, beamHeadLength,
+                    beamTailLength, beamWidth, parseColor(beamHeadColor, DEFAULT_HEAD_BEAM),
+                    parseColor(beamTailColor, DEFAULT_TAIL_BEAM),
+                    beamHeadHeight, beamTailHeight, false);
         }
         return new Effective(
                 o.enabled != null ? o.enabled.booleanValue() : enabled,
+                o.dynamicLight != null ? o.dynamicLight.booleanValue() : dynamicLight,
                 o.maxDistance != null ? o.maxDistance.doubleValue() : maxDistance,
                 o.headLuminance != null ? o.headLuminance.intValue() : headLuminance,
                 o.tailLuminance != null ? o.tailLuminance.intValue() : tailLuminance,
                 o.headLength != null ? o.headLength.doubleValue() : headLength,
                 o.tailLength != null ? o.tailLength.doubleValue() : tailLength,
                 o.railLight != null ? o.railLight.booleanValue() : railLight,
-                o.railGlow != null ? o.railGlow.booleanValue() : railGlow,
+                o.beamGlow != null ? o.beamGlow.booleanValue() : beamGlow,
+                o.beamDistance != null ? o.beamDistance.doubleValue() : beamDistance,
+                o.beamHeadLength != null ? o.beamHeadLength.doubleValue() : beamHeadLength,
+                o.beamTailLength != null ? o.beamTailLength.doubleValue() : beamTailLength,
+                o.beamWidth != null ? o.beamWidth.doubleValue() : beamWidth,
+                parseColor(o.beamHeadColor != null ? o.beamHeadColor : beamHeadColor, DEFAULT_HEAD_BEAM),
+                parseColor(o.beamTailColor != null ? o.beamTailColor : beamTailColor, DEFAULT_TAIL_BEAM),
+                o.beamHeadHeight != null ? o.beamHeadHeight.doubleValue() : beamHeadHeight,
+                o.beamTailHeight != null ? o.beamTailHeight.doubleValue() : beamTailHeight,
                 !o.isEmpty());
     }
 
     /**
      * True when <em>some</em> train may want rail light: either the global switch is on, or a siding
      * overrides it on. The rail relight scheduler must keep running in the second case even though
-     * the global switch is off, exactly like {@link #railGlowAnySiding()} for the band.
+     * the global switch is off, exactly like {@link #beamAnySiding()} for the beams.
      */
     public boolean railLightAnySiding() {
         if (railLight) {
@@ -344,19 +491,47 @@ public final class HeadlightConfig {
         return false;
     }
 
-    /** True when the band may be drawn for at least one siding (see {@link #railLightAnySiding()}). */
-    public boolean railGlowAnySiding() {
-        if (railGlow) {
+    /** True when a beam may be drawn for at least one siding (see {@link #railLightAnySiding()}). */
+    public boolean beamAnySiding() {
+        if (beamGlow) {
             return true;
         }
         if (sidingSettings != null) {
             for (final SidingSettings o : sidingSettings.values()) {
-                if (o != null && Boolean.TRUE.equals(o.railGlow)) {
+                if (o != null && Boolean.TRUE.equals(o.beamGlow)) {
                     return true;
                 }
             }
         }
         return false;
+    }
+
+    /**
+     * Parses {@code #RRGGBB} / {@code RRGGBB} (case-insensitive, {@code #}-optional) into
+     * {@code 0xRRGGBB}, falling back when the string is missing or malformed. Every read goes
+     * through this, so a hand-edited JSON can never feed a NaN colour into a vertex buffer.
+     */
+    public static int parseColor(final String text, final int fallback) {
+        if (text == null) {
+            return fallback;
+        }
+        String s = text.trim();
+        if (s.startsWith("#")) {
+            s = s.substring(1);
+        }
+        if (s.length() != 6) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(s, 16) & 0xFFFFFF;
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    /** Formats a colour the way the config/JSON stores it: {@code #RRGGBB}, upper case. */
+    public static String formatColor(final int rgb) {
+        return String.format("#%06X", Integer.valueOf(rgb & 0xFFFFFF));
     }
 
     /** Get-or-create the override entry for a siding (used by the detail screen on the first edit). */
@@ -470,6 +645,30 @@ public final class HeadlightConfig {
                 if (o.tailLength != null) {
                     o.tailLength = clamp(o.tailLength, 0.0D, 32.0D);
                 }
+                if (o.beamDistance != null) {
+                    o.beamDistance = clamp(o.beamDistance, 16.0D, 512.0D);
+                }
+                if (o.beamHeadLength != null) {
+                    o.beamHeadLength = clamp(o.beamHeadLength, 0.0D, 64.0D);
+                }
+                if (o.beamTailLength != null) {
+                    o.beamTailLength = clamp(o.beamTailLength, 0.0D, 64.0D);
+                }
+                if (o.beamWidth != null) {
+                    o.beamWidth = clamp(o.beamWidth, 0.5D, 8.0D);
+                }
+                if (o.beamHeadHeight != null) {
+                    o.beamHeadHeight = clamp(o.beamHeadHeight, 0.0D, 4.0D);
+                }
+                if (o.beamTailHeight != null) {
+                    o.beamTailHeight = clamp(o.beamTailHeight, 0.0D, 4.0D);
+                }
+                if (o.beamHeadColor != null) {
+                    o.beamHeadColor = formatColor(parseColor(o.beamHeadColor, DEFAULT_HEAD_BEAM));
+                }
+                if (o.beamTailColor != null) {
+                    o.beamTailColor = formatColor(parseColor(o.beamTailColor, DEFAULT_TAIL_BEAM));
+                }
             });
             sidingSettings.values().removeIf(SidingSettings::isEmpty);
         }
@@ -488,11 +687,16 @@ public final class HeadlightConfig {
         railRelightMaxMove = clamp(railRelightMaxMove, 0.5D, 8.0D);
         railRelightMaxInterval = clamp(railRelightMaxInterval, 2, 40);
         railRelightIdleInterval = clamp(railRelightIdleInterval, 4, 60);
-        railGlowWidth = clamp(railGlowWidth, 0.2D, 4.0D);
-        railGlowAlpha = clamp(railGlowAlpha, 0.0D, 0.4D);
-        railGlowLift = clamp(railGlowLift, 0.0D, 0.5D);
-        railGlowAhead = clamp(railGlowAhead, 1.0D, 48.0D);
-        railGlowStep = clamp(railGlowStep, 0.5D, 8.0D);
+        beamDistance = clamp(beamDistance, 16.0D, 512.0D);
+        beamHeadLength = clamp(beamHeadLength, 0.0D, 64.0D);
+        beamTailLength = clamp(beamTailLength, 0.0D, 64.0D);
+        beamWidth = clamp(beamWidth, 0.5D, 8.0D);
+        beamHeadHeight = clamp(beamHeadHeight, 0.0D, 4.0D);
+        beamTailHeight = clamp(beamTailHeight, 0.0D, 4.0D);
+        beamLift = clamp(beamLift, 0.0D, 0.5D);
+        beamAlpha = clamp(beamAlpha, 0.0D, 1.0D);
+        beamHeadColor = formatColor(parseColor(beamHeadColor, DEFAULT_HEAD_BEAM));
+        beamTailColor = formatColor(parseColor(beamTailColor, DEFAULT_TAIL_BEAM));
         return this;
     }
 
@@ -508,6 +712,31 @@ public final class HeadlightConfig {
     /** Persist to the standard config file (used by the in-game config screen). */
     public void save() {
         save(FabricLoader.getInstance().getConfigDir().resolve("mtr-headlight.json"));
+    }
+
+    /**
+     * Serialised copy of the whole config - the config screen's undo snapshot.
+     *
+     * <p>Opening a screen takes one snapshot; 取消 / 返回 hands it back to
+     * {@link #fromJson(String)}, so every edit made while that screen was open is rolled back in
+     * one go. Nothing is written to disk unless the player confirms, so a rollback can never
+     * rewrite a file that was already saved before the screen opened.
+     */
+    public String toJson() {
+        return GSON.toJson(this);
+    }
+
+    /** Rebuilds a config from a {@link #toJson()} snapshot (clamped like a freshly loaded file). */
+    public static HeadlightConfig fromJson(final String json) {
+        try {
+            final HeadlightConfig cfg = GSON.fromJson(json, HeadlightConfig.class);
+            if (cfg != null) {
+                return cfg.sanitized();
+            }
+        } catch (RuntimeException e) {
+            MtrHeadlightClient.LOGGER.warn("Could not read a config snapshot - keeping the live one", e);
+        }
+        return new HeadlightConfig();
     }
 
     private static int clamp(final int v, final int lo, final int hi) {

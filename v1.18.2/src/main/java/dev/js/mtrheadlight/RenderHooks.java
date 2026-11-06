@@ -5,7 +5,7 @@ import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 /**
  * Version-local render hooks.
  *
- * <p>Registers the self-drawn rail band (opt-in, {@code railGlow=false} by default), the key
+ * <p>Registers the self-drawn light-beam sheets ({@code beamGlow} on by default), the key
  * binding, and the throttled relight scheduler. The mixins already sit inside NTE's mesh build, so
  * the baked rail light works on its own - the scheduler is a no-op when neither ANTE nor NTE is
  * installed.
@@ -17,16 +17,16 @@ public final class RenderHooks {
     public static void init() {
         WorldRenderEvents.AFTER_ENTITIES.register(context -> {
             try {
-                RailGlow.render(context, false);
+                BeamGlow.render(context, false);
             } catch (Throwable t) {
-                MtrHeadlightClient.LOGGER.error("[mtr-headlight] rail glow failed", t);
+                MtrHeadlightClient.LOGGER.error("[mtr-headlight] beam glow failed", t);
             }
         });
         WorldRenderEvents.AFTER_TRANSLUCENT.register(context -> {
             try {
-                RailGlow.render(context, true);
+                BeamGlow.render(context, true);
             } catch (Throwable t) {
-                MtrHeadlightClient.LOGGER.error("[mtr-headlight] rail glow (late pass) failed", t);
+                MtrHeadlightClient.LOGGER.error("[mtr-headlight] beam glow (late pass) failed", t);
             }
         });
 

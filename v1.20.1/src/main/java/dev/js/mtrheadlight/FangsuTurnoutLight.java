@@ -86,7 +86,7 @@ public final class FangsuTurnoutLight {
     private static boolean enabled() {
         try {
             final HeadlightConfig cfg = MtrHeadlightClient.config();
-            return cfg != null && cfg.enabled && cfg.railLight;
+            return cfg != null && cfg.enabled && cfg.dynamicLight && cfg.railLight;
         } catch (Throwable t) {
             return false;
         }
