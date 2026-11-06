@@ -27,6 +27,7 @@ fi
 
 DESK="$HOME/Desktop"
 JAR="$DESK/mtr-external-lights-$VER+$MC.jar"
+JARWIN=$(cygpath -w "$JAR" 2>/dev/null || echo "$JAR")
 if [ ! -f "$JAR" ]; then
   echo "找不到 jar: $JAR" >&2
   exit 1
@@ -39,6 +40,7 @@ case "$MC" in
 esac
 
 TMP=$(mktemp -d)
+TMPWIN=$(cygpath -w "$TMP" 2>/dev/null || echo "$TMP")
 trap 'rm -rf "$TMP"' EXIT
 
 if [ -n "$CHANGELOG_FILE" ] && [ -f "$CHANGELOG_FILE" ]; then
@@ -70,16 +72,16 @@ const d = {
   primary_file: "file"
 };
 fs.writeFileSync(process.argv[1], JSON.stringify(d));
-' "$TMP/data.json"
+' "$TMPWIN/data.json"
 
-CODE=$(curl -s -o "$TMP/out.json" -w '%{http_code}' --max-time 300 \
+CODE=$(curl -s -o "$TMPWIN/out.json" -w '%{http_code}' --max-time 300 \
   -X POST -H "Authorization: $TOK" -H "User-Agent: $UA" \
-  -F "data=@$TMP/data.json" -F "file=@$JAR" "$API/version")
+  -F "data=@$TMPWIN/data.json" -F "file=@$JARWIN" "$API/version")
 
 if [ "$CODE" != "200" ]; then
   echo "上传失败 HTTP $CODE:" >&2
-  head -c 400 "$TMP/out.json" >&2; echo >&2
+  head -c 400 "$TMPWIN/out.json" >&2; echo >&2
   exit 1
 fi
 
-node -e 'const j=require(process.argv[1]);console.log(`ok: ${j.version_number}  id=${j.id}  status=${j.status}  file=${j.files[0].filename} (${j.files[0].size}B)`)' "$TMP/out.json"
+node -e 'const j=require(process.argv[1]);console.log(`ok: ${j.version_number}  id=${j.id}  status=${j.status}  file=${j.files[0].filename} (${j.files[0].size}B)`)' "$TMPWIN/out.json"
