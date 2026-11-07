@@ -109,8 +109,41 @@ abstract class ConfigWriteTarget {
     /** True while this target has a row that can be reset (detail screen only). */
     abstract boolean hasOverrides();
 
+    /**
+     * One row's ↺ button - a single parameter. <b>The two targets mean different things by it</b>,
+     * which is the whole point of routing it through this class:
+     * <ul>
+     *   <li>{@link GlobalTarget}: write that one field back to {@link HeadlightConfig#defaults()},
+     *       leaving every other global field alone;</li>
+     *   <li>{@link SidingTarget}: drop that one override ({@code field = null}), so the row follows
+     *       the global value again. It deliberately does <b>not</b> copy the global default into the
+     *       override - that would pin a value the player never chose and stop following a later
+     *       change of the global one.</li>
+     * </ul>
+     */
+    abstract void resetValue(int which);
+
+    /** Per-row ↺ for one of the three switches; same global-default / drop-override split. */
+    abstract void resetToggle(int which);
+
+    /** Per-row ↺ for one of the two beam colours; same global-default / drop-override split. */
+    abstract void resetColor(boolean head);
+
     /** "恢复为跟随全局": drops every override of this target. No-op for the global target. */
     abstract void reset();
+
+    /**
+     * 全部恢复默认 (footer, behind a confirmation screen):
+     * <ul>
+     *   <li>{@link GlobalTarget}: every global field the screens expose goes back to
+     *       {@link HeadlightConfig#defaults()}, <b>and every siding override is dropped</b> - "reset
+     *       everything" has to include the per-siding entries, or a siding would keep overriding the
+     *       defaults that were just restored;</li>
+     *   <li>{@link SidingTarget}: only this siding's entry is dropped (all of its overrides), the
+     *       global values are untouched.</li>
+     * </ul>
+     */
+    abstract void resetAll();
 
     /** Writes the live config to disk. Called only by 完成 / 保存并返回. */
     final void commit() {
@@ -257,9 +290,102 @@ abstract class ConfigWriteTarget {
             return false;
         }
 
+        /**
+         * The one field this row shows goes back to the shipped default; every other field, and the
+         * siding overrides, are left exactly as they are.
+         */
+        @Override
+        void resetValue(final int which) {
+            final HeadlightConfig d = HeadlightConfig.defaults();
+            final HeadlightConfig c = config();
+            switch (which) {
+                case DISTANCE:
+                    c.maxDistance = d.maxDistance;
+                    break;
+                case LUMINANCE:
+                    c.headLuminance = d.headLuminance;
+                    break;
+                case HEAD_LENGTH:
+                    c.headLength = d.headLength;
+                    break;
+                case BEAM_DISTANCE:
+                    c.beamDistance = d.beamDistance;
+                    break;
+                case BEAM_HEAD_LENGTH:
+                    c.beamHeadLength = d.beamHeadLength;
+                    break;
+                case BEAM_TAIL_LENGTH:
+                    c.beamTailLength = d.beamTailLength;
+                    break;
+                case BEAM_WIDTH:
+                    c.beamWidth = d.beamWidth;
+                    break;
+                case BEAM_HEAD_HEIGHT:
+                    c.beamHeadHeight = d.beamHeadHeight;
+                    break;
+                default:
+                    c.beamTailHeight = d.beamTailHeight;
+                    break;
+            }
+        }
+
+        @Override
+        void resetToggle(final int which) {
+            final HeadlightConfig d = HeadlightConfig.defaults();
+            final HeadlightConfig c = config();
+            switch (which) {
+                case MASTER:
+                    c.enabled = d.enabled;
+                    break;
+                case DYNAMIC_LIGHT:
+                    c.dynamicLight = d.dynamicLight;
+                    break;
+                default:
+                    c.beamGlow = d.beamGlow;
+                    break;
+            }
+        }
+
+        @Override
+        void resetColor(final boolean head) {
+            final HeadlightConfig d = HeadlightConfig.defaults();
+            final HeadlightConfig c = config();
+            if (head) {
+                c.beamHeadColor = d.beamHeadColor;
+            } else {
+                c.beamTailColor = d.beamTailColor;
+            }
+        }
+
         @Override
         void reset() {
             // Nothing to reset: the global target is the thing a siding follows.
+        }
+
+        /** Every global field the screens show, plus every siding override (see {@link #resetAll()}). */
+        @Override
+        void resetAll() {
+            final HeadlightConfig d = HeadlightConfig.defaults();
+            final HeadlightConfig c = config();
+            c.enabled = d.enabled;
+            c.dynamicLight = d.dynamicLight;
+            c.beamGlow = d.beamGlow;
+            c.maxDistance = d.maxDistance;
+            c.headLuminance = d.headLuminance;
+            c.headLength = d.headLength;
+            c.beamDistance = d.beamDistance;
+            c.beamHeadLength = d.beamHeadLength;
+            c.beamTailLength = d.beamTailLength;
+            c.beamWidth = d.beamWidth;
+            c.beamHeadColor = d.beamHeadColor;
+            c.beamTailColor = d.beamTailColor;
+            c.beamHeadHeight = d.beamHeadHeight;
+            c.beamTailHeight = d.beamTailHeight;
+            // Restoring the globals while a siding still overrode them would leave the world on the
+            // old numbers - "全部恢复默认" means the overrides go too.
+            if (c.sidingSettings != null) {
+                c.sidingSettings.clear();
+            }
         }
     }
 
@@ -464,8 +590,99 @@ abstract class ConfigWriteTarget {
             return o != null && !o.isEmpty();
         }
 
+        /** The entry to clear fields on, or null when this siding follows everything anyway. */
+        private HeadlightConfig.SidingSettings dropEntry() {
+            return config().overrides(this.sidingId);
+        }
+
+        /** Drops the entry once nothing overrides anything, so the JSON stays sparse. */
+        private void prune() {
+            final HeadlightConfig.SidingSettings o = config().overrides(this.sidingId);
+            if (o != null && o.isEmpty()) {
+                config().clearSiding(this.sidingId);
+            }
+        }
+
+        @Override
+        void resetValue(final int which) {
+            final HeadlightConfig.SidingSettings o = dropEntry();
+            if (o == null) {
+                return;
+            }
+            switch (which) {
+                case DISTANCE:
+                    o.maxDistance = null;
+                    break;
+                case LUMINANCE:
+                    o.headLuminance = null;
+                    break;
+                case HEAD_LENGTH:
+                    o.headLength = null;
+                    break;
+                case BEAM_DISTANCE:
+                    o.beamDistance = null;
+                    break;
+                case BEAM_HEAD_LENGTH:
+                    o.beamHeadLength = null;
+                    break;
+                case BEAM_TAIL_LENGTH:
+                    o.beamTailLength = null;
+                    break;
+                case BEAM_WIDTH:
+                    o.beamWidth = null;
+                    break;
+                case BEAM_HEAD_HEIGHT:
+                    o.beamHeadHeight = null;
+                    break;
+                default:
+                    o.beamTailHeight = null;
+                    break;
+            }
+            prune();
+        }
+
+        @Override
+        void resetToggle(final int which) {
+            final HeadlightConfig.SidingSettings o = dropEntry();
+            if (o == null) {
+                return;
+            }
+            switch (which) {
+                case MASTER:
+                    o.enabled = null;
+                    break;
+                case DYNAMIC_LIGHT:
+                    o.dynamicLight = null;
+                    break;
+                default:
+                    o.beamGlow = null;
+                    break;
+            }
+            prune();
+        }
+
+        @Override
+        void resetColor(final boolean head) {
+            final HeadlightConfig.SidingSettings o = dropEntry();
+            if (o == null) {
+                return;
+            }
+            if (head) {
+                o.beamHeadColor = null;
+            } else {
+                o.beamTailColor = null;
+            }
+            prune();
+        }
+
         @Override
         void reset() {
+            config().clearSiding(this.sidingId);
+        }
+
+        /** 全部恢复默认 on a detail page: delete this siding's entry, leave the globals alone. */
+        @Override
+        void resetAll() {
             config().clearSiding(this.sidingId);
         }
     }

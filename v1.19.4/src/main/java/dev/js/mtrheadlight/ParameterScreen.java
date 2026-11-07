@@ -21,15 +21,31 @@ import java.util.Locale;
  * One list of rows, drawn in the same two cells on every line - used once for the global settings
  * ({@link ConfigScreen}) and again for one siding's overrides ({@link SidingDetailScreen}).
  *
- * <h2>Two cells, always the same width</h2>
+ * <h2>Two cells + the ↺ column, always the same width</h2>
  * <ul>
  *   <li><b>Left cell</b> ({@link #colX}, {@link #leftW}): a switch, a colour swatch, or the
  *       parameter name.</li>
  *   <li><b>Right cell</b> ({@link #rightX()}, {@link #rightW}): the slider whose row has no
  *       switch, or the colour swatch.</li>
+ *   <li><b>↺ column</b> ({@link #resetX()}, {@link #RESET_W}): one square button at the end of
+ *       every parameter row. It is taken out of the block's existing width, so the two cells - and
+ *       with them the sliders - are {@code RESET_W + GAP} narrower than they were without it. The
+ *       column never overlaps the right cell: {@code rightX() + rightW + GAP == resetX()}.</li>
  *   <li>Sliders are created with exactly the right cell's x and width - there is no centred,
  *       narrower or wider variant any more, which is what made the slider edges and the block
  *       edges disagree.</li>
+ * </ul>
+ *
+ * <h2>The two meanings of a reset</h2>
+ * <ul>
+ *   <li><b>↺ on a row</b> ({@link ConfigWriteTarget#resetValue(int)} and friends): on the global
+ *       screen it writes that one field back to {@link HeadlightConfig#defaults()}; on a siding it
+ *       <em>deletes that one override</em>, so the row follows the global value again (its label
+ *       gains （跟随）). Neither touches any other row.</li>
+ *   <li><b>全部恢复默认</b> (footer, behind {@link ResetConfirmScreen}):
+ *       {@link ConfigWriteTarget#resetAll()} - the global screen restores every global field
+ *       <em>and</em> clears every siding override; the detail screen deletes just this siding's
+ *       overrides.</li>
  * </ul>
  *
  * <h2>Row order (top to bottom)</h2>
@@ -81,12 +97,20 @@ public abstract class ParameterScreen extends Screen {
     private static final int MIN_CELL = 84;
     /** Side of the colour square painted inside a swatch button. */
     private static final int SWATCH_SIDE = 12;
+    /** Width of the per-row ↺ button: a square of the row height, so it reads as an icon. */
+    private static final int RESET_W = 20;
 
     /** Title (22) + status line (36) above; content starts below the status line. */
     private static final int CONTENT_TOP = 54;
-    /** Footer button: height-44..height-24. */
-    private static final int FOOTER_H = 44;
-    /** Space below the list: the JSON hint line sits at height-58, the author line at height-14. */
+    /**
+     * Footer band: 全部恢复默认 on its own row at {@code height-70..height-50}, 完成/取消 at
+     * {@code height-44..height-24}. Two rows instead of three 73px-wide cells - 全部恢复默认 is six
+     * CJK glyphs and would be squeezed (or cut) in a third of the block on a narrow window.
+     */
+    private static final int FOOTER_H = 70;
+    /** Gap between the 全部恢复默认 row and the 完成/取消 row (20 + 6 + 20 = 46 = FOOTER_H - 24). */
+    private static final int FOOTER_ROW_GAP = 6;
+    /** Space below the list: the JSON hint line sits at height-84, the author line at height-14. */
     private static final int LIST_BOTTOM_PAD = 20;
 
     private static final int ROW_TOGGLE = 0;
@@ -181,6 +205,14 @@ public abstract class ParameterScreen extends Screen {
         return this.colX + this.leftW + GAP;
     }
 
+    /**
+     * x of the per-row ↺ button: flush with the block's right edge, {@link #RESET_W} wide. The right
+     * cell ends at {@code resetX() - GAP}, so the two can never overlap however narrow the window is.
+     */
+    private int resetX() {
+        return this.colX + this.colW - RESET_W;
+    }
+
     private int viewBottom() {
         return this.height - FOOTER_H - LIST_BOTTOM_PAD;
     }
@@ -206,12 +238,16 @@ public abstract class ParameterScreen extends Screen {
         this.swatches.clear();
         buildRows();
 
-        // ---- horizontal: two equal cells around the widest thing either cell has to hold ----
+        // ---- horizontal: two equal cells plus the ↺ column, inside the widest thing either cell ----
+        // The block keeps the width it had without the new column; RESET_W + GAP (28px) comes out of
+        // the two cells, so each cell - and with it the slider - is 14px narrower and the ↺ button
+        // never sits on top of a slider.
         final int cellNeed = Math.max(MIN_CELL, measureCellNeed());
         final int maxCol = Math.max(MIN_COLUMN, this.width - 24);
         this.colW = Math.min(maxCol, Math.max(MIN_COLUMN, cellNeed * 2 + GAP));
-        this.leftW = (this.colW - GAP) / 2;
-        this.rightW = this.colW - GAP - this.leftW;
+        final int cellsW = this.colW - RESET_W - GAP;
+        this.leftW = (cellsW - GAP) / 2;
+        this.rightW = cellsW - GAP - this.leftW;
         this.colX = this.width / 2 - this.colW / 2;
 
         // ---- vertical: whole rows, centred while everything fits ----
@@ -248,12 +284,13 @@ public abstract class ParameterScreen extends Screen {
         layoutLogged = true;
         MtrHeadlightClient.LOGGER.info(
                 "[mtr-headlight] config layout {}x{} ({}): column x={} w={}, left cell x={} w={},"
-                        + " right cell x={} w={}, rows={} visible={}",
+                        + " right cell x={} w={}, reset x={} w={}, rows={} visible={}",
                 Integer.valueOf(this.width), Integer.valueOf(this.height),
                 isGlobal() ? "global" : "siding", Integer.valueOf(this.colX),
                 Integer.valueOf(this.colW), Integer.valueOf(this.colX),
                 Integer.valueOf(this.leftW), Integer.valueOf(rightX()),
-                Integer.valueOf(this.rightW), Integer.valueOf(this.rows.size()),
+                Integer.valueOf(this.rightW), Integer.valueOf(resetX()),
+                Integer.valueOf(RESET_W), Integer.valueOf(this.rows.size()),
                 Integer.valueOf(this.visibleRows));
     }
 
@@ -340,6 +377,7 @@ public abstract class ParameterScreen extends Screen {
                 });
                 addDrawableChild(new NumberSlider(rightX(), y, this.rightW, ROW_H, row.value,
                         true, this.target.readValue(row.value)));
+                addResetButton(row, y);
                 break;
             }
             case ROW_VALUE: {
@@ -347,6 +385,7 @@ public abstract class ParameterScreen extends Screen {
                         () -> valueLabel(row.value)));
                 addDrawableChild(new NumberSlider(rightX(), y, this.rightW, ROW_H, row.value,
                         false, this.target.readValue(row.value)));
+                addResetButton(row, y);
                 break;
             }
             case ROW_COLOR: {
@@ -356,6 +395,7 @@ public abstract class ParameterScreen extends Screen {
                         button -> openPicker(row.head));
                 this.swatches.add(new Swatch(rightX(), y, this.rightW, ROW_H,
                         this.target.readColor(row.head)));
+                addResetButton(row, y);
                 break;
             }
             default: {
@@ -375,19 +415,69 @@ public abstract class ParameterScreen extends Screen {
         }
     }
 
+    /**
+     * The square ↺ at the end of a parameter row. What "default" means depends on the target - see
+     * {@link ConfigWriteTarget#resetValue(int)}: a global field goes back to
+     * {@link HeadlightConfig#defaults()}, a siding override is deleted so the row follows the global
+     * value again. The row is rebuilt afterwards, because the label (（跟随）) and the slider position
+     * both change.
+     */
+    private void addResetButton(final Row row, final int y) {
+        addButton(resetX(), y, RESET_W, ROW_H, tr("btn.resetOne"), button -> {
+            switch (row.kind) {
+                case ROW_TOGGLE:
+                    this.target.resetToggle(row.toggle);
+                    break;
+                case ROW_VALUE:
+                    this.target.resetValue(row.value);
+                    break;
+                case ROW_COLOR:
+                    this.target.resetColor(row.head);
+                    break;
+                default:
+                    return;
+            }
+            reinit();
+        });
+    }
+
     private void buildFooter() {
-        final int footerY = this.height - FOOTER_H;
+        // 全部恢复默认 gets a full-width row of its own: six CJK glyphs do not survive being
+        // squeezed into a third of the block on a narrow window.
+        final int resetY = this.height - FOOTER_H;
+        addButton(this.colX, resetY, this.colW, ROW_H, tr("btn.resetAll"),
+                button -> openResetAllConfirm());
+
+        final int y = resetY + ROW_H + FOOTER_ROW_GAP;
         final int cell = (this.colW - GAP) / 2;
         final int x = this.width / 2 - (cell * 2 + GAP) / 2;
         if (isGlobal()) {
-            addButton(x, footerY, cell, ROW_H, tr("btn.done"), button -> commitAndClose());
-            addButton(x + cell + GAP, footerY, cell, ROW_H, tr("btn.cancel"),
+            addButton(x, y, cell, ROW_H, tr("btn.done"), button -> commitAndClose());
+            addButton(x + cell + GAP, y, cell, ROW_H, tr("btn.cancel"),
                     button -> cancelAndClose());
         } else {
-            addButton(x, footerY, cell, ROW_H, tr("btn.saveBack"), button -> commitAndClose());
-            addButton(x + cell + GAP, footerY, cell, ROW_H, tr("btn.back"),
+            addButton(x, y, cell, ROW_H, tr("btn.saveBack"), button -> commitAndClose());
+            addButton(x + cell + GAP, y, cell, ROW_H, tr("btn.back"),
                     button -> cancelAndClose());
         }
+    }
+
+    /**
+     * 全部恢复默认: confirm first (it drops data the player may not be able to see, e.g. the siding
+     * overrides while the 按侧线配置 list is closed). The confirmation screen calls
+     * {@link ConfigWriteTarget#resetAll()} and hands control back, which re-runs {@code init()} and
+     * redraws every row with the restored values.
+     */
+    private void openResetAllConfirm() {
+        if (this.client == null) {
+            return;
+        }
+        this.client.setScreen(new ResetConfirmScreen(this, tr("reset.confirm.title"),
+                tr(isGlobal() ? "reset.confirm.global" : "reset.confirm.siding"),
+                () -> {
+                    this.target.resetAll();
+                    reinit();
+                }));
     }
 
     /** 完成 / 保存并返回: write the config to disk, then leave. */
@@ -641,17 +731,12 @@ public abstract class ParameterScreen extends Screen {
         fillGradient(matrices, 0, 0, this.width, this.height, 0xC0101010, 0xD0101010);
     }
 
+    /** 1.19 / 1.18 have no Text overload of drawCenteredText: centre from the real font width. */
     private void drawCentered(final MatrixStack matrices, final Text text, final int cx,
                               final int y, final int color) {
-        drawCenteredText(matrices, text, cx, y, color);
-    }
-
-    /** 1.19 / 1.18 draw text from a String here, so the centring is done by hand. */
-    private void drawCenteredText(final MatrixStack matrices, final Text text, final int x,
-                                  final int y, final int color) {
         final String s = text.getString();
         this.textRenderer.drawWithShadow(matrices, s,
-                (float) (x - this.textRenderer.getWidth(s) / 2), (float) y, color);
+                (float) (cx - this.textRenderer.getWidth(s) / 2), (float) y, color);
     }
 
     @Override

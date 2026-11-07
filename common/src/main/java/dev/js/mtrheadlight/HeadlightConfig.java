@@ -240,6 +240,85 @@ public final class HeadlightConfig {
     public boolean railLightUnderShaders = true;
 
     /**
+     * Seconds after entering a world (or changing dimension) during which <b>no</b> rail rebuild is
+     * requested at all - the load grace.
+     *
+     * <p>{@code RailRenderDispatcher#drawRails} rebuilds one rail chunk per frame
+     * ({@code buffersRebuilt < 1}) out of a single queue, served nearest-camera-first; the chunks of
+     * newly generated terrain are in that same queue. Our requests sit right next to the player,
+     * so they win every tie and a join/teleport that should stream a few hundred chunks instead
+     * streams them at half speed. During the grace we queue nothing, sample nothing and make zero
+     * host calls, so ANTE keeps the whole build slot for the new area.
+     *
+     * <p>It is deliberately a plain timer, not a heuristic: the only reliable signal we have in a
+     * client-side mod is "the world object changed", which is exactly a join / respawn / dimension
+     * change. The chunk mesh that ANTE builds during the grace already bakes the current dynamic
+     * light (our mixin runs inside its rebuild), so the paused chunks come out correctly lit and
+     * do not need a rebuild afterwards. {@code 0} disables the grace.
+     */
+    public double railRelightLoadGraceSec = 8.0D;
+
+    /**
+     * Only rebuild rail chunks whose centre is within this many blocks of the camera.
+     *
+     * <p>A 32x32 rail chunk rebuilt costs a full mesh bake + GPU upload; past this distance the
+     * rails are a few pixels and the player cannot see a dynamic light on them anyway. Dropping
+     * them frees host calls for the chunks that are actually on screen.
+     */
+    public int railRelightMaxBlockDist = 64;
+
+    /**
+     * Minimum milliseconds between two rebuilds of the <em>same</em> rail chunk.
+     *
+     * <p>The per-train cadence alone would re-ask for a chunk every 2 ticks at 25 blocks/s
+     * (10 Hz), which is more than the eye can use: the light band moves a fraction of a block per
+     * frame at that rate. 500 ms caps one chunk at 2 rebuilds/s, so one fast train costs ~2 host
+     * calls/s instead of 10.
+     */
+    public int railRelightCooldownMs = 500;
+
+    /**
+     * Hard ceiling on host calls per second, across every train and the player chunk.
+     *
+     * <p>This is the only place where we account for time rather than queue opportunities, so it
+     * holds even if {@link #railRelightEveryTicks} / {@link #railRelightBudget} are raised: the
+     * host rebuilds at most 20 chunks/s at 20 fps, and 12/s means it keeps at least 40% of that
+     * slot for its own terrain builds. Lower it (6-8) on a weak client or a large modpack.
+     */
+    public int railRelightMaxPerSec = 12;
+
+    /**
+     * Cosine threshold of the horizontal view filter: a chunk is only rebuilt when the angle
+     * between the player's yaw and the direction to the chunk is at most
+     * {@code acos(threshold)}.
+     *
+     * <p>{@code 0.25} is +-75.5 degrees (a 151 degree window), i.e. comfortably wider than any
+     * FOV in use - a chunk outside it is behind the player and cannot be on screen. Filtering only
+     * the horizontal angle keeps the check stable when the player looks down at the rails, which a
+     * full 3D cone would mis-handle. Chunks within 16 blocks bypass the test (the direction to
+     * something under your feet is meaningless, and it is always on screen).
+     */
+    public double railRelightFrustumCos = 0.25D;
+
+    /**
+     * Temporary diagnostic: one {@code railq: req= rebuilt= skipped= deferred= paused= quota=}
+     * line every five seconds (INFO). Default on while the load-sharing work is being validated;
+     * set it to {@code false} for a quiet log. The counters are per window, not cumulative:
+     *
+     * <ul>
+     *   <li>{@code req} - chunk requests accepted into the queue;</li>
+     *   <li>{@code rebuilt} - host calls actually made (the number to compare with
+     *       {@link #railRelightMaxPerSec});</li>
+     *   <li>{@code skipped} - chunks whose sampled light already matched what is baked (free);</li>
+     *   <li>{@code deferred} - requests refused by the distance/view filter or the per-chunk
+     *       cooldown, plus requests still queued when the quota ran out;</li>
+     *   <li>{@code paused} - client ticks spent in the load grace;</li>
+     *   <li>{@code quota} - {@code used/cap} of the current one-second window.</li>
+     * </ul>
+     */
+    public boolean railRelightDiagnostics = true;
+
+    /**
      * Under an Iris/OptiFine shader pack, also write the raised block light into the <em>sky</em>
      * half of the vertex lightmap ({@code LightTexture.pack(block, max(sky, block))}).
      *
@@ -365,6 +444,16 @@ public final class HeadlightConfig {
         public String beamTailColor;
         public Double beamHeadHeight;
         public Double beamTailHeight;
+        /**
+         * Rebuild-distance cap for this siding's trains; {@code null} = follow the global value.
+         */
+        public Integer railRelightMaxBlockDist;
+        /** Per-chunk rebuild cooldown for this siding's trains; {@code null} = follow the global. */
+        public Integer railRelightCooldownMs;
+        /** This siding's share of the per-second host budget; {@code null} = follow the global. */
+        public Integer railRelightMaxPerSec;
+        /** View-filter cosine for this siding's trains; {@code null} = follow the global. */
+        public Double railRelightFrustumCos;
 
         /** True when nothing is overridden, i.e. the entry is equivalent to deleting it. */
         public boolean isEmpty() {
@@ -374,7 +463,9 @@ public final class HeadlightConfig {
                     && railLight == null && beamGlow == null && beamDistance == null
                     && beamHeadLength == null && beamTailLength == null && beamWidth == null
                     && beamHeadColor == null && beamTailColor == null
-                    && beamHeadHeight == null && beamTailHeight == null;
+                    && beamHeadHeight == null && beamTailHeight == null
+                    && railRelightMaxBlockDist == null && railRelightCooldownMs == null
+                    && railRelightMaxPerSec == null && railRelightFrustumCos == null;
         }
     }
 
@@ -405,6 +496,16 @@ public final class HeadlightConfig {
         public final int beamTailColor;
         public final double beamHeadHeight;
         public final double beamTailHeight;
+        /** Rail-rebuild distance cap (blocks from the camera) for this train's chunks. */
+        public final int railRelightMaxBlockDist;
+        /** Minimum ms between two rebuilds of the same chunk for this train's chunks. */
+        public final int railRelightCooldownMs;
+        /** This train's share of the per-second host budget (never above the global one). */
+        public final int railRelightMaxPerSec;
+        /** Horizontal view-filter cosine: below this dot product a chunk is skipped. */
+        public final double railRelightFrustumCos;
+        /** The siding these values belong to ({@code 0} = the globals / no siding). */
+        public final long sidingId;
         /** True when at least one field came from {@link #sidingSettings} rather than the globals. */
         public final boolean overridden;
 
@@ -415,7 +516,9 @@ public final class HeadlightConfig {
                   final double beamHeadLength, final double beamTailLength, final double beamWidth,
                   final int beamHeadColor, final int beamTailColor,
                   final double beamHeadHeight, final double beamTailHeight,
-                  final boolean overridden) {
+                  final int railRelightMaxBlockDist, final int railRelightCooldownMs,
+                  final int railRelightMaxPerSec, final double railRelightFrustumCos,
+                  final long sidingId, final boolean overridden) {
             this.enabled = enabled;
             this.dynamicLight = dynamicLight;
             this.maxDistance = maxDistance;
@@ -433,6 +536,11 @@ public final class HeadlightConfig {
             this.beamTailColor = beamTailColor;
             this.beamHeadHeight = beamHeadHeight;
             this.beamTailHeight = beamTailHeight;
+            this.railRelightMaxBlockDist = railRelightMaxBlockDist;
+            this.railRelightCooldownMs = railRelightCooldownMs;
+            this.railRelightMaxPerSec = railRelightMaxPerSec;
+            this.railRelightFrustumCos = railRelightFrustumCos;
+            this.sidingId = sidingId;
             this.overridden = overridden;
         }
     }
@@ -449,7 +557,9 @@ public final class HeadlightConfig {
                     headLength, tailLength, railLight, beamGlow, beamDistance, beamHeadLength,
                     beamTailLength, beamWidth, parseColor(beamHeadColor, DEFAULT_HEAD_BEAM),
                     parseColor(beamTailColor, DEFAULT_TAIL_BEAM),
-                    beamHeadHeight, beamTailHeight, false);
+                    beamHeadHeight, beamTailHeight,
+                    railRelightMaxBlockDist, railRelightCooldownMs, railRelightMaxPerSec,
+                    railRelightFrustumCos, sidingId, false);
         }
         return new Effective(
                 o.enabled != null ? o.enabled.booleanValue() : enabled,
@@ -469,6 +579,15 @@ public final class HeadlightConfig {
                 parseColor(o.beamTailColor != null ? o.beamTailColor : beamTailColor, DEFAULT_TAIL_BEAM),
                 o.beamHeadHeight != null ? o.beamHeadHeight.doubleValue() : beamHeadHeight,
                 o.beamTailHeight != null ? o.beamTailHeight.doubleValue() : beamTailHeight,
+                o.railRelightMaxBlockDist != null
+                        ? o.railRelightMaxBlockDist.intValue() : railRelightMaxBlockDist,
+                o.railRelightCooldownMs != null
+                        ? o.railRelightCooldownMs.intValue() : railRelightCooldownMs,
+                o.railRelightMaxPerSec != null
+                        ? o.railRelightMaxPerSec.intValue() : railRelightMaxPerSec,
+                o.railRelightFrustumCos != null
+                        ? o.railRelightFrustumCos.doubleValue() : railRelightFrustumCos,
+                sidingId,
                 !o.isEmpty());
     }
 
@@ -532,6 +651,23 @@ public final class HeadlightConfig {
     /** Formats a colour the way the config/JSON stores it: {@code #RRGGBB}, upper case. */
     public static String formatColor(final int rgb) {
         return String.format("#%06X", Integer.valueOf(rgb & 0xFFFFFF));
+    }
+
+    /**
+     * <b>The single source of truth for the shipped defaults.</b>
+     *
+     * <p>A field's initialiser <em>is</em> its default, so this returns a plain {@code new
+     * HeadlightConfig()} instead of a second table of numbers. The config screens' per-row 恢复默认
+     * button and 全部恢复默认 copy the field they touch out of this instance, which is the same value
+     * a first start writes to {@code mtr-headlight.json}. Changing a default in exactly one place
+     * therefore changes both the fresh file and every reset button - hard-coding the numbers in the
+     * screen would let the two drift apart after the next tuning pass.
+     *
+     * <p>The returned object is a throw-away: read fields from it, never write to it and never hand
+     * it out as the live config.
+     */
+    public static HeadlightConfig defaults() {
+        return new HeadlightConfig();
     }
 
     /** Get-or-create the override entry for a siding (used by the detail screen on the first edit). */
@@ -669,6 +805,18 @@ public final class HeadlightConfig {
                 if (o.beamTailColor != null) {
                     o.beamTailColor = formatColor(parseColor(o.beamTailColor, DEFAULT_TAIL_BEAM));
                 }
+                if (o.railRelightMaxBlockDist != null) {
+                    o.railRelightMaxBlockDist = clamp(o.railRelightMaxBlockDist, 16, 256);
+                }
+                if (o.railRelightCooldownMs != null) {
+                    o.railRelightCooldownMs = clamp(o.railRelightCooldownMs, 0, 5000);
+                }
+                if (o.railRelightMaxPerSec != null) {
+                    o.railRelightMaxPerSec = clamp(o.railRelightMaxPerSec, 1, 40);
+                }
+                if (o.railRelightFrustumCos != null) {
+                    o.railRelightFrustumCos = clamp(o.railRelightFrustumCos, -1.0D, 0.95D);
+                }
             });
             sidingSettings.values().removeIf(SidingSettings::isEmpty);
         }
@@ -687,6 +835,11 @@ public final class HeadlightConfig {
         railRelightMaxMove = clamp(railRelightMaxMove, 0.5D, 8.0D);
         railRelightMaxInterval = clamp(railRelightMaxInterval, 2, 40);
         railRelightIdleInterval = clamp(railRelightIdleInterval, 4, 60);
+        railRelightLoadGraceSec = clamp(railRelightLoadGraceSec, 0.0D, 60.0D);
+        railRelightMaxBlockDist = clamp(railRelightMaxBlockDist, 16, 256);
+        railRelightCooldownMs = clamp(railRelightCooldownMs, 0, 5000);
+        railRelightMaxPerSec = clamp(railRelightMaxPerSec, 1, 40);
+        railRelightFrustumCos = clamp(railRelightFrustumCos, -1.0D, 0.95D);
         beamDistance = clamp(beamDistance, 16.0D, 512.0D);
         beamHeadLength = clamp(beamHeadLength, 0.0D, 64.0D);
         beamTailLength = clamp(beamTailLength, 0.0D, 64.0D);

@@ -43,6 +43,14 @@
   "btn.back": "返回",
   "btn.saveBack": "保存并返回",
   "btn.resetSiding": "恢复为跟随全局",
+  "btn.resetOne": "↺",
+  "btn.resetAll": "全部恢复默认",
+  "btn.resetConfirm": "确认恢复",
+  "btn.resetAbort": "取消",
+
+  "reset.confirm.title": "恢复默认？",
+  "reset.confirm.global": "所有全局参数将恢复到默认值，并清空全部侧线的单独设置（侧线重新跟随全局）。未点“完成”前不会写入文件，点“取消”可撤销。",
+  "reset.confirm.siding": "这条侧线的全部单独设置将被删除，所有参数重新跟随全局（不是恢复成全局默认值）。未点“保存并返回”前不会写入文件，点“返回”可撤销。",
   "btn.toBeam": "车灯光束设置 →",
   "btn.toColor": "颜色与高度 →",
   "btn.toBasic": "← 基础设置",
@@ -84,6 +92,18 @@
   "sidings.state.off": "已停用",
   "sidings.state.custom": "自定义",
   "sidings.unnamed": "未命名侧线",
+
+  "btn.map": "地图选择",
+  "map.title": "侧线地图",
+  "map.zoom": "缩放 %s%%",
+  "btn.mapReset": "重置视图",
+  "map.hint": "滚轮缩放 · 拖拽平移 · 点击侧线进入设置",
+  "map.hintDepot": "点击车厂矩形可只看该厂侧线",
+  "map.legend": "蓝框 = 车厂   彩点 = 侧线",
+  "map.north": "北",
+  "map.depotCount": "%s · %s 条侧线",
+  "map.selectedDepot": "已选中车厂：%s（再点一次或点空白取消）",
+  "map.tooShort": "窗口太矮，放不下地图",
 
   "detail.title": "侧线 #%s %s",
   "detail.subtitle": "%s"

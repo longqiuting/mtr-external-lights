@@ -43,6 +43,14 @@
   "btn.back": "Back",
   "btn.saveBack": "Save & back",
   "btn.resetSiding": "Use global values",
+  "btn.resetOne": "↺",
+  "btn.resetAll": "Reset all",
+  "btn.resetConfirm": "Reset",
+  "btn.resetAbort": "Cancel",
+
+  "reset.confirm.title": "Reset to defaults?",
+  "reset.confirm.global": "Every global value goes back to its default, and all per-siding overrides are cleared (sidings follow the globals again). Nothing is written to disk until you press Done; Cancel undoes it.",
+  "reset.confirm.siding": "Every override for this siding is deleted, so all of its parameters follow the globals again (this is not \"copy the global defaults in\"). Nothing is written until Save & back; Back undoes it.",
   "btn.toBeam": "Light beams →",
   "btn.toColor": "Colour & height →",
   "btn.toBasic": "← Basic settings",
@@ -84,6 +92,18 @@
   "sidings.state.off": "Off",
   "sidings.state.custom": "Custom",
   "sidings.unnamed": "Unnamed siding",
+
+  "btn.map": "Map",
+  "map.title": "Siding map",
+  "map.zoom": "Zoom %s%%",
+  "btn.mapReset": "Reset view",
+  "map.hint": "Wheel to zoom · drag to pan · click a siding to configure",
+  "map.hintDepot": "Click a depot rectangle to highlight its sidings",
+  "map.legend": "blue box = depot   dot = siding",
+  "map.north": "N",
+  "map.depotCount": "%s · %s sidings",
+  "map.selectedDepot": "Depot: %s (click again or empty space to clear)",
+  "map.tooShort": "Window too short for the map",
 
   "detail.title": "Siding #%s %s",
   "detail.subtitle": "%s"

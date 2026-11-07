@@ -49,7 +49,8 @@ for dir in v1.20.1 v1.19.4 v1.19.2 v1.18.2; do
       if [ "$dir" = "v1.20.1" ] || [ "$dir" = "v1.19.4" ]; then
         echo "  !! $name: 该版本构造器是 protected，只能用 builder"; fail=1
       fi
-      if ! code_of "$f" | grep -q 'new ButtonWidget([^;]*ButtonWidget\.EMPTY)'; then
+      # -z so the check spans lines: the call is often wrapped with EMPTY on the next line.
+      if ! code_of "$f" | grep -qzE 'new ButtonWidget\([^;]*ButtonWidget\.EMPTY'; then
         echo "  !! $name: 构造器没有传 ButtonWidget.EMPTY"; fail=1
       fi
     fi

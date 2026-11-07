@@ -28,13 +28,59 @@ public final class RailDiag {
     private static long loggedRebuilds = -1L;
     private static long loggedSkips = -1L;
 
-    /** Last values printed by {@link #railq}; -1 forces the first line. */
-    private static long loggedQueued = -1L;
-    private static long loggedRailSkips = -1L;
-    private static long loggedRailRebuilds = -1L;
-    private static int loggedStarved = -1;
-    private static int loggedPending = -1;
-    private static int loggedTrains = -1;
+    /** Last absolute values handed to {@link #railq}; -1 forces a fresh baseline. */
+    private static long loggedRailqReq = -1L;
+    private static long loggedRailqRebuilt = -1L;
+    private static long loggedRailqSkipped = -1L;
+    private static long loggedRailqDeferred = -1L;
+    private static long loggedRailqPaused = -1L;
+
+    /**
+     * One line every five seconds describing the rail relight queue and the gates in front of it:
+     * {@code railq: req= rebuilt= skipped= deferred= paused= quota=}.
+     *
+     * <p>Every counter is a <b>per-window delta</b> (the five seconds since the previous line), so
+     * {@code rebuilt} can be compared directly with {@code railRelightMaxPerSec}; {@code quota} is
+     * the current one-second window as {@code used/cap}. {@code paused} counts client ticks that
+     * were spent in the load grace (20 ticks = one second), which makes "did the join grace
+     * actually happen" visible without a debugger.
+     *
+     * <p>Unconditional while {@code railRelightDiagnostics} is on: a silent line would be
+     * indistinguishable from "the scheduler is not running", which is the bug this exists to
+     * catch. Turning the flag off resets the baseline, so re-enabling it cannot print a delta
+     * spanning the whole disabled period.
+     */
+    public static void railq(final boolean enabled, final long req, final long rebuilt,
+                             final long skipped, final long deferred, final long paused,
+                             final int quotaUsed, final int quotaCap) {
+        if (!enabled) {
+            loggedRailqReq = -1L;
+            loggedRailqRebuilt = -1L;
+            loggedRailqSkipped = -1L;
+            loggedRailqDeferred = -1L;
+            loggedRailqPaused = -1L;
+            return;
+        }
+        final long dReq = loggedRailqReq < 0L ? req : req - loggedRailqReq;
+        final long dRebuilt = loggedRailqRebuilt < 0L ? rebuilt : rebuilt - loggedRailqRebuilt;
+        final long dSkipped = loggedRailqSkipped < 0L ? skipped : skipped - loggedRailqSkipped;
+        final long dDeferred = loggedRailqDeferred < 0L ? deferred : deferred - loggedRailqDeferred;
+        final long dPaused = loggedRailqPaused < 0L ? paused : paused - loggedRailqPaused;
+        loggedRailqReq = req;
+        loggedRailqRebuilt = rebuilt;
+        loggedRailqSkipped = skipped;
+        loggedRailqDeferred = deferred;
+        loggedRailqPaused = paused;
+        try {
+            MtrHeadlightClient.LOGGER.info(
+                    "[mtr-headlight] railq: req={} rebuilt={} skipped={} deferred={} paused={} quota={}/{}",
+                    Long.valueOf(dReq), Long.valueOf(dRebuilt), Long.valueOf(dSkipped),
+                    Long.valueOf(dDeferred), Long.valueOf(dPaused),
+                    Integer.valueOf(quotaUsed), Integer.valueOf(quotaCap));
+        } catch (Throwable t) {
+            // Logging must never break the tick.
+        }
+    }
 
     private RailDiag() {
     }
@@ -84,39 +130,6 @@ public final class RailDiag {
     public static void skip() {
         if (ENABLED) {
             skips++;
-        }
-    }
-
-    /**
-     * One line every five seconds describing the relight queue itself: how many chunks were
-     * queued, how many dirty checks skipped, how many host calls were made, and how many requests
-     * have been waiting for more than two seconds ({@code starved} - the direct measure of whether
-     * the rebuild budget is too small for the number of trains in view).
-     *
-     * <p>Silent while none of the values move, like {@link #maybeLog}.
-     */
-    public static void railq(final long queuedCount, final long skippedCount, final long rebuiltCount,
-                             final int starved, final int pending, final int trains) {
-        if (!ENABLED) {
-            return;
-        }
-        if (queuedCount == loggedQueued && skippedCount == loggedRailSkips
-                && rebuiltCount == loggedRailRebuilds && starved == loggedStarved
-                && pending == loggedPending && trains == loggedTrains) {
-            return;
-        }
-        loggedQueued = queuedCount;
-        loggedRailSkips = skippedCount;
-        loggedRailRebuilds = rebuiltCount;
-        loggedStarved = starved;
-        loggedPending = pending;
-        loggedTrains = trains;
-        try {
-            MtrHeadlightClient.LOGGER.info(
-                    "[mtr-headlight] railq: queued={} skipped={} rebuilt={} starved={} pending={} trains={}",
-                    queuedCount, skippedCount, rebuiltCount, starved, pending, trains);
-        } catch (Throwable t) {
-            // Logging must never break the tick.
         }
     }
 

@@ -54,7 +54,8 @@ import java.util.Map;
  *       {@code STATUS_W}; every button in the list has exactly the same width. A group header is a
  *       painted band of the full column width with no widget, so it can never steal a click.</li>
  *   <li>Title (22) and hint (36) own the top, then the search row (46..64) and, on narrow windows,
- *       the group toggle (68..86). The paging bar owns {@code height-44..height-24}. Pages are cut
+ *       a second row (68..86) with the depot toggle on the left half and the 地图选择 button on the
+ *       right half. The paging bar owns {@code height-44..height-24}. Pages are cut
  *       by real pixel height (headers are shorter than rows), so on short windows fewer rows fit -
  *       rows are never allowed to paint over the bar.</li>
  * </ul>
@@ -85,8 +86,13 @@ public final class SidingScreen extends Screen {
     /** Width of the "✕" that empties the search box. */
     private static final int CLEAR_W = 18;
     private static final int GROUP_BTN_W = 112;
-    /** Search box and group toggle share one line only when the column is at least this wide. */
-    private static final int ONE_ROW_MIN = 336;
+    /** Width of the "地图选择" / "Map" button that opens {@link SidingMapScreen}. */
+    private static final int MAP_BTN_W = 88;
+    /**
+     * Search box and group toggle share one line only when the column is at least this wide:
+     * the old 336 plus the map button and its gap.
+     */
+    private static final int ONE_ROW_MIN = 336 + MAP_BTN_W + GAP;
     /** Least vertical room (header + one row) that still justifies drawing the search row. */
     private static final int MIN_LIST_SPAN = 44;
     /** A siding whose midpoint is at most this far outside a depot area still counts as that depot's. */
@@ -298,7 +304,7 @@ public final class SidingScreen extends Screen {
             return;
         }
         final int fieldW = this.oneRow
-                ? this.colW - CLEAR_W - GAP - GROUP_BTN_W - GAP
+                ? this.colW - CLEAR_W - GAP - GROUP_BTN_W - GAP - MAP_BTN_W - GAP
                 : this.colW - CLEAR_W - GAP;
 
         this.searchField = new TextFieldWidget(this.textRenderer, this.left, SEARCH_Y,
@@ -320,9 +326,13 @@ public final class SidingScreen extends Screen {
             }
         }).dimensions(this.left + fieldW + GAP, SEARCH_Y, CLEAR_W, SEARCH_H).build());
 
-        final int gx = this.oneRow ? this.left + this.colW - GROUP_BTN_W : this.left;
+        // Group toggle and the map button: side by side on one line when the column is wide
+        // enough for both, otherwise the toggle takes the left half of its own line and the map
+        // button the right half - never a fixed width that clips either label.
+        final int halfW = (this.colW - GAP) / 2;
+        final int gx = this.oneRow ? this.left + this.colW - GROUP_BTN_W - GAP - MAP_BTN_W : this.left;
         final int gy = this.oneRow ? SEARCH_Y : SEARCH_Y + SEARCH_H + 4;
-        final int gw = this.oneRow ? GROUP_BTN_W : this.colW;
+        final int gw = this.oneRow ? GROUP_BTN_W : halfW;
         this.groupButton = this.addDrawableChild(ButtonWidget.builder(groupLabel(), b -> {
             this.grouped = !this.grouped;
             this.page = 0;
@@ -330,6 +340,11 @@ public final class SidingScreen extends Screen {
             rebuildRows();
         }).dimensions(gx, gy, gw, SEARCH_H).build());
         this.groupButton.active = this.hasDepots;
+
+        final int mx = this.oneRow ? this.left + this.colW - MAP_BTN_W : this.left + halfW + GAP;
+        final int mw = this.oneRow ? MAP_BTN_W : this.colW - halfW - GAP;
+        this.addDrawableChild(ButtonWidget.builder(tr("btn.map"), b -> openMap())
+                .dimensions(mx, gy, mw, SEARCH_H).build());
     }
 
     private Text groupLabel() {
@@ -568,6 +583,13 @@ public final class SidingScreen extends Screen {
     private void open(final Siding siding) {
         if (this.client != null && siding != null) {
             this.client.setScreen(new SidingDetailScreen(this, siding));
+        }
+    }
+
+    /** The same list as a top-down plan; the two views are siblings, neither replaces the other. */
+    private void openMap() {
+        if (this.client != null) {
+            this.client.setScreen(new SidingMapScreen(this));
         }
     }
 
