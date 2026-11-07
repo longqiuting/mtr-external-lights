@@ -44,6 +44,9 @@ dependencies {
     // NTE 0.3.3（Modrinth mtr-nte，ANTE 的前身，未 remap，包名 cn.zbx1425.*）：编译期只为 NTE
     // mixin 提供 MeshBuildingRailChunk；运行期由已安装的 NTE 提供。不能做 remap。
     compileOnly files("../libs/MTR-NTE-fabric-1.19.2-0.3.3.jar")
+    // ANTE 1.1.0+1.19.2（Fabric 侧包名带 fabric. 前缀，未 remap）：编译期只为 ANTE 版 rail mixin
+    // 提供目标类，运行期由玩家实际安装的 ANTE 提供。
+    compileOnly files("../libs/MTR-ANTE-1.1.0+1.19.2.jar")
     modCompileOnly files("../libs/modmenu-4.2.0-beta.2.jar")
 }
 

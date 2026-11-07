@@ -29,8 +29,43 @@ import java.util.Set;
  * <p>Lifecycle: {@code ClientData.TRAINS} is replaced wholesale on every client data sync, so a
  * train can be missing for a while while it is really still there. Absence is handled in stages:
  * short gaps are ignored, longer ones dim the light, and only a real despawn detaches it.
+ *
+ * <p>That staging is for <em>jitter</em> - one train dropping out of a range-based sync. A
+ * wholesale clear (MTR's "refresh routes" / "clear vehicles", or a re-sync after a dimension
+ * change) is not jitter: every train leaves at once, and holding their lights for the full grace
+ * leaves the whole fleet's beams hanging in the air. When a large share of what we track vanishes
+ * in the same tick, the lights are detached immediately instead (see {@link #massClearRatio} and
+ * the mass-clear block in {@link #tick()}).
  */
 public final class LightController {
+    /**
+     * Lower bound of the mass-clear threshold, in trains. One train leaving the data set is an
+     * ordinary despawn or a single sync gap and must keep going through the staged grace; only two
+     * or more vanishing in the same tick is evidence of a batch.
+     */
+    private static final int MASS_CLEAR_MIN = 2;
+
+    /**
+     * Ticks a train may stay in {@code ClientData.TRAINS} without a resolvable car position before
+     * its lights are put out (3 ticks, 150 ms). MTR keeps a train in the data set while its rail
+     * data / chunks are not available, and the pose then comes back as zero: without this the light
+     * simply stops being updated and stays lit where the train was last drawn. Long enough that a
+     * one-tick hiccup cannot make the beam blink.
+     */
+    private static final int POSE_LOST_TICKS = 3;
+
+    /**
+     * Longest a light may stay fully lit while its train is <b>missing from the data set</b>, in
+     * ticks (2 s), no matter how close its last known position is to the player.
+     *
+     * <p>MTR syncs trains by range, so a train that drove out of the sync radius is missing from
+     * {@code ClientData.TRAINS} long before it is out of sight - the {@code near()} escape hatch then
+     * keeps its light <em>fully lit at the position it was last seen at</em>, which is the reported
+     * "the track stays lit after the train has left". A sync gap is one or two ticks; two seconds is
+     * already 40x that, so a real gap still looks continuous while a despawn stops shining quickly.
+     */
+    private static final long MISSING_LIT_MAX_TICKS = 40L;
+
     private static final Map<String, Tracked> ACTIVE = new HashMap<>();
     private static ClientWorld lastWorld;
     /** Monotonic client tick counter, used only to age lights that went missing. */
@@ -67,6 +102,11 @@ public final class LightController {
             return;
         }
 
+        // Five-second railbuild line. Placed before the master-switch returns below (and here
+        // rather than in the 1.20.1-only scheduler) so it reports on every build and so a mixin
+        // that silently stopped matching shows up as calls=0 instead of as silence.
+        RailChunkBuildBoost.tick(cfg);
+
         if (!cfg.enabled || !cfg.dynamicLight) {
             // Master switch (or the dynamic-light child) off: drop everything right away, or the
             // last light stays lit forever where the train was.
@@ -80,8 +120,19 @@ public final class LightController {
         backend.tick();
         final Vec3d eye = client.player.getPos();
         final Set<String> seen = new HashSet<>();
+        final List<TrainClient> trains = snapshotTrains();
+        // Every train the client knows about this tick, whether or not it passes the gates below:
+        // the mass-clear test asks "did it leave the data set", not "did it survive our filters".
+        // Built with DepartureState's key format, which is documented to match ours, so the two
+        // sets can never disagree about a train's identity.
+        final Set<String> known = new HashSet<>(Math.max(16, trains.size() * 2));
+        for (final TrainClient train : trains) {
+            if (train != null) {
+                known.add(DepartureState.keyOf(train));
+            }
+        }
 
-        for (final TrainClient train : snapshotTrains()) {
+        for (final TrainClient train : trains) {
             if (train == null || train.isRemoved || train.path.isEmpty() || train.trainCars <= 0) {
                 continue;
             }
@@ -89,7 +140,7 @@ public final class LightController {
                 continue;
             }
 
-            final String key = train.id != 0L ? ("id:" + train.id) : ("tid:" + train.trainId);
+            final String key = DepartureState.keyOf(train);
 
             // Global values with this siding's overrides folded in (distance, luminance, the two
             // switches). A per-siding master switch off means "no light for these trains" and is
@@ -129,8 +180,17 @@ public final class LightController {
             final boolean reversed = DepartureState.reversed(train, train.isReversed()) ^ cfg.swapEnds;
             final TrainPose pose = TrainPose.ofShared(train, reversed);
             if (pose.front() == Vec3d.ZERO && pose.rear() == Vec3d.ZERO) {
+                // MTR still lists the train but its cars cannot be placed this tick (rail data or
+                // chunks not available - typically a train that drove out of the loaded area). The
+                // light from the previous tick must not stay where the train used to be, so put it
+                // out after a short grace. Deliberately NOT added to `seen`: the missing-train path
+                // below is what finally detaches the sources.
+                if (++tracked.unplacedTicks >= POSE_LOST_TICKS) {
+                    tracked.hide(backend, key);
+                }
                 continue;
             }
+            tracked.unplacedTicks = 0;
 
             // Per-end judgement: the beam belongs to the front car, the tail light to the rear car.
             // Both distances use the same boundary the light is built from.
@@ -161,6 +221,43 @@ public final class LightController {
             seen.add(key);
         }
 
+        // ---- Mass-clear fast path (MTR "刷新线路" / "清除车辆") ---------------------------------
+        // What left the data set this tick. One train going missing is exactly the case the staged
+        // grace below exists for. A whole batch leaving inside one tick - half the tracked fleet,
+        // or everything because ClientData.TRAINS went empty - is not jitter: waiting out the
+        // 30-60 s grace would leave every one of those lights hanging in the air, which is the bug
+        // this exists to fix.
+        final int trackedCount = ACTIVE.size();
+        final List<String> gone = new ArrayList<>();
+        for (final String key : ACTIVE.keySet()) {
+            if (!known.contains(key)) {
+                gone.add(key);
+            }
+        }
+        final int missingNow = gone.size();
+        // max(2, ceil(tracked * ratio)): the floor keeps a lone despawn (and a lone range-based
+        // sync gap) on the jitter path, the ratio makes the "batch" bar scale with the save - a
+        // two-train test world and a fifty-train network react to the same event. At the 0.5
+        // default, "two of two" and "twenty-five of fifty" both fire, "one of one" does not.
+        final int massClearThreshold = Math.max(MASS_CLEAR_MIN,
+                (int) Math.ceil(trackedCount * cfg.massClearRatio));
+        if (missingNow > 0 && (known.isEmpty() || missingNow >= massClearThreshold)) {
+            for (final String key : gone) {
+                final Tracked dropped = ACTIVE.remove(key);
+                if (dropped != null) {
+                    // The one existing removal entry point (backend.removeLine per end). Reaching
+                    // into the engine's own list from here would bypass that path - including the
+                    // per-backend bookkeeping and the dirty-position marking a removal does - so a
+                    // batch uses exactly the same call a timed-out single train uses.
+                    dropped.remove(backend, key);
+                }
+            }
+            // The beam sheet needs no handling: BeamGlow walks ClientData.TRAINS itself every
+            // frame and keeps no per-train state, so a train that left the data set is simply not
+            // drawn on that frame, and its Tracked is gone above so nothing can be redrawn from it.
+            ClearDiag.cleared(gone.size());
+        }
+
         // Trains missing from this frame's snapshot: sync churn first, real despawn later.
         for (final Iterator<Map.Entry<String, Tracked>> it = ACTIVE.entrySet().iterator(); it.hasNext(); ) {
             final Map.Entry<String, Tracked> entry = it.next();
@@ -172,11 +269,13 @@ public final class LightController {
             if (age <= cfg.missingKeepTicks) {
                 continue;
             }
-            // Still inside the player's view? Keep it: MTR syncs trains by range, so a train can drop
-            // out of the data set while it is plainly visible, and dimming then looks like a flicker.
+            // Still inside the player's view? Keep it - but only for a sync gap, never for the whole
+            // grace: the light is frozen at the position the train was *last seen* at, so a long
+            // window here is exactly the "track stays lit after the train left" report. See
+            // MISSING_LIT_MAX_TICKS.
             // The siding is unknown here (the train is missing from the snapshot), so this uses the
             // global distance - it only decides whether to keep a light alive, never its length.
-            if (tracked.near(eye, cfg.maxDistance) && age <= cfg.missingDimTicks * 2L) {
+            if (tracked.near(eye, cfg.maxDistance) && age <= MISSING_LIT_MAX_TICKS) {
                 continue;
             }
             if (age <= cfg.missingDimTicks) {
@@ -191,6 +290,9 @@ public final class LightController {
         }
 
         RailRelightHooks.tick(cfg, tickCounter);
+        // tracked/missing are the numbers the decision above used (before the batch was removed),
+        // so "tracked=12 missing=12 massClear=12" reads as one event rather than as an empty state.
+        ClearDiag.tick(cfg.massClearDiagnostics, tickCounter, trackedCount, missingNow);
     }
 
     /**
@@ -232,6 +334,8 @@ public final class LightController {
     /** Per-train bookkeeping; the two light segments live inside the backend under {@code key#head/#tail}. */
     private static final class Tracked {
         long lastSeen;
+        /** Consecutive ticks this train was in the data set but its pose could not be resolved. */
+        int unplacedTicks;
         Vec3d lastHeadStart = Vec3d.ZERO;
         Vec3d lastHeadEnd = Vec3d.ZERO;
         // The travel direction is NOT kept here: DepartureState already derives it once per tick

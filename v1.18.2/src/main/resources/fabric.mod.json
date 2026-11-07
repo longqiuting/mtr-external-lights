@@ -11,7 +11,8 @@
   "icon": "icon.png",
   "environment": "client",
   "mixins": [
-    "mtr_headlight.nte.mixins.json"
+    "mtr_headlight.nte.mixins.json",
+    "mtr_headlight.ante.mixins.json"
   ],
   "entrypoints": {
     "client": [

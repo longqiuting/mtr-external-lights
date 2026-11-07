@@ -25,7 +25,7 @@ import java.util.Map;
 public final class HeadlightConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     /** Bumped when a default changes in a way an existing file has to be migrated onto. */
-    private static final int CONFIG_VERSION = 4;
+    private static final int CONFIG_VERSION = 5;
 
     /** Default beam colours, also used when a JSON/override carries a malformed hex string. */
     public static final int DEFAULT_HEAD_BEAM = 0xFFF3D6;
@@ -126,6 +126,33 @@ public final class HeadlightConfig {
     public int missingDimTicks = 1200;
     /** Only after this many missing ticks is the behaviour really detached (then a returning train rebuilds it). */
     public int missingDetachTicks = 2400;
+
+    /**
+     * Share of the tracked trains that have to vanish in the <b>same tick</b> before the absence is
+     * read as a wholesale clear rather than as sync jitter. Clamped to [0.2, 1.0]; the effective
+     * condition is {@code missing >= max(2, ceil(tracked * massClearRatio))}.
+     *
+     * <p>Why a ratio and not a fixed count: "refresh routes" / "clear vehicles" in MTR drop the
+     * client's whole train set at once, and how many trains that is depends entirely on the save -
+     * a two-train test world and a fifty-train network have to behave the same. Half the tracked
+     * fleet disappearing within one tick never happens by range-based sync (that drops trains one
+     * or two at a time, at different ticks), so 0.5 separates the two cases with a wide margin.
+     *
+     * <p>Why the floor of 2: a single train leaving the data set is a normal despawn or a single
+     * sync gap, and tearing its light down instantly would make ordinary despawn flicker. {@code
+     * 1.0} effectively disables the fast path except for a full clear.
+     */
+    public double massClearRatio = 0.5D;
+
+    /**
+     * Temporary diagnostic: one {@code clear: tracked= missing= massClear=} INFO line every five
+     * seconds, so a "刷新线路 / 清除车辆" run can be confirmed from the log without a debugger.
+     *
+     * <p>{@code tracked} and {@code missing} are the current tick's numbers, {@code massClear} is
+     * how many trains' lights the fast path removed during the window (0 = it never fired). Default
+     * on while the mass-clear link is being validated; set it to {@code false} for a quiet log.
+     */
+    public boolean massClearDiagnostics = true;
 
     /**
      * If the beam comes out of the wrong end of the train (front/back of the pose array
@@ -243,8 +270,8 @@ public final class HeadlightConfig {
      * Seconds after entering a world (or changing dimension) during which <b>no</b> rail rebuild is
      * requested at all - the load grace.
      *
-     * <p>{@code RailRenderDispatcher#drawRails} rebuilds one rail chunk per frame
-     * ({@code buffersRebuilt < 1}) out of a single queue, served nearest-camera-first; the chunks of
+     * <p>{@code RailRenderDispatcher#drawRails} rebuilds only a couple of rail chunks per frame
+     * ({@code buffersRebuilt < railChunkBuildPerFrame}, stock 1) out of a single queue, served nearest-camera-first; the chunks of
      * newly generated terrain are in that same queue. Our requests sit right next to the player,
      * so they win every tie and a join/teleport that should stream a few hundred chunks instead
      * streams them at half speed. During the grace we queue nothing, sample nothing and make zero
@@ -281,11 +308,44 @@ public final class HeadlightConfig {
      * Hard ceiling on host calls per second, across every train and the player chunk.
      *
      * <p>This is the only place where we account for time rather than queue opportunities, so it
-     * holds even if {@link #railRelightEveryTicks} / {@link #railRelightBudget} are raised: the
-     * host rebuilds at most 20 chunks/s at 20 fps, and 12/s means it keeps at least 40% of that
-     * slot for its own terrain builds. Lower it (6-8) on a weak client or a large modpack.
+     * holds even if {@link #railRelightEveryTicks} / {@link #railRelightBudget} are raised. The
+     * number that matters is the host's own capacity: {@code railChunkBuildPerFrame} chunks per
+     * frame, i.e. 60/s at 20 fps and 180/s at 60 fps with the default boost of 3 (20/s when the
+     * boost is off). 16/s therefore keeps roughly 27% of the slot at the worst frame rate and 9% at
+     * 60 fps - enough for the light band to follow a fast train, still leaving the host the majority
+     * of its build slot for newly loaded terrain. The old 12 was calibrated against the stock
+     * 1-per-frame host, where it already took 60% of a 20 fps slot; that ratio does not apply once
+     * the per-frame limit is raised, and leaving it there is what made the queue drain slower than
+     * the train moved. Lower it (6-8) on a weak client or a large modpack.
      */
-    public int railRelightMaxPerSec = 12;
+    public int railRelightMaxPerSec = 16;
+
+    /**
+     * Master switch for the rail chunk rebuild boost (mixin on the host's per-frame gate).
+     *
+     * <p>When off, the host keeps its hard-coded {@code buffersRebuilt < 1}, i.e. exactly stock
+     * behaviour - use it if raising the limit causes frame-time spikes (each extra chunk is a full
+     * mesh bake on the {@code 华丽} path). Read every frame, so toggling it in the config file takes
+     * effect without a restart.
+     */
+    public boolean railChunkBuildBoost = true;
+
+    /**
+     * How many rail chunks the host may rebuild per frame (stock: 1).
+     *
+     * <p>ANTE/NTE hard-code {@code buffersRebuilt < 1}. With LDL at 快速/最快 a rail chunk rebuild is
+     * a cheap instance write and one per frame is plenty; at 华丽 the host drops to
+     * {@code MeshBuildingRailChunk} (full mesh bake + upload), the queue a moving train fills is
+     * deeper than one entry per frame drains, and the light band trails the train even at 80 km/h.
+     * 3 drains that queue about three times as fast, which is the smallest value that kept up in
+     * testing without turning a bad frame into three mesh bakes back to back.
+     *
+     * <p>Clamped to 1..8. Raise it only if the diagnostics line shows the queue still not draining
+     * ({@code chunksPerSec} pinned at {@code perFrame x fps}) and the frame time stays flat; lower it
+     * to 2 on a weak CPU.
+     */
+    public int railChunkBuildPerFrame = 3;
+
 
     /**
      * Cosine threshold of the horizontal view filter: a chunk is only rebuilt when the angle
@@ -753,6 +813,13 @@ public final class HeadlightConfig {
             }
             mutedSidings.clear();
         }
+        if (configVersion < 5 && railRelightMaxPerSec == 12) {
+            // 12 was the default while the host rebuilt one rail chunk per frame; it is now the
+            // per-second share of a larger per-frame slot (see railChunkBuildPerFrame), so an
+            // untouched file is moved onto the new default. A hand-tuned 12 is indistinguishable
+            // from the old default here, which is the same rule the version-2 step uses.
+            railRelightMaxPerSec = 16;
+        }
         configVersion = CONFIG_VERSION;
         return true;
     }
@@ -825,6 +892,7 @@ public final class HeadlightConfig {
         headLength = clamp(headLength, 0.0D, 32.0D);
         tailLength = clamp(tailLength, 0.0D, 32.0D);
         maxDistance = clamp(maxDistance, 16.0D, 1024.0D);
+        massClearRatio = clamp(massClearRatio, 0.2D, 1.0D);
         railRelightTicks = clamp(railRelightTicks, 1, 40);
         railRelightEveryTicks = clamp(railRelightEveryTicks, 1, 20);
         railRelightRadius = clamp(railRelightRadius, 2, 32);
@@ -839,6 +907,7 @@ public final class HeadlightConfig {
         railRelightMaxBlockDist = clamp(railRelightMaxBlockDist, 16, 256);
         railRelightCooldownMs = clamp(railRelightCooldownMs, 0, 5000);
         railRelightMaxPerSec = clamp(railRelightMaxPerSec, 1, 40);
+        railChunkBuildPerFrame = clamp(railChunkBuildPerFrame, 1, RailChunkBuildBoost.MAX_PER_FRAME);
         railRelightFrustumCos = clamp(railRelightFrustumCos, -1.0D, 0.95D);
         beamDistance = clamp(beamDistance, 16.0D, 512.0D);
         beamHeadLength = clamp(beamHeadLength, 0.0D, 64.0D);

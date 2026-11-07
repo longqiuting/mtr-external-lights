@@ -12,7 +12,8 @@
   "environment": "client",
   "mixins": [
     "mtr_headlight.ante.mixins.json",
-    "mtr_headlight.fangsu.mixins.json"
+    "mtr_headlight.fangsu.mixins.json",
+    "mtr_headlight.nte.mixins.json"
   ],
   "entrypoints": {
     "client": [

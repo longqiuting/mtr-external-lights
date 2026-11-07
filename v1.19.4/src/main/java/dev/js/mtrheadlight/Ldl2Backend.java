@@ -28,6 +28,32 @@ import java.util.Map;
  * until the affected chunk sections are rebuilt, which is why every point keeps its own last position
  * / luminance and its own set of lit sections (see {@code update} / {@code refresh}).
  *
+ * <p>{@code LambDynLights.updateAll} calls nothing but {@code lambdynlights$updateDynamicLight}; LDL's
+ * own entity source (mixin {@code lightsource.EntityMixin}) does all of the rebuild scheduling inside
+ * that method and keeps an {@code LongOpenHashSet trackedLitChunkPos} "so that the sections can be
+ * cleaned up on removal" (its own comment). {@code LambDynLights.removeLightSource} then calls
+ * {@code lambdynlights$scheduleTrackedChunksRebuild} on the source it just dropped (bytecode:
+ * {@code 47: iterator.remove / 53-66: client.worldRenderer / 69: invokeinterface
+ * lambdynlights$scheduleTrackedChunksRebuild}) - that is the whole removal contract, and it is why a
+ * source must remember which sections it baked.
+ *
+ * <h2>Removal is the one path where a missed rebuild is permanent</h2>
+ *
+ * <p>A moving light gets another chance 50 ms later. A <b>removed</b> light does not: once the source
+ * is out of LDL's set, nothing will ever mark its sections again, so the last bake stays in the mesh
+ * for as long as the player keeps that chunk loaded - "the train is gone but the track is still
+ * lit". {@code detach} therefore does not rely on LDL's callback alone:
+ *
+ * <ul>
+ *   <li>the callback is only invoked while {@code client.worldRenderer != null}, and only for a
+ *       source LDL still holds - both can be false at exactly the wrong moment;</li>
+ *   <li>our own {@code lit} set can name the <em>previous</em> position (a point that was moved and
+ *       removed between two update passes) or be empty (a point removed before its first pass).</li>
+ * </ul>
+ *
+ * so {@link #markLight} marks the <b>union</b> of the tracked set and the sections around the live
+ * position, unconditionally, outside the per-pass rebuild budget. See {@link #markLight}.
+ *
  * <p>Because everything above this class is "just a light", it is easy to forget that <b>we are
  * guests inside somebody else's engine</b> - and that engine is shared with the player's torch, every
  * block entity and every other mod. Three rules follow, and all three were broken in 0.1.1 on 1.19.4:
@@ -105,6 +131,20 @@ public final class Ldl2Backend implements LightBackend {
      * are fixed size: the per-frame path allocates nothing.
      */
     private static final int MAX_SECTIONS = 8;
+    /**
+     * Distinct sections one removal may hand to LDL. A beam is {@link #POINTS_PER_LINE} points spread
+     * over up to {@code headLength} blocks; consecutive points overlap heavily, so the union of
+     * "tracked set + position set" for a whole line is far below the worst case
+     * {@code POINTS_PER_LINE * MAX_SECTIONS}. The extra room is slack, not an expectation.
+     */
+    private static final int CLEAN_MAX = (POINTS_PER_LINE + 4) * MAX_SECTIONS;
+    /**
+     * Default-on cleanup diagnostic, one line every five seconds:
+     * {@code ldl2 cleanup: removed=N dirtySections=M pending=P}. Switch it off with
+     * {@code -Dmtrheadlight.ldl2diag=false} (JVM argument, e.g. in the launcher's JVM args).
+     */
+    private static final boolean CLEANUP_DIAG =
+            !"false".equalsIgnoreCase(System.getProperty("mtrheadlight.ldl2diag", "true"));
 
     private final Map<String, PointLight[]> lines = new HashMap<>();
 
@@ -120,6 +160,9 @@ public final class Ldl2Backend implements LightBackend {
     /** How many sources we handed to LDL / took back; diagnostics only (a leak shows up here). */
     private static volatile int addCount;
     private static volatile int removeCount;
+    /** Cleanup bookkeeping for the five-second {@code ldl2 cleanup} line (tick thread only). */
+    private static int cleanRemoved;
+    private static int cleanSections;
 
     // --- scheduling state (render thread only: updateAll runs from WorldRenderEvents.START) ------
     /** Start of the current 50 ms update pass, and the rebuild slots left in it. */
@@ -177,34 +220,83 @@ public final class Ldl2Backend implements LightBackend {
     @Override
     public void hideLine(final String key) {
         final PointLight[] points = lines.get(key);
-        if (points != null) {
-            // luminance 0 is a real change: the next update pass rebuilds the sections the light
-            // used to sit in, which is what makes the beam go away immediately.
-            for (final PointLight light : points) {
-                light.luminance = 0;
-            }
+        if (points == null) {
+            return;
         }
+        // Only the transition matters: this is called every tick for a light that is already off
+        // (out of range, depot, siding switched off), and marking sections on every one of those
+        // calls would be a rebuild storm for a light that has nothing left to clear.
+        PointLight[] wasLit = null;
+        int lit = 0;
+        for (final PointLight light : points) {
+            if (light.luminance > 0) {
+                if (wasLit == null) {
+                    wasLit = new PointLight[points.length];
+                }
+                wasLit[lit++] = light;
+            }
+            light.luminance = 0;
+        }
+        if (lit == 0) {
+            return;
+        }
+        // Clear the bake on the tick that decides "this must not shine", not on LDL's next pass
+        // (up to 50 ms later, and that pass would repeat exactly this work anyway). Without this the
+        // beam is dark in the light engine but still baked into the meshes it was last drawn into.
+        final int marked = markLight(null, wasLit, lit, worldOf(points));
+        cleanSections += marked;
     }
 
     @Override
     public void removeLine(final String key) {
         final PointLight[] points = lines.remove(key);
         if (points != null) {
-            for (final PointLight light : points) {
-                detach(light);
-            }
+            detachAll(points);
         }
     }
 
     @Override
     public void clearAll() {
         for (final Iterator<PointLight[]> it = lines.values().iterator(); it.hasNext(); ) {
-            for (final PointLight light : it.next()) {
-                detach(light);
-            }
+            detachAll(it.next());
             it.remove();
         }
         PROBE.clear();
+    }
+
+    /**
+     * Drops a line's sources and then clears the sections they were baked into.
+     *
+     * <p>Order matters: the sources have to be out of LDL's set <b>before</b> the sections are
+     * marked, otherwise a rebuild that lands in between bakes them again.
+     */
+    private static void detachAll(final PointLight[] points) {
+        final World world = worldOf(points);
+        int removed = 0;
+        for (final PointLight light : points) {
+            if (detach(light)) {
+                removed++;
+            }
+        }
+        // Union mark over the whole line: the 8 points of one beam overlap, so marking per point
+        // would hand LDL the same section half a dozen times.
+        final int marked = markLight(null, points, points.length, world);
+        cleanRemoved += removed;
+        cleanSections += marked;
+        for (final PointLight light : points) {
+            light.clearTracked();
+            light.world = null;
+        }
+    }
+
+    /** World the line was attached in, or null when it never got that far. */
+    private static World worldOf(final PointLight[] points) {
+        for (final PointLight light : points) {
+            if (light != null && light.world != null) {
+                return light.world;
+            }
+        }
+        return null;
     }
 
     // --- registration ----------------------------------------------------------------------------
@@ -299,6 +391,7 @@ public final class Ldl2Backend implements LightBackend {
             }
             if (System.currentTimeMillis() - diagWindowStart >= 5000L) {
                 diagSample();
+                cleanupSample();
             }
         } catch (Throwable t) {
             // Diagnostics must never break the tick.
@@ -380,6 +473,40 @@ public final class Ldl2Backend implements LightBackend {
     }
 
     /**
+     * One line every five seconds (default on, {@code -Dmtrheadlight.ldl2diag=false} to switch it
+     * off): {@code ldl2 cleanup: removed=N dirtySections=M pending=P}.
+     *
+     * <ul>
+     *   <li>{@code removed} - point sources taken out of LDL's set in this window (one train line =
+     *       {@link #POINTS_PER_LINE} points, head and tail = two lines);</li>
+     *   <li>{@code dirtySections} - sections actually handed to LDL for a rebuild by the removal /
+     *       dim paths, deduplicated per line. This is the number that has to be non-zero for a
+     *       departing train: zero here on every departure is the residue bug itself;</li>
+     *   <li>{@code pending} - point sources still registered with LDL, i.e. the lights that would
+     *       still have to be cleaned up if they went away right now. It should fall to 0 when no
+     *       train is near and stay there; a number that only grows is a leak.</li>
+     * </ul>
+     *
+     * <p>Never calls into {@code LambDynLights} - it runs on the tick thread and only reads our own
+     * counters plus the counter we maintain ourselves.
+     */
+    private static void cleanupSample() {
+        final int removed = cleanRemoved;
+        final int dirty = cleanSections;
+        cleanRemoved = 0;
+        cleanSections = 0;
+        if (!CLEANUP_DIAG) {
+            return;
+        }
+        try {
+            MtrHeadlightClient.LOGGER.info("ldl2 cleanup: removed={} dirtySections={} pending={}",
+                    removed, dirty, sourceCount);
+        } catch (Throwable ignored) {
+            // Logging must never break the tick.
+        }
+    }
+
+    /**
      * TEMP DIAG: what LDL itself answers at one of our own sources. Separates "LDL never took the
      * source" from "LDL has it and computes a level, but the mesh never shows it".
      */
@@ -421,32 +548,105 @@ public final class Ldl2Backend implements LightBackend {
         }
     }
 
-    private static void detach(final PointLight light) {
+    /** @return true when LDL actually held the source (so {@code removed=} stays honest). */
+    private static boolean detach(final PointLight light) {
         try {
+            final World world = light.world;
+            final boolean wasRegistered = light.registered;
             final LambDynLights engine = LambDynLights.get();
             if (engine != null) {
+                // LDL drops the source and then calls lambdynlights$scheduleTrackedChunksRebuild on
+                // it (bytecode-verified in 2.1.0/2.2.0/2.3.1), which is where the tracked set gets
+                // marked. The explicit union mark in detachAll() is what still covers us when that
+                // callback is skipped - no world renderer yet, or a source LDL no longer holds.
                 engine.removeLightSource(light);
             }
             PROBE.remove(light);
-            light.world = null;
             if (light.registered) {
                 light.registered = false;
                 sourceCount--;
                 removeCount++;
             }
+            return wasRegistered;
         } catch (Throwable t) {
             MtrHeadlightClient.LOGGER.debug("[mtr-headlight] could not remove light source", t);
+            return false;
         }
     }
 
     /** Asks LDL to rebuild one chunk section; the single funnel for every mark we make. */
-    private static void scheduleRebuild(final WorldRenderer renderer, final long sectionPos) {
+    private static boolean scheduleRebuild(final WorldRenderer renderer, final long sectionPos) {
         try {
             LambDynLights.scheduleChunkRebuild(renderer, sectionPos);
             diagRelight++;
+            return true;
         } catch (Throwable t) {
             // A missing/renamed LDL helper must not break the tick; the light just stays stale.
             MtrHeadlightClient.LOGGER.debug("[mtr-headlight] could not schedule a chunk rebuild", t);
+            return false;
+        }
+    }
+
+    /**
+     * Marks every section the given points can be baked into and returns how many were scheduled.
+     *
+     * <p>This is the <b>removal</b> mark, used when a line is dropped, when a line is dimmed to zero,
+     * and from LDL's own {@code lambdynlights$scheduleTrackedChunksRebuild} callback. The set is the
+     * union of two sources, because either one alone has a hole:
+     *
+     * <ul>
+     *   <li>each point's tracked {@code lit} set - the sections the last update pass really baked it
+     *       into. That set is render-thread state and is at most one pass (50 ms) old;</li>
+     *   <li>the sections around its <b>live position</b>, {@code floor(p +/- 7.75) >> 4} per axis -
+     *       which covers a point that was moved and removed between two passes (its tracked set
+     *       still names the previous spot) and a point whose tracked set is empty because it was
+     *       removed before it ever got an update pass.</li>
+     * </ul>
+     *
+     * <p>Duplicates are dropped, so the overlapping points of one beam do not hand LDL the same
+     * section repeatedly. Deliberately <b>outside</b> the {@link #claimSection} budget: a budgeted
+     * mark can be dropped in a busy pass, and a dropped mark on a removal is a patch of world that
+     * stays lit until something unrelated rebuilds that chunk.
+     *
+     * @param renderer renderer to schedule on, or null to resolve the client's own
+     * @param world    world the points were attached in; a different current world means the old
+     *                 meshes are gone and nothing has to be cleared
+     */
+    private static int markLight(final WorldRenderer renderer, final PointLight[] points,
+                                 final int count, final World world) {
+        try {
+            final MinecraftClient client = MinecraftClient.getInstance();
+            if (client == null || client.world == null) {
+                return 0;
+            }
+            if (world != null && client.world != world) {
+                return 0;
+            }
+            final WorldRenderer target = renderer != null ? renderer : client.worldRenderer;
+            if (target == null) {
+                return 0;
+            }
+            final long[] sections = new long[CLEAN_MAX];
+            int n = 0;
+            for (int i = 0; i < count; i++) {
+                final PointLight light = points[i];
+                if (light == null) {
+                    continue;
+                }
+                n = light.appendTracked(sections, n);
+                n = PointLight.appendSectionsAt(light.getDynamicLightX(), light.getDynamicLightY(),
+                        light.getDynamicLightZ(), sections, n);
+            }
+            int marked = 0;
+            for (int i = 0; i < n; i++) {
+                if (scheduleRebuild(target, sections[i])) {
+                    marked++;
+                }
+            }
+            return marked;
+        } catch (Throwable t) {
+            MtrHeadlightClient.LOGGER.debug("[mtr-headlight] could not mark light sections dirty", t);
+            return 0;
         }
     }
 
@@ -516,9 +716,15 @@ public final class Ldl2Backend implements LightBackend {
         private long lastRefreshMs;
         /** Rotating start index into the section set, so the budget does not always hit the same ones. */
         private int refreshCursor;
-        private long[] lit = new long[MAX_SECTIONS];
+        /**
+         * Sections this point was baked into when the chunks were last (re)built. Read from the tick
+         * thread by {@link #markLight} during a removal, written by the render thread - hence
+         * volatile, with {@code lit} written before {@code litCount} so a reader that sees the count
+         * also sees the array it belongs to.
+         */
+        private volatile long[] lit = new long[MAX_SECTIONS];
+        private volatile int litCount;
         private long[] next = new long[MAX_SECTIONS];
-        private int litCount;
 
         /**
          * Publishes a new position / level. Anything LDL cannot survive is dropped rather than
@@ -772,6 +978,66 @@ public final class Ldl2Backend implements LightBackend {
             return n;
         }
 
+        /**
+         * Appends the sections this point was last baked into (deduplicated) to {@code out}.
+         *
+         * @return the new element count
+         */
+        int appendTracked(final long[] out, final int from) {
+            final long[] source = lit;
+            final int count = Math.min(litCount, source.length);
+            int k = from;
+            for (int i = 0; i < count && k < out.length; i++) {
+                if (!contains(out, k, source[i])) {
+                    out[k++] = source[i];
+                }
+            }
+            return k;
+        }
+
+        /** Forgets the tracked set; called once the sections have been marked dirty. */
+        void clearTracked() {
+            litCount = 0;
+        }
+
+        /**
+         * Every section around one position that a light of {@link #LIGHT_RADIUS} can reach,
+         * {@code floor(p-R)..floor(p+R)} per axis in section coordinates, appended to {@code out}
+         * without duplicates. {@code >>} is a floor division for negatives too, so no extra rounding
+         * is needed. Nothing is appended for a non-finite or out-of-world position.
+         *
+         * @return the new element count
+         */
+        static int appendSectionsAt(final double x, final double y, final double z,
+                                    final long[] out, final int from) {
+            if (!isFinite(x) || !isFinite(y) || !isFinite(z)
+                    || Math.abs(x) > COORD_LIMIT || Math.abs(y) > COORD_LIMIT
+                    || Math.abs(z) > COORD_LIMIT) {
+                return from;
+            }
+            final int minX = floor(x - LIGHT_RADIUS) >> 4;
+            final int maxX = floor(x + LIGHT_RADIUS) >> 4;
+            final int minY = floor(y - LIGHT_RADIUS) >> 4;
+            final int maxY = floor(y + LIGHT_RADIUS) >> 4;
+            final int minZ = floor(z - LIGHT_RADIUS) >> 4;
+            final int maxZ = floor(z + LIGHT_RADIUS) >> 4;
+            int k = from;
+            for (int sx = minX; sx <= maxX; sx++) {
+                for (int sy = minY; sy <= maxY; sy++) {
+                    for (int sz = minZ; sz <= maxZ; sz++) {
+                        if (k >= out.length) {
+                            return k;
+                        }
+                        final long section = BlockPos.asLong(sx, sy, sz);
+                        if (!contains(out, k, section)) {
+                            out[k++] = section;
+                        }
+                    }
+                }
+            }
+            return k;
+        }
+
         private static boolean isFinite(final double value) {
             return !Double.isNaN(value) && !Double.isInfinite(value);
         }
@@ -791,25 +1057,18 @@ public final class Ldl2Backend implements LightBackend {
         }
 
         /**
-         * LDL calls this when the source is removed (and on {@code clearLightSources}), expecting the
-         * chunks it used to light to be rebuilt - otherwise the light stays baked into the mesh where
-         * the train used to be.
+         * LDL calls this when the source is removed (and once per update pass before it stores the
+         * new tracked set), expecting the sections it was baked into to be rebuilt - otherwise the
+         * light stays baked into the mesh where the train used to be.
+         *
+         * <p>Runs on whichever thread removed the source (the client tick thread for us), under
+         * LDL's write lock, so it must not call back into {@code LambDynLights} and must not throw.
+         * The set is the union of the tracked set and the live position - see {@link #markLight}.
          */
         @Override
         public void lambdynlights$scheduleTrackedChunksRebuild(final WorldRenderer renderer) {
             try {
-                if (renderer == null || litCount == 0) {
-                    return;
-                }
-                final World world = getDynamicLightWorld();
-                final MinecraftClient client = MinecraftClient.getInstance();
-                if (world == null || client.world != world) {
-                    // Different world: those sections are gone, their meshes with them.
-                    return;
-                }
-                for (int i = 0; i < litCount; i++) {
-                    scheduleRebuild(renderer, lit[i]);
-                }
+                markLight(renderer, new PointLight[]{this}, 1, world);
             } catch (Throwable t) {
                 MtrHeadlightClient.LOGGER.debug("[mtr-headlight] could not clear a light", t);
             }

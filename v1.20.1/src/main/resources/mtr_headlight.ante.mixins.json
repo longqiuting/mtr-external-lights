@@ -8,9 +8,10 @@
   "priority": 1500,
   "client": [
     "AnteBrightnessMixin",
-    "AnteInstancedBrightnessMixin"
+    "AnteInstancedBrightnessMixin",
+    "AnteRailChunkBuildMixin"
   ],
   "injectors": {
-    "defaultRequire": 1
+    "defaultRequire": 0
   }
 }

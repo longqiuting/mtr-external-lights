@@ -1,0 +1,15 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "dev.js.mtrheadlight.mixin.nte",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "mtr-headlight.refmap.json",
+  "plugin": "dev.js.mtrheadlight.mixin.NteMixinPlugin",
+  "priority": 1500,
+  "client": [
+    "NteRailChunkBuildMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

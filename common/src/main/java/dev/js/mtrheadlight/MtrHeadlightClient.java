@@ -78,6 +78,9 @@ public final class MtrHeadlightClient implements ClientModInitializer {
         } catch (Throwable t) {
             LOGGER.warn("[mtr-headlight] could not register the rail render hooks", t);
         }
+        // Which host's rail mixins are actually live in this instance. Printed again from the tick
+        // as soon as the host class loads, because the other mod's initializer may still be pending.
+        RailChunkBuildBoost.report();
         LOGGER.info("[mtr-headlight] client initialised (head={} tail={} len={}/{})",
                 config.headLuminance, config.tailLuminance, config.headLength, config.tailLength);
     }

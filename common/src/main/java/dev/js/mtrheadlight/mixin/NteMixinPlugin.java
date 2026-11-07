@@ -1,5 +1,6 @@
 package dev.js.mtrheadlight.mixin;
 
+import dev.js.mtrheadlight.RailMixinFlags;
 import org.objectweb.asm.tree.ClassNode;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
 import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
@@ -45,5 +46,11 @@ public final class NteMixinPlugin implements IMixinConfigPlugin {
     @Override
     public void postApply(final String targetClassName, final ClassNode targetClass,
                           final String mixinClassName, final IMixinInfo mixinInfo) {
+        // Flag only, never a log line: this runs while a host class is being transformed.
+        if (mixinClassName.endsWith("NteRailChunkBuildMixin")) {
+            RailMixinFlags.noteNte(MixinScan.containsBoostCall(targetClass));
+        } else if (mixinClassName.endsWith("AnteRailChunkBuildMixin")) {
+            RailMixinFlags.noteAnte(MixinScan.containsBoostCall(targetClass));
+        }
     }
 }
