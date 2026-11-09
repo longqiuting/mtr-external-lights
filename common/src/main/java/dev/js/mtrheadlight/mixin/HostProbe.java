@@ -14,9 +14,15 @@ public final class HostProbe {
     /** NTE (1.18.2/1.19.x line). */
     private static final String NTE_CHUNK =
             "cn.zbx1425.mtrsteamloco.render.rail.MeshBuildingRailChunk";
+    /** MTR 自己的客户端车型注册表（3.x 全系；同名分支如 YMTR 也在这个包里）。 */
+    private static final String MTR_REGISTRY = "mtr.client.TrainClientRegistry";
+    /** MTR 的服务端列车类（{@code TrainServer#simulateTrain} 是列车登记的注入点）。 */
+    private static final String MTR_TRAIN_SERVER = "mtr.data.TrainServer";
 
     private static final boolean ANTE = present(ANTE_CHUNK);
     private static final boolean NTE = present(NTE_CHUNK);
+    private static final boolean MTR = present(MTR_REGISTRY);
+    private static final boolean MTR_SERVER = present(MTR_TRAIN_SERVER);
 
     private HostProbe() {
     }
@@ -27,6 +33,21 @@ public final class HostProbe {
 
     public static boolean nte() {
         return NTE;
+    }
+
+    /** {@code mtr.client.TrainClientRegistry} 是否存在（内置车型过滤的注入目标）。 */
+    public static boolean mtrTrainRegistry() {
+        return MTR;
+    }
+
+    /**
+     * {@code mtr.data.TrainServer} 是否存在 —— 服务端列车碰撞的注入目标。
+     *
+     * <p>用<b>服务端</b>类而不是 {@link #mtrTrainRegistry()} 的客户端注册表做探测：dedicated server
+     * 上根本没有 {@code mtr.client.*}，拿它判断会把「装了 MTR 的服务端」误判成「没装 MTR」。
+     */
+    public static boolean mtrServerTrain() {
+        return MTR_SERVER;
     }
 
     private static boolean present(final String className) {

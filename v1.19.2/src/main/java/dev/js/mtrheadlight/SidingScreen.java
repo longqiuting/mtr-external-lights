@@ -166,7 +166,7 @@ public final class SidingScreen extends Screen {
                 }
             }
         } catch (RuntimeException e) {
-            MtrHeadlightClient.LOGGER.warn("[mtr-headlight] could not read SIDINGS", e);
+            MtrHeadlightClient.LOGGER.warn("[lte] could not read SIDINGS", e);
         }
         loaded.sort(Comparator.comparing(ParameterScreen::describe));
         this.all = loaded;
@@ -193,7 +193,7 @@ public final class SidingScreen extends Screen {
                 }
             }
         } catch (RuntimeException e) {
-            MtrHeadlightClient.LOGGER.warn("[mtr-headlight] could not read DEPOTS", e);
+            MtrHeadlightClient.LOGGER.warn("[lte] could not read DEPOTS", e);
         }
         this.hasDepots = !depots.isEmpty();
         for (final Siding siding : this.all) {

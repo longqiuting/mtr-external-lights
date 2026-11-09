@@ -33,4 +33,18 @@ public interface LightBackend {
      */
     default void tick() {
     }
+
+    /**
+     * How many segments this backend currently has <em>lit</em> in the engine - diagnostics only.
+     *
+     * <p>It exists so the 5-second {@code auto light: ... ldl=N} line can prove that a train which
+     * the auto switch turned off really left the engine: {@code lit=off} in the same window must
+     * show a smaller {@code N} (0 when nothing is lit), never a growing one.
+     *
+     * <p>{@code -1} means "this backend does not report it" (the versions whose backends were not
+     * touched), which the log prints as {@code ldl=-} rather than as a misleading {@code 0}.
+     */
+    default int liveSources() {
+        return -1;
+    }
 }

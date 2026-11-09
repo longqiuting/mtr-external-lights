@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "id": "mtr_headlight",
+  "id": "mtrlte",
   "version": "${version}",
-  "name": "MTR external lights",
+  "name": "LTE (LTY's transit expansion)",
   "description": "Adds dynamic head and tail lights to Minecraft Transit Railway trains. Client side only, read-only towards MTR: no blocks are placed and no train logic is modified.",
   "authors": [
     "厦航在拍车的无名机长 (kigurumiLTY)"
@@ -11,8 +11,8 @@
   "icon": "icon.png",
   "environment": "client",
   "mixins": [
-    "mtr_headlight.nte.mixins.json",
-    "mtr_headlight.ante.mixins.json"
+    "mtrlte.nte.mixins.json",
+    "mtrlte.ante.mixins.json"
   ],
   "entrypoints": {
     "client": [

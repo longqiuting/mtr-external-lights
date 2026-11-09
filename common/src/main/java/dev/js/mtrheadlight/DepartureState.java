@@ -180,7 +180,7 @@ public final class DepartureState {
                     + " moved=" + moved + " lit=" + lit;
             // "moved" is the latch alone; "lit" is the gate's verdict before the siding switch.
             if (!line.equals(lastDiag)) {
-                MtrHeadlightClient.LOGGER.info("[mtr-headlight] {}", line);
+                MtrHeadlightClient.LOGGER.info("[lte] {}", line);
                 lastDiag = line;
             }
         }

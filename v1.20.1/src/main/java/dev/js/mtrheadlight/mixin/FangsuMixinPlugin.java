@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Gate for {@code mtr_headlight.fangsu.mixins.json}.
+ * Gate for {@code mtrlte.fangsu.mixins.json}.
  *
  * <p>方速 (fangsu) is an optional, fast-moving addon we deliberately do not compile against, so the
  * decision to apply these mixins is a pure class-presence probe:

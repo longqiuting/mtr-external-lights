@@ -97,6 +97,21 @@ public final class BeamGlow {
     private static final double SEGMENT_BLOCKS = 1.6D;
     /** Exponential decay constant along the beam (alpha at the tip is e^-2.8 = 6%). */
     private static final double LENGTH_DECAY = 2.8D;
+    /**
+     * Length of the <b>head beam's ramp-up</b>, in blocks: the sheet starts fully transparent at the
+     * lamp and reaches its peak alpha after this distance (smoothstep, so the second derivative is
+     * continuous too). Without it the first quad is already at full brightness and the beam reads as
+     * a cut-off slab glued to the nose instead of light leaving a lamp.
+     */
+    private static final double HEAD_FADE_BLOCKS = 2.0D;
+    /**
+     * Ramp-up of the <b>tail</b> beam, in blocks. It used to be 0 ("hard start"), which made the two
+     * ends read differently: the tail's first quad appeared at full brightness and looked pasted on,
+     * while the head faded in. A shorter ramp than the head's keeps the intended contrast (the tail
+     * is the shorter, dimmer sheet) and still leaves the soft entry; {@link #beam} additionally caps
+     * it at half the beam's own length, so a 4-block tail gets at most a 2-block ramp.
+     */
+    private static final double TAIL_FADE_BLOCKS = 1.5D;
     /** Height samples per beam (2 ends * this = the per-train heightmap budget per frame). */
     private static final int SAMPLES = 8;
     /** A ground sample further than this from the straight ray is treated as "something else". */
@@ -134,6 +149,8 @@ public final class BeamGlow {
     private static int sNoPose;
     private static int sFar;
     private static int sNoDir;
+    /** 自动关灯挡下的列车（headlightMode = AUTO 且环境判定为"亮"）。 */
+    private static int sAuto;
 
     private static void diag(final String gate) {
         if (!DIAG) {
@@ -154,6 +171,7 @@ public final class BeamGlow {
                 case "pose" -> sNoPose++;
                 case "far" -> sFar++;
                 case "dir" -> sNoDir++;
+                case "auto" -> sAuto++;
                 default -> {
                 }
             }
@@ -166,12 +184,12 @@ public final class BeamGlow {
         MtrHeadlightClient.LOGGER.info(
                 "beam: calls={} trains={} poseOk={} drawn={} submit={} skip={}"
                         + " [cfg={} probe={} pass={} world={} matrix={} drawable={} eff={}"
-                        + " parked={} pose={} far={} dir={}]",
+                        + " parked={} pose={} auto={} far={} dir={}]",
                 dCalls, dTrains, dPoseOk, dDrawn, dSubmit,
                 sCfg + sProbe + sWorld + sMatrix + sNotDrawable + sEff + sParked
-                        + sNoPose + sFar + sNoDir,
-                sCfg, sProbe, sPass, sWorld, sMatrix, sNotDrawable, sEff, sParked, sNoPose, sFar,
-                sNoDir);
+                        + sNoPose + sAuto + sFar + sNoDir,
+                sCfg, sProbe, sPass, sWorld, sMatrix, sNotDrawable, sEff, sParked, sNoPose, sAuto,
+                sFar, sNoDir);
         dCalls = 0;
         dTrains = 0;
         dPoseOk = 0;
@@ -186,6 +204,7 @@ public final class BeamGlow {
         sEff = 0;
         sParked = 0;
         sNoPose = 0;
+        sAuto = 0;
         sFar = 0;
         sNoDir = 0;
     }
@@ -265,6 +284,13 @@ public final class BeamGlow {
                 continue;
             }
             dPoseOk++;
+            // 车灯开关模式与环境判定：唯一信号源是 HeadlightSwitch（动态光源、轨道烘焙问的是
+            // 同一个方法），所以光带和灯永远一起亮灭。AUTO 才让环境接管；ALWAYS / OFF 一律画。
+            // 放在距离闸之前：被自动关掉的列车不该在日志里显示成"太远"。
+            if (!HeadlightSwitch.isLit(world, pose, cfg)) {
+                diag("auto");
+                continue;
+            }
             // Own draw distance, independent of the dynamic-light range: a 16-block sheet is worth
             // seeing from further away than a 0.85-block light is worth computing.
             if (nose.distanceTo(eye) > eff.beamDistance && rear.distanceTo(eye) > eff.beamDistance) {
@@ -286,18 +312,22 @@ public final class BeamGlow {
             final float peak = (float) Math.min(1.0D, cfg.beamAlpha);
             // Start where the lamp is: the same offsets the dynamic light uses, so the sheet and
             // the light it belongs to cannot disagree about where the front face is.
-            final double headOut = cfg.headOffsetClamped();
-            final double tailOut = cfg.tailOffsetClamped();
+            // 几何只在这一处算（BeamGeom），光柱的 GLOW 对照模式调的是同一个工厂，所以两者的
+            // base/axis/length 逐位相同 —— 见 BeamGeom 与 ProtoBeamCone 的 coneSource。
+            final BeamGeom headGeom = BeamGeom.of(nose, headDir, cfg.headOffsetClamped(),
+                    eff.beamHeadLength, lift + eff.beamHeadHeight, eff.beamHeadColor);
+            final BeamGeom tailGeom = BeamGeom.of(rear, tailDir, cfg.tailOffsetClamped(),
+                    eff.beamTailLength, lift + eff.beamTailHeight, eff.beamTailColor);
 
             // Head: out of the nose. Its base height is the rail point at that end, never the max
             // of both ends - on a gradient that would float the sheet at the downhill end.
+            // The last argument is the ramp-up: 2 blocks from 0 to peak alpha (see HEAD_FADE_BLOCKS).
             final int before = vertexCount;
-            beam(world, nose.add(headDir.multiply(headOut)), headDir, eff.beamHeadLength, halfWidth,
-                    lift + eff.beamHeadHeight, eff.beamHeadColor, peak, shift);
-            // Tail: its own car's outward heading, its own (shorter, redder, lower) sheet.
-            beam(world, rear.add(tailDir.multiply(tailOut)), tailDir,
-                    eff.beamTailLength, halfWidth, lift + eff.beamTailHeight,
-                    eff.beamTailColor, peak, shift);
+            beam(world, headGeom, halfWidth, peak, shift, HEAD_FADE_BLOCKS);
+            // Tail: its own car's outward heading, its own (shorter, redder, lower) sheet. It gets a
+            // short ramp too - shorter than the head's, so the two ends stay distinguishable, but
+            // no longer a hard cut at the lamp.
+            beam(world, tailGeom, halfWidth, peak, shift, TAIL_FADE_BLOCKS);
             if (vertexCount > before) {
                 dDrawn++;
             }
@@ -312,16 +342,24 @@ public final class BeamGlow {
     }
 
     /**
-     * One end's sheet. {@code origin} is the rail point at that end (already pushed out of the car
-     * face) in world space, {@code dir} a unit vector that still carries the pitch,
-     * {@code extraHeight} the lift plus that end's configured height.
+     * One end's sheet. {@code geom} carries the rail point at that end (already pushed out of the
+     * car face) in world space, the unit heading that still carries the pitch, the length, the lift
+     * plus that end's configured height, and the colour - the very same object shape the cone's
+     * GLOW source consumes.
      */
-    private static void beam(final ClientWorld world, final Vec3d origin, final Vec3d dir,
-                             final double length, final double halfWidth, final double extraHeight,
-                             final int rgb, final float peak, final Vec3d shift) {
+    private static void beam(final ClientWorld world, final BeamGeom geom, final double halfWidth,
+                             final float peak, final Vec3d shift, final double fadeInBlocks) {
+        final Vec3d origin = geom.origin;
+        final Vec3d dir = geom.axis;
+        final double length = geom.length;
+        final double extraHeight = geom.height;
+        final int rgb = geom.rgb;
         if (length <= 0.05D) {
             return;
         }
+        // Ramp-up distance, never more than half the beam: a fade longer than that would dim the
+        // whole sheet instead of just softening where it leaves the lamp.
+        final double fadeIn = Math.max(0.0D, Math.min(length * 0.5D, fadeInBlocks));
         // dir x up: horizontal for any dir with a horizontal component, so the sheet can only tilt
         // around that axis - it can never twist.
         Vec3d right = dir.crossProduct(UP);
@@ -333,7 +371,9 @@ public final class BeamGlow {
         right = right.normalize().multiply(halfWidth);
 
         // Ground samples along the ray (x/z only; the ray's own y is the fallback plane).
-        for (int k = 0; k < SAMPLES; k++) {
+        // k = 0 走 startHeight：光柱的 GLOW 对照模式取的是同一个方法，灯口高度必须一模一样。
+        sampleHeight[0] = startHeight(world, origin);
+        for (int k = 1; k < SAMPLES; k++) {
             final double f = (double) k / (double) (SAMPLES - 1);
             final double t = length * f;
             final double x = origin.x + dir.x * t;
@@ -353,8 +393,8 @@ public final class BeamGlow {
         for (int i = 0; i < along; i++) {
             final double f0 = (double) i / (double) along;
             final double f1 = (double) (i + 1) / (double) along;
-            final float a0 = peak * lengthAlpha(f0);
-            final float a1 = peak * lengthAlpha(f1);
+            final float a0 = peak * lengthAlpha(f0) * rampAlpha(length * f0, fadeIn);
+            final float a1 = peak * lengthAlpha(f1) * rampAlpha(length * f1, fadeIn);
             if (a0 <= 0.001F && a1 <= 0.001F) {
                 continue;
             }
@@ -392,6 +432,19 @@ public final class BeamGlow {
     }
 
     /**
+     * 光带在灯口处的高度：脚下方块顶面（高度图），取不到或偏离射线超过
+     * {@value #MAX_DEVIATION} 格时退回轨道点自身的高度。
+     *
+     * <p>这是光带第一排顶点的 y，也是 {@link BeamGeom#apex} 给光柱用的同一个 y。两边都调这一个
+     * 方法，所以 {@code beamConeSource = GLOW} 时光柱的顶点和光带的灯口顶点逐位重合。
+     */
+    static double startHeight(final ClientWorld world, final Vec3d origin) {
+        final double ground = groundAt(world, origin.x, origin.z);
+        return !Double.isNaN(ground) && Math.abs(ground - origin.y) <= MAX_DEVIATION
+                ? ground : origin.y;
+    }
+
+    /**
      * Surface height under {@code (x, z)} from the heightmap, or {@link Double#NaN} when it cannot
      * be read. The vertical counterpart of the beam is the ray's own height, so any exception here
      * simply means "use the fallback plane".
@@ -422,6 +475,19 @@ public final class BeamGlow {
     /** Lateral falloff: 1.0 on the centre line, 0 at the rim ({@code u} in [-1,1]). */
     private static float lateralAlpha(final double u) {
         return (float) Math.max(0.0D, 1.0D - Math.abs(u));
+    }
+
+    /**
+     * Ramp-up: 0 at the lamp, 1 from {@code fadeIn} blocks on (smoothstep, so the slope is 0 at both
+     * ends and the ramp leaves no visible crease). {@code fadeIn <= 0} means no ramp (neither beam
+     * uses that any more; the parameter is kept because it is the natural "off" value).
+     */
+    private static float rampAlpha(final double t, final double fadeIn) {
+        if (fadeIn <= 1.0E-4D) {
+            return 1.0F;
+        }
+        final double x = Math.max(0.0D, Math.min(1.0D, t / fadeIn));
+        return (float) (x * x * (3.0D - 2.0D * x));
     }
 
     /** Writes one quad (4 vertices, additive, one colour) into the shared scratch. */

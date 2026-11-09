@@ -1,0 +1,736 @@
+[
+ {
+  "type": "SP1900",
+  "model": "mtr.model.ModelSP1900",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "SP1900_SMALL",
+  "model": "mtr.model.ModelSP1900Small",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "SP1900_MINI",
+  "model": "mtr.model.ModelSP1900Mini",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "C1141A",
+  "model": "mtr.model.ModelSP1900",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "C1141A_SMALL",
+  "model": "mtr.model.ModelSP1900Small",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "C1141A_MINI",
+  "model": "mtr.model.ModelSP1900Mini",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "M_TRAIN",
+  "model": "mtr.model.ModelMTrain",
+  "args": []
+ },
+ {
+  "type": "M_TRAIN_SMALL",
+  "model": "mtr.model.ModelMTrainSmall",
+  "args": []
+ },
+ {
+  "type": "M_TRAIN_MINI",
+  "model": "mtr.model.ModelMTrainMini",
+  "args": []
+ },
+ {
+  "type": "CM_STOCK",
+  "model": "mtr.model.ModelCMStock",
+  "args": []
+ },
+ {
+  "type": "CM_STOCK_SMALL",
+  "model": "mtr.model.ModelCMStockSmall",
+  "args": []
+ },
+ {
+  "type": "CM_STOCK_MINI",
+  "model": "mtr.model.ModelCMStockMini",
+  "args": []
+ },
+ {
+  "type": "MLR",
+  "model": "mtr.model.ModelMLR",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "MLR_SMALL",
+  "model": "mtr.model.ModelMLRSmall",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "MLR_MINI",
+  "model": "mtr.model.ModelMLRMini",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "MLR_CHRISTMAS",
+  "model": "mtr.model.ModelMLR",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "MLR_CHRISTMAS_SMALL",
+  "model": "mtr.model.ModelMLRSmall",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "MLR_CHRISTMAS_MINI",
+  "model": "mtr.model.ModelMLRMini",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "E44",
+  "model": "mtr.model.ModelE44",
+  "args": []
+ },
+ {
+  "type": "E44_MINI",
+  "model": "mtr.model.ModelE44Mini",
+  "args": []
+ },
+ {
+  "type": "R_TRAIN",
+  "model": "mtr.model.ModelRTrain",
+  "args": []
+ },
+ {
+  "type": "R_TRAIN_SMALL",
+  "model": "mtr.model.ModelRTrainSmall",
+  "args": []
+ },
+ {
+  "type": "R_TRAIN_MINI",
+  "model": "mtr.model.ModelRTrainMini",
+  "args": []
+ },
+ {
+  "type": "DRL",
+  "model": "mtr.model.ModelDRL",
+  "args": []
+ },
+ {
+  "type": "K_TRAIN",
+  "model": "mtr.model.ModelKTrain",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "K_TRAIN_SMALL",
+  "model": "mtr.model.ModelKTrainSmall",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "K_TRAIN_MINI",
+  "model": "mtr.model.ModelKTrainMini",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "K_TRAIN_TCL",
+  "model": "mtr.model.ModelKTrain",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "K_TRAIN_TCL_SMALL",
+  "model": "mtr.model.ModelKTrainSmall",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "K_TRAIN_TCL_MINI",
+  "model": "mtr.model.ModelKTrainMini",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "K_TRAIN_AEL",
+  "model": "mtr.model.ModelKTrain",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "K_TRAIN_AEL_SMALL",
+  "model": "mtr.model.ModelKTrainSmall",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "K_TRAIN_AEL_MINI",
+  "model": "mtr.model.ModelKTrainMini",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "C_TRAIN",
+  "model": "mtr.model.ModelCTrain",
+  "args": []
+ },
+ {
+  "type": "C_TRAIN_SMALL",
+  "model": "mtr.model.ModelCTrainSmall",
+  "args": []
+ },
+ {
+  "type": "C_TRAIN_MINI",
+  "model": "mtr.model.ModelCTrainMini",
+  "args": []
+ },
+ {
+  "type": "S_TRAIN",
+  "model": "mtr.model.ModelSTrain",
+  "args": []
+ },
+ {
+  "type": "S_TRAIN_SMALL",
+  "model": "mtr.model.ModelSTrainSmall",
+  "args": []
+ },
+ {
+  "type": "S_TRAIN_MINI",
+  "model": "mtr.model.ModelSTrainMini",
+  "args": []
+ },
+ {
+  "type": "A_TRAIN_TCL",
+  "model": "mtr.model.ModelATrain",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "A_TRAIN_TCL_SMALL",
+  "model": "mtr.model.ModelATrainSmall",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "A_TRAIN_TCL_MINI",
+  "model": "mtr.model.ModelATrainMini",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "A_TRAIN_AEL",
+  "model": "mtr.model.ModelATrain",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "A_TRAIN_AEL_MINI",
+  "model": "mtr.model.ModelATrainMini",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_1",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   1,
+   0
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_1_RHT",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   1,
+   1
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_1R",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   6,
+   0
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_1R_RHT",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   6,
+   1
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_2",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_2R",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_2_RHT",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_2R_RHT",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_3",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_3_RHT",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_3R",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   7,
+   0
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_3R_RHT",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   7,
+   1
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_4",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_4_RHT",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_5",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_5_RHT",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_1R_OLD",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   6,
+   0
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_1R_OLD_RHT",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   6,
+   1
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_4_OLD",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_4_OLD_RHT",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_5_OLD",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_5_OLD_RHT",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_1_ORANGE",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   1,
+   0
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_1_ORANGE_RHT",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   1,
+   1
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_1R_ORANGE",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   6,
+   0
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_1R_ORANGE_RHT",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   6,
+   1
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_2_ORANGE",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_2_ORANGE_RHT",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_3_ORANGE",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_3_ORANGE_RHT",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_4_ORANGE",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_4_ORANGE_RHT",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_5_ORANGE",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "LIGHT_RAIL_5_ORANGE_RHT",
+  "model": "mtr.model.ModelLightRail",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "LONDON_UNDERGROUND_D78",
+  "model": "mtr.model.ModelLondonUndergroundD78",
+  "args": []
+ },
+ {
+  "type": "LONDON_UNDERGROUND_D78_MINI",
+  "model": "mtr.model.ModelLondonUndergroundD78Mini",
+  "args": []
+ },
+ {
+  "type": "LONDON_UNDERGROUND_1995",
+  "model": "mtr.model.ModelLondonUnderground1995",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "LONDON_UNDERGROUND_1996",
+  "model": "mtr.model.ModelLondonUnderground1995",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "R179",
+  "model": "mtr.model.ModelR179",
+  "args": []
+ },
+ {
+  "type": "R179_MINI",
+  "model": "mtr.model.ModelR179Mini",
+  "args": []
+ },
+ {
+  "type": "R211",
+  "model": "mtr.model.ModelR211",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "R211_MINI",
+  "model": "mtr.model.ModelR211Mini",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "R211T",
+  "model": "mtr.model.ModelR211",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "R211T_MINI",
+  "model": "mtr.model.ModelR211Mini",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "CLASS_377_SOUTHERN",
+  "model": "mtr.model.ModelClass377",
+  "args": []
+ },
+ {
+  "type": "CLASS_802_GWR",
+  "model": "mtr.model.ModelClass802",
+  "args": []
+ },
+ {
+  "type": "CLASS_802_GWR_MINI",
+  "model": "mtr.model.ModelClass802Mini",
+  "args": []
+ },
+ {
+  "type": "CLASS_802_TPE",
+  "model": "mtr.model.ModelClass802",
+  "args": []
+ },
+ {
+  "type": "CLASS_802_TPE_MINI",
+  "model": "mtr.model.ModelClass802Mini",
+  "args": []
+ },
+ {
+  "type": "MPL_85",
+  "model": "mtr.model.ModelMPL85",
+  "args": []
+ },
+ {
+  "type": "BR_423",
+  "model": "mtr.model.ModelBR423",
+  "args": []
+ },
+ {
+  "type": "MINECART",
+  "model": null,
+  "args": []
+ },
+ {
+  "type": "OAK_BOAT",
+  "model": null,
+  "args": []
+ },
+ {
+  "type": "SPRUCE_BOAT",
+  "model": null,
+  "args": []
+ },
+ {
+  "type": "BIRCH_BOAT",
+  "model": null,
+  "args": []
+ },
+ {
+  "type": "JUNGLE_BOAT",
+  "model": null,
+  "args": []
+ },
+ {
+  "type": "ACACIA_BOAT",
+  "model": null,
+  "args": []
+ },
+ {
+  "type": "DARK_OAK_BOAT",
+  "model": null,
+  "args": []
+ },
+ {
+  "type": "NGONG_PING_360_CRYSTAL",
+  "model": "mtr.model.ModelNgongPing360",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "NGONG_PING_360_CRYSTAL_RHT",
+  "model": "mtr.model.ModelNgongPing360",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "NGONG_PING_360_CRYSTAL_PLUS",
+  "model": "mtr.model.ModelNgongPing360",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "NGONG_PING_360_CRYSTAL_PLUS_RHT",
+  "model": "mtr.model.ModelNgongPing360",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "NGONG_PING_360_NORMAL_RED",
+  "model": "mtr.model.ModelNgongPing360",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "NGONG_PING_360_NORMAL_RED_RHT",
+  "model": "mtr.model.ModelNgongPing360",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "NGONG_PING_360_NORMAL_ORANGE",
+  "model": "mtr.model.ModelNgongPing360",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "NGONG_PING_360_NORMAL_ORANGE_RHT",
+  "model": "mtr.model.ModelNgongPing360",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "NGONG_PING_360_NORMAL_LIGHT_BLUE",
+  "model": "mtr.model.ModelNgongPing360",
+  "args": [
+   0
+  ]
+ },
+ {
+  "type": "NGONG_PING_360_NORMAL_LIGHT_BLUE_RHT",
+  "model": "mtr.model.ModelNgongPing360",
+  "args": [
+   1
+  ]
+ },
+ {
+  "type": "A320",
+  "model": "mtr.model.ModelA320",
+  "args": []
+ },
+ {
+  "type": "FLYING_MINECART",
+  "model": null,
+  "args": []
+ }
+]

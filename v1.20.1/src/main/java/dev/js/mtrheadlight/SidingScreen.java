@@ -23,7 +23,7 @@ import java.util.Map;
 
 /**
  * The siding list of the "按侧线配置" screen: one row per siding, its current light state on the
- * right, and the whole row opens {@link SidingDetailScreen}.
+ * right, and the whole row opens {@link CategoryScreen}.
  *
  * <p>A train carries the siding it came from ({@code Train.sidingId}), so this is a direct map from
  * the player's choice to the light filter, with no guessing about depots or route names.
@@ -99,6 +99,8 @@ public final class SidingScreen extends Screen {
     private static final int NEAR_DEPOT = 48;
 
     private final Screen parent;
+    /** 主界面 {@link ConfigScreen}：分区页 / 行页的「返回主界面」直接跳它，不是逐级回退。 */
+    private final Screen root;
 
     /** Every siding of the world, sorted by label - never filtered, so the column width is stable. */
     private List<Siding> all = List.of();
@@ -139,9 +141,10 @@ public final class SidingScreen extends Screen {
     private Text[] rowState = new Text[0];
     private int[] rowColor = new int[0];
 
-    public SidingScreen(final Screen parent) {
+    public SidingScreen(final Screen parent, final Screen root) {
         super(tr("sidings.title"));
         this.parent = parent;
+        this.root = root == null ? parent : root;
     }
 
     private static MutableText tr(final String key, final Object... args) {
@@ -164,7 +167,7 @@ public final class SidingScreen extends Screen {
                 }
             }
         } catch (RuntimeException e) {
-            MtrHeadlightClient.LOGGER.warn("[mtr-headlight] could not read SIDINGS", e);
+            MtrHeadlightClient.LOGGER.warn("[lte] could not read SIDINGS", e);
         }
         loaded.sort(Comparator.comparing(ParameterScreen::describe));
         this.all = loaded;
@@ -191,7 +194,7 @@ public final class SidingScreen extends Screen {
                 }
             }
         } catch (RuntimeException e) {
-            MtrHeadlightClient.LOGGER.warn("[mtr-headlight] could not read DEPOTS", e);
+            MtrHeadlightClient.LOGGER.warn("[lte] could not read DEPOTS", e);
         }
         this.hasDepots = !depots.isEmpty();
         for (final Siding siding : this.all) {
@@ -582,14 +585,15 @@ public final class SidingScreen extends Screen {
 
     private void open(final Siding siding) {
         if (this.client != null && siding != null) {
-            this.client.setScreen(new SidingDetailScreen(this, siding));
+            // 先进这条侧线的分区列表，不是直接一屏滑条：back = 本列表，root = 主界面。
+            this.client.setScreen(new CategoryScreen(this, this.root, siding));
         }
     }
 
     /** The same list as a top-down plan; the two views are siblings, neither replaces the other. */
     private void openMap() {
         if (this.client != null) {
-            this.client.setScreen(new SidingMapScreen(this));
+            this.client.setScreen(new SidingMapScreen(this, this.root));
         }
     }
 

@@ -1,0 +1,15 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "dev.js.mtrheadlight.mixin.mtr",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "lte.refmap.json",
+  "plugin": "dev.js.mtrheadlight.mixin.mtr.MtrMixinPlugin",
+  "client": [
+    "TrainClientRegistryMixin",
+    "RenderSignalBaseMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

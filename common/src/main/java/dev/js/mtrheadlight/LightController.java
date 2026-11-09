@@ -71,12 +71,18 @@ public final class LightController {
     /** Monotonic client tick counter, used only to age lights that went missing. */
     private static long tickCounter;
 
+    /** 露天/开关灯诊断的窗口长度：100 client ticks = 5 s（题目要求的"每 5 秒"）。 */
+    private static final int WEATHER_DIAG_TICKS = 100;
+    /** 一个窗口最多打几行车：列车多的存档 5 秒刷几十行没有意义，取前 8 列。 */
+    private static final int WEATHER_DIAG_MAX = 8;
+
     private LightController() {
     }
 
     public static void clear() {
         LightBackends.backend().clearAll();
         ACTIVE.clear();
+        BeamBlockLight.clear();
     }
 
     /** Rebuild every light from scratch (config screen button). */
@@ -94,6 +100,7 @@ public final class LightController {
             ACTIVE.clear();
             LightBackends.backend().clearAll();
             TrainPose.clearCache();
+            VehicleLights.clearCache();
             lastWorld = world;
             tickCounter = 0L;
         }
@@ -121,6 +128,16 @@ public final class LightController {
         final Vec3d eye = client.player.getPos();
         final Set<String> seen = new HashSet<>();
         final List<TrainClient> trains = snapshotTrains();
+        /*
+         * Block-light beams for the section mesher (BeamBlockLight). Collected here because this
+         * is the only place the head/tail segments of a train are computed with the per-siding
+         * overrides and the auto switch already applied, so the baked light and the drawn sheet
+         * can never disagree about where the lamp is. Allocated only when the feature is on: with
+         * the default off this tick costs one boolean.
+         */
+        final double[] beams = cfg.beamBlockLight
+                ? new double[BeamBlockLight.MAX_BEAMS * BeamBlockLight.STRIDE] : null;
+        int beamCount = 0;
         // Every train the client knows about this tick, whether or not it passes the gates below:
         // the mass-clear test asks "did it leave the data set", not "did it survive our filters".
         // Built with DepartureState's key format, which is documented to match ours, so the two
@@ -131,6 +148,10 @@ public final class LightController {
                 known.add(DepartureState.keyOf(train));
             }
         }
+
+        // 露天/开关灯诊断的收集器：只在窗口那一 tick 分配，其余 99 tick 是 null。
+        final List<String> skyLines = cfg.weatherDiagnostics
+                && tickCounter % WEATHER_DIAG_TICKS == 0L ? new ArrayList<String>() : null;
 
         for (final TrainClient train : trains) {
             if (train == null || train.isRemoved || train.path.isEmpty() || train.trainCars <= 0) {
@@ -192,6 +213,13 @@ public final class LightController {
             }
             tracked.unplacedTicks = 0;
 
+            // 车灯开关模式（headlightMode）与环境判定：唯一信号源是 HeadlightSwitch，光带与
+            // 轨道烘焙也问同一个方法。AUTO 时白天露天关灯、暗（夜 / 天黑 / 雨 / 雷）或头顶有
+            // 遮挡开灯；ALWAYS / OFF 不做自动关灯，一发车就亮。
+            // 这是一道"输出前"的闸，不是第二套状态机——DepartureState 仍然只回答"发车了没有"，
+            // 这里回答"现在这个位置/时刻该不该亮"。
+            final boolean weatherLit = HeadlightSwitch.isLit(world, pose, cfg);
+
             // Per-end judgement: the beam belongs to the front car, the tail light to the rear car.
             // Both distances use the same boundary the light is built from.
             final double frontDistance = pose.front().distanceTo(eye);
@@ -212,13 +240,48 @@ public final class LightController {
                 continue;
             }
 
+            // 灯位绑定诊断：这列车第一次真正被点亮时打一行
+            // `lights: model=<id> slots=N head=K tail=M source=name|default`，
+            // 说明模型是靠组名+几何命中的，还是退到了默认位。放在"已过距离闸"之后，
+            // 所以日志只描述玩家看得见的车，不会把装包里 300 多个车型全打一遍。
+            VehicleLights.announce(train);
+
             final EndLight head = headSegment(pose, cfg, eff);
             final EndLight tail = tailSegment(pose, cfg, eff);
 
             tracked.update(backend, key, head, tail,
-                    frontDistance <= viewLimit, rearDistance <= viewLimit, eff);
+                    weatherLit && frontDistance <= viewLimit,
+                    weatherLit && rearDistance <= viewLimit, eff);
             tracked.lastSeen = tickCounter;
             seen.add(key);
+
+            if (beams != null && beamCount + 2 <= BeamBlockLight.MAX_BEAMS) {
+                if (weatherLit && frontDistance <= viewLimit) {
+                    beamCount = putBeam(beams, beamCount, head, cfg.beamBlockLightRadius,
+                            cfg.headLuminance);
+                }
+                if (weatherLit && rearDistance <= viewLimit) {
+                    // A tail light is a marker, not a searchlight: its beam is four blocks long and
+                    // its whole point is being seen, so it gets a small radius instead of the full
+                    // beam one - otherwise it would double the number of sections to rebuild.
+                    beamCount = putBeam(beams, beamCount, tail,
+                            Math.min(cfg.beamBlockLightRadius, 6), cfg.tailLuminance);
+                }
+            }
+
+            weatherLine(world, pose, cfg, skyLines);
+        }
+
+        // 诊断窗口的收尾：一行/车（最多 8 行）+ 一条"采样了几列 / 数据里共几列 / 引擎里还有几盏"。
+        // ldl 是动态光源后端此刻真正登记的段数：lit=off 的那一窗它必须下降（全灭则为 0），
+        // 只在增长就说明光源没跟着车灯一起摘掉。
+        if (skyLines != null) {
+            for (int i = 0; i < skyLines.size(); i++) {
+                MtrHeadlightClient.LOGGER.info("[lte] {}", skyLines.get(i));
+            }
+            MtrHeadlightClient.LOGGER.info("[lte] auto light: sampled={} trains={} ldl={}",
+                    Integer.valueOf(skyLines.size()), Integer.valueOf(known.size()),
+                    Integer.valueOf(backend.liveSources()));
         }
 
         // ---- Mass-clear fast path (MTR "刷新线路" / "清除车辆") ---------------------------------
@@ -289,10 +352,43 @@ public final class LightController {
             it.remove();
         }
 
+        BeamBlockLight.publish(beams == null ? null : trimBeams(beams, beamCount));
         RailRelightHooks.tick(cfg, tickCounter);
         // tracked/missing are the numbers the decision above used (before the batch was removed),
         // so "tracked=12 missing=12 massClear=12" reads as one event rather than as an empty state.
         ClearDiag.tick(cfg.massClearDiagnostics, tickCounter, trackedCount, missingNow);
+    }
+
+    /**
+     * Appends one beam to the {@link BeamBlockLight} scratch buffer; returns the new count.
+     *
+     * <p>{@code peak} is a block-light level (0-15), not the drawn luminance: the sheet's alpha
+     * and the baked nibble are different scales, and the light one is what the player sees on a
+     * wall. Clamped here so a hand-edited config cannot produce a negative nibble.
+     */
+    private static int putBeam(final double[] buffer, final int index, final EndLight light,
+                               final int radius, final int peak) {
+        if (light == null || radius <= 0 || peak <= 0) {
+            return index;
+        }
+        final int o = index * BeamBlockLight.STRIDE;
+        buffer[o] = light.start.x;
+        buffer[o + 1] = light.start.y;
+        buffer[o + 2] = light.start.z;
+        buffer[o + 3] = light.end.x;
+        buffer[o + 4] = light.end.y;
+        buffer[o + 5] = light.end.z;
+        buffer[o + 6] = radius;
+        buffer[o + 7] = Math.min(15, peak);
+        return index + 1;
+    }
+
+    /** Copies the used prefix so the published array is exactly as long as the beam count. */
+    private static double[] trimBeams(final double[] buffer, final int count) {
+        final int used = count * BeamBlockLight.STRIDE;
+        final double[] out = new double[used];
+        System.arraycopy(buffer, 0, out, 0, used);
+        return out;
     }
 
     /**
@@ -323,6 +419,27 @@ public final class LightController {
         return EndLight.of(base, dir, offset, length, tipDrop, height);
     }
 
+    /**
+     * One line of the 5-second auto-light diagnostic, appended to {@code out} (null outside the
+     * window). Format:
+     * {@code auto light: mode=AUTO openSky=true night=true sky=0.20 lit=on}.
+     *
+     * <p>Built by {@link HeadlightSwitch#diagnose}, i.e. by the same call the gate itself uses, so
+     * {@code lit} in the log is the gate's answer and not a second opinion. Every field is
+     * independent, so one line localises a failure: {@code mode} is the setting, {@code openSky}
+     * the raw open-sky verdict, {@code night} the world-clock verdict, {@code sky} the sky
+     * brightness (0.20 midnight … 1.00 noon) and {@code lit} the final answer. {@code lit=on}
+     * with {@code openSky=true night=false sky=1.00} is a rain/thunder light; {@code lit=off
+     * openSky=true night=true} would mean the clock verdict is broken.
+     */
+    private static void weatherLine(final ClientWorld world, final TrainPose pose,
+                                    final HeadlightConfig cfg, final List<String> out) {
+        if (out == null || out.size() >= WEATHER_DIAG_MAX) {
+            return;
+        }
+        out.add(HeadlightSwitch.diagnose(world, pose, cfg));
+    }
+
     private static List<TrainClient> snapshotTrains() {
         try {
             return new ArrayList<>(ClientData.TRAINS);
@@ -341,35 +458,73 @@ public final class LightController {
         // The travel direction is NOT kept here: DepartureState already derives it once per tick
         // from the rail-progress delta, and both the light tick and the beam renderer read it from
         // there, so the two cannot disagree about which end is the nose.
+        /**
+         * Whether each end is currently handed to the light engine. This is the state the
+         * on/off transition is driven from - not a per-tick guess - so a light that is switched
+         * off is detached exactly once and a light that stays off costs nothing.
+         */
+        boolean headLit;
+        boolean tailLit;
 
         void update(final LightBackend backend, final String key, final EndLight head, final EndLight tail,
                     final boolean showHead, final boolean showTail, final HeadlightConfig.Effective eff) {
             if (head != null) {
                 lastHeadStart = head.start;
                 lastHeadEnd = head.end;
-                if (showHead) {
-                    backend.updateLine(key + "#head", head.start, head.end, eff.headLuminance);
-                } else {
-                    backend.hideLine(key + "#head");
-                }
             }
-            if (tail != null) {
-                if (showTail) {
-                    backend.updateLine(key + "#tail", tail.start, tail.end, eff.tailLuminance);
-                } else {
-                    backend.hideLine(key + "#tail");
+            headLit = applyEnd(backend, key + "#head", head, showHead, headLit, eff.headLuminance);
+            tailLit = applyEnd(backend, key + "#tail", tail, showTail, tailLit, eff.tailLuminance);
+        }
+
+        /**
+         * One end's state transition.
+         *
+         * <p><b>On</b>: register / move / set the luminance, as before. <b>Off</b>: DETACH the
+         * segment (<i>once</i>, on the transition tick) instead of leaving it registered at
+         * luminance 0.
+         *
+         * <p>Why detaching and not just dimming: LambDynamicLights 4.x bakes a behaviour's light
+         * into the chunk meshes it touches and only re-bakes what a behaviour reports through
+         * {@code hasChanged()}. Writing 0 into a live behaviour is one such report, but it only
+         * guarantees "the source is dim now" - an engine-side copy of the previous luminance (or a
+         * section that is not re-sampled) leaves the ground lit while the beam sheet is already
+         * dark, which is exactly the "灯灭了，LDL 那盏点光源还在照地面" report. A removal goes
+         * through the engine's own detach path, which drops the behaviour and re-lights its
+         * sections - the same path a despawned train already used.
+         *
+         * @return whether the end should be considered lit after this call
+         */
+        private static boolean applyEnd(final LightBackend backend, final String key, final EndLight end,
+                                        final boolean show, final boolean wasLit, final int luminance) {
+            if (show) {
+                if (end == null) {
+                    // Degenerate heading: nothing to place, keep the previous state so a valid
+                    // direction next tick does not churn the engine.
+                    return wasLit;
                 }
+                backend.updateLine(key, end.start, end.end, luminance);
+                return true;
             }
+            if (wasLit) {
+                backend.removeLine(key);
+            }
+            return false;
         }
 
         void hide(final LightBackend backend, final String key) {
             backend.hideLine(key + "#head");
             backend.hideLine(key + "#tail");
+            // A hidden line is registered but emits nothing; recording it as "not lit" means the
+            // next switch-off transition has nothing to detach.
+            headLit = false;
+            tailLit = false;
         }
 
         void remove(final LightBackend backend, final String key) {
             backend.removeLine(key + "#head");
             backend.removeLine(key + "#tail");
+            headLit = false;
+            tailLit = false;
         }
 
         /** Whether the last known head beam is still close enough to be on screen. */

@@ -39,7 +39,9 @@ build_one() {
   local log="/d/MC-MTR-JS/temp/build-${mc}.log"
   local ok=1
   for attempt in 1 2 3; do
-    "$GRADLE" build --no-daemon "${HTTP[@]}" > "$log" 2>&1 && { ok=0; break; }
+    # clean every time: a stale build/libs or classes dir from an earlier (possibly parallel) run
+    # is exactly how the wrong jar ends up on the Desktop.
+    "$GRADLE" clean build --no-daemon "${HTTP[@]}" > "$log" 2>&1 && { ok=0; break; }
     echo "   第 $attempt 次构建失败，重试…"
     grep -E "Could not|错误|error:" "$log" | head -3
     sleep 5
@@ -51,9 +53,13 @@ build_one() {
 
   local ver
   ver=$(grep -m1 '^mod_version=' "$ROOT/$dir/gradle.properties" | cut -d= -f2)
-  local out="$ROOT/$dir/build/libs/mtr-external-lights-$ver.jar"
-  cp -f "$out" "$DESK/mtr-external-lights-$ver+$mc.jar"
-  echo "   ok -> 桌面/mtr-external-lights-$ver+$mc.jar ($(stat -c%s "$out") 字节)"
+  local out="$ROOT/$dir/build/libs/lte-$ver.jar"
+  if [ ! -f "$out" ]; then
+    echo "   !! 找不到 $out"
+    return
+  fi
+  cp -f "$out" "$DESK/lte-$ver+$mc.jar"
+  echo "   ok -> 桌面/lte-$ver+$mc.jar ($(stat -c%s "$out") 字节)"
 }
 
 for d in "$@"; do

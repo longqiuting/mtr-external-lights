@@ -231,10 +231,10 @@ public final class RailRelightScheduler implements RailRelightHooks.Hook {
      */
     public static void install() {
         if (!RailRelightDispatcher.available()) {
-            MtrHeadlightClient.LOGGER.warn("[mtr-headlight] rail relight: no ANTE/NTE dispatcher found, skipping");
+            MtrHeadlightClient.LOGGER.warn("[lte] rail relight: no ANTE/NTE dispatcher found, skipping");
             return;
         }
-        MtrHeadlightClient.LOGGER.info("[mtr-headlight] rail relight scheduler installed");
+        MtrHeadlightClient.LOGGER.info("[lte] rail relight scheduler installed");
         final RailRelightScheduler scheduler = new RailRelightScheduler();
         installed = scheduler;
         RailRelightHooks.install(scheduler);
@@ -386,6 +386,14 @@ public final class RailRelightScheduler implements RailRelightHooks.Hook {
                 continue;
             }
             if (front.add(rear).multiply(0.5D).distanceTo(eye) > eff.maxDistance) {
+                continue;
+            }
+            // Third consumer of the one switch: a train the auto gate turned off is not a light
+            // source any more, so its rail chunks must stop being sampled/queued - and the chunk
+            // it last lit is handed back (release) exactly like a despawned train, otherwise the
+            // rails keep the brightness that was baked there on the last lit frame.
+            if (!HeadlightSwitch.isLit(client.world, pose, cfg)) {
+                release(cfg, train.id);
                 continue;
             }
             if (segments + 1 > maxSegments) {

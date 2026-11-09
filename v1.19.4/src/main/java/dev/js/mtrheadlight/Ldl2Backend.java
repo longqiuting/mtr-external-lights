@@ -342,7 +342,7 @@ public final class Ldl2Backend implements LightBackend {
                 }
             }
         } catch (Throwable t) {
-            MtrHeadlightClient.LOGGER.debug("[mtr-headlight] could not add light source", t);
+            MtrHeadlightClient.LOGGER.debug("[lte] could not add light source", t);
         }
     }
 
@@ -373,7 +373,7 @@ public final class Ldl2Backend implements LightBackend {
                     engine == null ? "null" : engine.getClass().getName(),
                     engine == null ? -1 : engine.getLightSourcesCount());
         } catch (Throwable t) {
-            MtrHeadlightClient.LOGGER.warn("[mtr-headlight] ldl2 init probe failed", t);
+            MtrHeadlightClient.LOGGER.warn("[lte] ldl2 init probe failed", t);
         }
     }
 
@@ -395,7 +395,7 @@ public final class Ldl2Backend implements LightBackend {
             }
         } catch (Throwable t) {
             // Diagnostics must never break the tick.
-            MtrHeadlightClient.LOGGER.debug("[mtr-headlight] ldl2 diag failed", t);
+            MtrHeadlightClient.LOGGER.debug("[lte] ldl2 diag failed", t);
         }
     }
 
@@ -461,7 +461,7 @@ public final class Ldl2Backend implements LightBackend {
             lastRegistryLine = registry;
             try {
                 MtrHeadlightClient.LOGGER.info(
-                        "[mtr-headlight] ldl2 registry: ours={} ldlTotal={} ldlOthers={}"
+                        "[lte] ldl2 registry: ours={} ldlTotal={} ldlOthers={}"
                                 + " adds={} removes={} updates={} suspended={}",
                         sourceCount, total, others, addCount, removeCount, updated,
                         !registrationEnabled());
@@ -544,7 +544,7 @@ public final class Ldl2Backend implements LightBackend {
                     engine.getLightSourcesCount(), engine.getLastUpdateCount(),
                     Integer.toHexString(baked), Integer.toHexString(vanilla), baked != vanilla);
         } catch (Throwable t) {
-            MtrHeadlightClient.LOGGER.warn("[mtr-headlight] ldl probe failed", t);
+            MtrHeadlightClient.LOGGER.warn("[lte] ldl probe failed", t);
         }
     }
 
@@ -569,7 +569,7 @@ public final class Ldl2Backend implements LightBackend {
             }
             return wasRegistered;
         } catch (Throwable t) {
-            MtrHeadlightClient.LOGGER.debug("[mtr-headlight] could not remove light source", t);
+            MtrHeadlightClient.LOGGER.debug("[lte] could not remove light source", t);
             return false;
         }
     }
@@ -582,7 +582,7 @@ public final class Ldl2Backend implements LightBackend {
             return true;
         } catch (Throwable t) {
             // A missing/renamed LDL helper must not break the tick; the light just stays stale.
-            MtrHeadlightClient.LOGGER.debug("[mtr-headlight] could not schedule a chunk rebuild", t);
+            MtrHeadlightClient.LOGGER.debug("[lte] could not schedule a chunk rebuild", t);
             return false;
         }
     }
@@ -645,7 +645,7 @@ public final class Ldl2Backend implements LightBackend {
             }
             return marked;
         } catch (Throwable t) {
-            MtrHeadlightClient.LOGGER.debug("[mtr-headlight] could not mark light sections dirty", t);
+            MtrHeadlightClient.LOGGER.debug("[lte] could not mark light sections dirty", t);
             return 0;
         }
     }
@@ -1070,7 +1070,7 @@ public final class Ldl2Backend implements LightBackend {
             try {
                 markLight(renderer, new PointLight[]{this}, 1, world);
             } catch (Throwable t) {
-                MtrHeadlightClient.LOGGER.debug("[mtr-headlight] could not clear a light", t);
+                MtrHeadlightClient.LOGGER.debug("[lte] could not clear a light", t);
             }
         }
     }

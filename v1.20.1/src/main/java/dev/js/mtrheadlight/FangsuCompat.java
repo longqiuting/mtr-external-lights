@@ -72,7 +72,7 @@ public final class FangsuCompat {
         try {
             if (present()) {
                 MtrHeadlightClient.LOGGER.info(
-                        "[mtr-headlight] 方速 (fangsu) detected: its extra rail model layers are built "
+                        "[lte] 方速 (fangsu) detected: its extra rail model layers are built "
                                 + "from ANTE's own rail chunk classes, so the light redirect and "
                                 + "registerLightUpdate cover them; the hand-built turnout OBJ is lit by "
                                 + "the optional fangsu mixins (FangsuTurnoutRenderMixin + "

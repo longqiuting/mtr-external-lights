@@ -7,7 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public final class MtrHeadlightClient implements ClientModInitializer {
-    public static final Logger LOGGER = LoggerFactory.getLogger("mtr-headlight");
+    public static final Logger LOGGER = LoggerFactory.getLogger("lte");
     private static HeadlightConfig config = new HeadlightConfig();
 
     public static HeadlightConfig config() {
@@ -38,7 +38,7 @@ public final class MtrHeadlightClient implements ClientModInitializer {
 
     /**
      * Opens the config screen on the client thread. The single entry point used by the
-     * {@code /externallights} command and by the key binding, so the two can never drift apart.
+     * {@code /mtr_lte} command and by the key binding, so the two can never drift apart.
      *
      * <p>{@code client.send} is required: both callers can run off the render thread (a command is
      * executed on the main thread, a key press is polled from the tick), and creating a screen is
@@ -49,7 +49,7 @@ public final class MtrHeadlightClient implements ClientModInitializer {
             final MinecraftClient client = MinecraftClient.getInstance();
             client.send(() -> client.setScreen(new ConfigScreen(client.currentScreen)));
         } catch (Throwable t) {
-            LOGGER.warn("[mtr-headlight] could not open the config screen", t);
+            LOGGER.warn("[lte] could not open the config screen", t);
         }
     }
 
@@ -64,24 +64,24 @@ public final class MtrHeadlightClient implements ClientModInitializer {
                 LightController.tick();
             } catch (Throwable t) {
                 // Never let a lighting bug take the client down.
-                LOGGER.error("[mtr-headlight] tick failed", t);
+                LOGGER.error("[lte] tick failed", t);
             }
         });
         try {
             Commands.register();
         } catch (Throwable t) {
             // Command API differs between versions; the Mod Menu entry still works without it.
-            LOGGER.warn("[mtr-headlight] could not register /externallights", t);
+            LOGGER.warn("[lte] could not register /mtr_lte", t);
         }
         try {
             RenderHooks.init();
         } catch (Throwable t) {
-            LOGGER.warn("[mtr-headlight] could not register the rail render hooks", t);
+            LOGGER.warn("[lte] could not register the rail render hooks", t);
         }
         // Which host's rail mixins are actually live in this instance. Printed again from the tick
         // as soon as the host class loads, because the other mod's initializer may still be pending.
         RailChunkBuildBoost.report();
-        LOGGER.info("[mtr-headlight] client initialised (head={} tail={} len={}/{})",
+        LOGGER.info("[lte] client initialised (head={} tail={} len={}/{})",
                 config.headLuminance, config.tailLuminance, config.headLength, config.tailLength);
     }
 }

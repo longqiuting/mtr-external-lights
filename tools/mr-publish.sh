@@ -6,14 +6,14 @@
 #   bash tools/mr-publish.sh 1.20.1 0.1.2
 #
 # token 来源（按顺序）：$MODRINTH_TOKEN → ~/.modrinth_token
-# 令牌不会打印。jar 从桌面取：~/Desktop/mtr-external-lights-<版本号>+<mc>.jar
+# 令牌不会打印。jar 从桌面取：~/Desktop/lte-<版本号>+<mc>.jar
 set -euo pipefail
 
 MC=${1:?用法: mr-publish.sh <mc版本> <版本号> [changelog文件]}
 VER=${2:?用法: mr-publish.sh <mc版本> <版本号> [changelog文件]}
 CHANGELOG_FILE=${3:-}
 PROJECT_ID=S4MLXR8U
-UA='longqiuting/mtr-external-lights'
+UA='longqiuting/lte'
 API=https://api.modrinth.com/v2
 
 TOK=${MODRINTH_TOKEN:-}
@@ -26,7 +26,7 @@ if [ -z "$TOK" ]; then
 fi
 
 DESK="$HOME/Desktop"
-JAR="$DESK/mtr-external-lights-$VER+$MC.jar"
+JAR="$DESK/lte-$VER+$MC.jar"
 JARWIN=$(cygpath -w "$JAR" 2>/dev/null || echo "$JAR")
 if [ ! -f "$JAR" ]; then
   echo "找不到 jar: $JAR" >&2
@@ -46,7 +46,7 @@ trap 'rm -rf "$TMP"' EXIT
 if [ -n "$CHANGELOG_FILE" ] && [ -f "$CHANGELOG_FILE" ]; then
   CHANGELOG=$(cat "$CHANGELOG_FILE")
 else
-  CHANGELOG="MTR external lights $VER"
+  CHANGELOG="LTE $VER"
 fi
 export CHANGELOG MC VER HOST PROJECT_ID
 

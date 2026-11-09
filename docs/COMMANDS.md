@@ -12,7 +12,8 @@
 | 指令 | 作用 |
 |---|---|
 | `/mtr_lte` | 打开 LTE 控制面板（与按键绑定同一个入口） |
-| `/mtr_lte beam3d` | 打开 3D 光束编辑器 |
+| `/mtr_lte beam3d` | 打开 3D 光束编辑器（默认选世界里在用的车型） |
+| `/mtr_lte beam3d <车型id>` | 同上，直接打开指定车型 |
 
 ### 车灯
 
@@ -49,6 +50,7 @@
 | `/mtr_lte cone volume on\|off` | `off`（默认）= 壳层路径（已验证可见）；`on` = 实验性 raymarch 体积光 |
 | `/mtr_lte cone occl on\|off` | raymarch 是否做深度遮挡（仅 volume 模式有效） |
 | `/mtr_lte cone steps <N>` | raymarch 步进数（性能 / 质量权衡） |
+| `/mtr_lte cone tail on\|off` | 尾灯是否也画光柱；`off`（默认）= 只给头灯，尾灯位仍用于动态光/光带 |
 
 ### 调试（不写入配置，退出游戏即失效）
 
@@ -171,7 +173,7 @@
 | `trainCollisionDamageSpeedScaleKmh` | `100` | 速度尺度 |
 | `trainCollisionFlyDamageScale` | `1.0` | 飞行档伤害倍率 |
 | `trainCollisionDamageMax` | — | 单次结算上限 |
-| `trainCollisionHurtTicks` | `500` | 撞击后持续掉血窗口（tick） |
+| `trainCollisionHurtTicks` | `120` | 撞击后持续掉血窗口（tick，40–600 = 2–30 s） |
 | `knockbackDistance` | `5.5` | 撞飞水平距离（格，1–20） |
 | `trainCollisionLaunchHorizontal` / `trainCollisionLaunchVertical` | `0.45` | 撞飞竖直初速（滞空约 0.5 s） |
 | `trainCollisionFlyHorizontal` / `trainCollisionFlyVertical` | `0.60` | 高速撞飞竖直初速（约 0.7 s） |
@@ -208,7 +210,9 @@
 | 50–80 | 撞飞（滞空约 0.5 s） + 高速伤害 |
 | ≥ 80 | 更大冲量 + 飞行档伤害 |
 
-- 撞击后有 `trainCollisionHurtTicks`（默认 25 s）的持续掉血窗口 —— 接触本身只有几 tick，靠接触期伤害永远死不了。
+- 撞击后有 `trainCollisionHurtTicks`（默认 120 tick = 6 s，钳制 40–600）的持续掉血窗口 —— 接触本身只有几 tick，靠接触期伤害永远死不了。伤害速率公式不变，窗口只是不再拖 25 秒；被撞飞（真的给了冲量）的在第一次落地一次结算完剩余预算。
+- 撞飞冲量锁到落地为止（`isOnGround()` 或脚底离地 < 0.1 格），滞空期间不做「跟车走」的速度推送，落地后也不会被反复弹。
+- 持续掉血窗口内每 tick 清 `hurtTime/maxHurtTime`（受击镜头不抖不歪），窗口一结束立刻恢复；其它伤害源的受击表现不受影响。
 - 致死那一击走 `LivingEntity#damage(TrainImpactDamageSource)`，因此死亡屏与死亡消息正常。
 - 创造 / 旁观默认免疫；创造模式想受伤需打开 `damageInCreative`。
 - 死亡消息：

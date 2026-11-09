@@ -1,23 +1,36 @@
 {
   "schemaVersion": 1,
-  "id": "mtr_headlight",
+  "id": "mtrlte",
   "version": "${version}",
-  "name": "MTR external lights",
-  "description": "Adds dynamic head and tail lights to Minecraft Transit Railway trains. Client side only, read-only towards MTR: no blocks are placed and no train logic is modified.",
+  "name": "LTE (LTY's transit expansion)",
+  "description": "Adds dynamic head and tail lights to Minecraft Transit Railway trains. Client side is read-only towards MTR: no blocks are placed and no train logic is modified. Install it on the server as well and train collisions damage, launch and kill you server-side (with a custom death message); without it on the server the mod keeps working client-side only.",
   "authors": [
     "厦航在拍车的无名机长 (kigurumiLTY)"
   ],
   "license": "MIT",
   "icon": "icon.png",
-  "environment": "client",
+  "environment": "*",
   "mixins": [
-    "mtr_headlight.ante.mixins.json",
-    "mtr_headlight.fangsu.mixins.json",
-    "mtr_headlight.nte.mixins.json"
+    "mtrlte.ante.mixins.json",
+    "mtrlte.collision.mixins.json",
+    "mtrlte.fangsu.mixins.json",
+    "mtrlte.nte.mixins.json",
+    "mtrlte.rain.mixins.json",
+    "mtrlte.mtr.mixins.json",
+    "mtrlte.mtrserver.mixins.json",
+    "mtrlte.beamlight.mixins.json"
   ],
   "entrypoints": {
+    "main": [
+      "dev.js.mtrheadlight.server.LteServer",
+      "dev.js.mtrheadlight.VehicleLightsJsonServer"
+    ],
     "client": [
-      "dev.js.mtrheadlight.MtrHeadlightClient"
+      "dev.js.mtrheadlight.MtrHeadlightClient",
+      "dev.js.mtrheadlight.collision.CollisionBootstrap",
+      "dev.js.mtrheadlight.mtr.BuiltInTrainsInit",
+      "dev.js.mtrheadlight.VehicleLightsJsonClient",
+      "dev.js.mtrheadlight.signal.SignalLinkClient"
     ],
     "lambdynlights:initializer": [
       "dev.js.mtrheadlight.MtrHeadlightDynamicLights"
@@ -31,8 +44,10 @@
     "minecraft": "~1.20.1",
     "java": ">=17",
     "fabric-api": "*",
-    "lambdynlights": ">=4.4.0",
-    "lambdynlights_api": ">=4.4.0",
     "mtr": "*"
+  },
+  "recommends": {
+    "lambdynlights": ">=4.4.0",
+    "lambdynlights_api": ">=4.4.0"
   }
 }

@@ -47,5 +47,7 @@ final class GlowCompat {
         RenderSystem.depthMask(true);
         RenderSystem.defaultBlendFunc();
         RenderSystem.enableCull();
+        // 还回全局 shader 状态：调用方（以及之后渲染的粒子/天气）默认会继承它。
+        RenderSystem.setShader(GameRenderer::getPositionColorProgram);
     }
 }

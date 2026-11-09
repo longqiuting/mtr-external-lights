@@ -175,7 +175,7 @@ public abstract class ParameterScreen extends Screen {
 
     protected ParameterScreen(final Screen parent, final Siding siding) {
         super(siding == null
-                ? tr("screen.mtr_headlight.config")
+                ? tr("screen.mtrlte.config")
                 : tr("detail.title", Long.toString(siding.id), nameOf(siding)));
         this.parent = parent;
         this.siding = siding;
@@ -192,7 +192,7 @@ public abstract class ParameterScreen extends Screen {
         return this.siding == null;
     }
 
-    /** Translation lookup; every literal is in assets/mtr_headlight/lang. */
+    /** Translation lookup; every literal is in assets/mtrlte/lang. */
     static MutableText tr(final String key, final Object... args) {
         return Text.translatable(key, args);
     }
@@ -283,7 +283,7 @@ public abstract class ParameterScreen extends Screen {
         }
         layoutLogged = true;
         MtrHeadlightClient.LOGGER.info(
-                "[mtr-headlight] config layout {}x{} ({}): column x={} w={}, left cell x={} w={},"
+                "[lte] config layout {}x{} ({}): column x={} w={}, left cell x={} w={},"
                         + " right cell x={} w={}, reset x={} w={}, rows={} visible={}",
                 Integer.valueOf(this.width), Integer.valueOf(this.height),
                 isGlobal() ? "global" : "siding", Integer.valueOf(this.colX),

@@ -61,7 +61,7 @@ import java.util.List;
  *   <li>Left-drag pans. A press that never moves more than {@link #DRAG_SLOP} pixels is a click,
  *       so panning can never accidentally open a siding.</li>
  *   <li>Click a siding (within {@link #HIT_PX} pixels of its dot, in screen space, so the target
- *       stays the same size at every zoom) -&gt; {@link SidingDetailScreen}. Click a depot rectangle
+ *       stays the same size at every zoom) -&gt; {@link CategoryScreen}. Click a depot rectangle
  *       -&gt; its sidings stay bright and the rest dim; clicking it again or clicking empty space
  *       clears the filter. Depot highlighting uses the <em>drawn</em> rectangle, so what is lit is
  *       exactly what the player sees enclosed.</li>
@@ -116,6 +116,8 @@ public final class SidingMapScreen extends Screen {
     private static final int COL_HOVER = 0xFFFFFFFF;
 
     private final Screen parent;
+    /** 主界面 {@link ConfigScreen}：地图里点开的侧线分区页，其「返回主界面」要跳这一层。 */
+    private final Screen root;
 
     /** Every siding of the world with its coordinates, built once per screen. */
     private final List<Mark> marks = new ArrayList<>();
@@ -157,9 +159,10 @@ public final class SidingMapScreen extends Screen {
     /** Set once so a broken config read cannot print a stack trace 20 times a second. */
     private boolean stateErrorLogged;
 
-    public SidingMapScreen(final Screen parent) {
+    public SidingMapScreen(final Screen parent, final Screen root) {
         super(tr("map.title"));
         this.parent = parent;
+        this.root = root == null ? parent : root;
     }
 
     private static MutableText tr(final String key, final Object... args) {
@@ -206,7 +209,7 @@ public final class SidingMapScreen extends Screen {
                 }
             }
         } catch (RuntimeException e) {
-            MtrHeadlightClient.LOGGER.warn("[mtr-headlight] could not read SIDINGS for the map", e);
+            MtrHeadlightClient.LOGGER.warn("[lte] could not read SIDINGS for the map", e);
         }
         sidings.sort(Comparator.comparing(ParameterScreen::describe));
 
@@ -220,7 +223,7 @@ public final class SidingMapScreen extends Screen {
                 }
             }
         } catch (RuntimeException e) {
-            MtrHeadlightClient.LOGGER.warn("[mtr-headlight] could not read DEPOTS for the map", e);
+            MtrHeadlightClient.LOGGER.warn("[lte] could not read DEPOTS for the map", e);
         }
         this.depotBoxes.sort((a, b) -> a.name.compareToIgnoreCase(b.name));
 
@@ -314,7 +317,7 @@ public final class SidingMapScreen extends Screen {
         } catch (RuntimeException e) {
             if (!this.stateErrorLogged) {
                 this.stateErrorLogged = true;
-                MtrHeadlightClient.LOGGER.warn("[mtr-headlight] could not read siding light state", e);
+                MtrHeadlightClient.LOGGER.warn("[lte] could not read siding light state", e);
             }
         }
     }
@@ -462,7 +465,8 @@ public final class SidingMapScreen extends Screen {
 
     private void open(final Siding siding) {
         if (this.client != null && siding != null) {
-            this.client.setScreen(new SidingDetailScreen(this, siding));
+            // 和列表一致：先进这条侧线的分区列表（back = 地图，root = 主界面）。
+            this.client.setScreen(new CategoryScreen(this, this.root, siding));
         }
     }
 
@@ -895,7 +899,7 @@ public final class SidingMapScreen extends Screen {
                 return new Mark(siding, mid.getX(), mid.getZ(), ax, az, bx, bz, hasLine);
             } catch (RuntimeException e) {
                 MtrHeadlightClient.LOGGER.warn(
-                        "[mtr-headlight] siding {} has no usable coordinates for the map", siding.id, e);
+                        "[lte] siding {} has no usable coordinates for the map", siding.id, e);
                 return null;
             }
         }

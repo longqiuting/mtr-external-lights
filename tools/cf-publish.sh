@@ -6,7 +6,7 @@
 #   bash tools/cf-publish.sh 1.20.1 0.2.0 docs/changelog-0.2.0.md
 #
 # token 来源：$CURSEFORGE_TOKEN → ~/.curseforge_token
-# jar 取桌面：mtr-external-lights-<版本号>+<mc>.jar
+# jar 取桌面：lte-<版本号>+<mc>.jar
 # 若需要代理：export CF_PROXY=http://127.0.0.1:7890
 set -euo pipefail
 
@@ -32,7 +32,7 @@ if [ -n "${CF_PROXY:-}" ]; then
 fi
 
 DESK="$HOME/Desktop"
-JAR="$DESK/mtr-external-lights-$VER+$MC.jar"
+JAR="$DESK/lte-$VER+$MC.jar"
 if [ ! -f "$JAR" ]; then
   echo "找不到 jar: $JAR" >&2
   exit 1
@@ -68,7 +68,7 @@ CHANGELOG=""
 if [ -n "$CHANGELOG_FILE" ] && [ -f "$CHANGELOG_FILE" ]; then
   CHANGELOG=$(cat "$CHANGELOG_FILE")
 else
-  CHANGELOG="MTR external lights $VER"
+  CHANGELOG="LTE $VER"
 fi
 export CHANGELOG VER MC MC_ID LOADER_ID
 
@@ -79,7 +79,7 @@ if (process.env.LOADER_ID) gv.push(Number(process.env.LOADER_ID));
 const meta={
   changelog: process.env.CHANGELOG,
   changelogType: "markdown",
-  displayName: `MTR external lights ${process.env.VER}+${process.env.MC}`,
+  displayName: `LTE ${process.env.VER}+${process.env.MC}`,
   releaseType: "release",
   gameVersions: gv
 };

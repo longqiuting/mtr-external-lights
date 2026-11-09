@@ -6,7 +6,7 @@ import net.minecraft.client.option.KeyBinding;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * Key binding that opens the config screen - the keyboard equivalent of {@code /externallights}.
+ * Key binding that opens the config screen - the keyboard equivalent of {@code /mtr_lte}.
  *
  * <p><b>Unbound by default.</b> The default key is {@code GLFW_KEY_UNKNOWN}, so the mod adds a row
  * to "选项 → 控制 → 按键绑定" and nothing else: no key is stolen from the player or from another mod,
@@ -22,9 +22,9 @@ import org.lwjgl.glfw.GLFW;
  * screen on top of an inventory or chat prompt is never what the key was meant to do.
  */
 public final class KeyHooks {
-    /** Translation keys; both are in assets/mtr_headlight/lang. */
-    private static final String OPEN_CONFIG_KEY = "key.mtr_headlight.open_config";
-    private static final String CATEGORY_KEY = "key.categories.mtr_headlight";
+    /** Translation keys; both are in assets/mtrlte/lang. */
+    private static final String OPEN_CONFIG_KEY = "key.mtrlte.open_config";
+    private static final String CATEGORY_KEY = "key.categories.mtrlte";
 
     private static KeyBinding openConfig;
 

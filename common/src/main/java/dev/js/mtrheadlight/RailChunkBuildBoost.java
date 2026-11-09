@@ -122,7 +122,7 @@ public final class RailChunkBuildBoost {
                 return;
             }
             lastMixinReport = state;
-            MtrHeadlightClient.LOGGER.info("[mtr-headlight] {}", state);
+            MtrHeadlightClient.LOGGER.info("[lte] {}", state);
         } catch (Throwable t) {
             // A diagnostic must never break init or the client tick.
         }
@@ -163,13 +163,13 @@ public final class RailChunkBuildBoost {
         hostWarned = true;
         if (RailMixinFlags.appliedButNotMatched()) {
             MtrHeadlightClient.LOGGER.warn(
-                    "[mtr-headlight] rail mixin: applied to the host but the per-frame gate was not"
+                    "[lte] rail mixin: applied to the host but the per-frame gate was not"
                             + " found (ante={} nte={}) - rebuild boost inactive, host bytecode changed",
                     Boolean.valueOf(ante), Boolean.valueOf(nte));
             return;
         }
         MtrHeadlightClient.LOGGER.warn(
-                "[mtr-headlight] rail mixin: host present (ante={} nte={}) but no rail mixin applied"
+                "[lte] rail mixin: host present (ante={} nte={}) but no rail mixin applied"
                         + " - rebuild boost and baked rail light are inactive",
                 Boolean.valueOf(ante), Boolean.valueOf(nte));
     }
@@ -204,7 +204,7 @@ public final class RailChunkBuildBoost {
             final double seconds = ticksInWindow / 20.0D;
             ticksInWindow = 0;
             MtrHeadlightClient.LOGGER.info(
-                    "[mtr-headlight] railbuild: perFrame={} calls={} chunksPerSec={}",
+                    "[lte] railbuild: perFrame={} calls={} chunksPerSec={}",
                     Integer.valueOf(perFrame(cfg)), Long.valueOf(deltaCalls),
                     Long.valueOf(Math.round(deltaRebuilds / seconds)));
         } catch (Throwable t) {

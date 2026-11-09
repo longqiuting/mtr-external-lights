@@ -55,6 +55,15 @@ import java.util.Map;
  * car's own axis instead of being rotated by half the chord angle (which is what sampling at the
  * car's reference point would do).
  *
+ * <h2>Body pose vs rail tangent</h2>
+ * The tangent above is still what {@link #forward()} / {@link #backward()} / {@link #carForward(int)}
+ * return, and it is what the ground light sheet uses. The <b>beam</b> axis does not use it: it uses
+ * {@link #carBodyForward(int)}, the chord between the car's own two faces, because that is the
+ * direction MTR rotates the car body with ({@code Train#calculateCar}: midpoint of
+ * {@code positions[car]}/{@code positions[car + 1]}, yaw = {@code atan2(dz, dx)}, pitch =
+ * {@code asin(dy / chordLen)}). On a sharp curve the two differ by half the arc angle, and a beam
+ * on the tangent visibly points off the car; the chord is collinear with the body by construction.
+ *
  * <h2>Ends, reversal, {@code swapEnds}</h2>
  * Index 0 is always the <b>leading</b> boundary in travel order and {@code cars} the trailing one,
  * so the head light belongs to car 0 and the tail light to car {@code cars - 1}. Reversal only
@@ -83,7 +92,8 @@ public final class TrainPose {
     public static final double TANGENT_EPS = 0.5D;
 
     /** Empty path / no cars: one boundary at the origin, no headings. */
-    private static final TrainPose EMPTY = new TrainPose(new Vec3d[]{Vec3d.ZERO}, new Vec3d[0]);
+    private static final TrainPose EMPTY =
+            new TrainPose(new Vec3d[]{Vec3d.ZERO}, new Vec3d[0], new Vec3d[0]);
 
     /**
      * boundaries[0] is the leading face of the first car in travel order, boundaries[cars] the
@@ -94,9 +104,17 @@ public final class TrainPose {
     /** Unit tangent of each car in travel direction (contains the grade); carDir.length == cars. */
     private final Vec3d[] carDir;
 
-    private TrainPose(final Vec3d[] boundaries, final Vec3d[] carDir) {
+    /**
+     * Unit <b>body</b> direction of each car, in travel direction: the chord from that car's trailing
+     * face to its leading face. This is the car's actual pose, not the rail's - see
+     * {@link #carBodyForward(int)}.
+     */
+    private final Vec3d[] bodyDir;
+
+    private TrainPose(final Vec3d[] boundaries, final Vec3d[] carDir, final Vec3d[] bodyDir) {
         this.boundaries = boundaries;
         this.carDir = carDir;
+        this.bodyDir = bodyDir;
     }
 
     public static TrainPose of(final Train train) {
@@ -146,7 +164,24 @@ public final class TrainPose {
             }
             dir[i] = d;
         }
-        return new TrainPose(boundaries, dir);
+        /*
+         * The body direction is the chord between the car's own two faces - which is exactly what
+         * MTR uses when it rotates the car: Train#calculateCar takes positions[car] and
+         * positions[car + 1], averages them for the centre and takes atan2(dz, dx) for the yaw,
+         * asin(dy / chord) for the pitch. The rail tangent at the midpoint is only a second-order
+         * approximation of that chord, and on a tight curve (or across a rail joint, where the
+         * direction jumps) it visibly disagrees with the box the player sees. So the beams leave
+         * along the body, and the tangent is only the fallback for a degenerate chord.
+         */
+        final Vec3d[] body = new Vec3d[cars];
+        for (int i = 0; i < cars; i++) {
+            Vec3d d = chord(boundaries[i], boundaries[i + 1]);
+            if (d == Vec3d.ZERO) {
+                d = dir[i];                        // no chord (cars on top of each other): tangent
+            }
+            body[i] = d;
+        }
+        return new TrainPose(boundaries, dir, body);
     }
 
     /**
@@ -216,6 +251,21 @@ public final class TrainPose {
     /** Unit tangent of travel-order car {@code car}, in travel direction. */
     public Vec3d carForward(final int car) {
         return carDir.length == 0 ? Vec3d.ZERO : carDir[clampIndex(car, carDir.length - 1)];
+    }
+
+    /**
+     * Unit <b>body</b> direction of travel-order car {@code car}, in travel direction: the straight
+     * line from its trailing face to its leading face. This is the orientation MTR draws the car
+     * with ({@code Train#calculateCar} derives the yaw from exactly these two positions), so a beam
+     * built on it stays collinear with the car body on a curve - and for a single car on a sharp
+     * curve it is the only direction that matches the visible box. Falls back to
+     * {@link #carForward(int)} when the two faces coincide.
+     */
+    public Vec3d carBodyForward(final int car) {
+        if (bodyDir.length == 0) {
+            return carForward(car);
+        }
+        return bodyDir[clampIndex(car, bodyDir.length - 1)];
     }
 
     private static int clampIndex(final int value, final int last) {

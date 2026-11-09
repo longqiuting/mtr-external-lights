@@ -73,7 +73,7 @@ public final class RailDiag {
         loggedRailqPaused = paused;
         try {
             MtrHeadlightClient.LOGGER.info(
-                    "[mtr-headlight] railq: req={} rebuilt={} skipped={} deferred={} paused={} quota={}/{}",
+                    "[lte] railq: req={} rebuilt={} skipped={} deferred={} paused={} quota={}/{}",
                     Long.valueOf(dReq), Long.valueOf(dRebuilt), Long.valueOf(dSkipped),
                     Long.valueOf(dDeferred), Long.valueOf(dPaused),
                     Integer.valueOf(quotaUsed), Integer.valueOf(quotaCap));
@@ -159,7 +159,7 @@ public final class RailDiag {
         loggedLdl2Moved = moved;
         loggedLdl2Relight = relight;
         try {
-            MtrHeadlightClient.LOGGER.info("[mtr-headlight] ldl2: sources={} moved={} relight={}",
+            MtrHeadlightClient.LOGGER.info("[lte] ldl2: sources={} moved={} relight={}",
                     sources, moved, relight);
         } catch (Throwable t) {
             // Logging must never break the render pass.
@@ -192,7 +192,7 @@ public final class RailDiag {
         loggedSkips = currentSkips;
         try {
             MtrHeadlightClient.LOGGER.info(
-                    "[mtr-headlight] rail bake: calls={} hits={} boost={} rebuilds={} skipped={} ownHits={} ownMax={}",
+                    "[lte] rail bake: calls={} hits={} boost={} rebuilds={} skipped={} ownHits={} ownMax={}",
                     currentCalls, currentHits, currentBoosted, currentRebuilds, currentSkips,
                     OWN_HITS.get(), Math.round(ownMax * 10.0D) / 10.0D);
         } catch (Throwable t) {

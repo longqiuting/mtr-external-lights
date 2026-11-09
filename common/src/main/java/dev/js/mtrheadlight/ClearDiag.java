@@ -12,7 +12,7 @@ package dev.js.mtrheadlight;
  *
  * <p>The line is unconditional while the flag is on - a silent window is indistinguishable from
  * "the tick is not running", which is exactly the failure this has to catch. Turn it off with
- * {@code "massClearDiagnostics": false} in {@code config/mtr-headlight.json}; the window counter is
+ * {@code "massClearDiagnostics": false} in {@code config/mtrlte.json}; the window counter is
  * reset while it is off, so re-enabling it cannot print a total spanning the disabled period.
  */
 public final class ClearDiag {
@@ -48,7 +48,7 @@ public final class ClearDiag {
         final int cleared = clearedInWindow;
         clearedInWindow = 0;
         try {
-            MtrHeadlightClient.LOGGER.info("[mtr-headlight] clear: tracked={} missing={} massClear={}",
+            MtrHeadlightClient.LOGGER.info("[lte] clear: tracked={} missing={} massClear={}",
                     Integer.valueOf(tracked), Integer.valueOf(missing), Integer.valueOf(cleared));
         } catch (Throwable t) {
             // Logging must never break the tick.

@@ -18,7 +18,7 @@ repositories {
 loom {
     mixin {
         // Refmap for the ANTE/vanilla injections (loom also generates it by default, kept explicit).
-        defaultRefmapName = "mtr-headlight.refmap.json"
+        defaultRefmapName = "lte.refmap.json"
     }
 }
 

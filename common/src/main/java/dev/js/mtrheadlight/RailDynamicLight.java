@@ -162,7 +162,7 @@ public final class RailDynamicLight {
         announced = true;
         try {
             MtrHeadlightClient.LOGGER.info(
-                    "[mtr-headlight] rail light: LambDynamicLights engine bound "
+                    "[lte] rail light: LambDynamicLights engine bound "
                             + "(held/placed light sources are baked into the rails)");
         } catch (Throwable t) {
             // Logging must never break the bake.
@@ -176,9 +176,9 @@ public final class RailDynamicLight {
         announceWarned = true;
         try {
             if (cause == null) {
-                MtrHeadlightClient.LOGGER.warn("[mtr-headlight] rail light: {}", message);
+                MtrHeadlightClient.LOGGER.warn("[lte] rail light: {}", message);
             } else {
-                MtrHeadlightClient.LOGGER.warn("[mtr-headlight] rail light: {}", message, cause);
+                MtrHeadlightClient.LOGGER.warn("[lte] rail light: {}", message, cause);
             }
         } catch (Throwable t) {
             // Logging must never break the bake.

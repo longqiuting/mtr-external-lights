@@ -19,21 +19,21 @@ public final class RenderHooks {
             try {
                 BeamGlow.render(context, false);
             } catch (Throwable t) {
-                MtrHeadlightClient.LOGGER.error("[mtr-headlight] beam glow failed", t);
+                MtrHeadlightClient.LOGGER.error("[lte] beam glow failed", t);
             }
         });
         WorldRenderEvents.AFTER_TRANSLUCENT.register(context -> {
             try {
                 BeamGlow.render(context, true);
             } catch (Throwable t) {
-                MtrHeadlightClient.LOGGER.error("[mtr-headlight] beam glow (late pass) failed", t);
+                MtrHeadlightClient.LOGGER.error("[lte] beam glow (late pass) failed", t);
             }
         });
 
         try {
             KeyHooks.init();
         } catch (Throwable t) {
-            MtrHeadlightClient.LOGGER.warn("[mtr-headlight] could not register the key binding", t);
+            MtrHeadlightClient.LOGGER.warn("[lte] could not register the key binding", t);
         }
 
         try {

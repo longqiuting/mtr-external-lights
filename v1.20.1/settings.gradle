@@ -6,4 +6,4 @@ pluginManagement {
     }
 }
 
-rootProject.name = 'mtr-headlight-1.20.1'
+rootProject.name = 'lte-1.20.1'

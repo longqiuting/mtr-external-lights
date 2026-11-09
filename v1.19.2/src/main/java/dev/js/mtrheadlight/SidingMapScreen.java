@@ -250,7 +250,7 @@ public final class SidingMapScreen extends Screen {
                 }
             }
         } catch (RuntimeException e) {
-            MtrHeadlightClient.LOGGER.warn("[mtr-headlight] could not read SIDINGS for the map", e);
+            MtrHeadlightClient.LOGGER.warn("[lte] could not read SIDINGS for the map", e);
         }
         sidings.sort(Comparator.comparing(ParameterScreen::describe));
 
@@ -264,7 +264,7 @@ public final class SidingMapScreen extends Screen {
                 }
             }
         } catch (RuntimeException e) {
-            MtrHeadlightClient.LOGGER.warn("[mtr-headlight] could not read DEPOTS for the map", e);
+            MtrHeadlightClient.LOGGER.warn("[lte] could not read DEPOTS for the map", e);
         }
         this.depotBoxes.sort((a, b) -> a.name.compareToIgnoreCase(b.name));
 
@@ -358,7 +358,7 @@ public final class SidingMapScreen extends Screen {
         } catch (RuntimeException e) {
             if (!this.stateErrorLogged) {
                 this.stateErrorLogged = true;
-                MtrHeadlightClient.LOGGER.warn("[mtr-headlight] could not read siding light state", e);
+                MtrHeadlightClient.LOGGER.warn("[lte] could not read siding light state", e);
             }
         }
     }
@@ -941,7 +941,7 @@ public final class SidingMapScreen extends Screen {
                 return new Mark(siding, mid.getX(), mid.getZ(), ax, az, bx, bz, hasLine);
             } catch (RuntimeException e) {
                 MtrHeadlightClient.LOGGER.warn(
-                        "[mtr-headlight] siding {} has no usable coordinates for the map", siding.id, e);
+                        "[lte] siding {} has no usable coordinates for the map", siding.id, e);
                 return null;
             }
         }

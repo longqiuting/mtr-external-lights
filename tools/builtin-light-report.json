@@ -1,0 +1,963 @@
+[
+ {
+  "id": "sp1900",
+  "status": "ok",
+  "model": "mtr.model.ModelSP1900",
+  "lamps": 4,
+  "tail": 4,
+  "y": 0.668,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "sp1900_small",
+  "status": "ok",
+  "model": "mtr.model.ModelSP1900Small",
+  "lamps": 4,
+  "tail": 4,
+  "y": 0.668,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "sp1900_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelSP1900Mini",
+  "lamps": 4,
+  "tail": 4,
+  "y": 0.668,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "c1141a",
+  "status": "ok",
+  "model": "mtr.model.ModelSP1900",
+  "lamps": 4,
+  "tail": 4,
+  "y": 0.668,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "c1141a_small",
+  "status": "ok",
+  "model": "mtr.model.ModelSP1900Small",
+  "lamps": 4,
+  "tail": 4,
+  "y": 0.668,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "c1141a_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelSP1900Mini",
+  "lamps": 4,
+  "tail": 4,
+  "y": 0.668,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "m_train",
+  "status": "ok",
+  "model": "mtr.model.ModelMTrain",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.563,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "m_train_small",
+  "status": "ok",
+  "model": "mtr.model.ModelMTrainSmall",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.563,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "m_train_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelMTrainMini",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.563,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "cm_stock",
+  "status": "ok",
+  "model": "mtr.model.ModelCMStock",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.724,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "cm_stock_small",
+  "status": "ok",
+  "model": "mtr.model.ModelCMStockSmall",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.724,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "cm_stock_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelCMStockMini",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.724,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "mlr",
+  "status": "ok",
+  "model": "mtr.model.ModelMLR",
+  "lamps": 4,
+  "tail": 2,
+  "y": 1.063,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "mlr_small",
+  "status": "ok",
+  "model": "mtr.model.ModelMLRSmall",
+  "lamps": 4,
+  "tail": 2,
+  "y": 1.063,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "mlr_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelMLRMini",
+  "lamps": 4,
+  "tail": 2,
+  "y": 1.063,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "mlr_christmas",
+  "status": "ok",
+  "model": "mtr.model.ModelMLR",
+  "lamps": 4,
+  "tail": 2,
+  "y": 1.063,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "mlr_christmas_small",
+  "status": "ok",
+  "model": "mtr.model.ModelMLRSmall",
+  "lamps": 4,
+  "tail": 2,
+  "y": 1.063,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "mlr_christmas_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelMLRMini",
+  "lamps": 4,
+  "tail": 2,
+  "y": 1.063,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "e44",
+  "status": "ok",
+  "model": "mtr.model.ModelE44",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.216,
+  "basis": "group headlights/tail_lights + head end flipped + head mirrored to rear"
+ },
+ {
+  "id": "e44_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelE44Mini",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.216,
+  "basis": "group headlights/tail_lights + head end flipped + head mirrored to rear"
+ },
+ {
+  "id": "r_train",
+  "status": "ok",
+  "model": "mtr.model.ModelRTrain",
+  "lamps": 2,
+  "tail": 2,
+  "y": 0.967,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "r_train_small",
+  "status": "ok",
+  "model": "mtr.model.ModelRTrainSmall",
+  "lamps": 2,
+  "tail": 2,
+  "y": 0.967,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "r_train_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelRTrainMini",
+  "lamps": 2,
+  "tail": 2,
+  "y": 0.967,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "drl",
+  "status": "ok",
+  "model": "mtr.model.ModelDRL",
+  "lamps": 2,
+  "tail": 4,
+  "y": 1.144,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "k_train",
+  "status": "ok",
+  "model": "mtr.model.ModelKTrain",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.069,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "k_train_small",
+  "status": "ok",
+  "model": "mtr.model.ModelKTrainSmall",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.069,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "k_train_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelKTrainMini",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.069,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "k_train_tcl",
+  "status": "ok",
+  "model": "mtr.model.ModelKTrain",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.069,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "k_train_tcl_small",
+  "status": "ok",
+  "model": "mtr.model.ModelKTrainSmall",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.069,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "k_train_tcl_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelKTrainMini",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.069,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "k_train_ael",
+  "status": "ok",
+  "model": "mtr.model.ModelKTrain",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.069,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "k_train_ael_small",
+  "status": "ok",
+  "model": "mtr.model.ModelKTrainSmall",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.069,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "k_train_ael_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelKTrainMini",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.069,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "c_train",
+  "status": "ok",
+  "model": "mtr.model.ModelCTrain",
+  "lamps": 2,
+  "tail": 2,
+  "y": 0.961,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "c_train_small",
+  "status": "ok",
+  "model": "mtr.model.ModelCTrainSmall",
+  "lamps": 2,
+  "tail": 2,
+  "y": 0.961,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "c_train_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelCTrainMini",
+  "lamps": 2,
+  "tail": 2,
+  "y": 0.961,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "s_train",
+  "status": "ok",
+  "model": "mtr.model.ModelSTrain",
+  "lamps": 2,
+  "tail": 2,
+  "y": 0.938,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "s_train_small",
+  "status": "ok",
+  "model": "mtr.model.ModelSTrainSmall",
+  "lamps": 2,
+  "tail": 2,
+  "y": 0.938,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "s_train_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelSTrainMini",
+  "lamps": 2,
+  "tail": 2,
+  "y": 0.938,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "a_train_tcl",
+  "status": "ok",
+  "model": "mtr.model.ModelATrain",
+  "lamps": 4,
+  "tail": 2,
+  "y": 1.133,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "a_train_tcl_small",
+  "status": "ok",
+  "model": "mtr.model.ModelATrainSmall",
+  "lamps": 4,
+  "tail": 2,
+  "y": 1.133,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "a_train_tcl_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelATrainMini",
+  "lamps": 4,
+  "tail": 2,
+  "y": 1.133,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "a_train_ael",
+  "status": "ok",
+  "model": "mtr.model.ModelATrain",
+  "lamps": 4,
+  "tail": 2,
+  "y": 1.133,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "a_train_ael_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelATrainMini",
+  "lamps": 4,
+  "tail": 2,
+  "y": 1.133,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "light_rail_1",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_1_rht",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_1r",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_1r_rht",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_2",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_2r",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_2_rht",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_2r_rht",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_3",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_3_rht",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_3r",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_3r_rht",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_4",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_4_rht",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_5",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_5_rht",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_1r_old",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_1r_old_rht",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_4_old",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_4_old_rht",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_5_old",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_5_old_rht",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_1_orange",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_1_orange_rht",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_1r_orange",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_1r_orange_rht",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_2_orange",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_2_orange_rht",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_3_orange",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_3_orange_rht",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_4_orange",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_4_orange_rht",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_5_orange",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "light_rail_5_orange_rht",
+  "status": "ok",
+  "model": "mtr.model.ModelLightRail",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.219,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "london_underground_d78",
+  "status": "ok",
+  "model": "mtr.model.ModelLondonUndergroundD78",
+  "lamps": 2,
+  "tail": 3,
+  "y": 1.625,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "london_underground_d78_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelLondonUndergroundD78Mini",
+  "lamps": 2,
+  "tail": 3,
+  "y": 1.625,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "london_underground_1995",
+  "status": "ok",
+  "model": "mtr.model.ModelLondonUnderground1995",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "london_underground_1996",
+  "status": "ok",
+  "model": "mtr.model.ModelLondonUnderground1995",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "r179",
+  "status": "ok",
+  "model": "mtr.model.ModelR179",
+  "lamps": 4,
+  "tail": 4,
+  "y": 1.047,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "r179_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelR179Mini",
+  "lamps": 4,
+  "tail": 4,
+  "y": 1.047,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "r211",
+  "status": "ok",
+  "model": "mtr.model.ModelR211",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "r211_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelR211Mini",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "r211t",
+  "status": "ok",
+  "model": "mtr.model.ModelR211",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "r211t_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelR211Mini",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "class_377_southern",
+  "status": "ok",
+  "model": "mtr.model.ModelClass377",
+  "lamps": 2,
+  "tail": 2,
+  "y": 1.157,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "class_802_gwr",
+  "status": "ok",
+  "model": "mtr.model.ModelClass802",
+  "lamps": 2,
+  "tail": 2,
+  "y": 0.715,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "class_802_gwr_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelClass802Mini",
+  "lamps": 2,
+  "tail": 2,
+  "y": 0.715,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "class_802_tpe",
+  "status": "ok",
+  "model": "mtr.model.ModelClass802",
+  "lamps": 2,
+  "tail": 2,
+  "y": 0.715,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "class_802_tpe_mini",
+  "status": "ok",
+  "model": "mtr.model.ModelClass802Mini",
+  "lamps": 2,
+  "tail": 2,
+  "y": 0.715,
+  "basis": "group headlights/tail_lights + head end flipped"
+ },
+ {
+  "id": "mpl_85",
+  "status": "ok",
+  "model": "mtr.model.ModelMPL85",
+  "lamps": 4,
+  "tail": 4,
+  "y": 1.836,
+  "basis": "group headlights/tail_lights"
+ },
+ {
+  "id": "br_423",
+  "status": "ok",
+  "model": "mtr.model.ModelBR423",
+  "lamps": 2,
+  "tail": 2,
+  "y": 0.938,
+  "basis": "group headlights/tail_lights + tail end flipped"
+ },
+ {
+  "id": "minecart",
+  "status": "no-model",
+  "reason": "vanilla model (minecart/boat), no MTR lamp geometry"
+ },
+ {
+  "id": "oak_boat",
+  "status": "no-model",
+  "reason": "vanilla model (minecart/boat), no MTR lamp geometry"
+ },
+ {
+  "id": "spruce_boat",
+  "status": "no-model",
+  "reason": "vanilla model (minecart/boat), no MTR lamp geometry"
+ },
+ {
+  "id": "birch_boat",
+  "status": "no-model",
+  "reason": "vanilla model (minecart/boat), no MTR lamp geometry"
+ },
+ {
+  "id": "jungle_boat",
+  "status": "no-model",
+  "reason": "vanilla model (minecart/boat), no MTR lamp geometry"
+ },
+ {
+  "id": "acacia_boat",
+  "status": "no-model",
+  "reason": "vanilla model (minecart/boat), no MTR lamp geometry"
+ },
+ {
+  "id": "dark_oak_boat",
+  "status": "no-model",
+  "reason": "vanilla model (minecart/boat), no MTR lamp geometry"
+ },
+ {
+  "id": "ngong_ping_360_crystal",
+  "status": "uncertain",
+  "model": "mtr.model.ModelNgongPing360",
+  "reason": "no headlights group in the model"
+ },
+ {
+  "id": "ngong_ping_360_crystal_rht",
+  "status": "uncertain",
+  "model": "mtr.model.ModelNgongPing360",
+  "reason": "no headlights group in the model"
+ },
+ {
+  "id": "ngong_ping_360_crystal_plus",
+  "status": "uncertain",
+  "model": "mtr.model.ModelNgongPing360",
+  "reason": "no headlights group in the model"
+ },
+ {
+  "id": "ngong_ping_360_crystal_plus_rht",
+  "status": "uncertain",
+  "model": "mtr.model.ModelNgongPing360",
+  "reason": "no headlights group in the model"
+ },
+ {
+  "id": "ngong_ping_360_normal_red",
+  "status": "uncertain",
+  "model": "mtr.model.ModelNgongPing360",
+  "reason": "no headlights group in the model"
+ },
+ {
+  "id": "ngong_ping_360_normal_red_rht",
+  "status": "uncertain",
+  "model": "mtr.model.ModelNgongPing360",
+  "reason": "no headlights group in the model"
+ },
+ {
+  "id": "ngong_ping_360_normal_orange",
+  "status": "uncertain",
+  "model": "mtr.model.ModelNgongPing360",
+  "reason": "no headlights group in the model"
+ },
+ {
+  "id": "ngong_ping_360_normal_orange_rht",
+  "status": "uncertain",
+  "model": "mtr.model.ModelNgongPing360",
+  "reason": "no headlights group in the model"
+ },
+ {
+  "id": "ngong_ping_360_normal_light_blue",
+  "status": "uncertain",
+  "model": "mtr.model.ModelNgongPing360",
+  "reason": "no headlights group in the model"
+ },
+ {
+  "id": "ngong_ping_360_normal_light_blue_rht",
+  "status": "uncertain",
+  "model": "mtr.model.ModelNgongPing360",
+  "reason": "no headlights group in the model"
+ },
+ {
+  "id": "a320",
+  "status": "uncertain",
+  "model": "mtr.model.ModelA320",
+  "reason": "no headlights group in the model"
+ },
+ {
+  "id": "flying_minecart",
+  "status": "no-model",
+  "reason": "vanilla model (minecart/boat), no MTR lamp geometry"
+ }
+]

@@ -61,14 +61,14 @@ public final class ShaderPackProbe {
         try {
             if (inUse) {
                 MtrHeadlightClient.LOGGER.info(
-                        "[mtr-headlight] shader pack active: rail light goes into the vertex lightmap "
+                        "[lte] shader pack active: rail light goes into the vertex lightmap "
                                 + "and the pack decides whether to show it "
                                 + "(railLightUnderShaders={}, railLightShaderBoost={})",
                         cfg != null && cfg.railLightUnderShaders,
                         cfg != null && cfg.railLightShaderBoost);
             } else {
                 MtrHeadlightClient.LOGGER.info(
-                        "[mtr-headlight] shader pack inactive: rail light uses ANTE's own shader path");
+                        "[lte] shader pack inactive: rail light uses ANTE's own shader path");
             }
         } catch (Throwable t) {
             // Logging must never break the tick.
