@@ -57,6 +57,11 @@ public final class Commands {
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
             dispatcher.register(root(ClientCommandManager.literal(NAME)));
             dispatcher.register(root(ClientCommandManager.literal(LEGACY_NAME)));
+            // 一行启动日志说明客户端指令树里到底有什么：/mtr_lte beam3d「什么都没发生」时，
+            // 先确认这条字面量真的挂上了（false = 注册没走到，跟界面无关）。
+            final var node = dispatcher.getRoot().getChild(NAME);
+            LteLog.LOGGER.info("[lte] commands registered: /{} beam3d={}", NAME,
+                    Boolean.valueOf(node != null && node.getChild("beam3d") != null));
         });
     }
 
@@ -542,14 +547,50 @@ public final class Commands {
     /**
      * {@code /mtr_lte beam3d [车型id]} - 打开 3D 光束编辑器。
      *
-     * <p>客户端指令在客户端主线程上执行，直接 {@code setScreen} 是安全的（和
-     * {@code KeyHooks} / {@code MtrHeadlightClient#openConfigScreen} 同一条线程），不需要
-     * {@code client.send(...)}。不带车型时由编辑器自己选「世界里在用的第一辆」，再退回资源包第一辆。
+     * <p>客户端指令在客户端主线程上执行，但换屏仍然走 {@code client.send(...)} 延迟一帧，和
+     * {@link MtrHeadlightClient#openConfigScreen} 同一条已验证的路：指令是在聊天界面的按键回调里
+     * 跑的，那一帧的输入处理（聊天界面关闭 / 重新聚焦）仍可能把刚装上的屏幕换掉，玩家看到的
+     * 就是「什么都没发生」。延迟到下一帧时聊天界面已经收尾完毕。
+     *
+     * <p>不带车型时由编辑器自己选「世界里在用的第一辆」，再退回资源包第一辆。任何异常都写进
+     * 聊天框（红字，异常类名 + 首行）并打完整栈—— 一个打不开的编辑器不能安静地什么都不做。
      */
     private static int openBeamEditor(final String vehicleId) {
-        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
-        client.setScreen(new BeamEditor3DScreen(client.currentScreen, vehicleId));
+        final net.minecraft.client.MinecraftClient client =
+                net.minecraft.client.MinecraftClient.getInstance();
+        try {
+            client.send(() -> {
+                try {
+                    client.setScreen(new BeamEditor3DScreen(client.currentScreen, vehicleId));
+                } catch (Throwable t) {
+                    reportBeamEditorFailure(t);
+                }
+            });
+        } catch (Throwable t) {
+            reportBeamEditorFailure(t);
+        }
         return 1;
+    }
+
+    /** 打开编辑器失败：聊天框红字（异常类名 + 首行）+ 日志完整栈。 */
+    private static void reportBeamEditorFailure(final Throwable t) {
+        LteLog.LOGGER.error("[lte] beam3d: could not open the editor", t);
+        try {
+            final net.minecraft.client.MinecraftClient client =
+                    net.minecraft.client.MinecraftClient.getInstance();
+            client.inGameHud.getChatHud().addMessage(
+                    Text.literal("LTE: /mtr_lte beam3d 打开失败 — " + firstLine(t))
+                            .formatted(net.minecraft.util.Formatting.RED));
+        } catch (Throwable ignored) {
+            // 聊天框不可用（例如还在加载）时只剩日志。
+        }
+    }
+
+    /** {@code Throwable.toString()} 的首行：类名 + message，不带多行栈。 */
+    private static String firstLine(final Throwable t) {
+        final String text = t == null ? "unknown" : t.toString();
+        final int newline = text.indexOf('\n');
+        return newline < 0 ? text : text.substring(0, newline);
     }
 
     /** Normalises and stores the mode, persists it, and echoes back what was accepted. */

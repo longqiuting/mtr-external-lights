@@ -257,6 +257,9 @@
   "beam3d.miss": "没点中（点在空白处）",
   "beam3d.noModel": "这个车型没有可预览的模型",
   "beam3d.noModelHint": "资源包的动车只有 JonModelTrainRenderer 才有模型；也可能是它还没被客户端加载",
+  "beam3d.noVehicles": "没有可用车型（资源包未加载？）",
+  "beam3d.noVehiclesHint": "确认已启用 MTR 资源包；若开着 disableBuiltInTrains，内置车型会被裁掉 — 也可以在指令后直接写车型 id",
+  "beam3d.prunedHint": "disableBuiltInTrains=true：MTR 内置车型已被裁出注册表（这就是没有车型的原因）",
 
   "itemGroup.mtrlte.core": "LTE 核心功能",
   "item.mtrlte.signal_linker": "信号连接器",

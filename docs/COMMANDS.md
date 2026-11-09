@@ -101,6 +101,8 @@
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `headlightMode` | `auto` | `auto` / `always` / `off` |
+| `parkedLightsOff` | `true` | 车厂停放不亮灯（不在运行线路上 + 开动过 + 长时间静止） |
+| `parkedLightsOffTicks` | `200` | 停放判定阈值（tick，200 = 10 s @ 20 tps） |
 | `autoHeadlights` | `true` | 自动开灯 |
 | `autoLightsInTunnel` | `true` | 隧道内自动开灯（与「水雾不进隧道」同一判定源） |
 | `dynamicLight` | `true` | 动态光源 |

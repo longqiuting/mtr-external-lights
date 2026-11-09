@@ -118,6 +118,8 @@ final class BeamEditor3DScreen extends Screen {
     private int mode = MODE_MOVE;
     private int selected = -1;
     private String status = "";
+    /** 资源包里一个车型都没有：屏幕上只画一行提示 + 关闭按钮（见 {@link #init()}）。 */
+    private boolean empty;
 
     private List<VehicleRow> vehicles = List.of();
     private int scrollRow;
@@ -149,6 +151,16 @@ final class BeamEditor3DScreen extends Screen {
         super(tr("beam3d.title"));
         this.parent = parent;
         this.vehicleId = vehicleId;
+        // 这一行是「指令到底有没有把屏幕装上」的唯一证据：构造器跑了却看不到界面，说明是渲染/
+        // 布局侧的问题；连这一行都没有，说明 setScreen 就没走到（见 Commands#openBeamEditor）。
+        LteLog.LOGGER.info("[lte] beam3d: vehicles={} vehicleId={} loaded={}",
+                Integer.valueOf(this.vehicles.size()), describe(this.vehicleId),
+                describe(this.loadedId));
+    }
+
+    /** 日志里区分「null」和空串，两者在 catalog 里含义不同。 */
+    private static String describe(final String value) {
+        return value == null ? "null" : (value.isBlank() ? "\"\"" : value);
     }
 
     static MutableText tr(final String key, final Object... args) {
@@ -224,6 +236,29 @@ final class BeamEditor3DScreen extends Screen {
         return false;
     }
 
+    /** 世界里正在跑的车型数（空目录日志用；读不到就是 0）。 */
+    private static int worldTrainCount() {
+        try {
+            return BeamSession.inUseIds().size();
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    /**
+     * {@code disableBuiltInTrains} 开着时，MTR 内置车型会被 {@code BuiltInTrains#prune} 从
+     * {@code TrainClientRegistry} 里删掉 —— 而这个编辑器的车型目录正是从那个注册表枚举的。
+     * 空目录时把这条写进日志，省得玩家以为资源包坏了。
+     */
+    private static boolean builtinsPruned() {
+        try {
+            final HeadlightConfig cfg = MtrHeadlightClient.config();
+            return cfg != null && cfg.disableBuiltInTrains;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     private String defaultVehicle() {
         for (final VehicleRow row : this.vehicles) {
             if (row.inUse) {
@@ -242,6 +277,22 @@ final class BeamEditor3DScreen extends Screen {
         if (this.vehicles.isEmpty()) {
             this.vehicles = catalog();
         }
+        LteLog.LOGGER.info("[lte] beam3d: vehicles={} vehicleId={} loaded={}",
+                Integer.valueOf(this.vehicles.size()), describe(this.vehicleId),
+                describe(this.loadedId));
+        if (this.vehicles.isEmpty() && (this.vehicleId == null || this.vehicleId.isBlank())) {
+            // 没有车型时不能静默 return：那样屏幕上只剩背景色 + 顶栏，看起来就像「开了个空窗」。
+            // 这里改成明确的一行提示 + 一个关闭按钮，至少能确认屏幕本身是活的。
+            // 显式给了车型 id 时不受影响：注册表被 disableBuiltInTrains 裁空 / 枚举失败时，
+            // /mtr_lte beam3d <id> 仍然要能把编辑器打开（列表为空，但添加/导出照常）。
+            LteLog.LOGGER.warn("[lte] beam3d: no vehicles (pack=none builtinPruned={} trainsInWorld={})",
+                    Boolean.valueOf(builtinsPruned()), Integer.valueOf(worldTrainCount()));
+            this.empty = true;
+            this.addDrawableChild(ButtonWidget.builder(tr("beam3d.close"), b -> close())
+                    .dimensions(this.width / 2 - 60, this.height / 2 + 30, 120, ROW_H).build());
+            return;
+        }
+        this.empty = false;
         if (this.vehicleId == null || this.vehicleId.isBlank()) {
             this.vehicleId = defaultVehicle();
         }
@@ -523,6 +574,9 @@ final class BeamEditor3DScreen extends Screen {
 
     @Override
     public boolean mouseClicked(final double mouseX, final double mouseY, final int button) {
+        if (this.empty) {
+            return super.mouseClicked(mouseX, mouseY, button);
+        }
         if (inViewport(mouseX, mouseY)) {
             this.pressX = mouseX;
             this.pressY = mouseY;
@@ -644,6 +698,9 @@ final class BeamEditor3DScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(final double mouseX, final double mouseY, final double amount) {
+        if (this.empty) {
+            return super.mouseScrolled(mouseX, mouseY, amount);
+        }
         if (inViewport(mouseX, mouseY) && amount != 0.0D) {
             this.camera.zoom(amount);
             return true;
@@ -660,6 +717,9 @@ final class BeamEditor3DScreen extends Screen {
 
     @Override
     public boolean keyPressed(final int keyCode, final int scanCode, final int modifiers) {
+        if (this.empty) {
+            return super.keyPressed(keyCode, scanCode, modifiers);
+        }
         if (keyCode == GLFW.GLFW_KEY_DELETE) {
             deleteBeam();
             return true;
@@ -682,6 +742,14 @@ final class BeamEditor3DScreen extends Screen {
     @Override
     public void render(final DrawContext context, final int mouseX, final int mouseY, final float delta) {
         context.fill(0, 0, this.width, this.height, 0xF0101010);
+
+        if (this.empty) {
+            // 空目录：不画 3D / 侧栏，只留一行说明和关闭按钮。屏幕本身必须是「看得见」的，
+            // 否则玩家无法区分「没车型」和「界面根本没打开」。
+            drawEmptyState(context);
+            super.render(context, mouseX, mouseY, delta);
+            return;
+        }
 
         // 3D 先画：之后的 2D 全部落在深度 0（最前），不会被模型压住。
         TrainPreview.draw(this.subject, context, this.camera,
@@ -732,6 +800,26 @@ final class BeamEditor3DScreen extends Screen {
         if (this.duplicateButton != null) {
             this.duplicateButton.active = this.selected >= 0 && this.session != null;
         }
+    }
+
+    /**
+     * 空车型状态：一行标题 + 一行原因/下一步。屏幕必须能画出来 —— 玩家用它区分
+     * 「资源包没加载」和「界面根本没打开」。
+     */
+    private void drawEmptyState(final DrawContext context) {
+        final int cx = this.width / 2;
+        final int cy = this.height / 2;
+        context.drawCenteredTextWithShadow(this.textRenderer, tr("beam3d.noVehicles"),
+                cx, cy - 34, 0xFFD37F);
+        context.drawCenteredTextWithShadow(this.textRenderer, tr("beam3d.noVehiclesHint"),
+                cx, cy - 18, 0xA0A0A0);
+        if (builtinsPruned()) {
+            // 最可能的那个原因直接写在屏幕上：注册表里确实一个内置车型都没有了。
+            context.drawCenteredTextWithShadow(this.textRenderer, tr("beam3d.prunedHint"),
+                    cx, cy - 2, 0xFF8080);
+        }
+        context.drawCenteredTextWithShadow(this.textRenderer,
+                Text.literal("/mtr_lte beam3d <车型id>"), cx, cy + 14, 0x707070);
     }
 
     private void drawToolbarState(final DrawContext context) {

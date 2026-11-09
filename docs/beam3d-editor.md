@@ -87,6 +87,23 @@ assets/<你的命名空间>/lte_beams/<车型id>.json
 `BeamGeom` 的 `origin/axis` 是派生值，不在文件里存；文件里存的是作者能改的输入，
 所以导出文件可以被编辑器重新打开（`config/lte_beams/<id>.json` 存在时优先读它）。
 
+## 诊断
+
+`/mtr_lte beam3d`「什么都没发生」时，按下面三行日志定位（都在 `logs/latest.log`）：
+
+```
+[lte] commands registered: /mtr_lte beam3d=true      # 字面量挂上了；false = 指令注册本身没走到
+[lte] beam3d: vehicles=N vehicleId=... loaded=...    # 构造器一条、init() 一条（N 是车型目录大小）
+[lte] beam3d: no vehicles (pack=none builtinPruned=... trainsInWorld=...)   # 只有空目录时打
+```
+
+- 只有第一条 → `setScreen` 没走到指令这一层。
+- 有构造器那条、没有 `init()` 那条 → `init()` 里抛异常（红色聊天提示会给出异常类名 + 首行）。
+- 两条都有、`vehicles=0` → 车型目录为空：资源包没加载，或者 `disableBuiltInTrains=true`
+  把 MTR 内置车型从注册表里裁掉了（本模组的 `BuiltInTrains#prune`）。这时屏幕上会画
+  「没有可用车型（资源包未加载？）」+ 关闭按钮，不再是空白窗；`/mtr_lte beam3d <车型id>`
+  仍然能打开指定车型。
+
 ## 相关代码
 
 | 文件 | 作用 |

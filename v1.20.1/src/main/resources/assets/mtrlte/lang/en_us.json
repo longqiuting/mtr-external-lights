@@ -257,6 +257,9 @@
   "beam3d.miss": "Nothing picked",
   "beam3d.noModel": "No previewable model for this train",
   "beam3d.noModelHint": "Only JonModelTrainRenderer trains carry a model; it may also not be loaded yet",
+  "beam3d.noVehicles": "No vehicles available (resource pack not loaded?)",
+  "beam3d.noVehiclesHint": "Check that an MTR resource pack is enabled; with disableBuiltInTrains on, built-in types are pruned - a vehicle id can also be typed after the command",
+  "beam3d.prunedHint": "disableBuiltInTrains=true: MTR's built-in types were pruned out of the registry (that is why the list is empty)",
 
   "itemGroup.mtrlte.core": "LTE core",
   "item.mtrlte.signal_linker": "Signal linker",

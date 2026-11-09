@@ -25,7 +25,7 @@ import java.util.Map;
 public final class HeadlightConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     /** Bumped when a default changes in a way an existing file has to be migrated onto. */
-    private static final int CONFIG_VERSION = 18;
+    private static final int CONFIG_VERSION = 19;
 
     /**
      * {@code railChunkBuildPerFrame} 的上限（每帧最多重建几个轨道区块）。
@@ -701,6 +701,36 @@ public final class HeadlightConfig {
      */
     public boolean autoHeadlights() {
         return MODE_AUTO.equals(resolvedMode());
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // 车厂停放判定 (parkedLightsOff) - 判定见 DepartureState
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * 停放中的列车不亮灯：默认 {@code true}。
+     *
+     * <p>发车闸门 {@link DepartureState} 只有两个信号——MTR 自己的 {@code getIsOnRoute()}，
+     * 以及本客户端<b>亲眼看到</b>这列车开动过的闩锁。闩锁一旦置位就不会自己掉（它记录的确实是
+     * "出过库"这个事实），所以一列开回车辆段的列车仍然亮着灯。这个开关补的就是最后这一段：
+     * <b>不在运行线路上 + 已经开动过 + 长时间静止</b> 三条同时成立 = 判定为停放，灯灭。
+     *
+     * <p>站台停靠不受影响：{@code getIsOnRoute()} 在站台一般是 {@code true}，闸门第一条就放行。
+     *
+     * <p>关掉它回到旧行为（只看 {@code moved} 闩锁），用于 A/B 对比。
+     */
+    public boolean parkedLightsOff = true;
+
+    /**
+     * 停放判定阈值：{@code |getSpeed()| < 0.01}（格/tick）持续超过这么多 tick 就算停放。
+     * 默认 {@code 200}（10 秒 @ 20 tps）。{@code 0} = 只要停一下就算停放（很敏感），
+     * 负数按 {@code 0} 处理（见 {@link #parkIdleTicks()}）。
+     */
+    public int parkedLightsOffTicks = 200;
+
+    /** {@link #parkedLightsOffTicks} 夹到 {@code >= 0}，负数当作 0。 */
+    public int parkIdleTicks() {
+        return Math.max(0, this.parkedLightsOffTicks);
     }
 
     /**
@@ -1923,6 +1953,10 @@ public final class HeadlightConfig {
         // the bump is what writes the key into an existing file so it is discoverable by hand.
         // Version 18 only appends coneOnTail (default false = cone from the head lamp only). Same
         // reason: an absent key already means false, the bump writes it out so it is discoverable.
+        // Version 19 only appends parkedLightsOff / parkedLightsOffTicks (default true / 200 =
+        // "a train that has been standing still in the depot for 10 s stops shining"). Absent keys
+        // already mean exactly those defaults, so nothing has to be rewritten - the bump writes
+        // them into an existing file so they are discoverable by hand.
         configVersion = CONFIG_VERSION;
         return true;
     }
@@ -2076,6 +2110,9 @@ public final class HeadlightConfig {
         trainCollisionImpactCooldownTicks = clamp(trainCollisionImpactCooldownTicks, 1, 200);
         trainCollisionHurtTicks = clamp(trainCollisionHurtTicks, 40, 600);
         trackbedThickness = clamp(trackbedThickness, 0.0D, 1.0D);
+        // 停放阈值：负数没有意义（会变成"永远停放"），夹到 0；上限 20 分钟，防手改出一个
+        // 永远判不出停放的数。
+        parkedLightsOffTicks = clamp(parkedLightsOffTicks, 0, 24000);
         beamHeadColor = formatColor(parseColor(beamHeadColor, DEFAULT_HEAD_BEAM));
         beamTailColor = formatColor(parseColor(beamTailColor, DEFAULT_TAIL_BEAM));
         // 字符串枚举：null / 空串 / 拼错的值都收回 AUTO（Gson 不会因为一个字段读坏整份配置）。

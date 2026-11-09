@@ -73,6 +73,23 @@ import java.util.Set;
  *
  * <p>State is keyed like {@link LightController} keys its lights ({@code id:} when MTR sent a
  * stable train id, otherwise {@code tid:} + the train type id) so the two agree on identity.
+ *
+ * <h2>Vehicle-shed parking (extra signal)</h2>
+ * The latch is permanent by design - it records "this train really did leave", which stays true -
+ * so a train that drove back into the depot kept its beams. The latch is now additionally gated
+ * by <b>observed stillness</b>, and only for off-route trains:
+ * <ul>
+ *   <li>{@code getIsOnRoute()} true → lit, always (a platform dwell is on-route; it must not
+ *       blink out);</li>
+ *   <li>off-route + {@code moved} + {@code idleTicks > parkedLightsOffTicks} → parked, dark;</li>
+ *   <li>the moment it moves again ({@code |speed| >= 0.01} blocks/tick) {@code idleTicks} resets
+ *       to 0 and the lamps come back.</li>
+ * </ul>
+ * {@code speed} is MTR's own synced {@code Train#speed} field ({@code getSpeed()}, blocks/tick -
+ * {@code writePacket} writes it as a float and the client reads it back), so the judgement does
+ * not depend on rail-progress jitter the way the latch's {@code stillTicks} does. A jittering
+ * railProgress keeps resetting the latch's still-timer while the train is in fact standing still;
+ * the speed signal is immune to that, which is exactly the shed case that was reported.
  */
 public final class DepartureState {
     /** Progress changes below this (blocks per tick) are jitter, not motion. */
@@ -85,6 +102,12 @@ public final class DepartureState {
     private static final int DEPART_STEPS = 10;
     /** Off-route and motionless for this many ticks (3 s at 20 tps) drops the latch. */
     private static final int STILL_TICKS_TO_CLEAR = 60;
+
+    /**
+     * {@code |Train#getSpeed()|} (blocks/tick) below this counts as standing still. 0.01 blocks/tick
+     * = 0.72 km/h, i.e. slower than any real movement and faster than float noise.
+     */
+    private static final double IDLE_SPEED_EPSILON = 0.01D;
 
     /**
      * Temporary diagnostic, one INFO line every {@value #DIAG_PERIOD} ticks:
@@ -131,9 +154,13 @@ public final class DepartureState {
         }
         tickCounter++;
 
+        // 停放判定读的就是活动配置，改完立刻生效（A/B 关掉不需要重启）。
+        final HeadlightConfig cfg = MtrHeadlightClient.config();
+
         int trains = 0;
         int onRoute = 0;
         int moved = 0;
+        int parked = 0;
         int lit = 0;
         final Set<String> seen = new HashSet<>();
         for (final TrainClient train : snapshotTrains()) {
@@ -159,15 +186,21 @@ public final class DepartureState {
                 entry.observe(progress - entry.lastProgress);
                 entry.lastProgress = progress;
             }
+            // 静止计时只有速度一个输入：MTR 每 tick 把 speed 同步下来，和 railProgress 的抖动无关。
+            entry.observeSpeed(speedOf(train));
             if (!routed) {
                 entry.settle();
             } else {
                 entry.stillTicks = 0;
             }
+            final boolean isParked = !routed && entry.moved && entry.isParked(cfg);
             if (entry.moved) {
                 moved++;
             }
-            if (routed || entry.moved) {
+            if (isParked) {
+                parked++;
+            }
+            if (routed || (entry.moved && !isParked)) {
                 lit++;
             }
         }
@@ -177,8 +210,9 @@ public final class DepartureState {
 
         if (DIAG && tickCounter % DIAG_PERIOD == 0L) {
             final String line = "depart: trains=" + trains + " onRoute=" + onRoute
-                    + " moved=" + moved + " lit=" + lit;
-            // "moved" is the latch alone; "lit" is the gate's verdict before the siding switch.
+                    + " moved=" + moved + " parked=" + parked + " lit=" + lit;
+            // "moved" is the latch alone, "parked" the off-route-and-still subset of it, and "lit"
+            // is the gate's verdict before the siding switch. parked + (moved - parked) = moved.
             if (!line.equals(lastDiag)) {
                 MtrHeadlightClient.LOGGER.info("[lte] {}", line);
                 lastDiag = line;
@@ -188,8 +222,12 @@ public final class DepartureState {
 
     /**
      * True when this train may shine: MTR says it is on a route, or this client has actually seen
-     * it drive. Unknown trains (no entry yet, e.g. the very first frame after a world load) are
-     * "not departed" unless MTR flags them, so a shed full of new trains never flashes.
+     * it drive <b>and</b> it has not been standing still off-route long enough to count as parked.
+     * Unknown trains (no entry yet, e.g. the very first frame after a world load) are "not
+     * departed" unless MTR flags them, so a shed full of new trains never flashes.
+     *
+     * <p>An on-route train is always lit, so a platform dwell never blinks out. The parking test
+     * only applies to trains that are off-route (i.e. sent back to a depot / vehicle shed).
      */
     public static boolean departed(final TrainClient train) {
         if (train == null) {
@@ -199,7 +237,10 @@ public final class DepartureState {
             return true;
         }
         final Entry entry = TRACKED.get(keyOf(train));
-        return entry != null && entry.moved;
+        if (entry == null || !entry.moved) {
+            return false;
+        }
+        return !entry.isParked(MtrHeadlightClient.config());
     }
 
     /**
@@ -242,6 +283,19 @@ public final class DepartureState {
         }
     }
 
+    /**
+     * MTR's synced {@code Train#speed}, in blocks per tick. Guarded: a lighting mod must never take
+     * the client down if a fork drops the getter. An unreadable speed counts as 0 (standstill),
+     * which is the safe direction - a train we cannot read must not shine while parked.
+     */
+    private static double speedOf(final TrainClient train) {
+        try {
+            return train.getSpeed();
+        } catch (Throwable t) {
+            return 0.0D;
+        }
+    }
+
     /** One train's minimal state: where it was, how far it visibly drove, which way it faces. */
     private static final class Entry {
         double lastProgress;
@@ -251,6 +305,8 @@ public final class DepartureState {
         int movingTicks;
         /** Ticks without any movement. */
         int stillTicks;
+        /** Consecutive ticks with {@code |speed| < IDLE_SPEED_EPSILON} - the parking timer. */
+        int idleTicks;
         boolean moved;
         boolean reversed;
 
@@ -287,6 +343,34 @@ public final class DepartureState {
             if (stillTicks >= STILL_TICKS_TO_CLEAR) {
                 reset();
             }
+        }
+
+        /**
+         * Feeds one tick of MTR's synced speed. This is the only input to the parking timer: a
+         * standing train reports {@code speed == 0} even when its rail progress still jitters by a
+         * few centimetres, which is what kept the {@link #stillTicks} path from ever firing.
+         */
+        void observeSpeed(final double speed) {
+            if (Math.abs(speed) < IDLE_SPEED_EPSILON) {
+                if (idleTicks < Integer.MAX_VALUE) {
+                    idleTicks++;
+                }
+            } else {
+                idleTicks = 0;
+            }
+        }
+
+        /**
+         * Has this train been standing still long enough to count as parked? Only a candidate -
+         * the caller still has to check that it is off-route and that it ever moved. The switch in
+         * {@link HeadlightConfig#parkedLightsOff} turns the whole verdict into a no-op (old
+         * {@code moved}-only behaviour).
+         */
+        boolean isParked(final HeadlightConfig cfg) {
+            if (cfg == null || !cfg.parkedLightsOff) {
+                return false;
+            }
+            return idleTicks > cfg.parkIdleTicks();
         }
 
         void reset() {
