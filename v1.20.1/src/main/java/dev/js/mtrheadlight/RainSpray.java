@@ -213,12 +213,51 @@ public final class RainSpray {
             return;
         }
         try {
+            probeAtPlayer(client, world);
+        } catch (Throwable t) {
+            MtrHeadlightClient.LOGGER.error("[lte] spray probe failed", t);
+        }
+        try {
             emit(cfg, client, world, raining);
         } catch (Throwable t) {
             // 粒子永远不该把客户端带崩。
             MtrHeadlightClient.LOGGER.error("[lte] rain spray failed", t);
         }
         report(cfg, world, raining);
+    }
+
+    /**
+     * 调试探针：{@code /mtr_lte debug spray on} 的 5 秒内，在玩家眼前 2.5 格、眼平高度
+     * 撒一圈<b>我们自己的</b>粒子，完全不依赖“附近有没有列车 / 下没下雨 / 露不露天”。
+     *
+     * <p>之前探针只放宽了露天判定，仍然要求有列车经过 —— 站在空站台开探针什么都看不到，
+     * 于是每次都被误判成“粒子不显示”。这里把前提条件全部去掉，只回答一个问题：
+     * <b>粒子系统本身能不能出像素</b>。
+     */
+    private static void probeAtPlayer(final MinecraftClient client, final ClientWorld world) {
+        if (!DebugProbe.sprayEnabled()) {
+            return;
+        }
+        final net.minecraft.entity.player.PlayerEntity player = client.player;
+        if (player == null) {
+            return;
+        }
+        final net.minecraft.util.math.Vec3d look =
+                net.minecraft.util.math.Vec3d.fromPolar(0.0F, player.getYaw());
+        final double cx = player.getX() - look.x * 2.5D;
+        final double cy = player.getEyeY();
+        final double cz = player.getZ() - look.z * 2.5D;
+        final net.minecraft.particle.ParticleEffect effect = SprayType.effect();
+        for (int i = 0; i < 12; i++) {
+            final double a = Math.PI * 2.0D * i / 12.0D
+                    + world.random.nextDouble() * 0.5D;
+            final double r = 0.25D + 0.75D * world.random.nextDouble();
+            world.addParticle(effect, true,
+                    cx + Math.cos(a) * r,
+                    cy + (world.random.nextDouble() - 0.5D) * 0.8D,
+                    cz + Math.sin(a) * r,
+                    0.0D, 0.01D, 0.0D);
+        }
     }
 
     /** 世界层面唯一的下雨判定，和车灯共用 {@link RailWeather#raining(ClientWorld)}。 */
