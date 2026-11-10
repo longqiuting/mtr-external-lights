@@ -1,5 +1,9 @@
 package dev.js.mtrheadlight.bind;
 
+import net.minecraft.block.entity.BlockEntity;
+import net.minecraft.network.packet.s2c.play.BlockEntityUpdateS2CPacket;
+import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 
@@ -46,6 +50,10 @@ public final class MtrTiles {
 
     private static final String PROJECTOR = "mtr.block.BlockArrivalProjectorBase$TileEntityArrivalProjectorBase";
     private static final String PIDS = "mtr.data.IPIDS$TileEntityPIDS";
+
+    /** 绑定后显式推 NBT 的半径（格）。MTR 自己的 PIDS 渲染距离上限是 16 格，64 已经很宽。 */
+    private static final int PUSH_RADIUS = 64;
+    private static final double PUSH_RADIUS_SQ = (double) PUSH_RADIUS * PUSH_RADIUS;
 
     /** 一块 PIDS 方块实体 + 它在世界里的位置（位置是我们自己记的，不从反射读）。 */
     public record PidsTile(Object tile, BlockPos pos) {
@@ -152,6 +160,81 @@ public final class MtrTiles {
             return true;
         } catch (Throwable t) {
             return false;
+        }
+    }
+
+    // ---------------------------------------------------------------- 写完之后：同步 + 落盘
+
+    /**
+     * 把方块实体<b>整份</b> NBT 直接推给附近玩家（不是等 MTR 那条「下个 tick 广播」）。
+     *
+     * <h2>为什么需要这一步</h2>
+     * <p>{@code setData(...)} 内部只做两件事：{@code markDirty()}（标区块待存）和
+     * {@code syncData()}，而 {@code syncData()} 的实现是
+     * {@code ((ServerWorld) world).getChunkManager().markForUpdate(pos)} —— javap 核对：
+     * {@code ServerChunkManager#markForUpdate} 只调用 {@code ChunkHolder#markForBlockUpdate(pos)}，
+     * 也就是把这一格排进「下个 tick 广播给正在跟踪这个 chunk 的玩家」的队列。它<b>不</b>保证
+     * 绑定的这个玩家就在那份跟踪集合里（区块刚好在边界、ChunkHolder 还没到 block-entity 级别、
+     * 玩家正跨维度/刚传送都会漏）。
+     *
+     * <p>漏掉的后果正是「绑上了，过一会儿又像没绑」：MTR 的
+     * {@code RenderPIDS#getSchedules} 读的是<b>客户端自己的方块实体</b>，而且对空集合走的是
+     * 「自动模式」分支（{@code platformIds.isEmpty() → getPlatformId(PLATFORMS, DATA_CACHE)}，
+     * 即就近站台），屏幕上就是一块「没绑过」的 PIDS —— 等客户端数据缓存刷新后，全部到站刷出来，
+     * 看起来就像绑定被撤销了。
+     *
+     * <p>这里用 {@code BlockEntityUpdateS2CPacket.create(be)} 显式发一次：它走
+     * {@code BlockEntity#toInitialChunkDataNbt()}，而 MTR 的
+     * {@code BlockEntityClientSerializableMapper#toInitialChunkDataNbt()} 会把
+     * {@code writeCompoundTag()} 的内容（含 {@code platform_ids}）拼进去 ——
+     * 所以客户端拿到的就是刚写进去的那份。
+     *
+     * <p><b>关于 {@code instanceof BlockEntity}</b>：{@link MtrTiles} 类注释里说「不碰静态类型」，
+     * 指的是 {@code BlockEntity instanceof TileEntityPIDS}（MTR 的祖先链指向另一个 {@code class_2586}，
+     * javac 判不兼容）。这里的方向相反：静态类型是 {@code Object}，向下转型永远合法；而本模组
+     * 构建时会被 remap 成 intermediary，运行期 {@code net.minecraft.block.entity.BlockEntity}
+     * 与 MTR 引用的 {@code net.minecraft.class_2586} <b>是同一个类</b>，所以运行期也成立。
+     *
+     * @return 是否至少推给了一个玩家
+     */
+    public static boolean pushToClients(final ServerWorld world, final Object tile, final BlockPos pos) {
+        if (world == null || pos == null || !(tile instanceof BlockEntity entity)) {
+            return false;
+        }
+        try {
+            final BlockEntityUpdateS2CPacket packet = BlockEntityUpdateS2CPacket.create(entity);
+            final double x = pos.getX() + 0.5D;
+            final double y = pos.getY() + 0.5D;
+            final double z = pos.getZ() + 0.5D;
+            boolean sent = false;
+            for (final ServerPlayerEntity player : world.getPlayers()) {
+                if (player.squaredDistanceTo(x, y, z) <= PUSH_RADIUS_SQ) {
+                    player.networkHandler.sendPacket(packet);
+                    sent = true;
+                }
+            }
+            return sent;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * 显式把这一格所在区块标成「需要保存」。
+     *
+     * <p>{@code setData} 里的 {@code markDirty()} 已经会走到
+     * {@code World#markDirty(pos) → WorldChunk#setNeedsSaving(true)}（javap 核对过），
+     * 但它依赖 {@code BlockEntity.world/cachedState} 非空。绑定完再补一刀几乎零成本，
+     * 换来「关服/换维度/区块卸载后数据还在」这件事不取决于反编译出来的实现细节。
+     */
+    public static void markChunkSaved(final World world, final BlockPos pos) {
+        if (world == null || pos == null) {
+            return;
+        }
+        try {
+            world.getWorldChunk(pos).setNeedsSaving(true);
+        } catch (Throwable ignored) {
+            // 区块没加载（理论上不会，我们刚写完方块实体）—— 让 MTR 自己的 markDirty 兜着。
         }
     }
 

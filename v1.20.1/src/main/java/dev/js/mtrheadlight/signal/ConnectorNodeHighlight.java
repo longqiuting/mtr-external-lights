@@ -20,7 +20,14 @@ import net.minecraft.util.math.Vec3d;
 import java.util.Map;
 
 /**
- * 手持「信号连接器」时，在附近的轨道节点上画方块轮廓（白），已选中的那个画青色。
+ * 手持<b>任意一个</b>连接器（{@code signal_linker} / {@code projector_connector} / {@code pids_connector}）时，
+ * 在附近的轨道节点上画方块轮廓（白）。拿信号连接器时，第一次右键选中的那颗节点画青色。
+ *
+ * <h2>为什么是三个连接器共用一份渲染</h2>
+ * <p>三个连接器要点的东西是同一张表：MTR 的轨道节点（{@code ClientData.RAILS} 的键）。
+ * 信号连接器绑节点，投影机 / PIDS 连接器也要点节点才能反推站台。所以「哪只手拿着哪一件」
+ * 只在最前面判一次，后面的收集 / 排序 / 绘制完全共用 —— 一条 {@code AFTER_TRANSLUCENT}
+ * 回调、一个 {@code VertexConsumer}、一次 {@code draw(LINES)}，不会因为多判两个物品而多画一遍。
  *
  * <h2>为什么是这套做法</h2>
  * <ul>
@@ -55,11 +62,11 @@ import java.util.Map;
  * 「Not filled all elements」。
  *
  * <p>诊断：手持时每 {@value #DIAG_PERIOD_MS} ms 打一行
- * {@code [lte] node marks: nodes=N drawn=D range=R}（nodes = 通过距离+视锥的节点数，
- * drawn = 实际画出的数，range = 当前半径）。不手持时不打。
+ * {@code [lte] node marks: item=<hand> nodes=N drawn=D range=R}（items = 手上那件连接器，
+ * nodes = 通过距离+视锥的节点数，drawn = 实际画出的数，range = 当前半径）。不手持时不打。
  */
 @Environment(EnvType.CLIENT)
-public final class SignalNodeHighlight {
+public final class ConnectorNodeHighlight {
 
     /** 每帧最多画多少个节点。视距 192 格时全量会有几万个，必须封顶。 */
     private static final int MAX_NODES = 4000;
@@ -85,7 +92,60 @@ public final class SignalNodeHighlight {
 
     private static long lastDiagMs;
 
-    private SignalNodeHighlight() {
+    private ConnectorNodeHighlight() {
+    }
+
+    /** 手上那件连接器（没拿就是 {@code null}）。 */
+    private static final class Held {
+        final ItemStack stack;
+        final boolean signal;
+        /** 诊断行里显示的名字。 */
+        final String name;
+
+        Held(final ItemStack stack, final boolean signal, final String name) {
+            this.stack = stack;
+            this.signal = signal;
+            this.name = name;
+        }
+    }
+
+    /**
+     * 这个玩家手上（主手或副手）拿的连接器；没拿返回 {@code null}。
+     *
+     * <p>{@code signal} 只影响「已选节点画青色」这一件事 —— 那个选区挂在
+     * {@code SignalLinkItem} 的物品 NBT 上，另外两件没有这个概念。
+     */
+    private static Held held(final PlayerEntity player) {
+        final ItemStack main = player.getMainHandStack();
+        final ItemStack off = player.getOffHandStack();
+        final Item signal = LteCoreItems.signalLinker();
+        if (signal != null) {
+            if (main.isOf(signal)) {
+                return new Held(main, true, "signal");
+            }
+            if (off.isOf(signal)) {
+                return new Held(off, true, "signal");
+            }
+        }
+        final Item projector = LteCoreItems.projectorConnector();
+        if (projector != null) {
+            if (main.isOf(projector)) {
+                return new Held(main, false, "projector");
+            }
+            if (off.isOf(projector)) {
+                return new Held(off, false, "projector");
+            }
+        }
+        final Item pids = LteCoreItems.pidsConnector();
+        if (pids != null) {
+            if (main.isOf(pids)) {
+                return new Held(main, false, "pids");
+            }
+            if (off.isOf(pids)) {
+                return new Held(off, false, "pids");
+            }
+        }
+        return null;
     }
 
     /** 挂到 {@code WorldRenderEvents.AFTER_TRANSLUCENT}；异常一律不外抛（渲染报错会黑屏）。 */
@@ -103,14 +163,8 @@ public final class SignalNodeHighlight {
         if (player == null || client.world == null) {
             return;
         }
-        final Item linker = LteCoreItems.signalLinker();
-        if (linker == null) {
-            return;
-        }
-        final ItemStack main = player.getMainHandStack();
-        final ItemStack off = player.getOffHandStack();
-        final boolean holdingMain = main.isOf(linker);
-        if (!holdingMain && !off.isOf(linker)) {
+        final Held held = held(player);
+        if (held == null) {
             return;
         }
 
@@ -131,7 +185,7 @@ public final class SignalNodeHighlight {
         final Vec3d look = Vec3d.fromPolar(context.camera().getPitch(), context.camera().getYaw());
 
         // 已选节点（第一次右键进来的那个）单独用青色，避免和白框混在一起。
-        final BlockPos selected = SignalLinkItem.selectedNode(holdingMain ? main : off);
+        final BlockPos selected = held.signal ? SignalLinkItem.selectedNode(held.stack) : null;
 
         final int nodes = collect(camera, look, rangeSq);
 
@@ -152,7 +206,7 @@ public final class SignalNodeHighlight {
         if (drawn > 0) {
             buffers.draw(RenderLayer.getLines());
         }
-        diag(nodes, drawn, range);
+        diag(held.name, nodes, drawn, range);
     }
 
     /**
@@ -208,7 +262,7 @@ public final class SignalNodeHighlight {
         final int count = scratch.size;
         for (int i = 0; i < count; i++) {
             final BlockPos node = scratch.pos[i];
-            if (node.equals(selected)) {
+            if (selected != null && node.equals(selected)) {
                 box(matrices, lines, node, 0.25F, 0.90F, 1.00F, 0.90F);
             } else {
                 box(matrices, lines, node, 1.00F, 1.00F, 1.00F, 0.55F);
@@ -218,14 +272,14 @@ public final class SignalNodeHighlight {
     }
 
     /** 每 5 秒一行；只在手持时被调到（不手持在前面就 return 了）。 */
-    private static void diag(final int nodes, final int drawn, final double range) {
+    private static void diag(final String item, final int nodes, final int drawn, final double range) {
         final long now = System.currentTimeMillis();
         if (lastDiagMs != 0L && now - lastDiagMs < DIAG_PERIOD_MS) {
             return;
         }
         lastDiagMs = now;
-        LteLog.LOGGER.info("[lte] node marks: nodes={} drawn={} range={}",
-                Integer.valueOf(nodes), Integer.valueOf(drawn), Integer.valueOf((int) range));
+        LteLog.LOGGER.info("[lte] node marks: item={} nodes={} drawn={} range={}",
+                item, Integer.valueOf(nodes), Integer.valueOf(drawn), Integer.valueOf((int) range));
     }
 
     private static void box(final MatrixStack matrices, final VertexConsumer lines, final BlockPos pos,

@@ -257,13 +257,38 @@ assets/lte/beam3D/<key>.json
 - 光束按节重复画（同一份车体局部坐标），换节数时自动按整列重新取景；
 - 视口右上角显示「编组 N 节 · 间距 X.X 格」。
 
+## 包里放哪 / 运行时怎么读
+
+优先级（编辑器与运行时**同一份**，见 `docs/beam-pack-read-report.md`）：
+
+1. `<桌面>/<id>.json`（桌面不可用时 `config/lte_beams/`）—— 编辑器上次导出
+2. `assets/lte/beam3D/<id>.json` —— 约定的主路径
+3. `assets/<ns>/beam3D/<id>.json` —— 作者自己的命名空间
+4. `assets/<ns>/lte_beams/<id>.json` —— 旧路径（兼容）
+5. `config/lte_beams/<id>.json` —— 老版本导出（兼容）
+
+`<id>` = 这辆车的车型 id，**编辑器列表里显示的那个**（MTR 的 `baseTrainType`），
+不一定等于 `mtr_custom_resources.json` 的 key —— 自定义车的 id 是 MTR 自己生成的
+（例如 `train_12_2`）。三个 id（key / `mtr_custom_train_<key>` / `baseTrainType`）互为别名，
+`read(id, aliases...)` 会都试一遍。
+
+运行时（`ProtoBeamCone`）第一次见到某个车型 id 时按上面的顺序读一次：读到就**照表画**
+（每束自己的位置/方向/长度/粗细/颜色/透明度），读不到才退回自动识别的一头一尾。
+每个 id 每次资源重载只读一次；F3+T 后重新读。日志：
+
+```
+[lte] beam pack: train_12_2.json <- file/<包>:assets/lte/beam3d/train_12_2.json beams=4
+[lte] beam pack: no file for id=... (tried [...]; packs enabled=N)
+[lte] beam pack: file/<包> contains beam3D files but is NOT enabled in the resource pack list
+```
+
 ## 相关代码
 
 | 文件 | 作用 |
 |---|---|
 | `v1.20.1/.../BeamEditor3DScreen.java` | 界面、工具、拖拽、滑块、车型列表 |
 | `v1.20.1/.../TrainPreview.java` | 在 GUI 里渲染 MTR 模型 + 正交反投影拾取 |
-| `v1.20.1/.../BeamPackWriter.java` | `config/lte_beams/<id>.json` 的读写 |
+| `v1.20.1/.../BeamPackWriter.java` | 光柱文件的读写：桌面 / `assets/<ns>/beam3D/` / `lte_beams/` / `config` 的优先级与别名 |
 | `v1.20.1/.../TrainNames.java` | 车型名：`TrainProperties#name` → 语言表 → 包里 json 的 `name` |
 | `v1.20.1/.../CustomPack.java` | 读一个未加载的 zip/文件夹包：json、模型、贴图、导出到包内 |
 | `v1.20.1/.../PackImportScreen.java` | 「导入资源包」页：自动扫 + 路径框 |

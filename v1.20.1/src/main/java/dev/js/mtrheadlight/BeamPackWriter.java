@@ -44,16 +44,23 @@ import java.util.stream.Stream;
  *
  * <h2>读的优先级</h2>
  * <ol>
- *   <li>{@code <桌面>/<key>.json} —— 编辑器上次导出的工作副本（桌面取不到时就是
+ *   <li>{@code <桌面>/<id>.json} —— 编辑器上次导出的工作副本（桌面取不到时就是
  *       {@code config/lte_beams/}）；</li>
- *   <li>已加载的资源包，<b>新路径</b> {@code assets/lte/beam3D/<key>.json}
- *       （其它命名空间的 {@code assets/<ns>/beam3D/} 也一样认）；</li>
- *   <li>已加载的资源包，<b>旧路径</b> {@code assets/<ns>/lte_beams/<key>.json}（兼容）；</li>
- *   <li>{@code config/lte_beams/<key>.json} —— 老版本导出留下的文件（兼容）。</li>
+ *   <li>已加载的资源包，<b>新路径</b> {@code assets/lte/beam3D/<id>.json}
+ *       （约定的主路径，永远先看它）；</li>
+ *   <li>已加载的资源包，{@code assets/<ns>/beam3D/<id>.json}（作者自己的命名空间）；</li>
+ *   <li>已加载的资源包，<b>旧路径</b> {@code assets/<ns>/lte_beams/<id>.json}（兼容）；</li>
+ *   <li>{@code config/lte_beams/<id>.json} —— 老版本导出留下的文件（兼容）。</li>
  * </ol>
  * 新路径永远压过旧路径：先扫完所有包的 {@code beam3D/}，再看 {@code lte_beams/}。
- * 每一层都同时接受 {@code <key>.json}、{@code mtr_custom_train_<key>.json} 和小写形态，
- * 文件名比较一律<b>忽略大小写</b>。
+ * 每一层都同时接受 {@code <id>.json}、{@code mtr_custom_train_<id>.json} 和小写形态，
+ * 文件名比较一律<b>忽略大小写</b>；{@link #read(String, String...)} 还能额外传别名 id
+ * （同一个车型的 key / 注册 id / {@code baseTrainType} 都对得上）。
+ *
+ * <h2>运行时也读这一份</h2>
+ * {@code VehicleLightOverrides#setPackBeamReader} 注入的就是 {@link #read(String)}：
+ * 渲染端第一次看到某个车型 id 时按这里的优先级找文件，找到就当成该车型的光束表来画
+ * （见 {@code ProtoBeamCone#emitDeclared}）。编辑器与运行时因此读的是同一份文件、同一个解析器。
  *
  * <h2>为什么直接读包根而不是 {@code Identifier}</h2>
  * 资源管理器只接受 {@code [a-z0-9/._-]} 的路径，{@code beam3D} 里的 {@code D} 直接不是合法
@@ -93,6 +100,14 @@ final class BeamPackWriter {
     static final String ID_PREFIX = "mtr_custom_train_";
 
     private static final int FORMAT_VERSION = 1;
+
+    /** 「磁盘上有包但没启用」这条检查每个会话只做一次（要列目录、开 zip，不能每帧做）。 */
+    private static final java.util.concurrent.atomic.AtomicBoolean DISABLED_PACK_CHECK =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
+    /** 已启用的包栈只建一次（每次建都要打开全部 zip），资源包重载时由客户端丢弃。 */
+    private static final Object PACK_LOCK = new Object();
+    private static List<ResourcePack> PACK_CACHE;
 
     private static final String[] COMMENT = {
         "LTE 3D beam editor export - one vehicle per file.",
@@ -267,16 +282,30 @@ final class BeamPackWriter {
      * @return 光束列表；四处都没有时返回空列表
      */
     static List<Beam> read(final String vehicleId) {
-        final List<String> names = fileNames(vehicleId);
+        return read(vehicleId, new String[0]);
+    }
+
+    /**
+     * 同 {@link #read(String)}，但额外按 {@code aliases} 里的车型 id 找同一份文件。
+     *
+     * <p>为什么需要别名：MTR 一辆自定义车同时挂着三个 id —— {@code mtr_custom_resources.json}
+     * 里的 key（{@code xml6125jevd0c_normal}）、注册 id（{@code mtr_custom_train_<key>}），
+     * 以及渲染器报的 {@code baseTrainType}（{@code train_12_2}，由 MTR 自己生成）。编辑器从
+     * 注册表打开时手里只有前者，作者按后者命名的文件就找不到 —— 所以调用方把其余 id 一并传进来。
+     */
+    static List<Beam> read(final String vehicleId, final String... aliases) {
+        final List<String> ids = candidateIds(vehicleId, aliases);
+        final List<String> names = namesFor(ids);
         final Path exported = locate(exportDir(), names);
         if (exported != null) {
             final List<Beam> beams = readFile(exported, vehicleId);
             if (beams != null) {
-                LteLog.LOGGER.info("[lte] beam editor: {} <- {}", fileName(vehicleId), exported);
+                LteLog.LOGGER.info("[lte] beam pack: {} <- {} beams={}", fileName(vehicleId), exported,
+                        Integer.valueOf(beams.size()));
                 return beams;
             }
         }
-        final List<Beam> packed = readFromPacks(vehicleId, names);
+        final List<Beam> packed = readFromPacks(ids, names, vehicleId);
         if (packed != null) {
             return packed;
         }
@@ -286,12 +315,76 @@ final class BeamPackWriter {
             if (legacy != null) {
                 final List<Beam> old = readFile(legacy, vehicleId);
                 if (old != null) {
-                    LteLog.LOGGER.info("[lte] beam editor: {} <- {} (legacy)", fileName(vehicleId), legacy);
+                    LteLog.LOGGER.info("[lte] beam pack: {} <- {} beams={} (legacy)", fileName(vehicleId),
+                            legacy, Integer.valueOf(old.size()));
                     return old;
                 }
             }
         }
+        logMiss(ids, names);
         return List.of();
+    }
+
+    /**
+     * 不静默：一个车型在四处都找不到时也要留一行，并且把「包在磁盘上有、但没在资源包列表里
+     * 启用」这件事单独说清楚 —— 那是玩家最容易自己修好的一类。
+     */
+    private static void logMiss(final List<String> ids, final List<String> names) {
+        LteLog.LOGGER.info("[lte] beam pack: no file for id={} (tried {}; packs enabled={})",
+                ids.isEmpty() ? "?" : ids.get(0), names, Integer.valueOf(enabledProfileCount()));
+        warnIfPackPresentButDisabled();
+    }
+
+    /** 已启用的包数（只数，不建包 —— 建包是为了读内容，这里只要个数）。 */
+    private static int enabledProfileCount() {
+        try {
+            final MinecraftClient client = MinecraftClient.getInstance();
+            if (client == null || client.getResourcePackManager() == null) {
+                return 0;
+            }
+            return client.getResourcePackManager().getEnabledProfiles().size();
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    /** 同一辆车所有可能被作者当成文件名的 id，按优先级去重（忽略大小写）。 */
+    static List<String> candidateIds(final String vehicleId, final String... aliases) {
+        final Set<String> lowered = new LinkedHashSet<>();
+        final List<String> out = new ArrayList<>();
+        final List<String> raw = new ArrayList<>();
+        if (vehicleId != null && !vehicleId.isBlank()) {
+            raw.add(vehicleId.trim());
+        }
+        if (aliases != null) {
+            for (final String alias : aliases) {
+                if (alias != null && !alias.isBlank()) {
+                    raw.add(alias.trim());
+                }
+            }
+        }
+        for (final String id : raw) {
+            for (final String form : new String[] {keyOf(id), id, ID_PREFIX + keyOf(id)}) {
+                if (form != null && !form.isBlank() && lowered.add(form.toLowerCase(Locale.ROOT))) {
+                    out.add(form);
+                }
+            }
+        }
+        return out;
+    }
+
+    /** 这些 id 对应的全部文件名（含大小写形态），去重后按优先级排列。 */
+    static List<String> namesFor(final List<String> ids) {
+        final Set<String> lowered = new LinkedHashSet<>();
+        final List<String> out = new ArrayList<>();
+        for (final String id : ids) {
+            for (final String name : fileNames(id)) {
+                if (lowered.add(name.toLowerCase(Locale.ROOT))) {
+                    out.add(name);
+                }
+            }
+        }
+        return out;
     }
 
     private static boolean sameDir(final Path a, final Path b) {
@@ -350,48 +443,61 @@ final class BeamPackWriter {
     }
 
     /**
-     * 已加载资源包里的这个车型：先扫全部包的 {@code assets/lte/beam3D/<key>.json}
-     * （以及其它命名空间的 {@code assets/<ns>/beam3D/}），再扫旧路径
-     * {@code assets/<ns>/lte_beams/<key>.json}。同一个路径类别里，栈顶（后加载）的包赢。
+     * 已加载资源包里的这个车型：先扫全部包的 {@code assets/lte/beam3D/<id>.json}，再扫
+     * {@code assets/<ns>/beam3D/}，最后才是旧路径 {@code assets/<ns>/lte_beams/}。
      *
      * @return null = 所有已加载的包都没有这个文件
      */
-    private static List<Beam> readFromPacks(final String vehicleId, final List<String> names) {
+    private static List<Beam> readFromPacks(final List<String> ids, final List<String> names,
+                                            final String vehicleId) {
         final List<ResourcePack> packs = enabledPacks();
         if (packs.isEmpty()) {
             return null;
         }
-        try {
-            final List<Beam> fresh = scanPacks(packs, vehicleId, names, PACK_DIR);
-            if (fresh != null) {
-                return fresh;
-            }
-            return scanPacks(packs, vehicleId, names, LEGACY_PACK_DIR);
-        } finally {
-            for (final ResourcePack pack : packs) {
-                try {
-                    pack.close();
-                } catch (Throwable ignored) {
-                    // 关不掉也只是一次文件句柄，不影响读数
-                }
-            }
+        final List<Beam> fresh = scanPacks(packs, ids, names, PACK_DIR, vehicleId);
+        if (fresh != null) {
+            return fresh;
         }
+        return scanPacks(packs, ids, names, LEGACY_PACK_DIR, vehicleId);
     }
 
     /**
-     * 一个目录类别、全部包扫一遍：优先级低 → 高遍历，后命中的覆盖前面，所以最后命中
-     * 的就是生效的那一份（与 Minecraft「栈顶包赢」一致）。目录名同时试 {@code beam3D}
-     * 和它的小写形态（有的作者写 {@code beam3d}）。
+     * 一个目录类别扫一遍，分两轮：
+     * <ol>
+     *   <li>命名空间 {@code lte}（也就是 {@code assets/lte/beam3D/}）—— 约定的主路径；</li>
+     *   <li>包里其它命名空间（{@code assets/<ns>/beam3D/}）。</li>
+     * </ol>
+     * 第一轮命中就不再进第二轮，所以「{@code assets/lte/} 的写法」永远压过「作者自己的
+     * 命名空间」。同一轮里按包顺序低 → 高遍历，后命中的覆盖前面的，与 Minecraft
+     * 「栈顶包赢」一致。目录名同时试 {@code beam3D} 和它的小写形态。
      *
      * @return null = 一个包都没有这个文件
      */
-    private static List<Beam> scanPacks(final List<ResourcePack> packs, final String vehicleId,
-                                        final List<String> names, final String dir) {
+    private static List<Beam> scanPacks(final List<ResourcePack> packs, final List<String> ids,
+                                        final List<String> names, final String dir,
+                                        final String vehicleId) {
+        final List<Beam> preferred = scanPacks(packs, ids, names, dir, vehicleId, true);
+        if (preferred != null) {
+            return preferred;
+        }
+        return scanPacks(packs, ids, names, dir, vehicleId, false);
+    }
+
+    /**
+     * @param onlyDefault true = 只看 {@code lte} 命名空间；false = 只看其它命名空间
+     */
+    private static List<Beam> scanPacks(final List<ResourcePack> packs, final List<String> ids,
+                                        final List<String> names, final String dir,
+                                        final String vehicleId, final boolean onlyDefault) {
         final String[] dirs = new String[] {dir, dir.toLowerCase(Locale.ROOT)};
         List<Beam> winner = null;
         String from = null;
+        String hitId = null;
         for (final ResourcePack pack : packs) {
             for (final String namespace : namespacesOf(pack)) {
+                if (onlyDefault != PACK_NAMESPACE.equalsIgnoreCase(namespace)) {
+                    continue;
+                }
                 for (final String candidate : dirs) {
                     for (final String name : names) {
                         final InputSupplier<InputStream> supplier;
@@ -407,15 +513,125 @@ final class BeamPackWriter {
                         winner = parse(json, keyOf(vehicleId),
                                 pack.getName() + "!assets/" + namespace + "/" + candidate + "/" + name);
                         from = pack.getName() + ":assets/" + namespace + "/" + candidate + "/" + name;
+                        hitId = name;
                     }
                 }
             }
         }
         if (winner != null) {
-            LteLog.LOGGER.info("[lte] beam editor: {} <- {} ({} beams)", fileName(vehicleId), from,
-                    Integer.valueOf(winner.size()));
+            LteLog.LOGGER.info("[lte] beam pack: {} <- {} beams={} (id={})", fileName(vehicleId), from,
+                    Integer.valueOf(winner.size()), hitId);
         }
         return winner;
+    }
+
+    /**
+     * 「包在磁盘上有、但没启用」：扫 {@code <game>/resourcepacks/}（两层）里带
+     * {@code assets/<ns>/beam3D/<id>.json} 的文件夹包和 zip，和已启用的包名对一遍，
+     * 没启用的逐个 warn。这一层是玩家最常踩的坑（PCL 里勾了包、游戏里没勾，或者反过来），
+     * 不提示的话界面只会显示「没找到文件」，看起来像模组坏了。
+     */
+    private static void warnIfPackPresentButDisabled() {
+        if (!DISABLED_PACK_CHECK.compareAndSet(false, true)) {
+            return;
+        }
+        // 已启用的包名先在调用线程（渲染 / 编辑器线程）取好，后台线程只碰文件系统。
+        final Set<String> enabled = new LinkedHashSet<>();
+        try {
+            final MinecraftClient client = MinecraftClient.getInstance();
+            if (client != null && client.getResourcePackManager() != null) {
+                for (final ResourcePackProfile profile : client.getResourcePackManager().getEnabledProfiles()) {
+                    enabled.add(profile.getName());
+                }
+            }
+        } catch (Throwable ignored) {
+            // 拿不到就按「一个都没启用」处理：宁可多报一条，也不静默
+        }
+        // 这条检查要开几十上百个 zip 只为看一眼条目表：丢到后台线程，别卡渲染帧。
+        final Thread thread = new Thread(() -> scanDisabledPacks(enabled), "lte-beam-pack-scan");
+        thread.setDaemon(true);
+        try {
+            thread.start();
+        } catch (Throwable t) {
+            scanDisabledPacks(enabled);
+        }
+    }
+
+    private static void scanDisabledPacks(final Set<String> enabled) {
+        try {
+            final Path root = FabricLoader.getInstance().getGameDir().resolve("resourcepacks");
+            if (!Files.isDirectory(root)) {
+                return;
+            }
+            final List<Path> packs = new ArrayList<>();
+            try (Stream<Path> list = Files.list(root)) {
+                list.forEach(p -> {
+                    if (Files.isDirectory(p) || isZip(p)) {
+                        packs.add(p);
+                    }
+                });
+            }
+            for (final Path pack : packs) {
+                final String label = "file/" + pack.getFileName();
+                if (enabled.contains(label)) {
+                    continue;
+                }
+                if (containsBeamFile(pack)) {
+                    LteLog.LOGGER.warn("[lte] beam pack: {} contains beam3D files but is NOT enabled"
+                            + " in the resource pack list (启用它，或把文件放进已启用的包)", label);
+                }
+            }
+        } catch (Throwable t) {
+            LteLog.LOGGER.debug("[lte] beam pack: cannot check disabled packs", t);
+        }
+    }
+
+    private static boolean isZip(final Path path) {
+        final String name = path.getFileName() == null ? ""
+                : path.getFileName().toString().toLowerCase(Locale.ROOT);
+        return name.endsWith(".zip");
+    }
+
+    /** 文件夹包看文件系统，zip 看条目表；两种都只认 {@code assets/<ns>/beam3D/*.json}。 */
+    private static boolean containsBeamFile(final Path pack) {
+        try {
+            if (Files.isDirectory(pack)) {
+                final Path assets = pack.resolve("assets");
+                if (!Files.isDirectory(assets)) {
+                    return false;
+                }
+                try (Stream<Path> namespaces = Files.list(assets)) {
+                    return namespaces.anyMatch(ns -> hasBeamDir(ns.resolve(PACK_DIR))
+                            || hasBeamDir(ns.resolve(PACK_DIR.toLowerCase(Locale.ROOT)))
+                            || hasBeamDir(ns.resolve(LEGACY_PACK_DIR)));
+                }
+            }
+            try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(pack.toFile())) {
+                return zip.stream().anyMatch(e -> {
+                    final String name = e.getName().toLowerCase(Locale.ROOT);
+                    return name.startsWith("assets/")
+                            && (name.contains("/beam3d/") || name.contains("/lte_beams/"))
+                            && name.endsWith(".json");
+                });
+            }
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static boolean hasBeamDir(final Path dir) {
+        try {
+            if (!Files.isDirectory(dir)) {
+                return false;
+            }
+            try (Stream<Path> list = Files.list(dir)) {
+                return list.anyMatch(p -> Files.isRegularFile(p)
+                        && p.getFileName() != null
+                        && p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".json"));
+            }
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     /** 这个包里值得找的命名空间：{@link #PACK_NAMESPACE}（{@code lte}）排最前，其余按字母序。 */
@@ -440,27 +656,55 @@ final class BeamPackWriter {
 
     /** 已加载的资源包，低 → 高优先级（{@code getEnabledProfiles} 的顺序就是栈序）。 */
     private static List<ResourcePack> enabledPacks() {
-        final List<ResourcePack> out = new ArrayList<>();
-        try {
-            final MinecraftClient client = MinecraftClient.getInstance();
-            if (client == null) {
-                return out;
+        synchronized (PACK_LOCK) {
+            if (PACK_CACHE != null) {
+                return PACK_CACHE;
             }
-            final ResourcePackManager manager = client.getResourcePackManager();
-            if (manager == null) {
-                return out;
-            }
-            for (final ResourcePackProfile profile : manager.getEnabledProfiles()) {
-                try {
-                    out.add(profile.createResourcePack());
-                } catch (Throwable t) {
-                    LteLog.LOGGER.warn("[lte] beam editor: cannot open pack {}", profile.getName());
+            final List<ResourcePack> out = new ArrayList<>();
+            try {
+                final MinecraftClient client = MinecraftClient.getInstance();
+                if (client == null) {
+                    return out;
                 }
+                final ResourcePackManager manager = client.getResourcePackManager();
+                if (manager == null) {
+                    return out;
+                }
+                for (final ResourcePackProfile profile : manager.getEnabledProfiles()) {
+                    try {
+                        out.add(profile.createResourcePack());
+                    } catch (Throwable t) {
+                        LteLog.LOGGER.warn("[lte] beam editor: cannot open pack {}", profile.getName());
+                    }
+                }
+            } catch (Throwable t) {
+                LteLog.LOGGER.warn("[lte] beam editor: pack scan unavailable", t);
             }
-        } catch (Throwable t) {
-            LteLog.LOGGER.warn("[lte] beam editor: pack scan unavailable", t);
+            PACK_CACHE = out;
+            return out;
         }
-        return out;
+    }
+
+    /**
+     * 丢掉缓存的包栈（资源包列表变了：F3+T、装/卸包）。不缓存的话运行端第一次问某个车型 id
+     * 就要把【全部】已启用包各打开一次 —— 这是几十上百个 zip，落在渲染线程上就是一帧卡死。
+     */
+    static void invalidatePacks() {
+        final List<ResourcePack> old;
+        synchronized (PACK_LOCK) {
+            old = PACK_CACHE;
+            PACK_CACHE = null;
+        }
+        if (old == null) {
+            return;
+        }
+        for (final ResourcePack pack : old) {
+            try {
+                pack.close();
+            } catch (Throwable ignored) {
+                // 关不掉也只是一次文件句柄，不影响读数
+            }
+        }
     }
 
     private static String readAll(final InputSupplier<InputStream> supplier) {

@@ -28,6 +28,14 @@ public final class VehicleLightsJsonClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         try {
+            // 渲染端读的是同一份 3D 编辑器的导出文件（assets/<ns>/beam3D/<id>.json）。
+            // 注入而不是直接依赖：BeamPackWriter 只在 1.20.1 的源码集里，VehicleLightOverrides
+            // 是各版本共用的。
+            VehicleLightOverrides.setPackBeamReader(BeamPackWriter::read);
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] beam pack: reader not installed", t);
+        }
+        try {
             ResourceManagerHelper.get(ResourceType.CLIENT_RESOURCES)
                     .registerReloadListener(new Listener());
         } catch (Throwable t) {
@@ -73,6 +81,8 @@ public final class VehicleLightsJsonClient implements ClientModInitializer {
         public CompletableFuture<Void> apply(final Void data, final ResourceManager manager,
                                              final Profiler profiler, final Executor executor) {
             try {
+                // 包栈变了（F3+T / 装卸包）：丢掉缓存的光柱文件扫描结果，下一次问就重新读。
+                BeamPackWriter.invalidatePacks();
                 VehicleLightPacks.reloadClient(manager);
             } catch (Throwable t) {
                 LteLog.LOGGER.warn("[lte] lights json: client scan failed", t);

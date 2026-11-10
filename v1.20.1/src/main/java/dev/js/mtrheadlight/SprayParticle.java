@@ -289,8 +289,17 @@ public final class SprayParticle extends SpriteBillboardParticle {
         // 用副本 conjugate()，绝不改 camera.getRotation() 返回的那个共享四元数。
         final Vector3f vel = new Vector3f((float) this.velocityX, (float) this.velocityY,
                 (float) this.velocityZ).rotate(new Quaternionf(camera.getRotation()).conjugate());
-        final float tilt = (vel.x * vel.x + vel.y * vel.y) > 1.0E-8F
-                ? MathHelper.clamp((float) Math.atan2(-vel.x, Math.abs(vel.y)), -MAX_TILT, MAX_TILT)
+        // 倾角拆成「大小」和「方向」两半：
+        //   大小 = 速度在屏幕平面里有多斜（只用 |分量|，落在 [0, 90°]）；
+        //   方向 = 水平速度 · 相机右轴 的点积符号 —— 相机空间的 vel.x 就是这个点积，不是另造的约定。
+        // 点积 > 0 表示粒子在画面上往右甩，雨丝就该拖着尾部往右后方倒；< 0 反过来。
+        // 之前这里写死了 -vel.x，等于把方向固定成「朝车头那侧翻」，所以雨丝全部斜反了。
+        final float horizDotRight = vel.x;
+        final float planarSpeedSq = vel.x * vel.x + vel.y * vel.y;
+        final float tilt = planarSpeedSq > 1.0E-8F
+                ? MathHelper.clamp(Math.copySign(
+                        (float) Math.atan2(Math.abs(vel.x), Math.abs(vel.y)), horizDotRight),
+                        -MAX_TILT, MAX_TILT)
                 : 0.0F;
         for (final Vector3f corner : corners) {
             corner.y *= VERTICAL_STRETCH;

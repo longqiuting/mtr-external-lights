@@ -139,9 +139,13 @@ public final class XiamenPsdBlocks {
         @Override
         public ActionResult onUse(BlockState state, World world, BlockPos pos, PlayerEntity player,
                                  Hand hand, BlockHitResult hit) {
+            // 注意：这里必须是 **MTR 的刷子**（mtr:brush，mtr.Items.BRUSH），不是原版
+            // minecraft:brush。MTR 的 BlockPSDTop.use 也是用 checkHoldingItem(..., mtr.Items.BRUSH.get(),
+            // Items.BARRIER)；之前写成原版 Items.BRUSH，刷子右键永远进不来，箭头方向自然切不了。
+            final net.minecraft.item.Item brush = mtr.Items.BRUSH.get();
             return IBlock.checkHoldingItem(world, player, item -> {
                 Direction facing = IBlock.getStatePropertySafe(state, FACING);
-                if (item == Items.BRUSH) {
+                if (item == brush) {
                     world.setBlockState(pos, state.cycle(ARROW_DIRECTION));
                     this.propagate(world, pos, facing.rotateYClockwise(), ARROW_DIRECTION, 1);
                     this.propagate(world, pos, facing.rotateYCounterclockwise(), ARROW_DIRECTION, 1);
@@ -153,7 +157,7 @@ public final class XiamenPsdBlocks {
                     this.propagate(world, pos, facing.rotateYCounterclockwise(),
                             offsetPos -> this.setState(world, offsetPos, shouldBePersistent), 1);
                 }
-            }, null, Items.BRUSH, Items.BARRIER);
+            }, null, brush, Items.BARRIER);
         }
 
         /** MTR {@code setState} 的等价物，判据换成 MTR 的三个基类。 */

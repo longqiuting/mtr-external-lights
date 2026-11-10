@@ -494,13 +494,25 @@ public final class ProtoBeamCone {
                 // the trailing face of the trailing car, each along THAT car's own body pose. The
                 // lamp offsets come from the car-local section of the model, never from the model
                 // bbox. The tail end only draws when coneOnTail is explicitly on.
-                liveBeams += emitSlot(trainVolume, pose, 0, true, layout.head, reversed, headLength,
-                        headColor, trainPeak, steps, trainRange, train.id, boost,
-                        shift, eye, world);
-                if (tailCones) {
-                    liveBeams += emitSlot(trainVolume, pose, cars - 1, false, layout.tail, reversed,
-                            tailLength, tailColor, trainPeak * 0.55F, steps, trainRange, train.id,
-                            boost, shift, eye, world);
+                //
+                // 如果这个车型有一份完整的光束表（资源包里的 assets/<ns>/beam3D/<id>.json，
+                // 或编辑器刚改的运行时层），就照表画：每束自带位置 / 方向 / 长度 / 粗细 /
+                // 颜色 / 透明度。没有才退回「自动识别的一头一尾」——两条路互斥，否则
+                // 「文件里 4 束」会变成 6 束（自动那一对还在）。
+                final List<VehicleLightOverrides.Resolved> declared =
+                        VehicleLightOverrides.resolvedDeclared(vehicleIdOf(train), layout);
+                if (!declared.isEmpty()) {
+                    liveBeams += emitDeclared(trainVolume, pose, cars, declared, reversed, steps,
+                            trainRange, train.id, boost, tailCones, shift, eye, world);
+                } else {
+                    liveBeams += emitSlot(trainVolume, pose, 0, true, layout.head, reversed, headLength,
+                            headColor, trainPeak, steps, trainRange, train.id, boost,
+                            shift, eye, world);
+                    if (tailCones) {
+                        liveBeams += emitSlot(trainVolume, pose, cars - 1, false, layout.tail, reversed,
+                                tailLength, tailColor, trainPeak * 0.55F, steps, trainRange, train.id,
+                                boost, shift, eye, world);
+                    }
                 }
             }
             if (vertexCount > before || BEAMS.size() > beamsBefore) {
@@ -656,6 +668,99 @@ public final class ProtoBeamCone {
             }
         }
         return emitted;
+    }
+
+    /**
+     * 资源包 / 编辑器给的「整张光束表」：一束一条，全部数值自带。
+     *
+     * <p>几何只借用 {@link TrainPose} 的车身坐标系（车头端面 + 车身朝向 + 世界右方向），
+     * 位置用 {@link VehicleLightOverrides.Resolved} 已经换算好的
+     * {@code lateral / height / inset}（模型空间 → 车体局部），方向和编辑器
+     * {@code TrainPreview#direction} 用同一条公式：零旋转 = 车头 -Z / 车尾 +Z，
+     * {@code rot = [yaw, pitch, roll]} 度。
+     *
+     * <p>尾端的束受 {@code coneOnTail} 管，和自动那一对同一个开关；其余类型一律画。
+     */
+    private static int emitDeclared(final boolean volume, final TrainPose pose, final int cars,
+                                    final List<VehicleLightOverrides.Resolved> beams,
+                                    final boolean reversed, final int steps, final double range,
+                                    final long trainId, final boolean boost, final boolean tailCones,
+                                    final Vec3d shift, final Vec3d eye, final ClientWorld world) {
+        final double flip = reversed ? -1.0D : 1.0D;
+        int emitted = 0;
+        for (final VehicleLightOverrides.Resolved r : beams) {
+            if (r == null) {
+                continue;
+            }
+            final boolean head = r.isHead();
+            if (!head && !tailCones) {
+                gate(5);
+                continue;
+            }
+            final int car = head ? 0 : Math.max(0, cars - 1);
+            final Vec3d base = head ? pose.carStart(car) : pose.carEnd(car);
+            Vec3d forward = pose.carBodyForward(car);
+            if (forward == Vec3d.ZERO) {
+                forward = pose.carForward(car);
+            }
+            if (forward == Vec3d.ZERO) {
+                gate(6);
+                continue;
+            }
+            final Vec3d flat = new Vec3d(forward.x, 0.0D, forward.z);
+            final Vec3d right = flat.lengthSquared() < 1.0E-6D
+                    ? new Vec3d(1.0D, 0.0D, 0.0D)
+                    : flat.normalize().crossProduct(new Vec3d(0.0D, 1.0D, 0.0D));
+            // Same anchor as emitSlot: out of the end face by FACE_GAP, back in by the beam's
+            // own recess. lateral is already "from the model's centreline".
+            final double push = VehicleLights.FACE_GAP - r.inset;
+            final Vec3d apex = base.add(forward.multiply(push))
+                    .add(right.multiply(r.lateral * flip))
+                    .add(0.0D, r.height, 0.0D);
+            final Vec3d axis = declaredAxis(forward, right, r.rot, head);
+            final double radius = r.width > 0.02D ? r.width * 0.5D : coneRadius(r.length, head);
+            final float alpha = (float) Math.max(0.0D, Math.min(1.0D, r.alpha));
+            if (emit(volume, false, apex, axis, r.length, radius, r.color, alpha, steps, range, boost,
+                    "train=" + trainId + " end=" + r.type + " pack car=" + car,
+                    shift, eye, world)) {
+                emitted++;
+            }
+        }
+        return emitted;
+    }
+
+    /**
+     * 一束声明光束的方向：车头 {@code -Z} 为基准，{@code rot = [yaw, pitch, roll]} 度，
+     * 与 {@code TrainPreview#direction} 逐位一致（尾灯整条取反，不是「yaw+180」）。
+     */
+    private static Vec3d declaredAxis(final Vec3d forward, final Vec3d right,
+                                      final double[] rot, final boolean head) {
+        final double yaw = Math.toRadians(rot == null ? 0.0D : rot[0]);
+        final double pitch = Math.toRadians(rot == null ? 0.0D : rot[1]);
+        final double cosPitch = Math.cos(pitch);
+        Vec3d dir = forward.multiply(Math.cos(yaw) * cosPitch)
+                .add(right.multiply(-Math.sin(yaw) * cosPitch))
+                .add(0.0D, -Math.sin(pitch), 0.0D);
+        if (!head) {
+            dir = dir.multiply(-1.0D);
+        }
+        return dir.lengthSquared() < 1.0E-9D ? forward : dir.normalize();
+    }
+
+    /** 车型 id：MTR 报给渲染器的那个（{@code baseTrainType}），退回 {@code trainId}。 */
+    private static String vehicleIdOf(final TrainClient train) {
+        try {
+            if (train.baseTrainType != null && !train.baseTrainType.isBlank()) {
+                return train.baseTrainType;
+            }
+        } catch (Throwable ignored) {
+            // Older MTR builds: fall through to the train id.
+        }
+        try {
+            return train.trainId;
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     /**

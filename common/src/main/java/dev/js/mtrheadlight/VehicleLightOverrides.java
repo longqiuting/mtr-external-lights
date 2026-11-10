@@ -216,6 +216,39 @@ public final class VehicleLightOverrides {
 
     private static final AtomicLong VERSION = new AtomicLong(1);
 
+    // --- 光柱文件（assets/<ns>/beam3D/<id>.json）的懒加载 -----------------------------------
+    //
+    // 每车型一个文件的那套格式（3D 编辑器的导出）由客户端按「车型 id」直接读包，而不是像
+    // lte_vehicle_lights.json 那样一次扫完全部包：资源管理器只认 [a-z0-9/._-] 的路径，
+    // beam3D 里的大写 D 不是合法 Identifier，getAllResources 永远看不到它（见
+    // BeamPackWriter）。所以这里留一个纯函数式的入口，由客户端注入「按 id 找文件」的实现，
+    // 第一次问到某个 id 时才去读包，读到就当成最底层的声明（PACK）参与 resolve。
+    //
+    // 注入而不是直接调用，是因为 BeamPackWriter 只存在于 1.20.1 的源码集（其它版本没有
+    // 编辑器），而本文件是各版本共用的。
+
+    /** 「按车型 id 读一份光柱文件」，返回空列表表示没有。实现方负责日志。 */
+    public interface PackBeamReader {
+        List<Beam> read(String vehicleId);
+    }
+
+    private static volatile PackBeamReader packBeamReader;
+    /** 已经问过包的 id（小写）：读不到也只问一次，渲染线程上不会有第二次 IO。 */
+    private static final Set<String> LAZY_TRIED = new LinkedHashSet<>();
+
+    /** 客户端初始化时注入（{@code BeamPackWriter::read}）。null = 不读光柱文件。 */
+    public static void setPackBeamReader(final PackBeamReader reader) {
+        LOCK.writeLock().lock();
+        try {
+            packBeamReader = reader;
+            LAZY_TRIED.clear();
+            MATCH.clear();
+            VERSION.incrementAndGet();
+        } finally {
+            LOCK.writeLock().unlock();
+        }
+    }
+
     /** Files that failed structurally during the last {@link #load}. */
     private static volatile int lastFailed;
     /** Pack labels that contributed at least one usable file during the last {@link #load}. */
@@ -272,6 +305,9 @@ public final class VehicleLightOverrides {
             PACK.clear();
             PACK.putAll(parsed);
             MATCH.clear();
+            synchronized (LAZY_TRIED) {
+                LAZY_TRIED.clear();
+            }
             packLabels = labels;
             VERSION.incrementAndGet();
             lastFailed = failed;
@@ -296,6 +332,9 @@ public final class VehicleLightOverrides {
             PACK.clear();
             AUTO.clear();
             MATCH.clear();
+            synchronized (LAZY_TRIED) {
+                LAZY_TRIED.clear();
+            }
             synchronized (WARNED) {
                 WARNED.clear();
             }
@@ -374,7 +413,7 @@ public final class VehicleLightOverrides {
 
     /** The declared beams for {@code vehicleId}, or an empty list. Never null. */
     public static List<Beam> beams(final String vehicleId) {
-        final Vehicle v = lookup(vehicleId);
+        final Vehicle v = lookupOrLoad(vehicleId);
         if (v == null) {
             return Collections.emptyList();
         }
@@ -383,6 +422,55 @@ public final class VehicleLightOverrides {
             out.add(b.copy());
         }
         return out;
+    }
+
+    /**
+     * {@link #lookup} plus「第一次问这个 id 时去读一份 {@code beam3D/<id>.json}」。
+     *
+     * <p>读到的条目进 PACK 层（和包里的 {@code lte_vehicle_lights.json} 同一个优先级层），
+     * 所以编辑器 {@link #put} 的运行时编辑照旧压过它；{@link #reload()} / {@link #load}
+     * 会清掉 {@link #LAZY_TRIED}，F3+T 之后重新读。读不到也记住（只问一次）。
+     */
+    private static Vehicle lookupOrLoad(final String vehicleId) {
+        final Vehicle found = lookup(vehicleId);
+        if (found != null || vehicleId == null || vehicleId.isEmpty()) {
+            return found;
+        }
+        final PackBeamReader reader = packBeamReader;
+        if (reader == null) {
+            return null;
+        }
+        final String key = vehicleId.toLowerCase(Locale.ROOT);
+        synchronized (LAZY_TRIED) {
+            if (!LAZY_TRIED.add(key)) {
+                return null;
+            }
+        }
+        List<Beam> beams = null;
+        try {
+            beams = reader.read(vehicleId);
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] beam pack: reader failed for {}", vehicleId, t);
+            return null;
+        }
+        if (beams == null || beams.isEmpty()) {
+            return null;
+        }
+        final Vehicle v = new Vehicle(vehicleId, "pack:beam3D");
+        for (final Beam b : beams) {
+            if (b != null) {
+                v.beams.add(b.copy());
+            }
+        }
+        LOCK.writeLock().lock();
+        try {
+            PACK.put(key, v);
+            MATCH.clear();
+            VERSION.incrementAndGet();
+        } finally {
+            LOCK.writeLock().unlock();
+        }
+        return lookup(vehicleId);
     }
 
     private static Vehicle lookup(final String vehicleId) {
@@ -569,11 +657,37 @@ public final class VehicleLightOverrides {
         if (!auto.isEmpty()) {
             rememberAuto(vehicleId, auto);
         }
-        final Vehicle declared = lookup(vehicleId);
+        final Vehicle declared = lookupOrLoad(vehicleId);
         if (declared == null || declared.beams.isEmpty()) {
             return auto;
         }
         return merge(auto, declared.beams);
+    }
+
+    /**
+     * 只有「声明过」的光束（包里的 {@code beam3D/<id>.json} 或编辑器 {@link #put}），
+     * <b>不</b>混自动识别的那一对。
+     *
+     * <p>渲染端用它来回答一个二选一：这车型有一份完整的光束表，就照表画；没有，就照
+     * {@link VehicleLights#layoutFor} 的灯位画默认的一头一尾。混在一起会让「文件里写了 4 束」
+     * 变成 6 束（自动的那一对还在），所以这里必须是纯声明的。
+     */
+    public static List<Resolved> resolvedDeclared(final String vehicleId,
+                                                 final VehicleLights.Layout layout) {
+        final Vehicle declared = lookupOrLoad(vehicleId);
+        if (declared == null || declared.beams.isEmpty()) {
+            return Collections.emptyList();
+        }
+        final List<Resolved> out = new ArrayList<>(declared.beams.size());
+        for (final Beam b : declared.beams) {
+            // 只有写了 pos 的条目才算「完整的光束表」。老格式里
+            // {"type":"head","color":"#F00"} 这种只想改颜色的条目没有位置可画，
+            // 硬画一条会落在车体中心线上 —— 那种情况留给自动识别的一对，别抢。
+            if (b != null && b.pos != null) {
+                out.add(Resolved.of(b, layout));
+            }
+        }
+        return out;
     }
 
     /**
@@ -904,7 +1018,12 @@ public final class VehicleLightOverrides {
                 lateral = (z ? b.pos[0] : b.pos[2]) - layout.latCentre;
                 height = b.pos[1];
                 final double half = layout.sectionLen * 0.5D;
-                inset = head ? half - along : along + half;
+                // addSlot 写的是 along = (head ? front : -front) * (half - inset)，这里必须
+                // 逐字求逆。曾经写成「head ? half - along : along + half」—— 两个分支正好
+                // 都反了，车头灯算出来的 inset 变成 2*half（灯口落到车尾外面），尾灯同理。
+                // 之前没人发现是因为 {@code Resolved} 一直没有渲染端消费者。
+                final double front = layout.frontSign >= 0 ? 1.0D : -1.0D;
+                inset = head ? half - along * front : half + along * front;
             } else if (b.pos != null) {
                 // No model to interpret the coordinates against (server side): keep the lateral
                 // and height numbers as written, they are already car-relative.

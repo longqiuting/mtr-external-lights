@@ -17,6 +17,8 @@ import net.minecraft.world.World;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * PIDS 连接器（{@code mtrlte:pids_connector}）：把一块 PIDS 绑到「某个轨道节点所属的站台」。
@@ -51,6 +53,27 @@ import java.util.List;
  *
  * <p>绑定记录另存 {@link PidsLinkStore}（{@code world/data/mtrlte_pids_links.dat}），与信号表、
  * 投影机表互不相干。
+ *
+ * <h2>“绑上了，过一会儿又像没绑”是怎么修的</h2>
+ * <p>写入本身走的是 MTR 自己的 {@code setData(...)}，里面已经 {@code markDirty()} +
+ * {@code syncData()}（javap 核对：{@code markDirty} = {@code method_5431}，{@code syncData} =
+ * {@code ServerWorld#getChunkManager().markForUpdate(pos)}）。问题出在 {@code syncData} 的语义：
+ * 它只是把这一格排进「下个 tick 广播给<b>正在跟踪该 chunk 的玩家</b>」的队列，并不保证刚绑定的
+ * 这个玩家在这份集合里。而 MTR 的 PIDS 显示读的是<b>客户端自己的方块实体</b>，并且对空集合走
+ * 「自动模式」（{@code RenderPIDS#getSchedules} 里 {@code platformIds.isEmpty() →
+ * getPlatformId(PLATFORMS, DATA_CACHE)}，即就近站台）—— 客户端那份没收到，屏幕就是一块
+ * 「没绑过」的 PIDS，等客户端数据缓存刷新、全部到站刷出来，看起来就像绑定被撤销了。
+ *
+ * <p>所以每次绑定都做四件事，缺一不可：
+ * <ol>
+ *   <li><b>服务端写</b>：{@code setData(...)}（MTR 的唯一合法入口，<b>不存在「只写车站」的写法</b>）；</li>
+ *   <li><b>客户端写</b>：{@link MtrTiles#pushToClients} 把整份 NBT 直接
+ *       {@code BlockEntityUpdateS2CPacket} 推给附近每个玩家，不再依赖那条 tick 队列；</li>
+ *   <li><b>落盘</b>：{@link MtrTiles#markChunkSaved} 显式把区块标脏（不依赖 {@code markDirty} 的
+ *       实现细节），重进世界数据还在；</li>
+ *   <li><b>回读校验</b>：写完再 {@code getPlatformIds()} 读一遍，日志打
+ *       {@code [lte] bind: pids verify platforms=[...]}；读不回来就红字告诉玩家，不假装成功。</li>
+ * </ol>
  */
 public final class PidsConnectorItem extends Item {
 
@@ -180,11 +203,24 @@ public final class PidsConnectorItem extends Item {
                 pidsPos, Collections.singletonList(Long.valueOf(platformId)));
         final String platformName = LteMtrLookup.platformName(world, platformId);
         final Station station = LteMtrLookup.stationOfPlatform(world, platformId);
+        final ServerWorld serverWorld = world instanceof ServerWorld sw ? sw : null;
 
         int written = 0;
         for (final MtrTiles.PidsTile entry : pids) {
-            if (MtrTiles.pidsBindSingle(entry.tile(), platformId)) {
-                written++;
+            if (!MtrTiles.pidsBindSingle(entry.tile(), platformId)) {
+                continue;
+            }
+            written++;
+            // 双端都写：
+            //   服务端 —— pidsBindSingle 走的是 MTR 自己的 setData(...)，内部 markDirty + syncData；
+            //   客户端 —— syncData 那条路只把这一格排进「下个 tick 广播给正在跟踪该 chunk 的玩家」的队列
+            //   （javap：ServerChunkManager#markForUpdate → ChunkHolder#markForBlockUpdate），
+            //   漏了就是「客户端 platformIds 还是空的」。空集合在 RenderPIDS#getSchedules 里等于
+            //   「自动模式」（就近站台），屏幕上看就是没绑过。所以这里显式再推一次整份 NBT。
+            if (serverWorld != null) {
+                MtrTiles.pushToClients(serverWorld, entry.tile(), entry.pos());
+                // 区块落盘（setData 的 markDirty 已经会做，这里补一刀不依赖实现细节）。
+                MtrTiles.markChunkSaved(serverWorld, entry.pos());
             }
         }
         if (written == 0) {
@@ -194,13 +230,34 @@ public final class PidsConnectorItem extends Item {
 
         PidsLinkStore.get((ServerWorld) world).put(pidsPos, node, platformId, platformName);
 
+        // 回读校验：真正躺在方块实体里的 platformIds 是什么（不是我们「打算写」的那个）。
+        final Set<Long> verify = new TreeSet<>();
+        for (final MtrTiles.PidsTile entry : pids) {
+            verify.addAll(MtrTiles.pidsPlatformIds(entry.tile()));
+        }
+        LteLog.LOGGER.info("[lte] bind: pids verify platforms={}", verify);
+        final boolean persisted = verify.contains(Long.valueOf(platformId));
+
         final String stationName = station == null || station.name == null || station.name.isEmpty()
                 ? "-" : station.name;
-        say(player, "message.mtrlte.pids.linked", Formatting.GREEN, platformName, stationName);
+        if (persisted) {
+            say(player, "message.mtrlte.pids.linked", Formatting.GREEN, platformName, stationName);
+        } else {
+            // 写了但读不回来：MTR 的方法签名变了 / 这块 PIDS 的方块实体不是我们以为的那个类。
+            say(player, "message.mtrlte.pids.verify_failed", Formatting.RED,
+                    MtrTiles.join(verify), MtrTiles.describe(pids.get(0).tile()));
+        }
+
         // MTR 的 PIDS 渲染也先按位置找车站（RenderPIDS#getSchedules：station 为空直接返回空表），
         // 站外的 PIDS 即使 platformIds 写对了也不会显示到站。这是 MTR 的模型，不是绑定失败。
-        if (LteMtrLookup.stationAt(world, pidsPos) == null) {
+        final Station atPids = LteMtrLookup.stationAt(world, pidsPos);
+        if (atPids == null) {
             say(player, "message.mtrlte.pids.outside_station", Formatting.YELLOW);
+        } else if (station != null && atPids.id != station.id) {
+            // 写进去的站台属于别的车站 —— getSchedules 会拿「PIDS 所在车站」的站台列表去过滤，
+            // 一个都对不上，屏幕是空的。
+            say(player, "message.mtrlte.pids.platform_mismatch", Formatting.YELLOW,
+                    platformName, stationName);
         }
         return ActionResult.SUCCESS;
     }

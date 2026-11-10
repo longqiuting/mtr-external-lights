@@ -1,6 +1,6 @@
 {
   "parent": "item/generated",
   "textures": {
-    "layer0": "mtrlte:block/psd_glass_diagonal_top_1"
+    "layer0": "mtrlte:item/psd_glass_end_1"
   }
 }

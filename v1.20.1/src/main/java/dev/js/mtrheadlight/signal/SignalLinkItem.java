@@ -327,7 +327,7 @@ public final class SignalLinkItem extends Item {
     /**
      * 物品 NBT 里记着的「待连接节点」，没有就 {@code null}。
      *
-     * <p>给客户端渲染用（{@code SignalNodeHighlight} 把这一颗画成青色，其余白框），
+     * <p>给客户端渲染用（{@code ConnectorNodeHighlight} 把这一颗画成青色，其余白框），
      * 所以必须是只读的：不 {@code getOrCreateNbt()}，不写任何东西。
      */
     public static BlockPos selectedNode(final ItemStack stack) {

@@ -1,6 +1,3 @@
 {
-  "parent": "item/generated",
-  "textures": {
-    "layer0": "mtrlte:block/xiamen_logo"
-  }
+  "parent": "mtrlte:block/xiamen_logo"
 }
