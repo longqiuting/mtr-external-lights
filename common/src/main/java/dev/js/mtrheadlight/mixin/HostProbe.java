@@ -18,11 +18,14 @@ public final class HostProbe {
     private static final String MTR_REGISTRY = "mtr.client.TrainClientRegistry";
     /** MTR 的服务端列车类（{@code TrainServer#simulateTrain} 是列车登记的注入点）。 */
     private static final String MTR_TRAIN_SERVER = "mtr.data.TrainServer";
+    /** MTR 的 PIDS / 到站投影机渲染器（{@code getSchedules} 是「站外投影机」的注入目标）。 */
+    private static final String MTR_PIDS_RENDERER = "mtr.render.RenderPIDS";
 
     private static final boolean ANTE = present(ANTE_CHUNK);
     private static final boolean NTE = present(NTE_CHUNK);
     private static final boolean MTR = present(MTR_REGISTRY);
     private static final boolean MTR_SERVER = present(MTR_TRAIN_SERVER);
+    private static final boolean MTR_PIDS = present(MTR_PIDS_RENDERER);
 
     private HostProbe() {
     }
@@ -38,6 +41,11 @@ public final class HostProbe {
     /** {@code mtr.client.TrainClientRegistry} 是否存在（内置车型过滤的注入目标）。 */
     public static boolean mtrTrainRegistry() {
         return MTR;
+    }
+
+    /** {@code mtr.render.RenderPIDS} 是否存在（站外投影机顶渲染的注入目标）。 */
+    public static boolean mtrPidsRenderer() {
+        return MTR_PIDS;
     }
 
     /**

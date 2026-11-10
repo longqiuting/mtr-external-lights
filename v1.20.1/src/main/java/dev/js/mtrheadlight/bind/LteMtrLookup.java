@@ -1,5 +1,6 @@
 package dev.js.mtrheadlight.bind;
 
+import dev.js.mtrheadlight.LteLog;
 import mtr.data.DataCache;
 import mtr.data.Platform;
 import mtr.data.RailwayData;
@@ -182,38 +183,72 @@ public final class LteMtrLookup {
      * @return {@code 0} = 附近没有站台，顺着轨道也走不到站台
      */
     public static long platformIdOnRail(final World world, final BlockPos pos) {
+        return platformIdOnRail(world, pos, "default");
+    }
+
+    /**
+     * 同 {@link #platformIdOnRail(World, BlockPos)}，但<b>逐级打日志</b>（{@code tag} 用来区分调用方：
+     * {@code projector} / {@code pids} / …），失败时能一眼看出是三级判定里的哪一级没命中。
+     *
+     * <p>打印的字段：
+     * <ul>
+     *   <li>{@code data} —— {@code RailwayData.getInstance(world)} 是否拿到（服务端拿不到就直接全失败）；</li>
+     *   <li>{@code s1} —— {@code getClosePlatformId}（±5 格）；</li>
+     *   <li>{@code s2} —— {@code getPlatformByPos}（精确站台轨道）；</li>
+     *   <li>{@code s3} —— 沿 {@code getRailsMap()} 的 BFS（起点节点 + 走了几个节点）。</li>
+     * </ul>
+     */
+    public static long platformIdOnRail(final World world, final BlockPos pos, final String tag) {
         if (pos == null) {
+            LteLog.LOGGER.info("[lte] rail lookup[{}]: pos=null -> 0", tag);
+            return 0L;
+        }
+        final RailwayData data = data(world);
+        if (data == null) {
+            // 服务端 / 客户端都可能走到：拿不到 RailwayData 就没有轨道数据，三级判定全是 0。
+            LteLog.LOGGER.info("[lte] rail lookup[{}]: pos={} railwayData=null -> 0", tag, pos);
             return 0L;
         }
         final long direct = platformIdAt(world, pos);
         if (direct != 0L) {
+            LteLog.LOGGER.info("[lte] rail lookup[{}]: pos={} s1(getClosePlatformId)={} HIT", tag, pos, direct);
             return direct;
         }
         final long exact = platformIdAtExact(world, pos);
         if (exact != 0L) {
+            LteLog.LOGGER.info("[lte] rail lookup[{}]: pos={} s1=0 s2(getPlatformByPos)={} HIT", tag, pos, exact);
             return exact;
         }
-        return platformAlongRail(world, pos);
+        final long walked = platformAlongRail(world, pos, tag);
+        LteLog.LOGGER.info("[lte] rail lookup[{}]: pos={} s1=0 s2=0 s3(railWalk)={} {}",
+                tag, pos, walked, walked == 0L ? "MISS" : "HIT");
+        return walked;
     }
 
     /** {@link #platformIdOnRail} 的第三步：沿 {@code getRailsMap()} 做 BFS，见该方法的注释。 */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private static long platformAlongRail(final World world, final BlockPos pos) {
+    private static long platformAlongRail(final World world, final BlockPos pos, final String tag) {
         final RailwayData data = data(world);
         if (data == null) {
+            LteLog.LOGGER.info("[lte] rail walk[{}]: railwayData=null", tag);
             return 0L;
         }
         final Map rails;
         try {
             rails = (Map) data.getRailsMap();
         } catch (Throwable t) {
+            LteLog.LOGGER.info("[lte] rail walk[{}]: getRailsMap threw {}", tag, t.toString());
             return 0L;
         }
         if (rails == null || rails.isEmpty()) {
+            LteLog.LOGGER.info("[lte] rail walk[{}]: railsMap empty ({} entries)",
+                    tag, rails == null ? "null" : Integer.valueOf(rails.size()));
             return 0L;
         }
         final BlockPos start = nodeNear(rails, pos);
         if (start == null) {
+            LteLog.LOGGER.info("[lte] rail walk[{}]: pos={} no track node within {} blocks (railsMap={} nodes)",
+                    tag, pos, Integer.valueOf(NODE_SEARCH), Integer.valueOf(rails.size()));
             return 0L;
         }
         final Set<BlockPos> seen = new HashSet<>();
@@ -225,6 +260,8 @@ public final class LteMtrLookup {
             final BlockPos node = queue.poll();
             final long hit = platformIdAt(world, node);
             if (hit != 0L) {
+                LteLog.LOGGER.info("[lte] rail walk[{}]: start={} visited={} hit at node={} platform={}",
+                        tag, start, Integer.valueOf(seen.size()), node, hit);
                 return hit;
             }
             final Object neighbours;
@@ -249,6 +286,9 @@ public final class LteMtrLookup {
                 }
             }
         }
+        LteLog.LOGGER.info("[lte] rail walk[{}]: start={} visited={} no platform within {} nodes / {} blocks",
+                tag, start, Integer.valueOf(seen.size()), Integer.valueOf(RAIL_WALK_NODES),
+                Integer.valueOf(RAIL_WALK_RANGE));
         return 0L;
     }
 

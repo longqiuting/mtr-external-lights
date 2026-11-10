@@ -160,12 +160,15 @@ public final class XiamenObjects {
                         .icon(() -> new ItemStack(TabIcons.core()))
                         .build());
 
+        // 顺序 = 页签里从左到右的顺序：{@code entries.add} 是「追加到末尾」，所以先加的就是第一个。
+        // 厦门地铁标志放第一位（MTR 自己的 logo 也排在自己页签的最前面），剩下三件屏蔽门按
+        // 建造顺序（门扇 → 玻璃 → 端头）跟在后面。
         ItemGroupEvents.modifyEntriesEvent(RegistryKey.of(RegistryKeys.ITEM_GROUP, CORE_TAB_ID))
                 .register(entries -> {
+                    entries.add(logo);
                     entries.add(psdDoor);
                     entries.add(psdGlass);
                     entries.add(psdEnd);
-                    entries.add(logo);
                 });
 
         LteLog.LOGGER.info("[lte] xiamen objects registered ({} / {} / {} / {} / {})",

@@ -1,6 +1,7 @@
 // Xiamen door renderer — MTR's geometry / animation, Xiamen textures.
 package dev.js.mtrheadlight.xiamen;
 
+import dev.js.mtrheadlight.LteLog;
 import mtr.MTRClient;
 import mtr.block.BlockPSDAPGDoorBase;
 import mtr.block.IBlock;
@@ -21,13 +22,12 @@ import net.minecraft.util.math.RotationAxis;
 import net.minecraft.world.World;
 
 /**
- * 厦门门扇的渲染器 —— MTR {@code mtr.render.RenderPSDAPGDoor} 的几何 + 动画 + 门灯，
- * 贴图换成厦门资源包的 {@code psd_door_*}。
+ * 屏蔽门门扇的渲染器 —— MTR {@code mtr.render.RenderPSDAPGDoor} 的几何 + 动画 + 门灯，
+ * 贴图 id 与 MTR 完全同一套（{@code mtr:textures/block/psd_door_*}，受资源包接管，见 {@link #tex(String)}）。
  *
  * <h2>为什么是「另一份渲染器」而不是直接继承</h2>
- * <p>{@code RenderPSDAPGDoor} 里贴图路径是写死的 {@code String.format("mtr:textures/block/psd_door_%s_%s_%s.png")}，
- * 没有可覆盖的字段 / 方法；模型（{@code ModelSingleCube}）又都是 private。所以这里照它的
- * 几何与贴图布局重画一遍，<b>真正做决策的东西仍然全在 MTR 里</b>：
+ * <p>{@code RenderPSDAPGDoor} 里的模型（{@code ModelSingleCube}）都是 private、几何写死在 static 块里，
+ * 没法继承复用；但它的<b>决策数据全部来自 MTR 自己的方块与方块实体</b>，所以这里只重画几何：
  * <ul>
  *   <li>方块状态（{@code SIDE} / {@code HALF} / {@code END} / {@code UNLOCKED}）→ MTR 的
  *       {@code BlockPSDAPGDoorBase}；</li>
@@ -90,13 +90,41 @@ public class RenderPsdDoor implements BlockEntityRenderer<XiamenPsdBlocks.TileEn
     public RenderPsdDoor(BlockEntityRendererFactory.Context context) {
     }
 
+    /**
+     * 贴图 id —— <b>必须和 MTR 自己拼出来的完全一致</b>。
+     *
+     * <h2>为什么是 {@code mtr:} 而不是本模组的 {@code mtrlte:}（这是「门扇纯白」的真根因）</h2>
+     * <p>{@code RenderPSDAPGDoor} 拼的是 {@code new Identifier("mtr:textures/block/psd_door_top_left_1.png")}，
+     * 也就是 <b>{@code mtr} 命名空间</b>。{@code mtr} 命名空间的贴图会被<b>资源包栈</b>接管：
+     * 玩家装的「厦门地铁一号线车辆」「南北组…屏蔽门材质包」等包，改的都是
+     * {@code assets/mtr/textures/block/psd_door_*_1.png}。
+     *
+     * <p>我们之前把这些图<b>拷进模组自己做了一份 {@code mtrlte:}</b>，于是出现了两套同时存在的门扇贴图：
+     * <ul>
+     *   <li>左边 MTR 自带门 → 读 {@code mtr:…} → 命中的是<b>当前生效资源包</b>那张（白门板 + 橙腰线 + 警示贴）；</li>
+     *   <li>右边我们的门 → 读 {@code mtrlte:…} → 命中的是<b>当初从某个包拷出来的那一份快照</b>。</li>
+     * </ul>
+     * 这两张图<b>不是同一张</b>（厦门包 {@code md5 780a07f5}、南北组包 {@code md5 ace8808c}，都不是 MTR 的
+     * 原图 {@code 72×36}）。厦门包里那一份的门体是 <b>alpha=0 的玻璃扇</b>（实测 only 54.9% 像素不透明，
+     * 门板主体全透明，只剩顶部橙警示条和底部橙纹样），
+     * 而 {@code entityCutout} 会把 alpha&lt;0.1 的像素整片丢弃 —— <b>门板主体一个像素都不画</b>，
+     * 透过门框看到的就是背后那面白墙，观感就是「整个门扇纯白、一点贴图都没有」。
+     * 同一列的玻璃 / 端部 / 吊板走的是方块模型和 MTR 自己的 {@code mtr:} 贴图，所以它们正常。
+     *
+     * <p>改成 {@code mtr:} 后，我们的门扇和旁边的 MTR 门<b>按定义读同一张图</b>：
+     * 装什么屏蔽门材质包，两边就一起变；没装包时一起回落到 MTR 原版图集。
+     * <b>不要再把 psd_door 图集拷进 {@code mtrlte:}</b>，那一定会和资源包栈再次分叉。
+     */
     private static Identifier tex(String path) {
-        return new Identifier("mtrlte", "textures/block/" + path + ".png");
+        return new Identifier("mtr", "textures/block/" + path + ".png");
     }
 
     @Override
     public void render(XiamenPsdBlocks.TileEntityXiamenPSDDoor entity, float tickDelta, MatrixStack matrices,
                        VertexConsumerProvider vertexConsumers, int light, int overlay) {
+        if (!VERIFIED) {
+            verifyTextures();
+        }
         World world = entity.getWorld();
         if (world == null) {
             return;
@@ -195,6 +223,39 @@ public class RenderPsdDoor implements BlockEntityRenderer<XiamenPsdBlocks.TileEn
     @Override
     public boolean rendersOutsideBoundingBox(XiamenPsdBlocks.TileEntityXiamenPSDDoor entity) {
         return true;
+    }
+
+    // ------------------------------------------------------------------
+    // 一次性自检：把门扇用到的每个 Identifier 打到日志，并核对资源管理器里真的有这张图。
+    // 门扇「空白」这类问题以后第一眼就能在 latest.log 里排除掉「图不存在」。
+    // ------------------------------------------------------------------
+
+    private static volatile boolean VERIFIED = false;
+
+    private static void verifyTextures() {
+        VERIFIED = true;
+        try {
+            final var rm = net.minecraft.client.MinecraftClient.getInstance().getResourceManager();
+            final Identifier[] ids = {
+                    TEX_DOOR_TOP_LEFT, TEX_DOOR_TOP_RIGHT, TEX_DOOR_BOTTOM_LEFT, TEX_DOOR_BOTTOM_RIGHT,
+                    TEX_END_TOP_LEFT_1, TEX_END_TOP_RIGHT_1, TEX_END_TOP_LEFT_2, TEX_END_TOP_RIGHT_2,
+                    TEX_END_BOTTOM_LEFT_1, TEX_END_BOTTOM_RIGHT_1, TEX_END_BOTTOM_LEFT_2, TEX_END_BOTTOM_RIGHT_2,
+                    TEX_LIGHT_ON, TEX_LIGHT_OFF, TEX_LOCKED};
+            int missing = 0;
+            for (Identifier id : ids) {
+                final boolean exists = rm.getResource(id).isPresent();
+                if (!exists) {
+                    missing++;
+                    LteLog.LOGGER.warn("[lte] psd door texture MISSING: {}", id);
+                }
+            }
+            LteLog.LOGGER.info("[lte] psd door textures resolved: {}/{} present, layer={}, uv front={} back={}",
+                    ids.length - missing, ids.length,
+                    RenderLayer.getEntityCutoutNoCull(TEX_DOOR_TOP_LEFT),
+                    UV_DOOR.front(), UV_DOOR.back());
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] psd door texture self-check failed", t);
+        }
     }
 
     /** MTR 的 {@code isDoorLightOn}：关着 = 灭，全开 = 亮，中间闪（500ms 一个周期）。 */

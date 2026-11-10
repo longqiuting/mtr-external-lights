@@ -193,7 +193,7 @@ public final class PidsConnectorItem extends Item {
                               final BlockPos pidsPos, final List<MtrTiles.PidsTile> pids,
                               final BlockPos node) {
         // 站台 id 允许从「站区外」推：先看节点旁边（MTR 的 ±5），推不出就顺着同一条轨道走。
-        final long platformId = LteMtrLookup.platformIdOnRail(world, node);
+        final long platformId = LteMtrLookup.platformIdOnRail(world, node, "pids");
         if (platformId == 0L) {
             LteLog.LOGGER.info("[lte] bind: pids pos={} node={} -> platforms=[]", pidsPos, node);
             say(player, "message.mtrlte.pids.no_platform", Formatting.RED);

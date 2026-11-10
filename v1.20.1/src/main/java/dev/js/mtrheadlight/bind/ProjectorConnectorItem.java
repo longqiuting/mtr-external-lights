@@ -53,13 +53,16 @@ import java.util.TreeSet;
  * te.setData(该车站名下所有站台的 id, te.getDisplayPage());
  * }</pre>
  * {@code setData} 是 public 的，内部 {@code markDirty()}（javap：{@code BlockEntity#markDirty} =
- * {@code method_5431}）+ {@code syncData()}。<b>不需要 mixin 去顶渲染</b>，也不改任何 BlockState。
+ * {@code method_5431}）+ {@code syncData()}。<b>写入不需要 mixin</b>，也不改任何 BlockState。
  *
- * <p>两条 MTR 自身的限制（本类只提示，改不了）：
+ * <p><b>但渲染需要补一刀</b>（MTR 自己的限制，本类改不了，客户端有 mixin 兜）：
  * <ol>
  *   <li>MTR 渲染时按<b>方块自己的位置</b>去 {@code RailwayData.getStation(...)} 找车站
- *       （{@code RenderPIDS#getSchedules} 第一行就 {@code return new ArrayList<>()}），再用 platformIds
- *       在这座车站的站台里过滤。所以「投影机站在 A 车站里、却绑到 B 车站」会得到空屏；</li>
+ *       （{@code RenderPIDS#getSchedules} 第一行，找不到就直接 {@code return new ArrayList<>()}），
+ *       再拿 {@code platformIds} 在这座车站的站台里过滤。所以「投影机站在 A 车站里、却绑到 B 车站」
+ *       本来会得到空屏 —— 站外投影机（位置压根不在任何车站矩形里）更是必然空屏。
+ *       <b>客户端 {@code RenderPIDSStationMixin} 已经把这一步换掉</b>：站外没有任何车站时，改用
+ *       「{@code platformIds} 里第一个能反查到车站的站台」所属的车站，MTR 后面那套过滤照常跑；</li>
  *   <li>MTR 里没有「投影机 → 车站」这个字段，所以「当初绑的是哪个车站」我们自己另存一份
  *       （{@link ProjectorLinkStore}，{@code world/data/mtrlte_projector_links.dat}），
  *       供 {@code /ltebind projector <x> <y> <z>} 查询。</li>
@@ -96,10 +99,21 @@ public final class ProjectorConnectorItem extends Item {
         }
 
         final BlockPos clicked = context.getBlockPos();
-        if (BindTargets.isProjector(world, clicked)) {
+        // ---- 逐次诊断（每一级结果都打出来，绑定失败时不用猜是识别、解析还是写入断的）----
+        final String kind = BindTargets.kind(world, clicked);
+        final Station stationHere = LteMtrLookup.stationAt(world, clicked);
+        // 三级解析在日志里自报家门（rail lookup[projector] s1/s2/s3）。
+        final long platformHere = LteMtrLookup.platformIdOnRail(world, clicked, "projector");
+        LteLog.LOGGER.info("[lte] projector click: pos={} kind={} stationAt={} platformId={} tile={}",
+                clicked, kind,
+                stationHere == null ? "null" : (stationHere.id + "/" + stationHere.name),
+                Long.valueOf(platformHere),
+                MtrTiles.describe(MtrTiles.tileAt(world, clicked)));
+
+        if ("projector".equals(kind)) {
             return onProjectorClicked(world, player, context.getStack(), clicked);
         }
-        return onStationClicked(world, player, context.getStack(), clicked);
+        return onStationClicked(world, player, context.getStack(), clicked, platformHere);
     }
 
     // ------------------------------------------------------------------ 投影机这一侧
@@ -108,6 +122,9 @@ public final class ProjectorConnectorItem extends Item {
                                             final ItemStack stack, final BlockPos projector) {
         final NbtCompound nbt = stack.getOrCreateNbt();
         final String dim = world.getRegistryKey().getValue().toString();
+        LteLog.LOGGER.info("[lte] projector click: branch=projector pos={} sneaking={} hasStation={} hasPlatform={}",
+                projector, Boolean.valueOf(player.isSneaking()),
+                Boolean.valueOf(nbt.contains(TAG_STATION)), Boolean.valueOf(nbt.contains(TAG_PLATFORM)));
 
         // 潜行右键 = 解绑：清掉我们这张表，同时把 MTR 里的 platformIds 清空（否则投影机还挂在
         // 原来的车站上，玩家会以为解绑没生效）。
@@ -147,11 +164,12 @@ public final class ProjectorConnectorItem extends Item {
     // ------------------------------------------------------------------ 站台 / 节点这一侧
 
     private ActionResult onStationClicked(final World world, final ServerPlayerEntity player,
-                                          final ItemStack stack, final BlockPos clicked) {
+                                          final ItemStack stack, final BlockPos clicked,
+                                          final long platformId) {
         // 和服务端 PIDS 同一套三级解析（含沿轨道 BFS）：站台附近的节点、站台轨道本身、以及
         // 站在站外很远的节点都能推到一个站台。以前这里走的是 stationAt → platformIdToStation，
         // 后者在「刚划完站台还没 sync」和「站在站外」两种情况下都是空的。
-        final long platformId = LteMtrLookup.platformIdOnRail(world, clicked);
+        // platformId 由 useOnBlock 算好传进来（那里已经打过三级日志，不重复 BFS）。
         if (platformId == 0L) {
             // 真的推不出来：明确告诉玩家该点什么，别静默失败。
             say(player, "message.mtrlte.projector.no_station_here", Formatting.RED);
@@ -160,6 +178,10 @@ public final class ProjectorConnectorItem extends Item {
         final Station station = pickStation(world, clicked, platformId);
         final String name = nameOf(world, station, platformId);
         final NbtCompound nbt = stack.getOrCreateNbt();
+        LteLog.LOGGER.info("[lte] projector click: branch=station pos={} platformId={} station={} name={} pendingProjector={}",
+                clicked, Long.valueOf(platformId),
+                station == null ? "null" : (station.id + "/" + station.name), name,
+                Boolean.valueOf(nbt.contains(TAG_PROJECTOR)));
 
         // 正向顺序：上一步点的是投影机 → 这一次点站台/节点，完成绑定。
         if (nbt.contains(TAG_PROJECTOR)) {
@@ -233,7 +255,7 @@ public final class ProjectorConnectorItem extends Item {
         }
         long platformId = savedPlatform;
         if (platformId == 0L && stationPos != null) {
-            platformId = LteMtrLookup.platformIdOnRail(world, stationPos);
+            platformId = LteMtrLookup.platformIdOnRail(world, stationPos, "resolve");
         }
         if (station == null && platformId != 0L) {
             station = LteMtrLookup.stationOfPlatform(world, platformId);
@@ -263,22 +285,27 @@ public final class ProjectorConnectorItem extends Item {
         if (platforms.isEmpty() && target.platformId() != 0L) {
             platforms.add(Long.valueOf(target.platformId()));
         }
-        LteLog.LOGGER.info("[lte] bind: projector pos={} platform={} -> platforms={}",
-                projector, Long.valueOf(target.platformId()), platforms);
+        LteLog.LOGGER.info("[lte] bind: projector pos={} station={} platform={} -> platforms={}",
+                projector,
+                target.station() == null ? "null" : (target.station().id + "/" + target.station().name),
+                Long.valueOf(target.platformId()), platforms);
         if (!MtrTiles.projectorSetPlatforms(tile, platforms)) {
+            LteLog.LOGGER.info("[lte] bind: setData FAILED (see '[lte] projector setData' line above)");
             say(player, "message.mtrlte.projector.projector_gone", Formatting.RED);
             return ActionResult.SUCCESS;
         }
         // 双端 + 落盘：setData 里的 syncData 只排「下个 tick 广播」，这里显式推一次、
         // 再把区块标脏（理由见 MtrTiles#pushToClients / #markChunkSaved）。
         if (world instanceof ServerWorld serverWorld) {
-            MtrTiles.pushToClients(serverWorld, tile, projector);
+            final boolean pushed = MtrTiles.pushToClients(serverWorld, tile, projector);
             MtrTiles.markChunkSaved(serverWorld, projector);
+            LteLog.LOGGER.info("[lte] bind: pushed to clients={}", Boolean.valueOf(pushed));
         }
 
-        // 回读校验：真正躺在方块实体里的 platformIds。
+        // 回读校验：真正躺在方块实体里的 platformIds（这一步为空就说明写入没落地）。
         final Set<Long> verify = new TreeSet<>(MtrTiles.projectorPlatformIds(tile));
-        LteLog.LOGGER.info("[lte] bind: projector verify platforms={}", verify);
+        LteLog.LOGGER.info("[lte] bind: readback platforms={} empty={}",
+                verify, Boolean.valueOf(verify.isEmpty()));
 
         final long stationId = target.station() == null ? 0L : target.station().id;
         ProjectorLinkStore.get((ServerWorld) world)
@@ -293,16 +320,13 @@ public final class ProjectorConnectorItem extends Item {
             // 车站画了范围但一个站台都没划进去：绑定本身成立，只是没东西可显示。
             say(player, "message.mtrlte.projector.no_platforms", Formatting.YELLOW);
         }
-        // MTR 渲染时是拿「投影机所在位置」去 getStation(...) 的（RenderPIDS#getSchedules），
-        // 只在这座车站的站台列表里按 platformIds 过滤。所以投影机站在别的车站里时，
-        // 我们写的 id 一个都对不上，屏幕上会是空的 —— 这属于 MTR 的模型限制，只能明确告诉玩家。
+        // MTR 自己的渲染是拿「投影机所在位置」去 getStation(...) 的（RenderPIDS#getSchedules 第一行，
+        // 拿不到车站就直接返回空表）。站外投影机本来一句都显示不出来 —— 客户端那条路已经由
+        // RenderPIDSStationMixin 兜住：站外点位没有任何车站时，改用「platformIds 里第一个能反查到
+        // 车站的站台」所属的车站。所以这里只记一行日志，不再给玩家「绑了也白绑」的黄色警告。
         final Station here = LteMtrLookup.stationAt(world, projector);
-        if (target.station() != null && (here == null || here.id != target.station().id)) {
-            say(player, "message.mtrlte.projector.station_mismatch", Formatting.YELLOW, shown);
-        } else if (target.station() == null && here == null) {
-            // 站外 + 站台也反推不出车站：写进去的是单个站台，MTR 在投影机位置找不到车站，同样不显示。
-            say(player, "message.mtrlte.projector.outside_station", Formatting.YELLOW);
-        }
+        LteLog.LOGGER.info("[lte] bind: projector stationAt={} (cross-station rendering handled client-side)",
+                here == null ? "null" : (here.id + "/" + here.name));
         return ActionResult.SUCCESS;
     }
 

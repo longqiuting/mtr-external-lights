@@ -32,6 +32,10 @@ public final class MtrMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public boolean shouldApplyMixin(final String targetClassName, final String mixinClassName) {
+        if (mixinClassName.endsWith(".RenderPIDSStationMixin")) {
+            // 站外投影机顶渲染：只要渲染器在就应用（与列车注册表无关）。
+            return HostProbe.mtrPidsRenderer();
+        }
         return HostProbe.mtrTrainRegistry();
     }
 

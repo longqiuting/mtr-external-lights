@@ -7,7 +7,8 @@
   "plugin": "dev.js.mtrheadlight.mixin.mtr.MtrMixinPlugin",
   "client": [
     "TrainClientRegistryMixin",
-    "RenderSignalBaseMixin"
+    "RenderSignalBaseMixin",
+    "RenderPIDSStationMixin"
   ],
   "injectors": {
     "defaultRequire": 0

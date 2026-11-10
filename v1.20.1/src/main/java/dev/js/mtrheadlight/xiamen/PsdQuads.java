@@ -17,9 +17,10 @@ import net.minecraft.client.util.math.MatrixStack;
  * <h2>盒子 UV</h2>
  * <p>MTR 的门扇不是「整张图铺满一个面」，而是 Minecraft 的 <b>box UV</b>：
  * 一个 (w,h,d) 的盒子在贴图上占 2(d+w) × (d+h) 个「单位」，正面 / 背面 / 四条边
- * 各自落在不同的小矩形里。厦门资源包的 {@code psd_door_*_1.png} 就是按这个布局画的
- * （例：{@code psd_door_top_left_1.png} 576×288 = 36×18 单位 × 16 倍，左半张是正面、
- * 右半张是背面）。MTR 的 {@code RenderPSDAPGDoor$ModelSingleCube} 也是这个算法：
+ * 各自落在不同的小矩形里。资源包里的 {@code psd_door_*_1.png} 就是按这个布局画的
+ * （例：{@code psd_door_top_left_1.png} 576×288 = 36×18 单位 × 16 倍，左半张是盒子 +z 面、
+ * 右半张是 -z 面 —— 哪一半朝轨道见 {@link UvSet#box} 的 180° 翻转说明）。
+ * MTR 的 {@code RenderPSDAPGDoor$ModelSingleCube} 也是这个算法：
  * {@code new ModelSingleCube(36, 18, 0, 0, 0, 16, 16, 2)} —— 前两个参数就是 2(d+w) 与 (d+h)。
  */
 public final class PsdQuads {
@@ -44,6 +45,13 @@ public final class PsdQuads {
          *      ↑上/下檐      └ 侧面（整高）
          * </pre>
          *
+         * <p><b>注意 180° 翻转</b>：MTR 的 {@code lambda$render$0} 在
+         * {@code translate(x+0.5, y, z+0.5) → rotateY(-facing)} 之后还有一步
+         * {@code rotateXDegrees(180)}，把 y、z 都取反。我们的几何直接在「翻转后」的空间里写
+         * （+z 朝轨道、y 向上），所以 <b>盒子的 +z 面成了我们的 -z 面、+y 面成了 -y 面</b>：
+         * 六个面在这里按翻转关系重新配对，这样画出来的每张面才和 MTR 一模一样
+         * （两侧图集并不镜像对称，实测同一张图左右两半的 meanAbsDiff≈51/255，配错会画反）。
+         *
          * @param w 盒宽（沿门宽，像素）
          * @param h 盒高（像素）
          * @param d 盒厚（像素）
@@ -56,12 +64,12 @@ public final class PsdQuads {
             float aw = u4;
             float ah = d + h;
             return new UvSet(
-                    new Uv(u1 / aw, u2 / aw, d / ah, (d + h) / ah), // front  +z
-                    new Uv(u3 / aw, u4 / aw, d / ah, (d + h) / ah), // back   -z
-                    new Uv(0.0F, u1 / aw, d / ah, (d + h) / ah),    // right  +x
-                    new Uv(u2 / aw, u3 / aw, d / ah, (d + h) / ah), // left   -x
-                    new Uv(u1 / aw, u2 / aw, 0.0F, d / ah),         // top    +y
-                    new Uv(u3 / aw, u4 / aw, 0.0F, d / ah));        // bottom -y
+                    new Uv(u3 / aw, u4 / aw, d / ah, (d + h) / ah), // 我们的 +z（朝轨道）← 盒子的 -z 面（图集右半）
+                    new Uv(u1 / aw, u2 / aw, d / ah, (d + h) / ah), // 我们的 -z（朝站台内）← 盒子的 +z 面（图集左半）
+                    new Uv(0.0F, u1 / aw, d / ah, (d + h) / ah),    // +x 窄边
+                    new Uv(u2 / aw, u3 / aw, d / ah, (d + h) / ah), // -x 窄边
+                    new Uv(u3 / aw, u4 / aw, 0.0F, d / ah),         // 我们的 +y（上檐）← 盒子的 -y 面
+                    new Uv(u1 / aw, u2 / aw, 0.0F, d / ah));        // 我们的 -y（下檐）← 盒子的 +y 面
         }
     }
 

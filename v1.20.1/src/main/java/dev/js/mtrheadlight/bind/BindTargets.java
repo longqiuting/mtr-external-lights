@@ -67,6 +67,25 @@ public final class BindTargets {
         return MtrTiles.isProjector(MtrTiles.tileAt(world, pos));
     }
 
+    /**
+     * 诊断用：这一格「被我们当成了什么」。日志里逐次打印，绑定失败时不用猜。
+     *
+     * @return {@code "projector"} / {@code "node"}（{@code mtr.block.BlockNode}）/ {@code "other"}
+     */
+    public static String kind(final World world, final BlockPos pos) {
+        if (isProjector(world, pos)) {
+            return "projector";
+        }
+        try {
+            if (BlockNode.class.isInstance(world.getBlockState(pos).getBlock())) {
+                return "node";
+            }
+        } catch (Throwable ignored) {
+            // 读不到方块状态就当 other
+        }
+        return "other";
+    }
+
     /** 投影机的方块实体；没有就 {@code null}。 */
     public static Object projectorAt(final World world, final BlockPos pos) {
         final Object tile = MtrTiles.tileAt(world, pos);

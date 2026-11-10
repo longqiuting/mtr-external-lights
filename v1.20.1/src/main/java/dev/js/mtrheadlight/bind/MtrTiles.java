@@ -1,5 +1,6 @@
 package dev.js.mtrheadlight.bind;
 
+import dev.js.mtrheadlight.LteLog;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.network.packet.s2c.play.BlockEntityUpdateS2CPacket;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -65,7 +66,13 @@ public final class MtrTiles {
     // ---------------------------------------------------------------- 判定
 
     public static boolean isProjector(final Object tile) {
-        return tile != null && hasSupertype(tile.getClass(), PROJECTOR);
+        if (tile == null) {
+            return false;
+        }
+        // 首选精确类名；再退一步按「名字里带 TileEntityArrivalProjector」认 —— 万一某个
+        // 分支/移植把内部类挪了位置（{@code BlockArrivalProjectorBase$TileEntityArrivalProjectorBase}
+        // 之外的形态），也不会整条链路静默失效。四个尺寸的方块实体都继承它。
+        return hasSupertype(tile.getClass(), PROJECTOR) || hasSupertypeNamed(tile.getClass(), "TileEntityArrivalProjector");
     }
 
     public static boolean isPids(final Object tile) {
@@ -76,6 +83,17 @@ public final class MtrTiles {
     private static boolean hasSupertype(final Class<?> type, final String name) {
         for (Class<?> cursor = type; cursor != null; cursor = cursor.getSuperclass()) {
             if (cursor.getName().equals(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 运行时类或其任一祖先的<b>简单名</b>里含 {@code fragment}（用于「内部类被挪位置」的兜底）。 */
+    private static boolean hasSupertypeNamed(final Class<?> type, final String fragment) {
+        for (Class<?> cursor = type; cursor != null; cursor = cursor.getSuperclass()) {
+            final String simple = cursor.getSimpleName();
+            if (simple != null && simple.contains(fragment)) {
                 return true;
             }
         }
@@ -103,17 +121,35 @@ public final class MtrTiles {
         }
     }
 
-    /** 把投影机的 platformIds 换成 {@code ids}（displayPage 保留）。 */
+    /**
+     * 把投影机的 platformIds 换成 {@code ids}（displayPage 保留）。
+     *
+     * <p>写不进去时<b>把原因打进日志</b>（以前 return false 后被调用方统一说成「投影机没了」，
+     * 分不清是「不是投影机」「没有 setData」还是「setData 抛异常」）。
+     */
     public static boolean projectorSetPlatforms(final Object tile, final Collection<Long> ids) {
         if (!isProjector(tile)) {
+            LteLog.LOGGER.info("[lte] projector setData: tile={} is not a projector -> skip",
+                    describe(tile));
+            return false;
+        }
+        final int page;
+        try {
+            page = ((Number) method(tile, "getDisplayPage").invoke(tile)).intValue();
+        } catch (Throwable t) {
+            LteLog.LOGGER.info("[lte] projector setData: getDisplayPage failed: {}", t.toString());
             return false;
         }
         try {
-            final int page = ((Number) method(tile, "getDisplayPage").invoke(tile)).intValue();
             method(tile, "setData", Set.class, int.class)
                     .invoke(tile, new HashSet<>(ids), Integer.valueOf(page));
+            LteLog.LOGGER.info("[lte] projector setData: tile={} wrote {} ids={} page={}",
+                    describe(tile), Integer.valueOf(ids.size()), ids, Integer.valueOf(page));
             return true;
         } catch (Throwable t) {
+            final Throwable cause = t.getCause() == null ? t : t.getCause();
+            LteLog.LOGGER.info("[lte] projector setData: invoke failed: {}: {}",
+                    cause.getClass().getName(), cause.getMessage());
             return false;
         }
     }
