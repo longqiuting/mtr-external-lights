@@ -259,13 +259,17 @@ assets/lte/beam3D/<key>.json
 
 ## 包里放哪 / 运行时怎么读
 
-优先级（编辑器与运行时**同一份**，见 `docs/beam-pack-read-report.md`）：
+优先级（编辑器与运行时**同一份**，完整说明见 `docs/beam-pack-format.md`）：
 
 1. `<桌面>/<id>.json`（桌面不可用时 `config/lte_beams/`）—— 编辑器上次导出
 2. `assets/lte/beam3D/<id>.json` —— 约定的主路径
 3. `assets/<ns>/beam3D/<id>.json` —— 作者自己的命名空间
 4. `assets/<ns>/lte_beams/<id>.json` —— 旧路径（兼容）
 5. `config/lte_beams/<id>.json` —— 老版本导出（兼容）
+
+其中 `<id>` 先按 `custom_trains` 的 key 找、再按渲染器报的 `baseTrainType` 找；
+两级都落空时看**包级共用** `assets/lte/beam3D/_shared.json`（只对这个包自己声明的车型生效，
+判定见 `BeamPackScope`），它压过第 5 条。
 
 `<id>` = 这辆车的车型 id，**编辑器列表里显示的那个**（MTR 的 `baseTrainType`），
 不一定等于 `mtr_custom_resources.json` 的 key —— 自定义车的 id 是 MTR 自己生成的

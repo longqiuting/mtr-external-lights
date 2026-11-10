@@ -540,7 +540,9 @@ final class BeamEditor3DScreen extends Screen {
                     this.session.base.add(materialised.copy());
                 }
                 this.status = tr("beam3d.loadedFile",
-                        train != null ? train.beamPath() : BeamPackWriter.fileName(id),
+                        train != null
+                                ? (train.loadedFrom == null ? train.beamPath() : train.loadedFrom)
+                                : BeamPackWriter.fileName(id),
                         Integer.valueOf(this.session.size())).getString();
             }
         }

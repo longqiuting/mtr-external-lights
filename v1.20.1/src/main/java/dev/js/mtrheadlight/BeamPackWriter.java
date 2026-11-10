@@ -21,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -95,6 +96,9 @@ final class BeamPackWriter {
 
     /** 资源包里的旧目录（只读兼容）：{@code assets/<ns>/lte_beams/}。 */
     static final String LEGACY_PACK_DIR = CONFIG_DIR;
+
+    /** 找按车文件的目录，按优先级：{@code beam3D} 压过旧的 {@code lte_beams}。 */
+    private static final String[] BEAM_DIRS = {PACK_DIR, LEGACY_PACK_DIR};
 
     /** MTR 给自定义车注册 id 时加的前缀（{@code mtr_custom_train_<key>}）。 */
     static final String ID_PREFIX = "mtr_custom_train_";
@@ -286,53 +290,295 @@ final class BeamPackWriter {
     }
 
     /**
-     * 同 {@link #read(String)}，但额外按 {@code aliases} 里的车型 id 找同一份文件。
+     * read() 的一个候选层：一组文件名（层内按顺序试），最多只在这些包里找。
      *
-     * <p>为什么需要别名：MTR 一辆自定义车同时挂着三个 id —— {@code mtr_custom_resources.json}
-     * 里的 key（{@code xml6125jevd0c_normal}）、注册 id（{@code mtr_custom_train_<key>}），
-     * 以及渲染器报的 {@code baseTrainType}（{@code train_12_2}，由 MTR 自己生成）。编辑器从
-     * 注册表打开时手里只有前者，作者按后者命名的文件就找不到 —— 所以调用方把其余 id 一并传进来。
+     * <p>关于别名：MTR 一辆自定义车同时挂着三个 id —— {@code mtr_custom_resources.json} 里的 key
+     * （{@code xml6125jevd0c_normal}）、注册 id（{@code mtr_custom_train_<key>}），以及渲染器
+     * 报的 {@code baseTrainType}（{@code train_12_2}，由 MTR 用 {@code model_properties} 生成）。
+     * 前两个由 {@link BeamPackScope} 从包里读出来，第三个同样能反算回去，所以调用方不必再自己
+     * 猜别名；额外的 {@code aliases} 只是给外部调用留的后门。
      */
-    static List<Beam> read(final String vehicleId, final String... aliases) {
-        final List<String> ids = candidateIds(vehicleId, aliases);
-        final List<String> names = namesFor(ids);
-        final Path exported = locate(exportDir(), names);
-        if (exported != null) {
-            final List<Beam> beams = readFile(exported, vehicleId);
-            if (beams != null) {
-                LteLog.LOGGER.info("[lte] beam pack: {} <- {} beams={}", fileName(vehicleId), exported,
-                        Integer.valueOf(beams.size()));
-                return beams;
+    static final class Candidate {
+        /** {@code key} 或 {@code base} —— 日志里的 source。 */
+        final String source;
+        final List<String> names;
+        /** 只在这些包里找（空 = 全部已启用包）。 */
+        final List<ResourcePack> packs;
+
+        Candidate(final String source, final List<String> names, final List<ResourcePack> packs) {
+            this.source = source;
+            this.names = names == null ? List.of() : names;
+            this.packs = packs == null ? List.of() : packs;
+        }
+    }
+
+    /** 一个候选在资源包里的命中。 */
+    static final class Hit {
+        final String path;
+        final List<Beam> beams;
+
+        Hit(final String path, final List<Beam> beams) {
+            this.path = path;
+            this.beams = beams;
+        }
+    }
+
+    /**
+     * {@link #read} 的搜索计划：先问「这辆车是谁家的」（{@link BeamPackScope}），
+     * 再按 key → baseTrainType 排文件名。
+     */
+    static final class Plan {
+        final String id;
+        /** 这辆车在包里对应的 {@code custom_trains} key（声明它的包才知道）。 */
+        final List<String> keys;
+        /** 这些 key 由哪些包声明 —— {@code _shared.json} 的同包判定用它。 */
+        final Set<ResourcePack> owners = new LinkedHashSet<>();
+        final List<Candidate> candidates;
+        final List<String> tried;
+
+        private Plan(final String id, final List<String> keys, final List<Candidate> candidates,
+                     final List<String> tried) {
+            this.id = id;
+            this.keys = keys;
+            this.candidates = candidates;
+            this.tried = tried;
+        }
+
+        static Plan of(final String vehicleId, final String... aliases) {
+            final String id = vehicleId == null ? "" : vehicleId.trim();
+            return of(id.isEmpty() ? List.<BeamPackScope>of() : BeamPackScope.index(), id, aliases);
+        }
+
+        /** {@code scopes} 显式传入：离线检查用（没有 MinecraftClient 就没有「已启用包」）。 */
+        static Plan of(final List<BeamPackScope> scopes, final String vehicleId,
+                       final String... aliases) {
+            final String id = vehicleId == null ? "" : vehicleId.trim();
+            // 这辆车的所有字面 id 形态：key / 注册 id / 调用方给的别名。
+            final LinkedHashSet<String> forms = new LinkedHashSet<>();
+            if (!id.isEmpty()) {
+                forms.add(keyOf(id));
+                forms.add(id);
+                forms.add(ID_PREFIX + keyOf(id));
             }
+            if (aliases != null) {
+                for (final String alias : aliases) {
+                    if (alias != null && !alias.isBlank()) {
+                        forms.add(keyOf(alias));
+                        forms.add(alias.trim());
+                    }
+                }
+            }
+
+            // 谁认领这辆车：显式 key / 注册 id / base_train_type，再不行就用 model_properties
+            // 反算 MTR 生成的运行时 id（train_12_2 这种）。
+            final Map<String, List<ResourcePack>> declared = new LinkedHashMap<>();
+            for (final String form : forms) {
+                for (final BeamPackScope scope : scopes) {
+                    for (final String key : scope.keysFor(form)) {
+                        final List<ResourcePack> packs =
+                                declared.computeIfAbsent(key, k -> new ArrayList<>());
+                        if (!packs.contains(scope.pack)) {
+                            packs.add(scope.pack);
+                        }
+                    }
+                }
+            }
+
+            final Plan plan = new Plan(id, new ArrayList<>(declared.keySet()),
+                    new ArrayList<>(), new ArrayList<>());
+            for (final List<ResourcePack> packs : declared.values()) {
+                plan.owners.addAll(packs);
+            }
+            final LinkedHashSet<String> seen = new LinkedHashSet<>();
+
+            // 1) key 名：只在这个 key 的<b>声明包</b>里找（同包原则）
+            for (final Map.Entry<String, List<ResourcePack>> entry : declared.entrySet()) {
+                plan.add(seen, "key", namesFor(List.of(entry.getKey())), entry.getValue());
+            }
+            // 2) 原样 id / 注册 id / 别名：全包找（兼容「文件按 baseTrainType 命名」的老写法）
+            final boolean idIsKey = plan.keys.contains(id) || plan.keys.contains(keyOf(id))
+                    || plan.keys.contains(ID_PREFIX + keyOf(id));
+            final List<String> raw = new ArrayList<>();
+            for (final String form : forms) {
+                if (!plan.keys.contains(form) && !plan.keys.contains(keyOf(form))) {
+                    raw.add(form);
+                }
+            }
+            plan.add(seen, idIsKey ? "key" : "base", namesFor(raw), List.of());
+            // 3) 声明里写的 base_train_type / 生成的运行时 id（涂装包常常只写这一份）
+            for (final String key : plan.keys) {
+                for (final BeamPackScope scope : scopes) {
+                    final String runtime = scope.runtimeIdOf(key);
+                    if (runtime != null && !forms.contains(runtime)) {
+                        plan.add(seen, "base", namesFor(List.of(runtime)), List.of());
+                    }
+                }
+            }
+            if (plan.tried.size() > 12) {
+                plan.tried.subList(12, plan.tried.size()).clear();
+                plan.tried.add("...");
+            }
+            return plan;
         }
-        final List<Beam> packed = readFromPacks(ids, names, vehicleId);
-        if (packed != null) {
-            return packed;
-        }
-        final Path legacyDir = configDir();
-        if (!sameDir(legacyDir, exportDir())) {
-            final Path legacy = locate(legacyDir, names);
-            if (legacy != null) {
-                final List<Beam> old = readFile(legacy, vehicleId);
-                if (old != null) {
-                    LteLog.LOGGER.info("[lte] beam pack: {} <- {} beams={} (legacy)", fileName(vehicleId),
-                            legacy, Integer.valueOf(old.size()));
-                    return old;
+
+        private void add(final Set<String> seen, final String source, final List<String> names,
+                         final List<ResourcePack> packs) {
+            if (names == null || names.isEmpty()) {
+                return;
+            }
+            final String signature = String.join(",", names).toLowerCase(Locale.ROOT);
+            if (!seen.add(signature)) {
+                return;      // 同一组文件名只试一次（key == 原样 id 时很常见）
+            }
+            this.candidates.add(new Candidate(source, names, packs));
+            for (final String name : names) {
+                if (!this.tried.contains(name)) {
+                    this.tried.add(name);
                 }
             }
         }
-        logMiss(ids, names);
+
+        boolean isEmpty() {
+            return this.candidates.isEmpty();
+        }
+    }
+
+    /**
+     * 读回这个车型。优先级（编辑器与运行时同一份，见 {@code docs/beam-pack-format.md}）：
+     * <ol>
+     *   <li>{@code <key>.json} —— 桌面工作副本，以及<b>声明了这个 key 的包</b>里的同名文件；</li>
+     *   <li>{@code <baseTrainType>.json} —— 渲染器报的那个 id（MTR 自己生成的，如
+     *       {@code train_12_2}），也接受 {@code mtr_custom_train_<key>} 与大小写形态；</li>
+     *   <li>{@code _shared.json} —— <b>包级共用</b>，只对声明了这辆车的那个包生效；</li>
+     *   <li>{@code config/lte_beams/<key>.json} —— 老版本导出的落点（兼容）。</li>
+     * </ol>
+     *
+     * <p>「文件存在但一条光束都没有」是合法结果（= 关掉覆盖），所以这里区分
+     * 「没有这个文件」（继续往下找）和「文件里有 0 束」。
+     *
+     * @return 光束列表；四处都没有时返回空列表
+     */
+    static List<Beam> read(final String vehicleId, final String... aliases) {
+        final Plan plan = Plan.of(vehicleId, aliases);
+        if (plan.isEmpty()) {
+            if (!plan.id.isEmpty()) {
+                logMiss(plan);
+            }
+            return List.of();
+        }
+
+        // 0) 桌面工作副本：编辑器刚导出的那份，压过包里的一切（key 名在前、base 名在后）。
+        final Map<String, Path> desk = dirIndex(exportDir());
+        for (final Candidate candidate : plan.candidates) {
+            final Path path = findIn(desk, candidate.names);
+            if (path == null) {
+                continue;
+            }
+            final List<Beam> beams = readFile(path, plan.id);
+            if (beams != null) {
+                logHit(plan.id, path.toString(), beams.size(), candidate.source);
+                return beams;
+            }
+        }
+
+        // 1) 资源包里的按车文件
+        for (final Candidate candidate : plan.candidates) {
+            final Hit hit = scanPacks(plan.id, candidate);
+            if (hit != null) {
+                logHit(plan.id, hit.path, hit.beams.size(), candidate.source);
+                return hit.beams;
+            }
+        }
+
+        // 2) 包级共用：只认声明了这辆车的包（同包原则，见 BeamPackScope）
+        final BeamPackScope.Shared shared = sharedFor(plan);
+        if (shared != null && !shared.beams.isEmpty()) {
+            // 共用那份是缓存里的同一个列表：交出去的是副本，调用方改了也污染不到下一个车型。
+            final List<Beam> copy = new ArrayList<>(shared.beams.size());
+            for (final Beam beam : shared.beams) {
+                copy.add(beam.copy());
+            }
+            logHit(plan.id, shared.path, copy.size(), "shared");
+            return copy;
+        }
+
+        // 3) config/lte_beams：老版本导出的落点（桌面不可用时它就是工作副本，别读两遍）
+        if (!sameDir(configDir(), exportDir())) {
+            final Map<String, Path> legacy = dirIndex(configDir());
+            for (final Candidate candidate : plan.candidates) {
+                final Path path = findIn(legacy, candidate.names);
+                if (path == null) {
+                    continue;
+                }
+                final List<Beam> beams = readFile(path, plan.id);
+                if (beams != null) {
+                    logHit(plan.id, path.toString(), beams.size(), "config");
+                    return beams;
+                }
+            }
+        }
+
+        logMiss(plan);
         return List.of();
     }
 
     /**
-     * 不静默：一个车型在四处都找不到时也要留一行，并且把「包在磁盘上有、但没在资源包列表里
-     * 启用」这件事单独说清楚 —— 那是玩家最容易自己修好的一类。
+     * {@code _shared.json}：只在<b>声明了这辆车</b>的包里找，后加载的包赢。
+     *
+     * <p>没有任何包认领这辆车（内置车、或只写了桌面文件）时不生效 —— 否则一个包里的
+     * 「两束车头灯」会跑到别人的车上。
      */
-    private static void logMiss(final List<String> ids, final List<String> names) {
-        LteLog.LOGGER.info("[lte] beam pack: no file for id={} (tried {}; packs enabled={})",
-                ids.isEmpty() ? "?" : ids.get(0), names, Integer.valueOf(enabledProfileCount()));
+    private static BeamPackScope.Shared sharedFor(final Plan plan) {
+        if (plan.owners.isEmpty()) {
+            return null;
+        }
+        BeamPackScope.Shared best = null;
+        for (final BeamPackScope scope : BeamPackScope.index()) {
+            if (!plan.owners.contains(scope.pack)) {
+                continue;
+            }
+            final BeamPackScope.Shared shared = scope.shared();
+            if (shared != null) {
+                best = shared;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * 不静默：一个车型四处都找不到时也要留一行（每个车型一次），并且把「包在磁盘上有、
+     * 但没在资源包列表里启用」这件事单独说清楚 —— 那是玩家最容易自己修好的一类。
+     */
+    private static void logMiss(final Plan plan) {
+        final String key = plan.id == null ? "" : plan.id.toLowerCase(Locale.ROOT);
+        synchronized (LOG_LOCK) {
+            if (!MISSES.add(key)) {
+                return;
+            }
+            if (MISSES.size() > 512) {
+                MISSES.clear();
+            }
+        }
+        LteLog.LOGGER.info("[lte] beam pack: miss id={} tried={}", plan.id, plan.tried);
         warnIfPackPresentButDisabled();
+    }
+
+    /** 命中：每个车型只报一次（换了文件 / 换了车型才再报），绝不每帧。 */
+    private static void logHit(final String id, final String path, final int beams,
+                               final String source) {
+        final String key = id == null ? "" : id.toLowerCase(Locale.ROOT);
+        final String signature = path + "|" + beams + "|" + source;
+        synchronized (LOG_LOCK) {
+            if (signature.equals(HITS.get(key))) {
+                return;
+            }
+            if (HITS.size() > 512) {
+                HITS.clear();
+            }
+            HITS.put(key, signature);
+        }
+        LteLog.LOGGER.info("[lte] beam pack: {} id={} beams={} source={}", path, id,
+                Integer.valueOf(beams), source);
     }
 
     /** 已启用的包数（只数，不建包 —— 建包是为了读内容，这里只要个数）。 */
@@ -443,86 +689,80 @@ final class BeamPackWriter {
     }
 
     /**
-     * 已加载资源包里的这个车型：先扫全部包的 {@code assets/lte/beam3D/<id>.json}，再扫
-     * {@code assets/<ns>/beam3D/}，最后才是旧路径 {@code assets/<ns>/lte_beams/}。
+     * 在资源包里找一个候选（一组文件名）。
      *
-     * @return null = 所有已加载的包都没有这个文件
+     * <p>四层顺序，一层命中就返回：
+     * <ol>
+     *   <li>目录：{@code beam3D}（及小写形态）压过旧的 {@code lte_beams}；</li>
+     *   <li>命名空间：{@code assets/lte/} 压过作者自己的命名空间；</li>
+     *   <li>包栈：栈顶压栈底（与 Minecraft「后加载的包赢」一致）；</li>
+     *   <li>文件名：{@code <key>.json} 压过 {@code mtr_custom_train_<key>.json}、大小写形态。</li>
+     * </ol>
+     *
+     * <p>key 层的候选只会在<b>声明了这个 key 的包</b>里找（{@link Candidate#packs}），
+     * 所以包里 A 的 key 不会去 B 里配对 —— 这既快，也避免「拿别人的文件」。
+     *
+     * @return null = 这些包里都没有这个文件
      */
-    private static List<Beam> readFromPacks(final List<String> ids, final List<String> names,
-                                            final String vehicleId) {
-        final List<ResourcePack> packs = enabledPacks();
-        if (packs.isEmpty()) {
+    private static Hit scanPacks(final String vehicleId, final Candidate candidate) {
+        final List<ResourcePack> packs = candidate.packs.isEmpty() ? enabledPacks() : candidate.packs;
+        if (packs.isEmpty() || candidate.names.isEmpty()) {
             return null;
         }
-        final List<Beam> fresh = scanPacks(packs, ids, names, PACK_DIR, vehicleId);
-        if (fresh != null) {
-            return fresh;
-        }
-        return scanPacks(packs, ids, names, LEGACY_PACK_DIR, vehicleId);
-    }
-
-    /**
-     * 一个目录类别扫一遍，分两轮：
-     * <ol>
-     *   <li>命名空间 {@code lte}（也就是 {@code assets/lte/beam3D/}）—— 约定的主路径；</li>
-     *   <li>包里其它命名空间（{@code assets/<ns>/beam3D/}）。</li>
-     * </ol>
-     * 第一轮命中就不再进第二轮，所以「{@code assets/lte/} 的写法」永远压过「作者自己的
-     * 命名空间」。同一轮里按包顺序低 → 高遍历，后命中的覆盖前面的，与 Minecraft
-     * 「栈顶包赢」一致。目录名同时试 {@code beam3D} 和它的小写形态。
-     *
-     * @return null = 一个包都没有这个文件
-     */
-    private static List<Beam> scanPacks(final List<ResourcePack> packs, final List<String> ids,
-                                        final List<String> names, final String dir,
-                                        final String vehicleId) {
-        final List<Beam> preferred = scanPacks(packs, ids, names, dir, vehicleId, true);
-        if (preferred != null) {
-            return preferred;
-        }
-        return scanPacks(packs, ids, names, dir, vehicleId, false);
-    }
-
-    /**
-     * @param onlyDefault true = 只看 {@code lte} 命名空间；false = 只看其它命名空间
-     */
-    private static List<Beam> scanPacks(final List<ResourcePack> packs, final List<String> ids,
-                                        final List<String> names, final String dir,
-                                        final String vehicleId, final boolean onlyDefault) {
-        final String[] dirs = new String[] {dir, dir.toLowerCase(Locale.ROOT)};
-        List<Beam> winner = null;
-        String from = null;
-        String hitId = null;
-        for (final ResourcePack pack : packs) {
-            for (final String namespace : namespacesOf(pack)) {
-                if (onlyDefault != PACK_NAMESPACE.equalsIgnoreCase(namespace)) {
-                    continue;
-                }
-                for (final String candidate : dirs) {
-                    for (final String name : names) {
-                        final InputSupplier<InputStream> supplier;
-                        try {
-                            supplier = pack.openRoot("assets", namespace, candidate, name);
-                        } catch (Throwable t) {
-                            continue;
+        for (final String dir : BEAM_DIRS) {
+            for (final boolean onlyDefault : new boolean[] {true, false}) {
+                for (int i = packs.size() - 1; i >= 0; i--) {
+                    final ResourcePack pack = packs.get(i);
+                    for (final String namespace : namespacesOf(pack, onlyDefault)) {
+                        for (final String dirName : new String[] {dir, dir.toLowerCase(Locale.ROOT)}) {
+                            for (final String name : candidate.names) {
+                                final String relative =
+                                        "assets/" + namespace + "/" + dirName + "/" + name;
+                                final String json = BeamPackScope.readAsset(pack, relative);
+                                if (json == null || json.isBlank()) {
+                                    continue;
+                                }
+                                final String path = pack.getName() + "!" + relative;
+                                return new Hit(path, parse(json, keyOf(vehicleId), path));
+                            }
                         }
-                        final String json = readAll(supplier);
-                        if (json == null || json.isBlank()) {
-                            continue;
-                        }
-                        winner = parse(json, keyOf(vehicleId),
-                                pack.getName() + "!assets/" + namespace + "/" + candidate + "/" + name);
-                        from = pack.getName() + ":assets/" + namespace + "/" + candidate + "/" + name;
-                        hitId = name;
                     }
                 }
             }
         }
-        if (winner != null) {
-            LteLog.LOGGER.info("[lte] beam pack: {} <- {} beams={} (id={})", fileName(vehicleId), from,
-                    Integer.valueOf(winner.size()), hitId);
+        return null;
+    }
+
+    /** 目录里「小写文件名 → 路径」。一次列目录，多个候选共用（不再每个名字列一遍）。 */
+    private static Map<String, Path> dirIndex(final Path dir) {
+        final Map<String, Path> out = new LinkedHashMap<>();
+        if (dir == null || !Files.isDirectory(dir)) {
+            return out;
         }
-        return winner;
+        try (Stream<Path> list = Files.list(dir)) {
+            list.filter(Files::isRegularFile).forEach(path -> {
+                if (path.getFileName() != null) {
+                    out.put(path.getFileName().toString().toLowerCase(Locale.ROOT), path);
+                }
+            });
+        } catch (Throwable t) {
+            // 目录不可读 = 没有文件
+        }
+        return out;
+    }
+
+    /** {@link #dirIndex} 里的第一个命中（文件名比较忽略大小写）。 */
+    private static Path findIn(final Map<String, Path> index, final List<String> names) {
+        if (index.isEmpty() || names == null) {
+            return null;
+        }
+        for (final String name : names) {
+            final Path path = index.get(name.toLowerCase(Locale.ROOT));
+            if (path != null) {
+                return path;
+            }
+        }
+        return null;
     }
 
     /**
@@ -634,10 +874,18 @@ final class BeamPackWriter {
         }
     }
 
-    /** 这个包里值得找的命名空间：{@link #PACK_NAMESPACE}（{@code lte}）排最前，其余按字母序。 */
-    private static Set<String> namespacesOf(final ResourcePack pack) {
+    /**
+     * 这个包里值得找的命名空间。
+     *
+     * @param onlyDefault true = 只返回 {@link #PACK_NAMESPACE}（{@code lte}，约定的主路径）；
+     *                    false = 只返回其余命名空间（作者自己的），按字母序
+     */
+    private static Set<String> namespacesOf(final ResourcePack pack, final boolean onlyDefault) {
         final Set<String> out = new LinkedHashSet<>();
-        out.add(PACK_NAMESPACE);
+        if (onlyDefault) {
+            out.add(PACK_NAMESPACE);
+            return out;
+        }
         try {
             final List<String> rest = new ArrayList<>();
             for (final String namespace : pack.getNamespaces(ResourceType.CLIENT_RESOURCES)) {
@@ -649,13 +897,13 @@ final class BeamPackWriter {
             rest.sort(String.CASE_INSENSITIVE_ORDER);
             out.addAll(rest);
         } catch (Throwable ignored) {
-            // 包不报命名空间（老/自建包）：只试默认的那一个
+            // 包不报命名空间（老/自建包）：没有别的命名空间可试
         }
         return out;
     }
 
     /** 已加载的资源包，低 → 高优先级（{@code getEnabledProfiles} 的顺序就是栈序）。 */
-    private static List<ResourcePack> enabledPacks() {
+    static List<ResourcePack> enabledPacks() {
         synchronized (PACK_LOCK) {
             if (PACK_CACHE != null) {
                 return PACK_CACHE;
@@ -695,6 +943,13 @@ final class BeamPackWriter {
             old = PACK_CACHE;
             PACK_CACHE = null;
         }
+        // 包栈变了：车型归属（custom_trains 索引）与「每个车型只报一次」的记录一起作废，
+        // 否则换了包之后 `_shared.json` 还按旧包的作用域生效。
+        BeamPackScope.invalidate();
+        synchronized (LOG_LOCK) {
+            HITS.clear();
+            MISSES.clear();
+        }
         if (old == null) {
             return;
         }
@@ -717,6 +972,13 @@ final class BeamPackWriter {
             return null;
         }
     }
+
+    // 说明：包内文件统一走 BeamPackScope.readAsset（同一条路径段读取），这里只留包栈缓存。
+
+    /** {@link #logHit} / {@link #logMiss} 的去重表：每个车型只报一次，绝不每帧。 */
+    private static final Object LOG_LOCK = new Object();
+    private static final Map<String, String> HITS = new LinkedHashMap<>(64, 0.75F, true);
+    private static final Set<String> MISSES = new LinkedHashSet<>();
 
     /**
      * 解析一份文件（同一格式，来源可以是桌面 / config、也可以是资源包里的

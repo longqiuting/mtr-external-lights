@@ -379,6 +379,9 @@ final class CustomPack {
         /** 导出到 {@code assets/<namespace>/beam3D/} 用的命名空间。 */
         final String namespace;
 
+        /** 上一次 {@link CustomPack#readBeams} 实际读到的相对路径（界面显示用，null = 没读到）。 */
+        String loadedFrom;
+
         private ModelTrainBase model_;
         private DynamicTrainModel dynamic;
         private boolean modelTried;
@@ -645,7 +648,7 @@ final class CustomPack {
         return new Export(path, false, train.beamPath(), beams.size());
     }
 
-    /** 包里这个车型已有的光束（新路径优先，旧路径兼容；都没有就空列表）。 */
+    /** 包里这个车型已有的光束（新路径优先，旧路径兼容，最后是包级共用）。 */
     List<Beam> readBeams(final Train train) {
         String json = readText(train.beamPath());
         String source = train.beamPath();
@@ -655,9 +658,39 @@ final class CustomPack {
             source = train.legacyBeamPath();
         }
         if (json == null || json.isBlank()) {
+            // 包级共用：本包所有车型一份（_shared.json）。未加载的包只有这一个包，
+            // 「同包」条件天然成立，所以不必再查作用域。
+            for (final String candidate : sharedCandidates()) {
+                final String shared = readText(candidate);
+                if (shared != null && !shared.isBlank()) {
+                    json = shared;
+                    source = candidate;
+                    break;
+                }
+            }
+        }
+        if (json == null || json.isBlank()) {
             return List.of();
         }
+        train.loadedFrom = source;
         return BeamPackWriter.parse(json, train.jsonKey, this.root + "!" + source);
+    }
+
+    /** {@code _shared.json} 的候选相对路径：{@code lte} 命名空间优先，再是本包车型用的那个。 */
+    List<String> sharedCandidates() {
+        final java.util.LinkedHashSet<String> namespaces = new java.util.LinkedHashSet<>();
+        namespaces.add(BeamPackWriter.PACK_NAMESPACE);
+        for (final Train train : this.trains) {
+            namespaces.add(train.namespace);
+        }
+        namespaces.add("mtr");
+        final List<String> out = new ArrayList<>();
+        for (final String namespace : namespaces) {
+            for (final String dir : new String[] {BEAM_DIR, LEGACY_BEAM_DIR}) {
+                out.add("assets/" + namespace + "/" + dir + "/" + BeamPackScope.SHARED_FILE);
+            }
+        }
+        return out;
     }
 
     // ---------------------------------------------------------------------------------------------
