@@ -1,6 +1,7 @@
 package dev.js.mtrheadlight.xiamen;
 
 import net.minecraft.block.BlockState;
+import net.minecraft.block.enums.DoubleBlockHalf;
 import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
@@ -13,23 +14,34 @@ import net.minecraft.world.World;
 import org.joml.Matrix4f;
 
 /**
- * 门扇渲染器 —— 对应 MTR 的 {@code mtr:render/RenderPSDAPGDoor} 与天津地铁的
- * {@code ziyue.tjmetro.render.RenderTianjinPSDDoor}。
+ * 门扇渲染器 —— 对应 MTR 的 {@code mtr:render/RenderPSDAPGDoor}。
  *
- * <h2>和 MTR 一样的三件事</h2>
- * <ol>
- *   <li><b>门叶是「画」出来的，不是静态模型</b>：BlockEntityRenderer 每帧读
- *       {@code entity.getOpen(tickDelta)}，把整块板沿墙面平移 {@code open} 格
- *       （MTR：{@code storedMatrixTransformations.add(m -> m.translate(open * (side ? -1 : 1), 0, 0))}）；</li>
- *   <li><b>上下分段贴图</b>：MTR 在 {@code RenderPSDAPGDoor} 里用
- *       {@code String.format("mtr:textures/block/psd_door_%s_%s_%s.png", half ? "top" : "bottom", side ? "right" : "left", type)}
- *       选贴图；这里同理，同一个方块内下半 8px 用 {@code xiamen_psd_door_bottom}、
- *       上半 8px 用 {@code xiamen_psd_door_top}，正反面各一张（{@code _back}）；</li>
- *   <li><b>朝向变换</b>：MTR 用 {@code translate(0.5+x, y, 0.5+z) → rotateY(-facing.asRotation()) → rotateX(180)}。
- *       我们不用矩阵旋转，而是把「facing=west」这一基准系里的像素坐标按 blockstate 的
- *       y 旋转规则（0/90/180/270）直接映射到世界局部坐标，结果和 MTR 的几何完全重合
- *       （和 {@code mtr:block/psd_glass_left_base} 那块 2px 板在同一条平面上）。</li>
- * </ol>
+ * <h2>上下分段贴图怎么用（javap / 资源包实证）</h2>
+ * <p>MTR 在 {@code RenderPSDAPGDoor#render} 里按 {@code HALF} 选贴图：
+ * <pre>
+ * String.format("mtr:textures/block/psd_door_%s_%s_%s.png",
+ *                half == UPPER ? "top" : "bottom",        // ← 第一段：上半 / 下半
+ *                side == RIGHT ? "right" : "left",        // ← 第二段：右扇 / 左扇
+ *                type == PSD_2 ? "2" : "1");              // ← 第三段：样式
+ * </pre>
+ * 也就是说 {@code psd_door_top_1.png} 画的是<b>上面那一格方块</b>（y+1）、
+ * {@code psd_door_bottom_1.png} 画的是<b>下面那一格</b>（y+0），两张都是 16×16 的整面板贴图，
+ * 不是「一格内部再切两半」。MTR 的模型 json 也印证了这一点：
+ * {@code psd_glass_bottom_left_1.json} 把 {@code #front} 指到 {@code psd_glass_bottom_1}、
+ * {@code psd_glass_top_left_1.json} 指到 {@code psd_glass_top_1}，两者的 {@code elements}
+ * 都是同一个 {@code from [2,0,0] to [4,16,16]}。
+ * 端部门则是 {@code psd_door_end_%s_%s_2_%s.png}（{@code BlockPSDAPGDoorBase.END} 为 true 时）。
+ *
+ * <p>所以这里：{@code half=lower} 的方块整格用 {@code xiamen_psd_door_bottom}，
+ * {@code half=upper} 的整格用 {@code xiamen_psd_door_top}；
+ * {@code end=true} 的整格改用 {@code xiamen_psd_end}（厦门这套的 {@code psd_door_end_*}）。
+ *
+ * <h2>开门的滑动</h2>
+ * <p>MTR：{@code matrices.translate(open * (side == RIGHT ? -1 : 1), 0, 0)}，
+ * {@code open} 是 {@code TileEntityPSDAPGDoorBase.getOpen(tickDelta)} 插值出来的 0..1
+ * （BE 里存 0..32 的 {@code open} 与 {@code openClient}）。这里把同样的量换到「基准系本地 z」上：
+ * 左扇（{@code side=LEFT}）往 {@code -z} 滑、右扇往 {@code +z} 滑，两扇背向分开，
+ * 各滑 16px（正好一格，钻进旁边玻璃板后面）。
  */
 public class XiamenPsdDoorRenderer implements BlockEntityRenderer<XiamenPsdDoorEntity> {
 
@@ -37,15 +49,16 @@ public class XiamenPsdDoorRenderer implements BlockEntityRenderer<XiamenPsdDoorE
     private static final Identifier TOP_BACK = new Identifier("mtrlte", "block/xiamen_psd_door_top_back");
     private static final Identifier BOTTOM = new Identifier("mtrlte", "block/xiamen_psd_door_bottom");
     private static final Identifier BOTTOM_BACK = new Identifier("mtrlte", "block/xiamen_psd_door_bottom_back");
+    /** 端部门（{@code end=true}）：厦门资源包里 {@code psd_door_end_top_*} 那套。 */
+    private static final Identifier END = new Identifier("mtrlte", "block/xiamen_psd_end");
+    private static final Identifier END_BACK = new Identifier("mtrlte", "block/xiamen_psd_end_back");
 
     /**
-     * 门板的两个面（west 基准系，像素）。
+     * 门叶的两个面（基准系 facing=west 的像素）。
      *
-     * <p>MTR 的固定玻璃 {@code mtr:block/psd_glass_left_base} 是 {@code from [2,0,0] to [4,16,16]}，
-     * 并且把「east 面」(= x=4) 贴 {@code #front}、「west 面」(= x=2) 贴 {@code #back}。
-     * 也就是说这套贴图的「正面」朝 +X。门叶要滑动到玻璃<b>后面</b>（真实屏蔽门就是这样），
-     * 所以门板放在 x∈[0,2]：正面 = x=2 那个面（法线 +X，和玻璃正面同朝），背面 = x=0。
-     * 这样开门时门叶和邻居的玻璃板不会共面打架（MTR 的门也是和玻璃错开 2px 的）。
+     * <p>玻璃板在 x∈[2,4]（MTR 的 {@code psd_glass_left_base}），门叶画在 x∈[0,2]：
+     * 正面 = x=2（法线 +X，和玻璃正面同朝），背面 = x=0。开门时门叶沿 z 滑到隔壁格，
+     * 正好躲在玻璃后面而不是穿模。
      */
     private static final float FRONT_X = 2.0F;
     private static final float BACK_X = 0.0F;
@@ -61,51 +74,40 @@ public class XiamenPsdDoorRenderer implements BlockEntityRenderer<XiamenPsdDoorE
             return;
         }
         final BlockState state = world.getBlockState(entity.getPos());
-        if (!(state.getBlock() instanceof XiamenPsdDoorBlock)) {
+        if (!(state.getBlock() instanceof XiamenPsdDoorBlock door)) {
             return;
         }
 
-        final Direction facing = state.get(XiamenPsdDoorBlock.FACING);
-        final boolean right = state.get(XiamenPsdDoorBlock.SIDE) == XiamenPsdDoorBlock.Side.RIGHT;
+        final Direction facing = state.get(XiamenPsdBaseBlock.FACING);
+        final boolean right = state.get(XiamenPsdDoorBlock.SIDE) == XiamenPsdBaseBlock.EnumSide.RIGHT;
+        final boolean end = state.get(XiamenPsdDoorBlock.END);
+        final boolean upper = state.get(XiamenPsdBaseBlock.HALF) == DoubleBlockHalf.UPPER;
         final float open = entity.getOpen(tickDelta);
 
-        // 沿墙滑出去：左扇往局部 +Z、右扇往 -Z（和 XiamenPsdDoorBlock.leftDirection 一致）；
-        // 位移 1 格 = 16px。
-        final float slide = (right ? -1.0F : 1.0F) * open * 16.0F;
+        final Identifier front = end ? END : (upper ? TOP : BOTTOM);
+        final Identifier back = end ? END_BACK : (upper ? TOP_BACK : BOTTOM_BACK);
+
+        // 沿墙滑出去：左扇 -z、右扇 +z（见类注释）；1 格 = 16px。
+        final float slide = (right ? 1.0F : -1.0F) * open * 16.0F;
         final float z0 = slide;
         final float z1 = 16.0F + slide;
-        final float mid = 8.0F; // 上下分段的分界
 
         final Matrix4f m = matrices.peek().getPositionMatrix();
-        final VertexConsumer bottomFront = vertexConsumers.getBuffer(RenderLayer.getEntityCutoutNoCull(BOTTOM));
-        final VertexConsumer topFront = vertexConsumers.getBuffer(RenderLayer.getEntityCutoutNoCull(TOP));
-        final VertexConsumer bottomBack = vertexConsumers.getBuffer(RenderLayer.getEntityCutoutNoCull(BOTTOM_BACK));
-        final VertexConsumer topBack = vertexConsumers.getBuffer(RenderLayer.getEntityCutoutNoCull(TOP_BACK));
+        final VertexConsumer frontBuf = vertexConsumers.getBuffer(RenderLayer.getEntityCutoutNoCull(front));
+        final VertexConsumer backBuf = vertexConsumers.getBuffer(RenderLayer.getEntityCutoutNoCull(back));
 
-        // 正面（法线 +X，和玻璃正面同朝）：从 +X 侧看过去 +Z 在左手边，所以 u 随 +Z 递减。
-        quad(bottomFront, m, facing, light, overlay,
+        // 正面（法线 +X）：从 +X 侧看，+Z 在左手边 → u 随 +Z 递减
+        quad(frontBuf, m, facing, light, overlay,
                 FRONT_X, 0.0F, z0, 1.0F, 1.0F,
                 FRONT_X, 0.0F, z1, 0.0F, 1.0F,
-                FRONT_X, mid, z1, 0.0F, 0.0F,
-                FRONT_X, mid, z0, 1.0F, 0.0F,
-                1.0F, 0.0F, 0.0F, 1.0F);
-        quad(topFront, m, facing, light, overlay,
-                FRONT_X, mid, z0, 1.0F, 1.0F,
-                FRONT_X, mid, z1, 0.0F, 1.0F,
                 FRONT_X, 16.0F, z1, 0.0F, 0.0F,
                 FRONT_X, 16.0F, z0, 1.0F, 0.0F,
                 1.0F, 0.0F, 0.0F, 1.0F);
 
-        // 背面（法线 -X）：从 -X 侧看 +Z 在右手边，u 随 +Z 递增，否则字是镜像的。
-        quad(bottomBack, m, facing, light, overlay,
+        // 背面（法线 -X）：u 随 +Z 递增，否则字是镜像的
+        quad(backBuf, m, facing, light, overlay,
                 BACK_X, 0.0F, z0, 0.0F, 1.0F,
                 BACK_X, 0.0F, z1, 1.0F, 1.0F,
-                BACK_X, mid, z1, 1.0F, 0.0F,
-                BACK_X, mid, z0, 0.0F, 0.0F,
-                -1.0F, 0.0F, 0.0F, 0.85F);
-        quad(topBack, m, facing, light, overlay,
-                BACK_X, mid, z0, 0.0F, 1.0F,
-                BACK_X, mid, z1, 1.0F, 1.0F,
                 BACK_X, 16.0F, z1, 1.0F, 0.0F,
                 BACK_X, 16.0F, z0, 0.0F, 0.0F,
                 -1.0F, 0.0F, 0.0F, 0.85F);
@@ -117,10 +119,10 @@ public class XiamenPsdDoorRenderer implements BlockEntityRenderer<XiamenPsdDoorE
     }
 
     /**
-     * 把一个四边形（坐标是 west 基准系的像素，u/v 是 0..1 贴图坐标）按 facing 映射后画出来。
+     * 把一个四边形（基准系像素坐标 + 0..1 贴图坐标）按 facing 映射后画出来。
      *
-     * <p>映射规则与 blockstate json 的 y 旋转一致（也是 {@code XiamenPsdBlock} 里注释过的那套）：
-     * west 0°、north 90° → (x,z)=(16-z, x)、east 180° → (16-x, 16-z)、south 270° → (z, 16-x)。
+     * <p>映射与 blockstate json 的 y 旋转一致：west 0°、north 90° → (x,z)=(16-z, x)、
+     * east 180° → (16-x, 16-z)、south 270° → (z, 16-x)。
      */
     private static void quad(VertexConsumer vc, Matrix4f m, Direction facing, int light, int overlay,
                              float x0, float y0, float z0, float u0, float v0,

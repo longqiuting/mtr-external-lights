@@ -1,0 +1,11 @@
+{
+  "parent": "mtr:block/psd_glass_left_base",
+  "textures": {
+    "bottom": "mtr:block/black",
+    "top": "mtr:block/transparent",
+    "front": "mtrlte:block/xiamen_psd_glass_bottom",
+    "back": "mtrlte:block/xiamen_psd_glass_bottom_back",
+    "light": "mtr:block/psd_side_light",
+    "particle": "mtrlte:block/xiamen_psd_glass_bottom"
+  }
+}

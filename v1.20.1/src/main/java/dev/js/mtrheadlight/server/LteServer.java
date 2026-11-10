@@ -62,7 +62,14 @@ public final class LteServer implements ModInitializer {
         try {
             dev.js.mtrheadlight.signal.LteCoreItems.register();
         } catch (Throwable t) {
-            LteLog.LOGGER.warn("[lte] signal linker item unavailable", t);
+            LteLog.LOGGER.warn("[lte] connector items unavailable", t);
+        }
+
+        // /ltebind：投影机 / PIDS 绑定表的查询（服务端，读 PersistentState）。
+        try {
+            dev.js.mtrheadlight.bind.LteBindCommand.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] /ltebind unavailable", t);
         }
 
         // 厦门风格物件页签 + 屏蔽门方块（同样是两端都需要的 registry 条目）。
