@@ -67,6 +67,13 @@ import java.util.Set;
  * （{@link #MIST_PER_EVENT}），寿命 5–9 tick。和上一版（14/48/640、每事件 1 根、寿命 8–14）相比
  * 同时挂着的雨丝多约 1.3 倍，而单根的存活时间更短 —— 画面是「更密的细流」，不会积成一层白霜。
  *
+ * <h2>速度：车尾涡流，不是垂直雨</h2>
+ * 初速 = <b>车速反向 × {@link #speedFactor(double)} + 向下 + 一点点外散</b>，即
+ * {@code (-forward) * (0.10..0.30) * clamp(kmh/80, 0.5, 1.5)} 再叠 {@code vy = -(0.05..0.15)}；
+ * 粒子自身还带 {@link SprayParticle} 的少量重力。旧实现的竖直分量恒为正（0.01–0.02 上浮）而水平分量
+ * 很小，画面上就退化成"原版雨在原地落"，和列车没有关系 —— 这正是"方向不对"的根因。
+ * 诊断行的 {@code vdir=} 是平均水平速度方向与车速方向的点积，<b>必须为负</b>。
+ *
  * <h2>粒子设置（最少档也看得见）</h2>
  * 1.20.1 的 {@code WorldRenderer#spawnParticle} 对非强制粒子有两道硬闸：距相机 &gt; 32 格丢弃、
  * {@code MINIMAL} 档丢弃（不是抽稀，是全丢）。所以粒子设为「最少」时旧实现一颗都发不出来，日志里
@@ -136,14 +143,44 @@ public final class RainSpray {
     private static final double MIST_Y_MAX = 1.00D;
 
     /**
-     * 水点的水平初速随机扩散（blocks/tick，± 该值）。
-     * 细密雨丝如果每颗速度都一样，会像一排整齐的虚线；±0.08 让它们各走各的，看起来才是雨幕。
+     * 车尾涡流：水雾的水平初速沿<b>车速的反向</b>（blocks/tick，区间取自下面的 MIN/MAX），
+     * 再乘 {@link #speedFactor(double)}。
+     *
+     * <p>真实世界里，列车以 80–120 km/h 冲过积水时，轮对与裙板把水甩出去的速度**大体上等于车速**
+     * （相对车体是向后，相对地面是"几乎跟着车走、略微掉队"）。粒子不需要也不应该真的等于车速 ——
+     * 那样雨丝一 tick 就飞出视野；取 0.10–0.30 这个量级，配合 5–9 tick 的寿命，屏幕上留下的
+     * 是一条 0.5–2 格的向后拖尾，这才是"被车卷起来"的读法。
+     *
+     * <p>旧实现用的是 {@code 0.10 + 0.35 * intensity} 的向后分量、而竖直方向<b>恒为正</b>
+     * （0.01–0.02 上浮），两者一比，视觉上就只剩"竖直"分量：雨丝看起来像原版雨在原地往下掉，
+     * 与列车无关。现在反过来 —— 水平向后是主项，竖直向下是次项。
      */
-    private static final double HORIZONTAL_SPREAD = 0.08D;
+    private static final double WAKE_BACK_MIN = 0.10D;
+    private static final double WAKE_BACK_MAX = 0.30D;
 
-    /** 水点的竖直初速（blocks/tick）：只要 0.01–0.02 的极轻上浮。 */
-    private static final double MIST_VY_MIN = 0.01D;
-    private static final double MIST_VY_MAX = 0.02D;
+    /**
+     * 水雾的竖直初速（blocks/tick，<b>负值 = 向下</b>，区间取绝对值）。
+     *
+     * <p>只有 {@link #WAKE_BACK_MIN}～{@link #WAKE_BACK_MAX} 的 1/3 左右，所以轨迹是一条
+     * "向后为主、略向下"的斜线（约 20°–45° 偏离水平），而不是 90° 的垂直雨。这一项加上
+     * {@code gravityStrength}（见 {@link SprayParticle}）就是"涡流把水汽甩到车后下方"的全部来源。
+     */
+    private static final double MIST_DOWN_MIN = 0.05D;
+    private static final double MIST_DOWN_MAX = 0.15D;
+
+    /** 速度归一化基准（km/h）：{@link #speedFactor} 以它为单位，慢车弱、快车强。 */
+    private static final double SPEED_FACTOR_REF_KMH = 80.0D;
+    private static final double SPEED_FACTOR_MIN = 0.5D;
+    private static final double SPEED_FACTOR_MAX = 1.5D;
+
+    /**
+     * 水平初速的个体扩散（blocks/tick，± 该值）。
+     *
+     * <p>细密雨丝如果每颗速度都一样，会像一排整齐的虚线；扩散让它们各走各的。从 0.08 收到 0.05，
+     * 因为现在水平分量是有方向的（车尾涡流）：抖动幅度必须小于 {@link #WAKE_BACK_MIN}，
+     * 否则慢车时会有雨丝被抖成"往前飞"，方向读起来就乱了。
+     */
+    private static final double MIST_SPREAD = 0.05D;
     /** 水花的纵向范围（更贴地，靠自身重力落回轨面）。 */
     private static final double SPLASH_Y_MIN = 0.12D;
     private static final double SPLASH_Y_MAX = 0.45D;
@@ -503,16 +540,21 @@ public final class RainSpray {
         final Vec3d base = a.add(b.subtract(a).multiply(along));
         final double railY = Math.min(a.y, b.y);
 
-        // 往车尾方向甩 + 向车外侧散，再带一点上浮。
-        final double back = 0.10D + 0.35D * intensity;
-        final double out = 0.05D + 0.12D * intensity;
+        // 车尾涡流：主项是 -forward × (0.10..0.30) × speedFactor（沿车速的反方向甩出去），
+        // 副项只有一点点向车外侧的散开，竖直方向在循环里各自取 -(0.05..0.15)。
+        final double speedFactor = speedFactor(kmh);
+        final double back = (WAKE_BACK_MIN
+                + (WAKE_BACK_MAX - WAKE_BACK_MIN) * world.random.nextDouble()) * speedFactor;
+        // 外散限制在后向分量的 15%–35%：两侧仍然都看得见，但水平合速度一定仍指向车尾 ——
+        // 诊断行 vdir= 恒为负就是这条约束在生效（旧实现外散是常量 0.05–0.17，慢车时能盖过后向分量）。
+        final double out = back * (0.15D + 0.20D * world.random.nextDouble());
         // 水平初速对一颗雾团是常量（只有位置抖动），所以提到循环外：水花也复用它。
         final double mistVx = -fx * back + rx * side * out;
         final double mistVz = -fz * back + rz * side * out;
 
         int made = 0;
 
-        // 1) 水雾：车体侧面之外的一团白雾，向上飘。最小档是一整团（重叠的几颗，看起来更大更亮），
+        // 1) 水雾：车体侧面之外的一团白雾，沿车速反方向甩向车后下方（见上面的涡流初速）。最小档是一整团（重叠的几颗，看起来更大更亮），
         //    并且强制生成 —— 不然原版 MINIMAL 闸门会把它们全部丢掉。
         final boolean minimal = mode == ParticlesMode.MINIMAL;
         final int puffs = minimal ? MINIMAL_PUFFS : MIST_PER_EVENT;
@@ -540,11 +582,19 @@ public final class RainSpray {
                 diag.blocked++;
                 continue;
             }
-            final double mistVy = MIST_VY_MIN
-                    + world.random.nextDouble() * (MIST_VY_MAX - MIST_VY_MIN);
-            // 水平方向各自 ±0.08 扩散：每根雨丝都是一颗独立的小水滴，不排成整齐的虚线。
-            final double mistSx = mistVx + (world.random.nextDouble() - 0.5D) * 2.0D * HORIZONTAL_SPREAD;
-            final double mistSz = mistVz + (world.random.nextDouble() - 0.5D) * 2.0D * HORIZONTAL_SPREAD;
+            final double mistVy = -(MIST_DOWN_MIN
+                    + world.random.nextDouble() * (MIST_DOWN_MAX - MIST_DOWN_MIN));
+            // 水平方向各自 ±MIST_SPREAD 扩散：每根雨丝都是一颗独立的小水滴，不排成整齐的虚线；
+            // 幅度小于后向分量的下限（0.05），所以再怎么抖也不会把方向抖成"往前飞"。
+            final double mistSx = mistVx + (world.random.nextDouble() - 0.5D) * 2.0D * MIST_SPREAD;
+            final double mistSz = mistVz + (world.random.nextDouble() - 0.5D) * 2.0D * MIST_SPREAD;
+            // 诊断 vdir：水平速度方向（归一化）与车速方向的点积。向后就是负值 —— 这一列是
+            // "水雾到底往哪边走"唯一可量化的证据，正数就说明符号反了或外散盖过了后向分量。
+            final double hlen = Math.sqrt(mistSx * mistSx + mistSz * mistSz);
+            if (hlen > 1.0E-6D) {
+                diag.vdirSum += (mistSx * fx + mistSz * fz) / hlen;
+                diag.vdirN++;
+            }
             // 自注册类型 mtrlte:spray（Sodium Extra 的逐类型屏蔽表里没有这个 id，默认放行）；
             // 注册失败或被屏蔽时 SprayType 内部已经退回 ParticleTypes.CLOUD。
             add(world, SprayType.effect(), minimal, mistX, mistY, mistZ, mistSx, mistVy, mistSz);
@@ -611,7 +661,8 @@ public final class RainSpray {
      *
      * <p>为什么需要：水雾的 y 是「轨面 + 0.3~1.05」，在站台边缘、隧道口、地形凹处那一点很容易正好
      * 落在实心方块里（尤其是半砖/台阶/站台墙）。粒子在方块内部是完全不可见的 —— 这正是"生成了
-     * 600 颗一颗也看不到"这一类故障的一半原因。向上找而不是向下找：雾本来就该往上飘。
+     * 600 颗一颗也看不到"这一类故障的一半原因。向上找而不是向下找：落点本身就在轨面上方 0.3–1.0 格，
+     * 向上是唯一不会把粒子推进地板的方向（粒子自身的运动仍然向后下方）。
      */
     private static double airY(final ClientWorld world, final double x, final double y,
                                final double z) {
@@ -697,6 +748,29 @@ public final class RainSpray {
         return 0.25D + 0.75D * intensity;
     }
 
+    /**
+     * 水雾初速的速度系数：{@code clamp(kmh / 80, 0.5, 1.5)}。
+     *
+     * <p>车越快，卷起来的水甩得越急 —— 40 km/h 的车只有 0.5 倍，120 km/h 以上封顶 1.5 倍。
+     * 上下限是为了不出现两种极端：慢车时水雾几乎不动（看起来像静止白点），快车时一 tick 就飞出
+     * 视野（看起来像跳帧）。注意这<b>不是</b>密度系数，密度仍由 {@link #intensity} 那套抽签决定。
+     */
+    private static double speedFactor(final double kmh) {
+        if (!(kmh > 0.0D)) {
+            return SPEED_FACTOR_MIN;
+        }
+        return Math.max(SPEED_FACTOR_MIN, Math.min(SPEED_FACTOR_MAX, kmh / SPEED_FACTOR_REF_KMH));
+    }
+
+    /** 诊断用：下沉初速区间的下限/上限（{@link SprayParticle#paramsLabel()} 要打出来，避免日志与代码对不上）。 */
+    static double mistDownMin() {
+        return MIST_DOWN_MIN;
+    }
+
+    static double mistDownMax() {
+        return MIST_DOWN_MAX;
+    }
+
     private static Diag diag(final String key, final TrainClient train) {
         Diag d = WINDOW.get(key);
         if (d == null) {
@@ -773,13 +847,15 @@ public final class RainSpray {
                     probeAt == null || tick - probeTick > DIAG_PERIOD_TICKS ? "-" : probeAt);
             for (final Diag d : lines) {
                 MtrHeadlightClient.LOGGER.info(
-                        "spray-diag: id={} speed={} rail={} raining={} sky={} dist={} lat={} halfW={} dy={} at={} spawned={} blocked={} reason={} probeAt={}",
+                        "spray-diag: id={} speed={} rail={} raining={} sky={} dist={} lat={} halfW={} dy={} vdir={} at={} spawned={} blocked={} reason={} probeAt={}",
                         d.id, fmt(d.kmh), fmt(d.railKmh), Boolean.valueOf(d.raining),
                         d.sky == null ? "-" : skyName(d.sky),
                         d.dist < 0.0D ? "-" : fmt(d.dist),
                         d.lat == Double.MAX_VALUE ? "-" : fmt(d.lat),
                         d.halfW < 0.0D ? "-" : fmt(d.halfW),
                         d.dy == Double.MAX_VALUE ? "-" : fmt(d.dy),
+                        d.vdirN == 0 ? "-" : String.format(java.util.Locale.ROOT, "%.2f",
+                                Double.valueOf(d.vdirSum / d.vdirN)),
                         d.at == null ? "-" : d.at,
                         Integer.valueOf(d.spawned), Integer.valueOf(d.blocked), d.reason,
                         probeAt == null || tick - probeTick > DIAG_PERIOD_TICKS ? "-" : probeAt);
@@ -837,5 +913,11 @@ public final class RainSpray {
         double halfW = -1.0D;
         double dy = Double.MAX_VALUE;
         String at;
+        /**
+         * {@code vdir=} 的累计：本窗口内每颗水雾水平速度方向与车速方向的点积之和 / 样本数。
+         * 负值才正确（向后），越接近 -1 越"纯向后"。
+         */
+        double vdirSum;
+        int vdirN;
     }
 }

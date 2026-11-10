@@ -40,11 +40,14 @@ import org.joml.Vector3f;
  * <ul>
  *   <li>寿命 {@value #MIN_LIFE}–{@value #MAX_LIFE} tick（0.25–0.45 s）：<b>短而密</b>。同一节车厢
  *       同时挂着的雨丝因此只有 {@code 5–9 × 每秒 24 根} 的滚动量，而不是积成一条雾带；</li>
- *   <li>初速：竖直方向固定 {@value #DRIFT_MIN}–{@value #DRIFT_MAX} blocks/tick 的缓慢上浮
- *       （构造时把传入的 vy 夹到该区间，见 {@link #drift(double)}）；水平分量原样保留（含调用方给的
- *       ±0.08 扩散）；</li>
- *   <li>重力 {@code gravityStrength = 0}：永不加速下落，只有 {@link #VELOCITY_MULTIPLIER} 的轻微
- *       阻尼，所以整条轨迹是「飘」，不是「抛」；</li>
+ *   <li>初速：竖直方向由调用方给出 {@code -(0.05..0.15)} blocks/tick 的<b>下沉</b>速度
+ *       （{@link #drift(double)} 只把越界值夹回来，不再强行掰成正的上浮），水平分量原样保留
+ *       （含调用方给的、沿车速反方向的涡流速度 ±{@link RainSpray} 的扩散）；</li>
+ *   <li>重力 {@code gravityStrength = }{@value #GRAVITY_MIN}–{@value #GRAVITY_MAX}：1.20.1 的
+ *       {@code Particle#tick} 是 {@code velocityY -= 0.04 * gravityStrength}，所以这只是"一点"重力 ——
+ *       轨迹是一条向后为主、缓慢下弯的弧，不是垂直坠落；</li>
+ *   <li>长轴倾角：{@link #buildGeometry} 把雨丝按速度在屏幕上的投影倾斜（上限 {@value #MAX_TILT} 弧度），
+ *       否则轨迹虽然是斜的，画面上仍是一排竖直雨丝，看起来和原版雨没区别；</li>
  *   <li>尺寸：{@value #SCALE_MIN}–{@value #SCALE_MAX} 起，线性缩到起点的 {@code 1 - }{@value #SHRINK}；</li>
  *   <li>纵向拉伸 {@value #VERTICAL_STRETCH}×（{@link #buildGeometry}）：{@code scale} 是正方形的，
  *       只靠贴图里的细线还不够长，所以自绘四边形时只在竖直方向放大 —— 0.08–0.18 的方块因此变成
@@ -98,12 +101,39 @@ public final class SprayParticle extends SpriteBillboardParticle {
     private static final float ALPHA_MIN = 0.55F;
     private static final float ALPHA_MAX = 0.85F;
 
-    /** 竖直初速区间（blocks/tick），轻微向上。 */
-    private static final double DRIFT_MIN = 0.01D;
-    private static final double DRIFT_MAX = 0.02D;
+    /**
+     * 竖直初速的合法区间（blocks/tick，<b>负 = 向下</b>）。
+     *
+     * <p>调用方（{@link RainSpray}）给的是车尾涡流的下沉速度 {@code -(0.05..0.15)}，这里只做兜底：
+     * 向下不超过 {@value #DRIFT_MAX_DOWN}（再快就退回"垂直雨"），向上不超过
+     * {@value #DRIFT_MAX_UP}（旧版"轻微上浮"的残留，探针和回退路径仍可能传正值）。
+     */
+    private static final double DRIFT_MAX_DOWN = 0.18D;
+    private static final double DRIFT_MAX_UP = 0.02D;
 
-    /** 水平阻尼（每 tick 乘一次）。1.0 表示完全不变。 */
+    /**
+     * 重力（{@code Particle#gravityStrength}）。
+     *
+     * <p>1.20.1 的 {@code Particle#tick} 里是 {@code velocityY -= 0.04 * gravityStrength}
+     * （javap 核对过 {@code ldc2_w 0.04d} + {@code getfield gravityStrength}），所以 0.02–0.04
+     * 对应的实际加速度是每 tick {@code 0.0008–0.0016} blocks/tick —— <b>是"一点点"而不是"砸下去"</b>：
+     * 5–9 tick 的寿命里累计只多下沉 0.005–0.015 格/每 tick 的增量，轨迹从直线变成一条轻微下弯的弧。
+     * 真按地球重力（≈0.08 blocks/tick²）来，雨丝两 tick 就掉出粒子体的高度范围，反而看不清方向。
+     */
+    private static final float GRAVITY_MIN = 0.02F;
+    private static final float GRAVITY_MAX = 0.04F;
+
+    /** 速度阻尼（每 tick 乘一次）。1.0 表示完全不变；0.90 让"甩出去"的初速自然衰减。 */
     private static final float VELOCITY_MULTIPLIER = 0.90F;
+
+    /**
+     * 雨丝长轴相对"屏幕竖直"的最大倾角（弧度，60°）。
+     *
+     * <p>粒子的运动方向是向后下方，但四边形如果永远画成竖的，看上去还是"原版雨在原地落"——
+     * 真正让人读出"被车甩出去"的是<b>雨丝本身是斜的</b>。所以按速度在屏幕平面里的投影把长轴倾过去；
+     * 上限 60° 是为了防止速度几乎垂直于视线时把雨丝压成一根横线。
+     */
+    private static final float MAX_TILT = 1.0472F;
 
     /**
      * 顶点色 tint：略带冷调的灰白。贴图已改成纯白，所以这里就是最终颜色
@@ -120,10 +150,12 @@ public final class SprayParticle extends SpriteBillboardParticle {
      */
     static String paramsLabel() {
         return String.format(java.util.Locale.ROOT,
-                "tint=%.2f,%.2f,%.2f life=%d-%d alpha=%.2f-%.2f",
+                "tint=%.2f,%.2f,%.2f life=%d-%d alpha=%.2f-%.2f vy=-%.2f..-%.2f gravity=%.2f-%.2f",
                 Float.valueOf(TINT_R), Float.valueOf(TINT_G), Float.valueOf(TINT_B),
                 Integer.valueOf(MIN_LIFE), Integer.valueOf(MAX_LIFE),
-                Float.valueOf(ALPHA_MIN), Float.valueOf(ALPHA_MAX));
+                Float.valueOf(ALPHA_MIN), Float.valueOf(ALPHA_MAX),
+                Double.valueOf(RainSpray.mistDownMin()), Double.valueOf(RainSpray.mistDownMax()),
+                Float.valueOf(GRAVITY_MIN), Float.valueOf(GRAVITY_MAX));
     }
 
     private final float startScale;
@@ -177,7 +209,8 @@ public final class SprayParticle extends SpriteBillboardParticle {
         this.setSprite(sprites.getSprite(this.random));
 
         this.maxAge = MIN_LIFE + this.random.nextInt(MAX_LIFE - MIN_LIFE + 1);
-        this.gravityStrength = 0.0F;
+        // 少量重力：轨迹有一点点往下弯，但不至于两 tick 就掉到轨面。
+        this.gravityStrength = GRAVITY_MIN + this.random.nextFloat() * (GRAVITY_MAX - GRAVITY_MIN);
         this.velocityMultiplier = VELOCITY_MULTIPLIER;
 
         this.velocityX = velocityX;
@@ -193,12 +226,13 @@ public final class SprayParticle extends SpriteBillboardParticle {
         this.setColor(TINT_R, TINT_G, TINT_B);
     }
 
-    /** 把竖直初速夹进「轻微上浮」区间：太快会像烟柱，太慢或向下就不像水雾了。 */
+    /** 把竖直初速夹进合法区间（±{@link #DRIFT_MAX_DOWN} / {@link #DRIFT_MAX_UP}）。负值 = 向下。 */
     private static double drift(final double vy) {
         if (Double.isNaN(vy)) {
-            return DRIFT_MIN;
+            // 退化值：给一个"半个正常下沉"，不要 0 —— 0 会让雨丝悬停，看起来像贴图没动。
+            return -DRIFT_MAX_DOWN * 0.5D;
         }
-        return Math.max(DRIFT_MIN, Math.min(DRIFT_MAX, vy));
+        return Math.max(-DRIFT_MAX_DOWN, Math.min(DRIFT_MAX_UP, vy));
     }
 
     /**
@@ -251,8 +285,16 @@ public final class SprayParticle extends SpriteBillboardParticle {
                 new Vector3f(1.0F, -1.0F, 0.0F)
         };
         final float size = this.getSize(tickDelta);
+        // 长轴跟随速度：把速度转到相机空间，只取它在屏幕平面里的投影定倾角（见 MAX_TILT）。
+        // 用副本 conjugate()，绝不改 camera.getRotation() 返回的那个共享四元数。
+        final Vector3f vel = new Vector3f((float) this.velocityX, (float) this.velocityY,
+                (float) this.velocityZ).rotate(new Quaternionf(camera.getRotation()).conjugate());
+        final float tilt = (vel.x * vel.x + vel.y * vel.y) > 1.0E-8F
+                ? MathHelper.clamp((float) Math.atan2(-vel.x, Math.abs(vel.y)), -MAX_TILT, MAX_TILT)
+                : 0.0F;
         for (final Vector3f corner : corners) {
             corner.y *= VERTICAL_STRETCH;
+            corner.rotateZ(tilt);
             corner.rotate(rotation);
             corner.mul(size);
             corner.add(dx, dy, dz);

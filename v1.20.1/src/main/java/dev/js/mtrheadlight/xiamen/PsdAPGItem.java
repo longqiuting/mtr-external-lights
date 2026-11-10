@@ -1,16 +1,18 @@
-// Ported from Minecraft Transit Railway (MTR), MIT License.
+// Xiamen PSD placement item — same rules as MTR's ItemPSDAPGBase.
 package dev.js.mtrheadlight.xiamen;
 
 import java.util.List;
 
+import mtr.block.BlockPSDAPGDoorBase;
+import mtr.block.IBlock;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
-import net.minecraft.block.HorizontalFacingBlock;
 import net.minecraft.block.enums.DoubleBlockHalf;
 import net.minecraft.client.item.TooltipContext;
 import net.minecraft.item.BlockItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.ItemUsageContext;
+import net.minecraft.state.property.Properties;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Formatting;
@@ -20,15 +22,18 @@ import net.minecraft.world.World;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * MTR {@code mtr.item.ItemPSDAPGBase} 的移植 —— 屏蔽门的一整套放置逻辑。
+ * MTR {@code mtr.item.ItemPSDAPGBase} 的等价物 —— 屏蔽门的一整套放置逻辑。
  *
  * <ul>
  *   <li>门：宽 <b>2</b> 格 × 高 2 格，再在 y+2 补一格吊板（= 6 格）；</li>
  *   <li>玻璃 / 端部：宽 <b>1</b> 格 × 高 2 格 + 吊板（= 3 格）；</li>
- *   <li>整组做可替换检查（{@link #blocksNotReplaceable}：上下各多探一格黑名单，防止叠放），
- *       任何一格不行就整组不放；</li>
+ *   <li>整组做可替换检查，任何一格不行就整组不放；</li>
  *   <li>放成功后<b>只扣 1 个</b>物品（和 MTR 一样）。</li>
  * </ul>
+ *
+ * <p>方块状态属性现在全部来自 MTR：{@code IBlock#SIDE}（门，left/right）、
+ * {@code IBlock#SIDE_EXTENDED}（玻璃 / 吊板，left/middle/right/single）、
+ * {@code IBlock#HALF}（上下段）。名字和取值与资源包里的 blockstate JSON 一致。
  */
 public class PsdAPGItem extends BlockItem {
 
@@ -73,18 +78,19 @@ public class PsdAPGItem extends BlockItem {
             BlockPos newPos = pos.offset(playerFacing.rotateYClockwise(), x);
             for (int y = 0; y < 2; y++) {
                 BlockState state = baseBlock.getDefaultState()
-                        .with(HorizontalFacingBlock.FACING, playerFacing)
-                        .with(PsdProps.HALF, y == 1 ? DoubleBlockHalf.UPPER : DoubleBlockHalf.LOWER);
+                        .with(Properties.HORIZONTAL_FACING, playerFacing)
+                        .with(IBlock.HALF, y == 1 ? DoubleBlockHalf.UPPER : DoubleBlockHalf.LOWER);
                 if (this.kind.door) {
-                    world.setBlockState(newPos.up(y),
-                            state.with(PsdProps.SIDE, x == 0 ? PsdProps.Side.LEFT : PsdProps.Side.RIGHT));
+                    world.setBlockState(newPos.up(y), state
+                            .with(IBlock.SIDE, x == 0 ? IBlock.EnumSide.LEFT : IBlock.EnumSide.RIGHT)
+                            .with(BlockPSDAPGDoorBase.UNLOCKED, true));
                 } else {
                     world.setBlockState(newPos.up(y),
-                            state.with(PsdProps.SIDE_EXTENDED, PsdProps.Side.SINGLE));
+                            state.with(IBlock.SIDE_EXTENDED, IBlock.EnumSide.SINGLE));
                 }
             }
             // 吊板：按刚放下的那一格现算 facing / side / air_left / air_right
-            world.setBlockState(newPos.up(2), PsdTopBlock.getActualState(world, newPos.up(2)));
+            world.setBlockState(newPos.up(2), XiamenPsdBlocks.Top.actualState(world, newPos.up(2)));
         }
 
         context.getStack().decrement(1);

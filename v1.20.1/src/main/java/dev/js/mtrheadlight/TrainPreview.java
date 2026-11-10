@@ -449,18 +449,17 @@ final class TrainPreview {
             // 在模型空间里平移（在 rotation 之后压栈 = 先转后移，等价于模型自身沿长度轴挪动）。
             matrices.translate((float) ox, 0.0F, (float) oz);
             /*
-             * MTR 的 jar 是按 <b>intermediary 名</b> 编译的（{@code class_4587} = MatrixStack、
-             * class_4597 = VertexConsumerProvider、class_2960 = Identifier）。本项目同时挂 named 与
-             * intermediary 的 MC jar，所以这三处必须走 (Object) 桥接，否则报“MatrixStack 无法转换为
-             * class_4587”。运行期（生产客户端）两者是同一个类，桥接没有额外成本。
+             * MTR 在编译期用的是 yarn 名（libs/MTR-...-named.jar，见 tools/remap-mtr-named.sh），
+             * 所以它的 render(...) 直接收 MatrixStack / VertexConsumerProvider / Identifier，
+             * 不再需要 (Object) 桥接。
              */
             boolean drawn = true;
             try {
                 subject.model.render(
-                        (net.minecraft.class_4587) (Object) matrices,
-                        (net.minecraft.class_4597) (Object) immediate,
+                        matrices,
+                        immediate,
                         null,
-                        (net.minecraft.class_2960) (Object) subject.texture,
+                        subject.texture,
                         FULL_BRIGHT, 0.0F, 0.0F, false, car, carCount, true, false, false, detail, false);
             } catch (final Throwable t) {
                 drawn = false;

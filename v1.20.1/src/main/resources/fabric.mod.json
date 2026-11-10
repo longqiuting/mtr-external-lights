@@ -7,13 +7,11 @@
   "authors": [
     "厦航在拍车的无名机长 (kigurumiLTY)"
   ],
-  "contributors": {
-    "Contributors": [
-      "天童アリス",
-      "596wjr",
-      "Bai."
-    ]
-  },
+  "contributors": [
+    "天童アリス",
+    "596wjr",
+    "Bai."
+  ],
   "license": "MIT",
   "icon": "icon.png",
   "environment": "*",

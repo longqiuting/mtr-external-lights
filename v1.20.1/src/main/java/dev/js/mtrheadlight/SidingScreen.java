@@ -216,13 +216,11 @@ public final class SidingScreen extends Screen {
         final int px;
         final int pz;
         try {
-            // MTR is compiled against intermediary names, so its BlockPos arrives as
-            // net.minecraft.class_2338 and the coordinate getters carry the intermediary names the
-            // MTR bytecode itself calls (method_10263 = getX, method_10260 = getZ). Both ends of
-            // the siding are in its packet, so this is valid on the client.
+            // MTR is compiled against yarn names here (libs/MTR-...-named.jar), so its BlockPos
+            // exposes the normal getters. Both ends of the siding are in its packet.
             final var mid = siding.getMidPos();
-            px = mid.method_10263();
-            pz = mid.method_10260();
+            px = mid.getX();
+            pz = mid.getZ();
         } catch (RuntimeException e) {
             return 0L;
         }
@@ -235,12 +233,12 @@ public final class SidingScreen extends Screen {
             if (depot.corner1 == null || depot.corner2 == null) {
                 continue;
             }
-            // Same story as getMidPos(): AreaBase's corners are a net.minecraft.class_3545 (Pair)
-            // whose accessors only exist under their intermediary names on MTR's classpath.
-            final int x1 = depot.corner1.method_15442();
-            final int z1 = depot.corner1.method_15441();
-            final int x2 = depot.corner2.method_15442();
-            final int z2 = depot.corner2.method_15441();
+            // Same story as getMidPos(): AreaBase's corners are a net.minecraft.util.Pair whose
+            // getters are the normal getLeft() / getRight() now that MTR is compiled against yarn.
+            final int x1 = depot.corner1.getLeft();
+            final int z1 = depot.corner1.getRight();
+            final int x2 = depot.corner2.getLeft();
+            final int z2 = depot.corner2.getRight();
             final int minX = Math.min(x1, x2);
             final int maxX = Math.max(x1, x2);
             final int minZ = Math.min(z1, z2);

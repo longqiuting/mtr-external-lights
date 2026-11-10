@@ -932,10 +932,10 @@ public final class SidingMapScreen extends Screen {
                     return null;
                 }
                 // corner1/corner2 are Pair<Integer,Integer> = (x, z), and either may be the max.
-                final int x1 = depot.corner1.method_15442();
-                final int z1 = depot.corner1.method_15441();
-                final int x2 = depot.corner2.method_15442();
-                final int z2 = depot.corner2.method_15441();
+                final int x1 = depot.corner1.getLeft();
+                final int z1 = depot.corner1.getRight();
+                final int x2 = depot.corner2.getLeft();
+                final int z2 = depot.corner2.getRight();
                 final int minX = Math.min(x1, x2);
                 final int maxX = Math.max(x1, x2);
                 final int minZ = Math.min(z1, z2);
