@@ -297,6 +297,7 @@
   "itemGroup.mtrlte.tools": "LTE 工具",
   "block.mtrlte.xiamen_psd_door": "厦门地铁屏蔽门（门扇）",
   "block.mtrlte.xiamen_psd_glass": "厦门地铁屏蔽门（玻璃）",
+  "block.mtrlte.xiamen_psd_end": "厦门地铁屏蔽门（端部）",
   "item.mtrlte.signal_linker": "信号连接器",
   "tooltip.mtrlte.signal_link.hint": "右键轨道节点 → 信号灯（顺序可反），或 信号灯 → 信号灯 同步显示",
   "tooltip.mtrlte.signal_link.selected": "已选节点：%s",

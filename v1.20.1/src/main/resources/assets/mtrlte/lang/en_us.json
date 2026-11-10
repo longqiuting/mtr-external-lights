@@ -297,6 +297,7 @@
   "itemGroup.mtrlte.tools": "LTE Tools",
   "block.mtrlte.xiamen_psd_door": "Xiamen Metro Platform Screen Door",
   "block.mtrlte.xiamen_psd_glass": "Xiamen Metro PSD Glass Panel",
+  "block.mtrlte.xiamen_psd_end": "Xiamen PSD End",
   "item.mtrlte.signal_linker": "Signal linker",
   "tooltip.mtrlte.signal_link.hint": "Right-click a track node then a signal light (any order), or a light then another light to mirror it",
   "tooltip.mtrlte.signal_link.selected": "Node selected: %s",

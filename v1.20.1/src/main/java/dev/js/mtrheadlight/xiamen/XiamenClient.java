@@ -20,6 +20,7 @@ public final class XiamenClient implements ClientModInitializer {
         try {
             BlockRenderLayerMap.INSTANCE.putBlock(XiamenObjects.psdDoor(), RenderLayer.getCutout());
             BlockRenderLayerMap.INSTANCE.putBlock(XiamenObjects.psdGlass(), RenderLayer.getCutout());
+            BlockRenderLayerMap.INSTANCE.putBlock(XiamenObjects.psdEnd(), RenderLayer.getCutout());
         } catch (Throwable t) {
             // 渲染层没挂上只是透明区域发黑，不该让客户端起不来。
             LteLog.LOGGER.warn("[lte] could not set the xiamen block render layers", t);
