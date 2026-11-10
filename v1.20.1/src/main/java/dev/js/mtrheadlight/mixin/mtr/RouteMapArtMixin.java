@@ -2,6 +2,7 @@ package dev.js.mtrheadlight.mixin.mtr;
 
 import dev.js.mtrheadlight.xiamen.XiamenRouteStrip;
 import mtr.client.RouteMapGenerator;
+import mtr.data.IGui;
 import net.minecraft.client.texture.NativeImage;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -54,11 +55,33 @@ public abstract class RouteMapArtMixin {
      * 面板下沿那条 1px 色带。
      *
      * <p>只在 {@code lineColors} 手工覆盖了颜色时才接管（否则原样交给 MTR）—— 不接管的话，
-     * 覆盖过颜色的线路会出现“条带是新颜色、下沿色带还是旧颜色”。
+     * 覆盖过颜色的线路会出现“条带是新颜色、下沿色带还是旧颜色”。</p>
      */
     @Inject(method = "generateColorStrip", at = @At("HEAD"), cancellable = true, remap = false)
     private static void lte$colorStrip(final long platformId, final CallbackInfoReturnable<NativeImage> cir) {
         final NativeImage image = XiamenRouteStrip.colorStrip(platformId);
+        if (image != null) {
+            cir.setReturnValue(image);
+        }
+    }
+
+    /**
+     * <b>方向面板</b>（吊板 / 玻璃上那一块 {@code RenderType.ARROW}，以及站名为空时的
+     * {@code STATION_NAME}）：MTR 的原图左侧带线路色圆 + 圆内<b>站台号</b>，文字从圆的右边左对齐。
+     * 实拍吊板没有站台号、文字居中，所以整块重画（{@link dev.js.mtrheadlight.xiamen.XiamenDirectionPanel}）。
+     *
+     * <p>参数原样转交，不自己解析：{@code platformId} 用来查 MTR 的
+     * {@code getFormattedRouteDestination}，{@code aspectRatio} 用来定尺寸。</p>
+     */
+    @Inject(method = "generateDirectionArrow", at = @At("HEAD"), cancellable = true, remap = false)
+    private static void lte$directionArrow(final long platformId, final boolean hasLeft, final boolean hasRight,
+                                           final IGui.HorizontalAlignment horizontalAlignment,
+                                           final boolean showToString, final float paddingScale,
+                                           final float aspectRatio, final int backgroundColor, final int textColor,
+                                           final int transparentColor,
+                                           final CallbackInfoReturnable<NativeImage> cir) {
+        final NativeImage image = XiamenRouteStrip.directionArrow(platformId, hasLeft, hasRight, showToString,
+                aspectRatio);
         if (image != null) {
             cir.setReturnValue(image);
         }

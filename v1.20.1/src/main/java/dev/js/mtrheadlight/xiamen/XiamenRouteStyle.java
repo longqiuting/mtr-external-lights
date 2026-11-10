@@ -107,6 +107,27 @@ public final class XiamenRouteStyle {
         return null;
     }
 
+    /** 按线路名找线路对象（跨站台，不看 platformId）—— 换乘线路色/编号用。 */
+    public static Route findRouteByName(final String routeName) {
+        final String wanted = shortName(routeName);
+        if (wanted.isEmpty()) {
+            return null;
+        }
+        try {
+            for (final Route route : ClientData.ROUTES) {
+                if (route == null || route.isHidden || route.name == null) {
+                    continue;
+                }
+                if (wanted.equals(shortName(route.name))) {
+                    return route;
+                }
+            }
+        } catch (Throwable ignored) {
+            // 同上：没有就 null，调用方退回 MTR 给的色。
+        }
+        return null;
+    }
+
     /** 线路色（见类注释的优先级）。返回 {@code 0xRRGGBB}。 */
     public static int lineColor(final HeadlightConfig cfg, final Route route, final String routeName) {
         final Integer override = overrideColor(cfg, route, routeName);

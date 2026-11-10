@@ -1,0 +1,158 @@
+A	common/BeamBlockLight.java	no imports at all; pure block-light math over int[] offsets
+A	common/BeamGeom.java	ClientWorld + Vec3d only; geometry tables
+A	common/BeamGlow.java	ClientData/TrainClient + WorldRenderContext; WorldRenderContext members are identical in rendering-v1 1.11.0 … 3.0.10 (only projectionMatrix() differs, unused here)
+A	common/ClearDiag.java	no imports
+A	common/ConeVolumeBeam.java	Vec3d only
+A	common/EndLight.java	Vec3d only
+A	common/HeadlightConfig.java	FabricLoader only; Gson config model
+A	common/LteLog.java	no imports
+A	common/LightBackend.java	interface over Vec3d
+A	common/ParticleCull.java	Identifier only
+A	common/RailDiag.java	no imports
+A	common/RailDynamicLight.java	BlockPos only
+A	common/RailLightInject.java	BlockPos/LightType/World; all four MC jars expose the same World.getLightLevel signature
+A	common/RailLightState.java	BlockPos only
+A	common/RailMixinFlags.java	no imports
+A	common/RailRelightDispatcher.java	no imports; counter/dispatch table
+A	common/RailRelightHooks.java	no imports
+A	common/ShaderPackProbe.java	no imports
+A	common/VehicleLightJson.java	no imports; Gson schema
+A	common/VehicleLightOverrides.java	no imports; beam model + JSON
+A	common/TrainPose.java	mtr.data.Train/mtr.path.PathData + Vec3d; PathData.rail/startingPos/dwellTime identical in 3.2.2 (only 3.6.x adds adcTime/stopWithoutOpeningDoors, unused here)
+A	common/BuiltinLights.java	TrainClient only; hardcoded lamp table
+A	common/DepartureState.java	ClientData/TrainClient/MinecraftClient
+A	common/HeadlightSwitch.java	ClientWorld only
+A	common/LightController.java	ClientData/TrainClient/TransportMode/Vec3d
+A	common/VehicleLights.java	DynamicTrainModel.partsInfo/properties, JonModelTrainRenderer.model (public final, same type in 3.2.2 and 3.6.4.2), ModelTrainBase
+A	common/RailChunkBuildBoost.java	HostProbe only
+A	common/RailWeather.java	ClientWorld/Heightmap/LightType; no changed member
+A	common/DebugProbe.java	ClientData/TrainClient/ParticleTypes/Text
+A	common/RailRelightScheduler.java	ClientData.RAILS/TrainClient/BlockPos; ClientData.RAILS is the same field in 3.2.2
+A	common/MtrHeadlightClient.java	ClientModInitializer + ClientTickEvents (identical in lifecycle-events-v1 2.1.1 … 2.2.x)
+A	common/ModMenuIntegration.java	ModMenuIntegration entrypoint; modmenu 3.2.5/4.2.0/6.3.1 all expose ConfigScreenFactory
+A	common/BeamRelight.java	WorldRenderer.scheduleBlockRenders(int x6) exists verbatim in 1.18.2/1.19.2/1.19.4/1.20.1 (javap on all four merged jars)
+A	common/mixin/HostProbe.java	no MC imports; Class.forName probes
+A	common/mixin/MixinScan.java	no imports
+A	common/mixin/AnteMixinPlugin.java	RailMixinFlags only
+A	common/mixin/NteMixinPlugin.java	RailMixinFlags only
+A	common/mixin/ante/AnteBrightnessMixin.java	RailLightInject + World.getLightLevel(BlockPos, LightType)
+A	common/mixin/ante/AnteInstancedBrightnessMixin.java	same as above
+A	common/mixin/ante/AnteRailChunkBuildMixin.java	targets ANTE rail chunk by string; RailChunkBuildBoost only
+A	common/mixin/nte/NteRailChunkBuildMixin.java	targets NTE rail chunk by string; RailChunkBuildBoost only
+A	v1.20.1/ConfigWriteTarget.java	"no Minecraft imports on purpose" (own javadoc); 639-line diff vs the 1.18.2 copy is new parameter rows, not API
+A	v1.20.1/SidingInfo.java	mtr.data.Siding record wrapper
+A	v1.20.1/server/ServerConfig.java	HeadlightConfig only
+A	v1.20.1/net/ServerAuthority.java	LteLog only; permission/UUID table
+A	v1.20.1/net/LteChannel.java	Identifier + PacketByteBuf channel ids
+A	v1.20.1/BeamSnap.java	Beam only; geometry snap
+A	v1.20.1/signal/SignalSourceCapture.java	BlockPos/Direction only
+A	v1.20.1/signal/SignalLinks.java	BlockPos/BlockView/World only
+A	v1.20.1/bind/LteMtrLookup.java	DataCache/RailwayData/Station/Platform; all identical in 3.2.2
+A	v1.20.1/bind/PidsStationIndex.java	ClientData/DataCache/Platform/Station
+A	v1.20.1/server/MtrServerData.java	RailwayData + World
+A	v1.20.1/mtr/BuiltInTrains.java	TrainClientRegistry.register(String, TrainProperties), ClientData.SIDINGS
+A	v1.20.1/BeamSession.java	DynamicTrainModel/TrainClientRegistry/TrainProperties/Siding
+A	v1.20.1/CustomPack.java	NativeImage/NativeImageBackedTexture(copy NativeImage)/TextureManager.registerTexture(Identifier, AbstractTexture) identical in all four
+A	v1.20.1/RainHush.java	ClientData/TrainClient/Box/Vec3d
+A	v1.20.1/VehicleLightPacks.java	ResourceManager/WorldSavePath
+A	v1.20.1/xiamen/IXiamenTextureNamespace.java	no imports; marker interface
+A	v1.20.1/xiamen/PsdQuads.java	VertexConsumer + MatrixStack quad emitters; MatrixStack is the same class in all four
+A	v1.20.1/xiamen/XiamenStripPainter.java	no imports; pixel painter
+A	v1.20.1/xiamen/XiamenTextures.java	MinecraftClient/ResourceManager/Identifier
+A	v1.20.1/xiamen/XiamenDoorLights.java	ClientCache/ClientData/RailwayData/Route
+A	v1.20.1/xiamen/XiamenRouteStyle.java	ClientData/Route
+A	v1.20.1/xiamen/XiamenLogoBlock.java	AbstractBlock/Block only; the registry call lives in XiamenObjects
+A	v1.20.1/signal/FangsuSignalSync.java	BlockNode/ClientData/Rail/PathData + BlockEntity/World; no com.fangsu name
+B	v1.20.1/McCompat.java	SimpleOption only exists from 1.19.2: 1.18.2 must keep options.getViewDistance() (int), 1.19.2+ needs .getValue()
+B	v1.20.1/KeyHooks.java	KeyBinding(String,int,String) 3-arg ctor exists in all four, but 1.18.2 has no InputUtil.Type overload of KeyBindingHelper.registerKeyBinding expectation - the 1.18.2 copy already ships the 3-arg form
+B	v1.20.1/TrainNames.java	net.minecraft.text.TranslatableTextContent is 1.19.2+; 1.18.2 needs net.minecraft.text.TranslatableText and Text.asString() vs Language.getInstance()
+B	v1.20.1/SprayType.java	Registries.ROOT/Registries.PARTICLE_TYPE (1.19.4+) vs net.minecraft.util.registry.Registry.PARTICLE_TYPE (1.18.2/1.19.2); FabricParticleTypes exists in all four
+B	v1.20.1/TabIcons.java	Registries.ITEM -> net.minecraft.util.registry.Registry.ITEM on 1.18.2/1.19.2
+B	v1.20.1/signal/LteCoreItems.java	FabricItemGroup/ItemGroupEvents (item-group-api-v1) ship only from 1.19.4; 1.18.2/1.19.2 must use fabric-item-groups-v0 ItemGroupBuilder + ItemGroupEvents not available
+B	v1.20.1/xiamen/XiamenObjects.java	same item-group split as LteCoreItems; RegistryKeys.BLOCK etc. -> net.minecraft.util.registry.Registry on 1.18.2/1.19.2; FabricBlockEntityTypeBuilder present in all four
+B	v1.20.1/bind/DisplayPushTicker.java	Registries.BLOCK_ENTITY_TYPE vs 1.18.2/1.19.2 net.minecraft.util.registry.Registry.BLOCK_ENTITY_TYPE
+B	v1.20.1/collision/CollisionImpact.java	DamageType + RegistryEntry<DamageType> are 1.19.4+; 1.18.2/1.19.2 must build a DamageSource directly (no DamageType registry)
+B	v1.20.1/collision/TrainImpactDamageSource.java	same DamageType/RegistryEntry -> DamageSource fallback; DamageSource#setBypassesArmor differs pre-1.19.4
+B	v1.20.1/collision/CollisionSystem.java	net.minecraft.entity.LimbAnimator is 1.19.4+; 1.18.2/1.19.2 read entity.limbAnimator as Entity's own LimbAnimator class (moved package in 1.19.4)
+B	v1.20.1/signal/ConnectorNodeHighlight.java	SimpleOption.getValue() on getViewDistance() -> int on 1.18.2 (McCompat already wraps this); VertexConsumerProvider.Immediate.draw(RenderLayer) identical
+B	v1.20.1/signal/FangsuSignalCompat.java	Registries.BLOCK -> util.registry.Registry.BLOCK on 1.18.2/1.19.2
+B	v1.20.1/BeamPackWriter.java	net.minecraft.resource.InputSupplier is 1.19.4+; 1.18.2/1.19.2 ResourcePack profile needs Supplier<InputStream>
+B	v1.20.1/Commands.java	fabric-client-command-api-v2 (ClientCommandManager/ClientCommandRegistrationCallback/FabricClientCommandSource) is absent in 1.18.2 - needs client-command-api-v1 on that version
+B	v1.20.1/bind/LteBindCommand.java	fabric-command-api-v2 CommandRegistrationCallback is absent in 1.18.2 - needs command-api-v1
+B	v1.20.1/LightBackends.java	must branch Ldl4Backend (1.20.1) vs Ldl2Backend (1.18-1.19.4); the old trio already ships the Ldl2 branch
+B	v1.20.1/RenderHooks.java	1.20.1 body registers SprayType/DebugProbe/RainSpray/ProtoBeamCone; the old trio's copy stops at the beam sheet. Merge, no API break
+B	v1.20.1/signal/SignalLinkItem.java	mtr.block.BlockSignalLightBase/BlockSignalSemaphoreBase/BlockNode + NBT only; Item.useOnBlock returns ActionResult in all four
+B	v1.20.1/signal/SignalLinkNet.java	ServerPlayNetworking.play(ServerPlayerEntity, Identifier, PacketByteBuf) - the Identifier-channel API, identical in networking-api-v1 1.0.24 … 1.3.x (payload API is 1.20.5+)
+B	v1.20.1/net/ClientHandshake.java	ClientPlayNetworking.registerGlobalReceiver(Identifier, PlayChannelHandler) 4-arg handler identical in all four
+B	v1.20.1/net/ServerHandshake.java	ServerPlayConnectionEvents.JOIN + ServerPlayNetworking, identical
+B	v1.20.1/server/LteServer.java	ModInitializer + ServerTickEvents.END_SERVER_TICK + ServerPlayConnectionEvents.JOIN; all present in 1.18.2
+B	v1.20.1/server/ServerCollision.java	Entity/ServerWorld/Vec3d only; no version-sensitive member
+B	v1.20.1/server/ServerTrackbed.java	FallingBlockEntity/ItemEntity/Box/Vec3d only
+B	v1.20.1/bind/BindTargets.java	Block/BlockEntity/BlockPos/Direction/Vec3d
+B	v1.20.1/bind/MtrTiles.java	BlockEntityUpdateS2CPacket + ServerWorld; identical in all four
+B	v1.20.1/bind/PidsConnectorItem.java	Item.useOnBlock(ItemUsageContext) ActionResult + NbtCompound
+B	v1.20.1/bind/ProjectorConnectorItem.java	same as PidsConnectorItem
+B	v1.20.1/bind/PidsLinkStore.java	PersistentState + NbtCompound; WorldSavePath unchanged
+B	v1.20.1/bind/ProjectorLinkStore.java	same PersistentState pattern
+B	v1.20.1/bind/PidsScheduleScope.java	MinecraftServer/ServerWorld/BlockPos
+B	v1.20.1/bind/BeamEditorItem.java	TypedActionResult<ItemStack> use(...) still exists in 1.20.1 (deprecated) so no signature change
+B	v1.20.1/bind/LteDashboardItem.java	same as BeamEditorItem
+B	v1.20.1/mtr/BuiltInTrainsInit.java	ClientModInitializer + ClientTickEvents
+B	v1.20.1/BeamPackScope.java	ResourcePack/ResourceType; ResourcePackProfile ctor differs 1.19.4+ (needs InputSupplier path)
+B	v1.20.1/RainSpray.java	ClientData/TrainClient/ParticlesMode/ParticleTypes; ParticlesMode enum moved 1.19 (ParticleStatusEffect)
+B	v1.20.1/SprayParticle.java	SpriteBillboardParticle/SpriteProvider/ParticleTextureSheet; ParticleTextureSheet.TERRAIN_SHEET name unchanged but SpriteProvider is 1.19+
+B	v1.20.1/VehicleLightsJsonClient.java	SimpleResourceReloadListener + ClientLifecycleEvents; absent reload listener ctor arg differs 1.19.4+
+B	v1.20.1/VehicleLightsJsonServer.java	ServerLifecycleEvents + FabricLoader
+B	v1.20.1/mixin/mtr/TrainClientRegistryMixin.java	targets mtr.client.TrainClientRegistry.reset()V and register(String, TrainProperties) - both present in 3.2.2 (javap verified)
+B	v1.20.1/mixin/mtr/RenderSignalBaseMixin.java	targets private static getNodePos(BlockView, BlockPos, Direction) - present as private static in 3.2.2 too (javap -p)
+B	v1.20.1/mixin/mtr/RenderPIDSStationMixin.java	@Redirect RenderPIDS.getSchedules - present in 3.2.2 with the same name (BlockPos vs class_2338 in descriptor, but method= is name-only)
+B	v1.20.1/mixin/mtr/RenderPsdDoorTextureMixin.java	@Redirect RenderPSDAPGDoor.render - present in 3.2.2
+B	v1.20.1/mixin/mtr/RouteMapArtMixin.java	RouteMapGenerator.generateRouteMap/generateColorStrip both present in 3.2.2 and both return NativeImage
+B	v1.20.1/mixin/mtrserver/RailwayDataCaptureMixin.java	RailwayData.simulateTrains()V present in 3.2.2
+B	v1.20.1/mixin/mtrserver/TrainSimulateCaptureMixin.java	TrainServer.simulateTrain(...) present in 3.2.2 (same param shape)
+B	v1.20.1/mixin/mtrserver/PidsScheduleScopeMixin.java	SavedRailBase.isCloseToSavedRail(BlockPos,int,int,int) present in 3.2.2
+B	v1.20.1/mixin/mtr/MtrMixinPlugin.java	string probe of mtr.render.RenderSignalBase; no API
+B	v1.20.1/mixin/mtrserver/MtrServerMixinPlugin.java	string probe; no API
+B	v1.20.1/mixin/collision/MixinEntityMove.java	Entity.move(MovementType, Vec3d) descriptor identical in all four
+C	v1.20.1/ConfigScreen.java	extends Screen, render(DrawContext,...) is 1.20.1-only; 1.18-1.19.4 need render(MatrixStack,int,int,float) and drawTextWithShadow on MatrixStack
+C	v1.20.1/ParameterScreen.java	same DrawContext rewrite; 1447 lines of widget layout + Tooltip (Tooltip is 1.19.4+)
+C	v1.20.1/SidingScreen.java	DrawContext + ClickableWidget.render; the old trio already has a MatrixStack twin to start from
+C	v1.20.1/SidingMapScreen.java	DrawContext + MatrixStack transforms in the map view
+C	v1.20.1/ColorPickerScreen.java	DrawContext + TextFieldWidget/ButtonWidget render
+C	v1.20.1/ResetConfirmScreen.java	DrawContext + OrderedText wrapping (Screen.wrapLines)
+C	v1.20.1/CategoryScreen.java	DrawContext + ButtonWidget
+C	v1.20.1/BeamListScreen.java	DrawContext + ClickableWidget
+C	v1.20.1/BeamEditScreen.java	DrawContext + SliderWidget + TextFieldWidget
+C	v1.20.1/BeamVehicleScreen.java	DrawContext + TextFieldWidget
+C	v1.20.1/BeamEditor3DScreen.java	1854 lines; DrawContext + TrainClientRegistry + live 3D preview; the heaviest single screen
+C	v1.20.1/PackImportScreen.java	DrawContext + TextFieldWidget
+C	v1.20.1/TrainPreview.java	DrawContext + RotationAxis (1.19.4+) + VertexConsumer model draw; 1.18/1.19.2 need Quaternion/AxisAngle4f equivalents
+C	v1.20.1/ConeVolumeRenderer.java	ShaderProgram/GlUniform names are 1.19.4+; on 1.18.2/1.19.2 the same calls exist as net.minecraft.client.render.Shader#getUniform(String)->GlUniform and CoreShaderRegistrationCallback$RegistrationContext#register(Identifier,VertexFormat,Consumer<Shader>). Algorithm (depth blit, ray-march uniforms) is reusable; ~12 call sites change type. Old trio ships a 31-line stub that always answers ready()=false
+C	v1.20.1/GlowCompat.java	BufferRenderer.draw(BufferBuilder) 1.18.2 / drawWithShader(BuiltBuffer) 1.19.2 / drawWithGlobalProgram(BuiltBuffer) 1.19.4+; net.minecraft.util.math.Matrix4f vs org.joml.Matrix4f; GameRenderer.getPositionColorShader vs *Program. Already solved 3x in the old trio
+C	v1.20.1/xiamen/XiamenPsdBlocks.java	extends mtr.block.BlockPSDAPGDoorBase/BlockPSDTop/BlockAPGGlass/BlockPSDAPGBase - requires a yarn-named MTR jar per MC version (tools/remap-mtr-named.sh only knows 1.20.1)
+C	v1.20.1/xiamen/PsdAPGItem.java	extends mtr.block.BlockPSDAPGDoorBase + mtr.block.IBlock; same named-remap prerequisite
+C	v1.20.1/xiamen/RenderPsdDoor.java	extends mtr.render.RenderPSDAPGDoor; in 3.2.2 the override rendersOutsideBoundingBox is still intermediary method_3563, so the named remap is mandatory
+C	v1.20.1/xiamen/RenderPsdApgDoor.java	extends mtr.render.RenderPSDAPGDoor; same as above
+C	v1.20.1/xiamen/XiamenClient.java	BlockEntityRendererRegistry.register + RenderAPGGlass/RenderPSDTop ctors take BlockEntityRenderDispatcher (same in 3.2.2); BlockRenderLayerMap identical
+C	v1.20.1/mixin/beamlight/BeamLightMixin.java	target WorldRenderer.getLightmapCoordinates(BlockRenderView,BlockState,BlockPos)I exists in all four, but it is static+private and the injector is require=1; needs re-verification per version and a mixin config file per version
+C	v1.20.1/mixin/rain/WorldRendererRainMixin.java	renderWeather(LightmapTextureManager,FDDD)V and tickRainSplashing(Camera)V are private in all four but renderWeather's internals changed (BufferBuilder/Tessellator), so require=0 + re-check per version
+D	v1.20.1/Ldl4Backend.java	dev.lambdaurora.lambdynlights.api.behavior.{DynamicLightBehaviorManager,LineLightBehavior} exist only in LDL 4.x, which is 1.20.1-only; old versions use Ldl2Backend
+D	v1.20.1/MtrHeadlightDynamicLights.java	lambdynlights:initializer entrypoint - LDL 4.x only
+D	v1.20.1/FangsuCompat.java	mod-id probe is harmless, but the whole class documents com.fangsu.* targets; keep only the probe on old versions
+D	v1.20.1/FangsuTurnoutLight.java	feeds @ModifyArgs on com.fangsu...TurnoutBlockEntityRenderer#render; that class only exists in the fangsu build for 1.20.1
+D	v1.20.1/mixin/FangsuMixinPlugin.java	Class.forName("com.fangsu....") gate for the fangsu mixins
+D	v1.20.1/mixin/fangsu/FangsuTurnoutRenderMixin.java	@ModifyArgs on TurnoutBlockEntityRenderer#render arg 4; string target, require=0
+D	v1.20.1/mixin/fangsu/FangsuTrafficLightRenderMixin.java	targets BaseObjBlock/BlockEntityTrafficLight.whenRendering; fangsu 1.20.1 bytecode
+D	v1.20.1/signal/FangsuTrafficLightMode.java	walks com.fangsu EnumConfig dispType via reflection; 1.20.1 addon only
+A	common/ProtoBeamCone.java	DynamicTrainModel + WorldRenderContext + BlockState/MatrixStack; beam shell geometry only, no changed member
+A	v1.20.1/BeamEditorOpener.java	MinecraftClient.setScreen only
+A	v1.20.1/collision/CarGeometry.java	Entity/Box/Vec3d/ServerPlayerEntity
+A	v1.20.1/collision/MobCollision.java	Entity/LivingEntity/ServerWorld/Vec3d + TrainPose
+A	v1.20.1/collision/RailBed.java	mtr.data.Rail/RailType + BlockPos/Vec3d; both present in 3.2.2
+A	v1.20.1/collision/Trackbed.java	ClientData/ClientWorld
+A	v1.20.1/collision/TrainTickCapture.java	mtr.data.Train + World
+A	v1.20.1/ConfigCategory.java	MutableText/Text
+A	v1.20.1/xiamen/XiamenRouteStrip.java	NativeImage.read/new NativeImage(int,int,boolean)/NativeImageBackedTexture(NativeImage) identical in all four
+B	v1.20.1/collision/CollisionBootstrap.java	entrypoint wiring: ClientModInitializer + ClientTickEvents + ServerTickEvents; both present in 1.18.2
+B	v1.20.1/signal/SignalLinkClient.java	ClientPlayNetworking.registerGlobalReceiver(Identifier, handler) - Identifier-channel networking, identical in networking-api-v1 1.0.24 … 1.3.15
+B	v1.20.1/signal/SignalLinkStore.java	PersistentState + NbtCompound/NbtList; WorldSavePath unchanged

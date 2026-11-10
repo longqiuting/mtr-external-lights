@@ -133,3 +133,168 @@ MTR jar 里的真实文件名与颜色（`javap` 生产 jar + 像素统计）：
 - 版式用 `StripPreview` 离线渲染 5 个用例核对（红 12 站 / 绿 24 站 / 正排 / flip 左向 / 黄浅色），
   像素统计：白底行 64..255（192 px = 60%）、主线 17 px、圆点 42 px、当前站 57 px。
 - 未启动游戏（按任务要求）。
+
+---
+
+# 线路条带 v2（实拍纠正版）— 2026-11-10
+
+产物：`v1.20.1/build/libs/lte-1.0.26.jar`（1,198,985 B，`md5 2d5a872701f90fbc93952ccc4193547d`，
+`BUILD SUCCESSFUL`）→ 桌面 `lte-1.0.26.jar` + 实例
+`PCL/.minecraft/versions/1.20.1-Fabric 0.19.3/mods/lte-1.0.26.jar`（三份 md5 一致，旧的 1.0.25 已删）。
+
+离线版式预览：`D:\MC-MTR-JS\temp\strip-preview\00-all.png`（8 条叠图）+ `01..08-*.png` 单张。
+渲染器源码 `D:\MC-MTR-JS\temp\strip-preview2\src\dev\js\mtrheadlight\xiamen\StripPreview.java`
+（只 `javac` 编译 `XiamenStripPainter`，不碰 MC/MTR，不用开游戏）。
+
+## 7.1 三条纠正
+
+| 用户要求 | 落地 |
+|---|---|
+| 普通站 = 空心圆环，白心、线路色描边、环宽 15–18% | `drawDot` 只画**一圈**环（`RING_RATIO = 0.15` × 直径），内环与实心点全部删除。直径 = `min(bandH*0.22, step*0.75)`，12 站时 42 px → 环宽 6.3 px = 15.0% |
+| 终点 = 空心圆环 + 指向终点的实心箭头（长 2.4×线宽、宽 1.4×线宽） | 终点站仍是普通空心环；`drawArrow` 的箭头贴在线端、尖端朝行进方向：长 `round(lineW*2.4)` = **41 px**，半高 `round(lineW*0.7)` → 宽 **24 px** = 1.4×17（原来半高是 1.5×线宽，宽 3 倍，已改窄） |
+| 换乘节点 = 追逐箭头图标 + 下方短箭头 + 换乘色小牌 | `drawInterchange`：线上白底圆内画**两段 120° 弧 + 两个箭头尖**（整圈换乘线路色），圆环下缘接一个**短向下箭头**指着下面的圆角小牌 |
+
+当前站（`CURRENT_SCALE = 1.35`）也改成“更大的空心环 + 一圈细内环”，**不再有中心实心点**。
+
+## 7.2 换乘数据的真实来源（没有猜）
+
+MTR 3.6.4.2 的 `ClientCache$PlatformRouteDetails$StationDetails` 就有换乘信息：
+
+```
+public final class ClientCache$PlatformRouteDetails$StationDetails {
+  public final String stationName;
+  public final List<ColorNameTuple> interchangeRoutes;   // ← 就是它
+}
+public class ClientCache$ColorNameTuple { public final int color; public final String name; }
+```
+
+`ClientCache#requestPlatformIdToRoutes` 在构造每个 `StationDetails` 时，用
+`lambda$requestPlatformIdToRoutes$5(Route, ColorNameTuple)` 过滤这个列表，**过滤条件只有一条**：
+`tuple.color != route.color`（javap：`getfield ColorNameTuple.color` / `Route.color` / `if_icmpne`），
+即“这个站上颜色不同于本线的其它线路”。MTR 自己画换乘圆环用的就是这一份，所以我们直接用。
+
+取值优先级（`XiamenRouteStrip#interchanges`）：
+
+1. `LineConfig.lineColors` 里对该换乘线路的手工覆盖（键 = 线路 id / 全名 / 线路号）；
+2. `ColorNameTuple.color`（MTR 缓存里已经算好的线路色）；
+3. 按 `tuple.name` 到 `ClientData.ROUTES` 找 `Route#color`；
+4. 都没有 → `#808080`。
+
+**兜底**（`interchangeRoutes` 为空，或唯一的换乘线正好同色被 MTR 过滤掉）：按站名匹配
+`ClientData.STATIONS` 拿到 `station.id`，再读 `DATA_CACHE.stationIdToRoutes`
+（`Map<stationId, Map<index, ColorNameTuple>>`，同样是 MTR 缓存里的派生表），跳过本站自己的线路，取第一条。
+
+两条路都拿不到 → 该站**不画换乘标记**（退回普通空心环），不瞎猜。
+日志（每“车站+线路”一行，`INTERCHANGE_LOGGED` 去重）：
+
+```
+[lte] strip: interchange station=厦门北站 -> line=1号线 color=#009A44
+[lte] route strip: platform=… route=4号线 id=… color=#D6001C stations=12 tex=2720x320
+                   band=192 line=17 dot=42 current=57 swap=1 ring=42 plate=124 font=Noto Sans SC nameSize=35
+```
+
+线路号取 `XiamenRouteStyle#lineNumber(tuple.name)`（线路名里第一串数字：`1号线|Line 1` → `1`）；
+拿不到数字时小牌只写线路中文名。
+
+## 7.3 换乘标记尺寸与颜色（bandH = 192 px，2720×320 纹理）
+
+| 元素 | 常量 | 实测 |
+|---|---|---|
+| 追逐箭头圆环直径 | `IX_RING_RATIO = 0.22` × bandH | **42 px**（和普通站环一样大，不会被当成更小的点） |
+| 环内弧半径 / 描边 | `0.44 × d` / `0.145 × d` | 半径 18.5 px、描边 6.1 px、每段 **120°**，两段之间留 60° 缺口 |
+| 箭头尖 | `0.40 × d` 三角 | 16.8 px |
+| 环下短箭头杆宽 | `IX_ARROW_RATIO = 0.038` × bandH | **7 px**，箭头头 20×7.7 px |
+| 圆环↔小牌间距 | `IX_PLATE_GAP_RATIO = 0.052` | **10 px**（短箭头就画在这段里） |
+| 小牌高度 | `IX_PLATE_H_RATIO = 0.145` | **28 px**，圆角 0.46×高 |
+| 小牌左右内边距 | `0.26 × 牌高` | 7 px |
+| 小牌最大宽度 | `min(0.62×图宽, 1.55×站距)` | 12 站 ≈ 124 px；24 站被压到 ~163 px 上限内 |
+
+颜色：
+- 追逐箭头环（弧 + 两个箭头尖）、短箭头、小牌底 = **换乘线路色**；
+- 环内的圆心是**白色**（画在线上也是空心，不会和主线混在一起）；
+- 小牌文字 = 按 `0.299R+0.587G+0.114B > 128` 判黑 / 白（与 LCD `isLightColor` 同一阈值），
+  深色线路（1 绿 / 4 红 / 2 蓝 / 8 品红）→ 白字；
+- 主线 / 普通环 / 终点箭头 / 线路号色块 = 当前线路色（浅色线路的环用 `darken(0.72)` 才看得见）。
+
+文案优先级：`1号线 / Line 1` → `1号线 Line 1` → `1号线` → `Line 1` → `1`，
+但**宁可少写几个字也要字号够大**：只有更短的写法明显更大（> 2%）时才替换。
+24 站密集线路里三块牌子都靠这条规则避免了互相挤压。
+
+`routeStripNamesBelow = true`（站名在线下）时，小牌与短箭头**整体镜像到线上**，否则会和站名叠在一起
+（离线预览 03 复现过，已修）。
+
+## 7.4 站台号码
+
+- 我们这个条带**从来没有画过站台号码**：左侧那个圆角色块是**线路号**（`4`），按要求保留；
+- MTR 原版 route map 里的那个站台号角标是 `RouteMapGenerator.generateRouteMap` 用
+  `ClientData.DATA_CACHE.platformIdMap.get(platformId).name` 画在线路起点的（javap 定位到
+  `generateRouteMap` 中 `int[] dimensionsPlatformNumber` 那一段），我们整张图替换掉，它自然不存在了；
+- 离线预览 8 张图里除线路号色块外没有任何数字角标（可逐张核对）。
+
+## 7.5 门上的“当前站名居中”（未做，附定位结论）
+
+- MTR 的**站名面板**（`RenderType.STATION_NAME`，吊板正下方是门时走这条）用的是
+  `ClientData.DATA_CACHE.getStationName(station.name, aspect)` → `RouteMapGenerator.generateStationName`，
+  源码里已经是 `getTextPixels(..., HorizontalAlignment.CENTER)` + `drawString(..., width/2, ..., CENTER, CENTER)`，
+  **本来就居中**，没有给站台号留位的空隙；
+- 真正“左边一个站台号、右边文字靠左”的是**方向箭头面板**（`RenderType.ARROW` →
+  `RouteMapGenerator.generateDirectionArrow(platformId, hasLeft, hasRight, CENTER, showToString=true, 0.25, aspect, …)`）：
+  它在左侧画线路色圆（`CIRCLE_RESOURCE`），圆里写 `platform.name`（站台号），
+  “往 <站名 | English>” 从圆的右边**左对齐**开始（`HorizontalAlignment.LEFT` + `leftSize` 偏移）。
+  要去掉站台号并把文字居中，得整块重画这张位图（`drawString` / `drawResource` 都是 private），
+  属于独立改动，这次没有动 —— 需要的话按这个入口做。
+
+
+
+---
+
+# 线路条带 v3（实拍纠正 · 换乘分色 / 满高 / 黑体 / 吊板去站台号）— 2026-11-10
+
+产物：`v1.20.1/build/libs/lte-1.0.26.jar`（1,206,835 B，`md5 e61111b4553f739e15372b7c2ca561c4`，
+`BUILD SUCCESSFUL`）→ 桌面 `lte-1.0.26.jar` + 实例
+`PCL/.minecraft/versions/1.20.1-Fabric 0.19.3/mods/lte-1.0.26.jar`（三份 md5 一致，覆盖同名旧 jar）。
+**没提交 git，没启动游戏。**
+
+离线预览：`D:\MC-MTR-JS\temp\strip-preview\{00-all,01..09-*,10..13-direction-*}.png`
+渲染器 `D:\MC-MTR-JS\temp\strip-preview2\src\dev\js\mtrheadlight\xiamen\{StripPreview,XiamenStripPainter,XiamenDirectionPanel}.java`
+（`javac` 只编这三个纯 AWT 类，不碰 MC/MTR）。
+
+## 7 条逐项落地
+
+| # | 要求 | 落地 | 参数（bandH = 320） |
+|---|---|---|---|
+| 1 | 换乘图标分色、连成一体 | `drawInterchange`：一个环按“上半 / 下半”两段画，**共圆心、半径、厚度**，只是颜色不同 —— 上段 = 当前线路色（`20°→150°` + 尖头），下段 = 换乘线路色（`175°→340°` + 尖头），下段再伸出同色锥形垂尾到线路牌。白心圆先铺，环在线上也保持空心 | `IX_RING_RATIO 0.26`→**83 px**、`IX_RING_THICK 0.20`→**17 px**、尖头 `1.55×/1.85×` 环厚、垂尾根宽 `0.50×` 环径 |
+| 2 | 去灰底 | 灰底不是画上去的：v2 的白条只占 60%，上下 40% 是**透明像素**，吊板后面那块深色面板透出来。v3 白底直接铺满整张图（`BAND_RATIO 0.60 → 1.00`），面板可用高度里没有一处透明 | `BAND_RATIO = 1.00` |
+| 3 | 终点三角箭头位置 | `drawTerminalArrow` 重写：**不再画在线端外侧**，改为画在终点圆环**内侧、靠线路那一侧**，尖端顶在圆环外缘上（`tip = cx ∓ termR`），三角沿线路方向往后展 3×线宽 | 长 `3.0×lineW`=**81 px**、半高 `1.0×lineW`=**27 px**、终点环 `TERMINAL_SCALE 1.60`=**98 px** |
+| 4 | 终点 + 换乘 → 牌子跑侧边 | 牌子位置改成**永远 `px = cx - plateW/2`**，绝不为了塞进画面而左右平移；改夹“牌宽”（`min(2×(到最近图边距离), 1.55×站距)`），放不下就缩字。顺带修了 flip 时名字没镜像的错位（v2 只镜像了当前站/换乘牌） | `IX_PLATE_H_RATIO 0.155`→**50 px**，`plateW` 实测 **82 px**，牌中文 23 px / 英文 14 px |
+| 5 | 高度对齐 MTR | 见 #2：条带铺满 = MTR `generateRouteMap` 先 `fillRect(全部, -1)` 的做法。APG 玻璃与 PSD 吊板走的是同一条 `RenderRouteBase → getRouteMap`，一处改两个面板都变；主线宽也改成 MTR 的 `lineSize = 图高/8` 量级 | `LINE_RATIO 0.085`→**27 px**、`CIRCLE_RATIO 0.19`→**61 px** |
+| 6 | 字体换黑体 | `resolveFont` 换成按 **PS 名 / 英文族名**打分：`SimHei` > `Microsoft YaHei` > Noto/Source Han；全部 `Font.BOLD`。（v2 用 `getAvailableFontFamilyNames()` 按名字匹配，中文 Windows 上 SimHei 的族名是“黑体”，所以永远匹配不到，落到 Noto Sans 细体） | 实测 `font=SimHei`，站名 **45 px**（`NAME_RATIO 0.14` 上限） |
+| 7 | 吊板面板去站台号 + 居中 | 现在改的是 **`RenderType.ARROW` / `STATION_NAME`（站名为空）→ `RouteMapGenerator#generateDirectionArrow`** 那张位图（吊板正下方是门/玻璃时的面板）。新增 `RouteMapArtMixin#lte$directionArrow` 在 HEAD 拦下，用 `XiamenDirectionPanel` 整块重画：**不画站台号圆**，目的地中英文两行**水平居中**，两端画方向箭头 | 纹理 **256 px** 高、`cjkSize = 0.46×h`（4 格宽面板实测 118 px）、英文 `0.42×` 中文 |
+
+## 7.1 站名（顺手对齐实拍）
+
+- 45° 斜排，**中文 + 英文两行**（英文贴在中文行下方，字号 `0.46×`）；英文放不下（`< 0.30×`）时整条线不写英文，避免小得看不见；
+- 字号按实测字宽反解：`0.92 × 站距` 的 45° 投影 + 顶部可用高度，上限 `0.14 × bandH`；
+- 当前站站名 = 加粗 + 线路色，其余近黑 `#1A1A1A`。
+
+## 7.2 flip（`arrowDirection == 2`）的修正
+
+v2 只镜像了当前站下标和换乘牌下标，站名数组没镜像 —— 三者会错位。v3 在 `paint` 开头就把
+`names / namesEn / interchanges` 统一按 `flip ? count-1-i : i` 展开成“显示顺序”数组，
+终点下标固定为 `flip ? 0 : count-1`（箭头那一端），所以终点箭头、当前站、换乘牌、站名永远指同一个站。
+
+## 7.3 离线预览用例（9 张条带 + 4 张方向面板）
+
+`01` 红 12 站（末站 = 终点 + 换乘，v2 的 bug 用例）、`02` 绿 24 站、`03` 站名正排、`04` flip、
+`05` 浅黄线路（深色环）、`06` 当前站即换乘、`07` 24 站 3 换乘、`08` 无换乘（回归）、
+`09` flip + 左端终点即换乘；`10/11/12` 方向面板 4 格 / 2 格 / 1 格宽，`13` 无“往”+ 单侧箭头。
+
+实测（2720×320 纹理）：`band=320 line=27 dot=61 current=79 termRing=98 termArrow=81
+head=83 plate=82 name=45 font=SimHei`。
+
+## 7.4 仍未做 / 已知边界
+
+- `routeStripNamesBelow = true`（站名正排到线下方）时，若换乘站正好在线的末端，站名会和牌子挤在一起
+  （牌子按 #4 必须挂在图标正下方）；默认配置（站名在上）没有这个问题。
+- 吊板方向面板的底色固定为**白**（与条带同一块白板）。MTR 原版在吊板上会把白清成透明，
+  深色面板透出来、黑字发闷；这里按实拍改成不透明白板。玻璃上的 ARROW 面板同样会变白。
