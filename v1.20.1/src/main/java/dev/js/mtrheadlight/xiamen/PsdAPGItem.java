@@ -37,18 +37,35 @@ import org.jetbrains.annotations.Nullable;
  */
 public class PsdAPGItem extends BlockItem {
 
-    /** 三个变体：门 / 玻璃 / 端部（MTR 的 {@code EnumPSDAPGItem}）。 */
+    /**
+     * 六个变体：全高 PSD 的「门 / 玻璃 / 端部」+ 半高 APG 的「门 / 玻璃 / 端部」
+     * （MTR 的 {@code EnumPSDAPGItem} × {@code EnumPSDAPGType}）。
+     *
+     * <p>{@code topPanel} 就是 MTR {@code EnumPSDAPGType#isPSD} 的等价物：{@code true} 时整列是
+     * 「2 高 + 1 格吊板」（3 格），{@code false} 时只有 2 格、<b>没有吊板</b>（MTR 的 APG）。
+     */
     public enum Kind {
-        DOOR("psd_apg_door", true),
-        GLASS("psd_apg_glass", false),
-        END("psd_apg_glass_end", false);
+        /** 全高 PSD 门扇：2 宽 × 2 高 + 吊板。 */
+        DOOR("psd_apg_door", true, true),
+        /** 全高 PSD 玻璃：1 宽 × 2 高 + 吊板。 */
+        GLASS("psd_apg_glass", false, true),
+        /** 全高 PSD 端部：1 宽 × 2 高 + 吊板。 */
+        END("psd_apg_glass_end", false, true),
+        /** 半高 APG 门扇：2 宽 × 2 高，无吊板。 */
+        APG_DOOR("apg_door", true, false),
+        /** 半高 APG 玻璃：1 宽 × 2 高，无吊板。 */
+        APG_GLASS("apg_glass", false, false),
+        /** 半高 APG 端部：1 宽 × 2 高，无吊板。 */
+        APG_END("apg_glass_end", false, false);
 
         private final String name;
         private final boolean door;
+        private final boolean topPanel;
 
-        Kind(String name, boolean door) {
+        Kind(String name, boolean door, boolean topPanel) {
             this.name = name;
             this.door = door;
+            this.topPanel = topPanel;
         }
 
         public String translationKey() {
@@ -66,8 +83,10 @@ public class PsdAPGItem extends BlockItem {
     @Override
     public ActionResult useOnBlock(ItemUsageContext context) {
         int horizontalBlocks = this.kind.door ? 2 : 1;
+        // MTR 的判据：blocksNotReplaceable 的高度是 isPSD ? 3 : 2（APG 只占 2 格）。
+        int checkHeight = this.kind.topPanel ? 3 : 2;
         Block baseBlock = this.getBlock();
-        if (blocksNotReplaceable(context, horizontalBlocks, 3, baseBlock)) {
+        if (blocksNotReplaceable(context, horizontalBlocks, checkHeight, baseBlock)) {
             return ActionResult.FAIL;
         }
         World world = context.getWorld();
@@ -89,8 +108,11 @@ public class PsdAPGItem extends BlockItem {
                             state.with(IBlock.SIDE_EXTENDED, IBlock.EnumSide.SINGLE));
                 }
             }
-            // 吊板：按刚放下的那一格现算 facing / side / air_left / air_right
-            world.setBlockState(newPos.up(2), XiamenPsdBlocks.Top.actualState(world, newPos.up(2)));
+            // 吊板：按刚放下的那一格现算 facing / side / air_left / air_right。
+            // 半高 APG 没有吊板 —— 这一步在那边整个跳过（MTR 的 ItemPSDAPGBase 也一样）。
+            if (this.kind.topPanel) {
+                world.setBlockState(newPos.up(2), XiamenPsdBlocks.Top.actualState(world, newPos.up(2)));
+            }
         }
 
         context.getStack().decrement(1);
@@ -100,6 +122,7 @@ public class PsdAPGItem extends BlockItem {
     @Override
     public void appendTooltip(ItemStack stack, @Nullable World world, List<Text> tooltip, TooltipContext context) {
         tooltip.add(Text.translatable(this.kind.translationKey()).formatted(Formatting.GRAY));
+        tooltip.add(Text.translatable("tooltip.mtrlte.texture_source").formatted(Formatting.DARK_GRAY));
     }
 
     /**

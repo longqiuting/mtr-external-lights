@@ -53,11 +53,22 @@ public final class XiamenClient implements ClientModInitializer {
             LteLog.LOGGER.error("[lte] could not register the xiamen psd top renderer", t);
         }
 
-        // 3) 方块渲染层（照 MTR 的 MTRClient：PSD_DOOR / APG_GLASS / PSD_TOP 全部是 cutout）。
+        // 3) 半高 APG 门扇渲染器 —— 同样是 MTR 的 RenderPSDAPGDoor，只是 type = 2。
+        try {
+            BlockEntityRendererRegistry.register(XiamenObjects.apgDoorEntityType(), RenderPsdApgDoor::new);
+            LteLog.LOGGER.info("[lte] xiamen apg door renderer registered: {}", RenderPsdApgDoor.class.getName());
+        } catch (Throwable t) {
+            LteLog.LOGGER.error("[lte] could not register the xiamen apg door renderer", t);
+        }
+
+        // 4) 方块渲染层（照 MTR 的 MTRClient：PSD_DOOR / APG_GLASS / PSD_TOP 全部是 cutout）。
         put(XiamenObjects.psdDoor(), "psd door");
         put(XiamenObjects.psdGlass(), "psd glass");
         put(XiamenObjects.psdEnd(), "psd end");
         put(XiamenObjects.psdTop(), "psd top");
+        put(XiamenObjects.apgDoor(), "apg door");
+        put(XiamenObjects.apgGlass(), "apg glass");
+        put(XiamenObjects.apgEnd(), "apg end");
         put(XiamenObjects.logo(), "logo");
     }
 

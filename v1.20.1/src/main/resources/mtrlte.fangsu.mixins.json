@@ -7,7 +7,8 @@
   "plugin": "dev.js.mtrheadlight.mixin.FangsuMixinPlugin",
   "priority": 1500,
   "client": [
-    "FangsuTurnoutRenderMixin"
+    "FangsuTurnoutRenderMixin",
+    "FangsuTrafficLightRenderMixin"
   ],
   "injectors": {
     "defaultRequire": 0

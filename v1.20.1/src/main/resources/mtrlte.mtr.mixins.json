@@ -8,7 +8,8 @@
   "client": [
     "TrainClientRegistryMixin",
     "RenderSignalBaseMixin",
-    "RenderPIDSStationMixin"
+    "RenderPIDSStationMixin",
+    "RenderPsdDoorTextureMixin"
   ],
   "injectors": {
     "defaultRequire": 0

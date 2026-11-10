@@ -33,9 +33,11 @@ import net.minecraft.world.World;
  * 所以只要在注册 BER 时把 {@code context.getRenderDispatcher()} 交给父类，MTR 就会<b>用同一份代码</b>
  * 画我们的门：
  * <ul>
- *   <li>贴图 id 由 MTR 自己 {@code String.format} 出来（见 {@link #FMT_DOOR}），前缀必然是
- *       {@code mtr:} —— 资源包栈里 {@code assets/mtr/textures/block/psd_door_*_1.png} 被谁接管，
- *       我们的门就和旁边的 MTR 门一起变；</li>
+ *   <li>贴图 id 由 MTR 自己 {@code String.format} 出来（见 {@link #FMT_DOOR}），前缀是 {@code mtr:}；
+ *       本类实现 {@link IXiamenTextureNamespace} 并返回 {@code "mtrlte"}，于是
+ *       {@code RenderPsdDoorTextureMixin} 会把这些 id 换成<b>模组自带的副本</b>
+ *       （{@code mtrlte:textures/block/psd_door_*}，来自「厦门地铁一号线车辆」资源包）；
+ *       哪张图模组里没有就自动退回 {@code mtr:}，所以不会出现紫黑格；</li>
  *   <li>盒子 UV（{@code ModelSingleCube(36, 18, 0, 0, 0, 16, 16, 2)}）、{@code rotateX(180)} 的
  *       朝向翻转、{@code open} 平移、门灯 {@code QueuedRenderLayer.LIGHT}/{@code EXTERIOR}、
  *       「暂停使用」牌，全部与 MTR 逐字节一致；</li>
@@ -60,7 +62,8 @@ import net.minecraft.world.World;
  * {@link #logRequested} 再把「这一帧真实用到的 id」逐条打印一次（去重）。出问题时直接看 latest.log，
  * 不用再猜是哪张图。
  */
-public class RenderPsdDoor extends RenderPSDAPGDoor<XiamenPsdBlocks.TileEntityXiamenPSDDoor> {
+public class RenderPsdDoor extends RenderPSDAPGDoor<XiamenPsdBlocks.TileEntityXiamenPSDDoor>
+        implements IXiamenTextureNamespace {
 
     /** MTR 的 door type：0 = PSD（{@code psd_door_*_1.png}），1 = PSD 二代（{@code _2}），2 = APG，3/4 = 电梯门。 */
     private static final int TYPE = 0;
@@ -88,6 +91,18 @@ public class RenderPsdDoor extends RenderPSDAPGDoor<XiamenPsdBlocks.TileEntityXi
         super(context.getRenderDispatcher(), TYPE);
     }
 
+    /**
+     * 贴图命名空间：模组自带的那一份（{@code mtrlte:textures/block/psd_door_*}）。
+     *
+     * <p>MTR 的渲染器内部只会拼 {@code mtr:}，{@code RenderPsdDoorTextureMixin} 在
+     * {@code new Identifier(...)} 之前拦下来问这个方法要命名空间。返回 {@code "mtrlte"} 时
+     * {@link XiamenTextures} 还会逐张确认资源存在，缺图就自动退回 {@code mtr:}。
+     */
+    @Override
+    public String lte$textureNamespace() {
+        return XiamenTextures.MOD_NAMESPACE;
+    }
+
     @Override
     public void render(XiamenPsdBlocks.TileEntityXiamenPSDDoor entity, float tickDelta, MatrixStack matrices,
                        VertexConsumerProvider vertexConsumers, int light, int overlay) {
@@ -98,6 +113,14 @@ public class RenderPsdDoor extends RenderPSDAPGDoor<XiamenPsdBlocks.TileEntityXi
         if (world != null) {
             logRequested(world.getBlockState(entity.getPos()));
         }
+        // 画之前把「这张门该用哪个命名空间」塞进 XiamenTextures，MTR 内部拼 id 时由 mixin 换掉。
+        XiamenTextures.withNamespace(lte$textureNamespace(),
+                () -> this.drawInMtr(entity, tickDelta, matrices, vertexConsumers, light, overlay));
+    }
+
+    /** 真正调用 MTR 渲染器的那一步（放在独立方法里：lambda 体内不能用 {@code super}）。 */
+    private void drawInMtr(XiamenPsdBlocks.TileEntityXiamenPSDDoor entity, float tickDelta, MatrixStack matrices,
+                           VertexConsumerProvider vertexConsumers, int light, int overlay) {
         super.render(entity, tickDelta, matrices, vertexConsumers, light, overlay);
     }
 
@@ -144,8 +167,7 @@ public class RenderPsdDoor extends RenderPSDAPGDoor<XiamenPsdBlocks.TileEntityXi
     private static void logTable() {
         try {
             for (String raw : allIds()) {
-                final Identifier id = new Identifier(raw);
-                LteLog.LOGGER.info("[lte] psd door tex: {} <- {}", id, sourceOf(id));
+                logOne(raw);
             }
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] psd door texture table failed", t);
@@ -157,13 +179,24 @@ public class RenderPsdDoor extends RenderPSDAPGDoor<XiamenPsdBlocks.TileEntityXi
         try {
             for (String raw : requestedFor(state)) {
                 if (SEEN.add(raw)) {
-                    final Identifier id = new Identifier(raw);
-                    LteLog.LOGGER.info("[lte] psd door tex: {} <- {}", id, sourceOf(id));
+                    logOne(raw);
                 }
             }
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] psd door texture probe failed", t);
         }
+    }
+
+    /**
+     * 打一行「<b>真正会用的 id</b> ← 资源包名」。
+     *
+     * <p>走 {@link XiamenTextures#resolve(String, String)} 而不是原串：门现在优先用模组自带的
+     * {@code mtrlte:} 贴图，日志里必须出现的是替换后的 id，否则「看起来还在用资源包」会把排查带偏。
+     */
+    private static void logOne(String raw) {
+        final String effective = XiamenTextures.resolve(XiamenTextures.MOD_NAMESPACE, raw);
+        final Identifier id = new Identifier(effective);
+        LteLog.LOGGER.info("[lte] psd door tex: {} <- {}", id, sourceOf(id));
     }
 
     /** 栈顶资源包名（= 真正生效的那张图从哪来）。 */

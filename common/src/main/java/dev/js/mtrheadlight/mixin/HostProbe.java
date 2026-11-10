@@ -20,6 +20,8 @@ public final class HostProbe {
     private static final String MTR_TRAIN_SERVER = "mtr.data.TrainServer";
     /** MTR 的 PIDS / 到站投影机渲染器（{@code getSchedules} 是「站外投影机」的注入目标）。 */
     private static final String MTR_PIDS_RENDERER = "mtr.render.RenderPIDS";
+    /** MTR 的屏蔽门门扇渲染器（贴图 id 命名空间切换的注入目标）。 */
+    private static final String MTR_PSD_DOOR_RENDERER = "mtr.render.RenderPSDAPGDoor";
     /** MTR 的站台 / 侧线基类（{@code isCloseToSavedRail} 是「到站数据范围」的注入目标）。 */
     private static final String MTR_SAVED_RAIL = "mtr.data.SavedRailBase";
 
@@ -28,6 +30,7 @@ public final class HostProbe {
     private static final boolean MTR = present(MTR_REGISTRY);
     private static final boolean MTR_SERVER = present(MTR_TRAIN_SERVER);
     private static final boolean MTR_PIDS = present(MTR_PIDS_RENDERER);
+    private static final boolean MTR_PSD_DOOR = present(MTR_PSD_DOOR_RENDERER);
     private static final boolean MTR_SAVED_RAIL_BASE = present(MTR_SAVED_RAIL);
 
     private HostProbe() {
@@ -49,6 +52,16 @@ public final class HostProbe {
     /** {@code mtr.render.RenderPIDS} 是否存在（站外投影机顶渲染的注入目标）。 */
     public static boolean mtrPidsRenderer() {
         return MTR_PIDS;
+    }
+
+    /**
+     * {@code mtr.render.RenderPSDAPGDoor} 是否存在 —— 屏蔽门门扇贴图命名空间切换的注入目标。
+     *
+     * <p>没有它就注入不了（门照样能用，只是贴图跟着资源包走），所以单独探测而不是复用
+     * {@link #mtrTrainRegistry()}：两者的类可以分别存在 / 缺失。
+     */
+    public static boolean mtrPsdDoorRenderer() {
+        return MTR_PSD_DOOR;
     }
 
     /**

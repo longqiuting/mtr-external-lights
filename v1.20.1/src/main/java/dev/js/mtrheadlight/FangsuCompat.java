@@ -50,15 +50,23 @@ import net.fabricmc.loader.api.FabricLoader;
  * uses its own class probe and is the only place that names a fangsu class, and it names it as a
  * string.
  *
- * <p><b>交通灯（{@code fangsu:traffic_light}）不做绑定。</b>它继承 {@code BaseObjBlock}
+ * <p><b>交通灯（{@code fangsu:traffic_light}）可以绑定，但要两步。</b>它继承 {@code BaseObjBlock}
  * （= {@code HorizontalFacingBlock}）而不是 {@code BlockSignalLightBase}，红绿灯颜色来自
- * {@code BlockEntityTrafficLight.lightState}，只由积木程序（{@code dispType=program}）写；
- * 「MTR 信号联动」那一档在 1.3.2 里是空实现（{@code whenRendering} 只在 {@code "program"} 时
- * 调 {@code drive()}），方速内部唯一相关的 {@code MinecraftClientUtil#getOccupiedAspect}
- * 以灯自身坐标为起点且无调用点。右键它<b>不会</b>再有专门提示：连不上的方块一律由
- * {@code signal.SignalLinkItem} 回一条红字「不可链接」（{@code signal.FangsuSignalCompat}
- * 仍认得这个方块，只是不再参与提示），
- * 完整字节码证据见 {@code docs/report-2026-11-10-fangsu-signal-and-node-marks.md}。
+ * {@code BlockEntityTrafficLight.lightState}，只在 {@code dispType="program"} 时由积木程序经
+ * {@code drive()} 写入 ——「MTR 信号联动」那一档在 1.3.2 里是<b>空实现</b>
+ * （{@code whenRendering} 的字节码 22-35：{@code ldc "program" / getfield dispType /
+ * String.equals / ifeq 38}，跳过 {@code drive()}，之后再没有一条写 {@code lightState} 的指令）。
+ * 所以现在的做法是两条一起上：
+ * <ol>
+ *   <li>右键那一下由 {@code signal.FangsuTrafficLightMode} 调它自己的 {@code EnumConfig} setter
+ *       把 {@code dispType} 切成 {@code "mtr"}（和玩家在配置界面点一下同一条路径）；</li>
+ *   <li>{@code mixin.fangsu.FangsuTrafficLightRenderMixin} 在 {@code whenRendering} 的 HEAD 调
+ *       {@code signal.FangsuSignalSync}，按绑定节点的 aspect 写红/黄/绿（MTR
+ *       {@code getOccupiedAspect} 的逐字副本，3 档：1=红 2=黄 0=绿 -1=全灭）。</li>
+ * </ol>
+ * 两条都有降级：切不过去只提示玩家手动选「MTR信号联动」，渲染侧 {@code require = 0} +
+ * {@code catch (Throwable)}。完整字节码证据见
+ * {@code docs/report-2026-11-10-fangsu-traffic-light-mtr-mode.md}。
  */
 public final class FangsuCompat {
     /** Fangsu's mod id in its {@code fabric.mod.json}. */
@@ -88,11 +96,11 @@ public final class FangsuCompat {
                                 + "the optional fangsu mixins (FangsuTurnoutRenderMixin + "
                                 + "FangsuBaseRenderLightMixin, require=0)");
                 MtrHeadlightClient.LOGGER.info(
-                        "[lte] 方速交通灯 fangsu:traffic_light 不参与信号连接器绑定：它的 MTR 信号联动档"
-                                + "（dispType=mtr）在 1.3.2 里没有实现，唯一相关的 API "
-                                + "MinecraftClientUtil#getOccupiedAspect(pos, angle, depth) 也以灯自身坐标"
-                                + "为起点、全 jar 无调用点；右键时会给出提示。证据见 "
-                                + "docs/report-2026-11-10-fangsu-signal-and-node-marks.md");
+                        "[lte] 方速交通灯 fangsu:traffic_light 可参与信号连接器绑定：右键会先把它的"
+                                + " dispType 切到 mtr（它自己的 EnumConfig setter），再由 "
+                                + "FangsuTrafficLightRenderMixin -> FangsuSignalSync 每帧按绑定节点的 "
+                                + "aspect 写 lightState（mtr 档在 1.3.2 里是空实现）。证据见 "
+                                + "docs/report-2026-11-10-fangsu-traffic-light-mtr-mode.md");
 
             }
         } catch (Throwable t) {

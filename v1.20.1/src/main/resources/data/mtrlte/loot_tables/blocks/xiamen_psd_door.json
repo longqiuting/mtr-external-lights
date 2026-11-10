@@ -1,0 +1,29 @@
+{
+	"type": "minecraft:block",
+	"pools": [
+		{
+			"rolls": 1,
+			"entries": [
+				{
+					"type": "minecraft:item",
+					"conditions": [
+						{
+							"condition": "minecraft:block_state_property",
+							"block": "mtrlte:xiamen_psd_door",
+							"properties": {
+								"half": "lower",
+								"side": "left"
+							}
+						}
+					],
+					"name": "mtrlte:xiamen_psd_door"
+				}
+			],
+			"conditions": [
+				{
+					"condition": "minecraft:survives_explosion"
+				}
+			]
+		}
+	]
+}

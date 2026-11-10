@@ -36,6 +36,10 @@ public final class MtrMixinPlugin implements IMixinConfigPlugin {
             // 站外投影机顶渲染：只要渲染器在就应用（与列车注册表无关）。
             return HostProbe.mtrPidsRenderer();
         }
+        if (mixinClassName.endsWith(".RenderPsdDoorTextureMixin")) {
+            // 门扇贴图命名空间切换：只要 MTR 的门扇渲染器在就应用（与列车注册表无关）。
+            return HostProbe.mtrPsdDoorRenderer();
+        }
         return HostProbe.mtrTrainRegistry();
     }
 

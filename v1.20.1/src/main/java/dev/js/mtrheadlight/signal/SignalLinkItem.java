@@ -78,7 +78,11 @@ public final class SignalLinkItem extends Item {
         final BlockState clickedState = world.getBlockState(clicked);
 
         // 1) 右键信号灯：完成 / 解除绑定
-        if (isSignal(clickedState)) {
+        //    方速交通灯走同一条路，只是先把它切到「MTR 信号联动」（它的 program 档不会读我们的绑定）。
+        if (isLamp(clickedState)) {
+            if (!player.isSneaking() && FangsuSignalCompat.isFangsuTrafficLight(clickedState)) {
+                switchFangsuMode(player, world, clicked);
+            }
             return onSignalClicked(world, player, context.getStack(), clicked);
         }
 
@@ -89,7 +93,6 @@ public final class SignalLinkItem extends Item {
         }
 
         // 3) 什么都绑不上：一条红字，不解释原因、不打日志。
-        //    方速交通灯也走这里（它本来就不参与绑定，见 FangsuSignalCompat 的类注释）——
         //    玩家不需要知道是哪一种「绑不了」，只要知道这一下没生效。
         say(player, "message.mtrlte.signal_link.not_linkable", Formatting.RED);
         return ActionResult.PASS;
@@ -127,7 +130,7 @@ public final class SignalLinkItem extends Item {
         }
         final BlockPos lamp = BlockPos.fromLong(nbt.getLong(TAG_LAMP));
         final BlockState lampState = world.getBlockState(lamp);
-        if (!isSignal(lampState)) {
+        if (!isLamp(lampState)) {
             say(player, "message.mtrlte.signal_link.lamp_gone", Formatting.RED);
             clearPending(nbt);
             return ActionResult.SUCCESS;
@@ -179,7 +182,7 @@ public final class SignalLinkItem extends Item {
                 return ActionResult.SUCCESS;
             }
             final BlockState sourceState = world.getBlockState(source);
-            if (!isSignal(sourceState)) {
+            if (!isLamp(sourceState)) {
                 say(player, "message.mtrlte.signal_link.lamp_gone", Formatting.RED);
                 clearPending(nbt);
                 return ActionResult.SUCCESS;
@@ -322,6 +325,46 @@ public final class SignalLinkItem extends Item {
     private static boolean isSignal(final BlockState state) {
         return BlockSignalLightBase.class.isInstance(state.getBlock())
                 || BlockSignalSemaphoreBase.class.isInstance(state.getBlock());
+    }
+
+    /**
+     * 「可以当信号灯用」的方块：MTR 的两种信号灯 + 方速交通灯。
+     *
+     * <p>方速交通灯能进来是因为它的 mtr 档由 {@code FangsuSignalSync} 驱动（见那个类的类注释）：
+     * 绑定表和 MTR 灯共用同一张，客户端渲染时按节点的 aspect 写它的 {@code lightState}。
+     */
+    private static boolean isLamp(final BlockState state) {
+        return isSignal(state) || FangsuSignalCompat.isFangsuTrafficLight(state);
+    }
+
+    /**
+     * 把方速交通灯切到「MTR 信号联动」档，失败只提示玩家自己切，绝不打断绑定流程。
+     *
+     * <p>三种结果都不影响后面的 {@code onSignalClicked}：切成功了绑定完就能亮；切不过去玩家手动
+     * 在配置界面选「MTR信号联动」也一样（绑定表本身跟模式无关）。
+     */
+    private static void switchFangsuMode(final ServerPlayerEntity player, final World world,
+                                         final BlockPos lamp) {
+        final FangsuTrafficLightMode.Result result;
+        try {
+            result = FangsuTrafficLightMode.toMtr(world, lamp);
+        } catch (Throwable t) {
+            // toMtr 自己已经兜住异常，这里是最后一道保险。
+            say(player, "message.mtrlte.signal_link.fangsu_mode_manual", Formatting.YELLOW);
+            return;
+        }
+        switch (result) {
+            case OK -> say(player, "message.mtrlte.signal_link.fangsu_mode_mtr", Formatting.GREEN);
+            case ALREADY -> {
+                // 已经在 mtr 档：不刷屏，绑定本身的提示够了。
+            }
+            case FAIL -> say(player, "message.mtrlte.signal_link.fangsu_mode_manual", Formatting.YELLOW);
+            default -> {
+                // NOT_FANGSU（方块实体不是方速交通灯，或者被别的模组换了实现）：
+                // 同样给一条手动提示，绑定照旧。
+                say(player, "message.mtrlte.signal_link.fangsu_mode_manual", Formatting.YELLOW);
+            }
+        }
     }
 
     /**

@@ -3,6 +3,8 @@ package dev.js.mtrheadlight.xiamen;
 
 import java.util.function.Consumer;
 
+import mtr.block.BlockAPGDoor;
+import mtr.block.BlockAPGGlassEnd;
 import mtr.block.BlockPSDAPGDoorBase;
 import mtr.block.BlockPSDAPGBase;
 import mtr.block.BlockPSDAPGGlassBase;
@@ -26,7 +28,11 @@ import net.minecraft.world.World;
 import net.minecraft.world.WorldAccess;
 
 /**
- * 厦门屏蔽门的四个方块 —— <b>全部继承 MTR 的方块类</b>，只换贴图与名字。
+ * 厦门屏蔽门的两套方块 —— <b>全部继承 MTR 的方块类</b>，只换贴图与名字。
+ *
+ * <p>全高 PSD：{@code Door / Glass / GlassEnd / Top}（2 高 + 吊板）；
+ * 半高 APG：{@code ApgDoor / ApgGlass / ApgEnd}（2 高、无吊板，父类分别是 MTR 的
+ * {@code BlockAPGDoor / BlockPSDAPGGlassBase / BlockAPGGlassEnd}）。
  *
  * <h2>为什么必须继承（这是列车能自动开门的前提）</h2>
  * <p>MTR 的 {@code mtr.data.Train} 在扫描列车周围的方块时用的是
@@ -234,6 +240,79 @@ public final class XiamenPsdBlocks {
 
         public TileEntityXiamenPSDTop(BlockPos pos, BlockState state) {
             super(XiamenObjects.psdTopEntityType(), pos, state);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 半高 APG 屏蔽门（全集）—— 父类与全高 PSD 完全相同，差别只有两处：
+    //   1. 放置时不放吊板（{@code BlockPSDTop}），所以整列只有 y+0 / y+1 两格；
+    //   2. 门扇渲染器用 MTR 的 type 2（{@code apg_door_*} 贴图）。
+    // 这正是 MTR 自己 {@code BlockAPGDoor / BlockAPGGlass / BlockAPGGlassEnd} 的形状
+    // （javap：三者都只是 {@code BlockPSDAPG*Base} 的薄壳 + 自己的 asItem / 方块实体）。
+    // ------------------------------------------------------------------
+
+    /**
+     * APG 门扇（y+0 / y+1，左右两扇对开）。
+     *
+     * <p>MTR 的 {@code EnumPSDAPGType.APG} 是 {@code (isPSD=false, isOdd=false, isLift=false)}：
+     * 宽度 {@code isOdd ? 3 : 2} → <b>2 格</b>，高度检查 {@code isPSD ? 3 : 2} → <b>2 格</b>，
+     * 而且<b>不放吊板</b>（{@code ItemPSDAPGBase#useOnBlock} 里那段 {@code if (isPSD)} 才会
+     * {@code setBlockState(pos.up(2), BlockPSDTop.getActualState(...))}）。
+     *
+     * <p>父类是 MTR 自己的 {@code BlockAPGDoor}（它只是 {@code BlockPSDAPGDoorBase} 的薄壳），
+     * 这样 {@code BlockPSDAPGBase#isAPG()} 才为 {@code true} —— MTR 用它决定上段的<b>选中框</b>
+     * 高度（{@code 9/16} 而不是整格）。列车开门的判据仍然是继承链上的
+     * {@code BlockPSDAPGDoorBase}，一条都没变。
+     */
+    public static final class ApgDoor extends BlockAPGDoor {
+
+        @Override
+        public BlockEntityMapper createBlockEntity(BlockPos pos, BlockState state) {
+            return new TileEntityXiamenAPGDoor(pos, state);
+        }
+
+        @Override
+        public Item asItem() {
+            return itemOrAir(XiamenObjects.apgDoorItem());
+        }
+    }
+
+    /** APG 门扇方块实体 —— 列车开门调的 {@code setOpen} 就在 MTR 的父类里。 */
+    public static final class TileEntityXiamenAPGDoor extends BlockPSDAPGDoorBase.TileEntityPSDAPGDoorBase {
+
+        public TileEntityXiamenAPGDoor(BlockPos pos, BlockState state) {
+            super(XiamenObjects.apgDoorEntityType(), pos, state);
+        }
+    }
+
+    /**
+     * APG 玻璃板（{@code side_extended} = left / middle / right / single，JSON 模型）。
+     *
+     * <p>父类<b>故意</b>取 {@code BlockPSDAPGGlassBase} 而不是 MTR 的 {@code BlockAPGGlass}：
+     * 后者多一个 {@code arrow_direction} 属性（{@code ARROW_DIRECTION}，刷子切箭头用），
+     * 而它的 blockstate JSON 只按 {@code facing/side/half} 三个属性写变体 —— 我们照抄那份 JSON 时
+     * 就会变成「属性对不上 → 模型加载不到」。贴图与几何在本模组里由
+     * {@code mtrlte:block/apg_glass_*} 那套 JSON 负责，用基类完全一致。
+     */
+    public static final class ApgGlass extends BlockPSDAPGGlassBase {
+
+        @Override
+        public Item asItem() {
+            return itemOrAir(XiamenObjects.apgGlassItem());
+        }
+    }
+
+    /**
+     * APG 端部收口（{@code touching_left} / {@code touching_right}）。
+     *
+     * <p>父类是 MTR 的 {@code BlockAPGGlassEnd}（{@code BlockPSDAPGGlassEndBase} 的薄壳 + 自己的
+     * asItem），同样是为了让 {@code isAPG()} 为 {@code true}（端部选中框高度）。
+     */
+    public static final class ApgEnd extends BlockAPGGlassEnd {
+
+        @Override
+        public Item asItem() {
+            return itemOrAir(XiamenObjects.apgEndItem());
         }
     }
 }
