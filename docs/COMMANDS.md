@@ -176,7 +176,9 @@
 | `trainCollisionFlyDamageScale` | `1.0` | 飞行档伤害倍率 |
 | `trainCollisionDamageMax` | — | 单次结算上限 |
 | `trainCollisionHurtTicks` | `120` | 撞击后持续掉血窗口（tick，40–600 = 2–30 s） |
-| `knockbackDistance` | `5.5` | 撞飞水平距离（格，1–20） |
+| `knockbackDistance` | `5.5` | 撞飞距离基准（格，1–80）＝ 50 km/h 时飞多远 |
+| `knockbackExpK` | `1.0` | 撞飞距离指数 k（0–3）：`d(v)=base·exp(k(v−50)/50)`，每快 50 km/h ×e^k |
+| `knockbackMax` | `80` | 撞飞距离上限（格，1–200） |
 | `trainCollisionLaunchHorizontal` / `trainCollisionLaunchVertical` | `0.45` | 撞飞竖直初速（滞空约 0.5 s） |
 | `trainCollisionFlyHorizontal` / `trainCollisionFlyVertical` | `0.60` | 高速撞飞竖直初速（约 0.7 s） |
 | `trainCollisionImpactCooldownTicks` | `20` | 冲量冷却 |

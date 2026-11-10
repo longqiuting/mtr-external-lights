@@ -53,9 +53,9 @@ import java.util.zip.ZipFile;
  * {@code mtrlte:import/<hash>}），渲染时直接用这个 id。
  *
  * <h2>导出</h2>
- * 文件夹包：直接写进 <b>{@code <包>/assets/<ns>/lte_beams/<车型id>.json}</b>（自动建目录）。
- * zip：<b>不改 zip</b>（MTR/Minecraft 都不支持原地改），改写到
- * {@code config/lte_beams/}，并告诉用户解压后放进包里的哪个相对路径。
+ * 文件夹包：直接写进 <b>{@code <包>/assets/<ns>/beam3D/<车型id>.json}</b>（自动建目录）。
+ * zip：<b>不改 zip</b>（MTR/Minecraft 都不支持原地改），改写到桌面
+ * （{@link BeamPackWriter#exportDir()}），并告诉用户解压后放进包里的哪个相对路径。
  */
 final class CustomPack {
 
@@ -63,8 +63,10 @@ final class CustomPack {
     static final String CANONICAL = "assets/mtr/mtr_custom_resources.json";
     /** 扫描用户放包的地方：{@code <game>/resourcepacks} 与 {@code config/lte_packs}。 */
     private static final String PACKS_DIR = "lte_packs";
-    /** 包里找一个资源时需要的前缀。 */
-    private static final String BEAM_DIR = "lte_beams";
+    /** 包里放光束文件的目录（新约定）：{@code assets/<ns>/beam3D/}。 */
+    private static final String BEAM_DIR = BeamPackWriter.PACK_DIR;
+    /** 旧目录，只读兼容：{@code assets/<ns>/lte_beams/}。 */
+    private static final String LEGACY_BEAM_DIR = BeamPackWriter.LEGACY_PACK_DIR;
 
     private static int ids;
 
@@ -374,7 +376,7 @@ final class CustomPack {
         final String textureId;
         final String model;
         final String modelProperties;
-        /** 导出到 {@code assets/<namespace>/lte_beams/} 用的命名空间。 */
+        /** 导出到 {@code assets/<namespace>/beam3D/} 用的命名空间。 */
         final String namespace;
 
         private ModelTrainBase model_;
@@ -587,9 +589,16 @@ final class CustomPack {
             return this.error;
         }
 
-        /** 导出目标（包里）的相对路径：{@code assets/<ns>/lte_beams/<id>.json}。 */
+        /** 导出目标（包里）的相对路径：{@code assets/<ns>/beam3D/<key>.json}。 */
         String beamPath() {
-            return "assets/" + this.namespace + "/" + BEAM_DIR + "/" + BeamPackWriter.fileName(this.id);
+            // 文件名用 json 里的 key（不是 mtr_custom_train_<key> 的注册 id）。
+            return "assets/" + this.namespace + "/" + BEAM_DIR + "/" + BeamPackWriter.fileName(this.jsonKey);
+        }
+
+        /** 旧约定（只读）：{@code assets/<ns>/lte_beams/<key>.json}。 */
+        String legacyBeamPath() {
+            return "assets/" + this.namespace + "/" + LEGACY_BEAM_DIR + "/"
+                    + BeamPackWriter.fileName(this.jsonKey);
         }
 
         /** 「车厂里看到的」一行：名字（+ 内部 id 便于对指令）。 */
@@ -620,10 +629,12 @@ final class CustomPack {
     }
 
     /**
-     * 写这个车型的 {@code lte_beams} 文件。文件夹包直接写进包；zip 写到 config 并返回相对路径。
+     * 写这个车型的光束文件。文件夹包直接写进包（{@code assets/<ns>/beam3D/}）；
+     * zip 写到桌面并返回相对路径。
      */
     Export writeBeams(final Train train, final List<Beam> beams) throws Exception {
-        final String json = BeamPackWriter.toJson(train.id, beams);
+        // id 字段写 key（json 里的键），不是 mtr_custom_train_<key> 的注册 id。
+        final String json = BeamPackWriter.toJson(train.jsonKey, beams);
         if (!this.zip) {
             final Path path = this.root.resolve(train.beamPath()).normalize();
             Files.createDirectories(path.getParent());
@@ -634,13 +645,19 @@ final class CustomPack {
         return new Export(path, false, train.beamPath(), beams.size());
     }
 
-    /** 包里这个车型已有的光束（没有就空列表）。 */
+    /** 包里这个车型已有的光束（新路径优先，旧路径兼容；都没有就空列表）。 */
     List<Beam> readBeams(final Train train) {
-        final String json = readText(train.beamPath());
+        String json = readText(train.beamPath());
+        String source = train.beamPath();
+        if (json == null || json.isBlank()) {
+            // 旧约定 assets/<ns>/lte_beams/<id>.json：迁移期照旧能读
+            json = readText(train.legacyBeamPath());
+            source = train.legacyBeamPath();
+        }
         if (json == null || json.isBlank()) {
             return List.of();
         }
-        return BeamPackWriter.parse(json, train.id, this.root + "!" + train.beamPath());
+        return BeamPackWriter.parse(json, train.jsonKey, this.root + "!" + source);
     }
 
     // ---------------------------------------------------------------------------------------------

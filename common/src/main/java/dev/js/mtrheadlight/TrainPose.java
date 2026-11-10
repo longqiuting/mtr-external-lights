@@ -106,8 +106,10 @@ public final class TrainPose {
 
     /**
      * Unit <b>body</b> direction of each car, in travel direction: the chord from that car's trailing
-     * face to its leading face. This is the car's actual pose, not the rail's - see
-     * {@link #carBodyForward(int)}.
+     * face to its leading face, <b>{@link Vec3d#ZERO} when the two faces coincide</b> (the getter
+     * falls back to the tangent then). Storing the raw chord - instead of the already-substituted
+     * tangent - is what lets {@link #carBodyFromChord(int)} tell the two apart, which the beam
+     * diagnostic counts.
      */
     private final Vec3d[] bodyDir;
 
@@ -172,14 +174,13 @@ public final class TrainPose {
          * approximation of that chord, and on a tight curve (or across a rail joint, where the
          * direction jumps) it visibly disagrees with the box the player sees. So the beams leave
          * along the body, and the tangent is only the fallback for a degenerate chord.
+         *
+         * The raw chord is stored, ZERO included: {@link #carBodyForward(int)} substitutes the
+         * tangent, and {@link #carBodyFromChord(int)} reports whether a chord existed at all.
          */
         final Vec3d[] body = new Vec3d[cars];
         for (int i = 0; i < cars; i++) {
-            Vec3d d = chord(boundaries[i], boundaries[i + 1]);
-            if (d == Vec3d.ZERO) {
-                d = dir[i];                        // no chord (cars on top of each other): tangent
-            }
-            body[i] = d;
+            body[i] = chord(boundaries[i], boundaries[i + 1]);
         }
         return new TrainPose(boundaries, dir, body);
     }
@@ -265,7 +266,16 @@ public final class TrainPose {
         if (bodyDir.length == 0) {
             return carForward(car);
         }
-        return bodyDir[clampIndex(car, bodyDir.length - 1)];
+        final Vec3d body = bodyDir[clampIndex(car, bodyDir.length - 1)];
+        return body == Vec3d.ZERO ? carForward(car) : body;
+    }
+
+    /**
+     * {@code true} 表示这节车的弦可用（两个端面不重合），即 {@link #carBodyForward(int)} 给出的
+     * 是<b>车体弦</b>而不是退化的轨道切线。光束诊断里的 {@code dirFix} 就是数这个。
+     */
+    public boolean carBodyFromChord(final int car) {
+        return bodyDir.length > 0 && bodyDir[clampIndex(car, bodyDir.length - 1)] != Vec3d.ZERO;
     }
 
     private static int clampIndex(final int value, final int last) {

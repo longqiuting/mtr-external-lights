@@ -172,10 +172,18 @@ public final class ParameterScreen extends Screen {
     private static final double COOLDOWN_MIN = 1.0D;
     private static final double COOLDOWN_MAX = 200.0D;
     private static final double COOLDOWN_STEP = 1.0D;
-    /** 撞飞距离（格，1–20）：水平初速由它反推，所以滑块直接就是「飞多远」。 */
+    /** 撞飞距离基准值（格，1–80）：d(v) = base·exp(k(v−v0)/50)，滑块就是「50 km/h 时飞多远」。 */
     private static final double KNOCKBACK_MIN = 1.0D;
-    private static final double KNOCKBACK_MAX = 20.0D;
+    private static final double KNOCKBACK_MAX = 80.0D;
     private static final double KNOCKBACK_STEP = 0.5D;
+    /** 指数系数 k（0–3，默认 1.0）：k=0 退回固定距离。 */
+    private static final double KNOCKBACK_K_MIN = 0.0D;
+    private static final double KNOCKBACK_K_MAX = 3.0D;
+    private static final double KNOCKBACK_K_STEP = 0.1D;
+    /** 距离上限（格，1–200，默认 80）：指数曲线的天花板。 */
+    private static final double KNOCKBACK_CAP_MIN = 1.0D;
+    private static final double KNOCKBACK_CAP_MAX = 200.0D;
+    private static final double KNOCKBACK_CAP_STEP = 1.0D;
     /** 一次接触的累计伤害上限（hp，0–100；0 = 只受实体最大生命限制）。 */
     private static final double DMG_CAP_MIN = 0.0D;
     private static final double DMG_CAP_MAX = 100.0D;
@@ -466,9 +474,12 @@ public final class ParameterScreen extends Screen {
                     this.rows.add(Row.value(ConfigWriteTarget.COLLISION_EXP_K));
                     this.rows.add(Row.value(ConfigWriteTarget.COLLISION_RATE_SCALE));
                     this.rows.add(Row.value(ConfigWriteTarget.COLLISION_FLY_SCALE));
-                    // 撞飞距离：一行一个滑块（1–20 格，默认 5.5）。水平初速由它反推，所以这里
-                    // 改的就是玩家看到的「被撞飞多远」；原来那两行「水平初速」已经并进这一行。
+                    // 撞飞距离：基准值 + 指数系数 + 上限三行一组（1–80 格 / 0–3 / 1–200）。
+                    // 水平初速由三者算出的 d(v) 反推，所以这里改的就是玩家看到的「被撞飞多远」；
+                    // 原来那两行「水平初速」已经并进这一组。
                     this.rows.add(Row.value(ConfigWriteTarget.COLLISION_KNOCKBACK));
+                    this.rows.add(Row.value(ConfigWriteTarget.COLLISION_KNOCKBACK_K));
+                    this.rows.add(Row.value(ConfigWriteTarget.COLLISION_KNOCKBACK_MAX));
                     this.rows.add(Row.value(ConfigWriteTarget.COLLISION_LAUNCH_V));
                     this.rows.add(Row.value(ConfigWriteTarget.COLLISION_FLY_V));
                     this.rows.add(Row.value(ConfigWriteTarget.COLLISION_COOLDOWN));
@@ -823,6 +834,10 @@ public final class ParameterScreen extends Screen {
                 return "opt.damageMax";
             case ConfigWriteTarget.COLLISION_KNOCKBACK:
                 return "opt.knockbackDistance";
+            case ConfigWriteTarget.COLLISION_KNOCKBACK_K:
+                return "opt.knockbackExpK";
+            case ConfigWriteTarget.COLLISION_KNOCKBACK_MAX:
+                return "opt.knockbackMax";
             case ConfigWriteTarget.COLLISION_PUSH_MAX:
                 return "opt.collisionPushMax";
             case ConfigWriteTarget.COLLISION_LOW_MAX:
@@ -906,6 +921,10 @@ public final class ParameterScreen extends Screen {
                 return IMPULSE_V_MAX;
             case ConfigWriteTarget.COLLISION_KNOCKBACK:
                 return KNOCKBACK_MAX;
+            case ConfigWriteTarget.COLLISION_KNOCKBACK_K:
+                return KNOCKBACK_K_MAX;
+            case ConfigWriteTarget.COLLISION_KNOCKBACK_MAX:
+                return KNOCKBACK_CAP_MAX;
             case ConfigWriteTarget.COLLISION_COOLDOWN:
                 return COOLDOWN_MAX;
             default:
@@ -937,7 +956,10 @@ public final class ParameterScreen extends Screen {
                 return String.format(Locale.ROOT, "%.0f", value);
             case ConfigWriteTarget.COLLISION_EXP_K:
             case ConfigWriteTarget.COLLISION_FLY_SCALE:
+            case ConfigWriteTarget.COLLISION_KNOCKBACK_K:
                 return String.format(Locale.ROOT, "%.1f", value);
+            case ConfigWriteTarget.COLLISION_KNOCKBACK_MAX:
+                return String.format(Locale.ROOT, "%.0f", value);
             default:
                 return String.format(Locale.ROOT, "%.1f", value);
         }
@@ -993,6 +1015,10 @@ public final class ParameterScreen extends Screen {
                 return IMPULSE_MIN;
             case ConfigWriteTarget.COLLISION_KNOCKBACK:
                 return KNOCKBACK_MIN;
+            case ConfigWriteTarget.COLLISION_KNOCKBACK_K:
+                return KNOCKBACK_K_MIN;
+            case ConfigWriteTarget.COLLISION_KNOCKBACK_MAX:
+                return KNOCKBACK_CAP_MIN;
             case ConfigWriteTarget.COLLISION_COOLDOWN:
                 return COOLDOWN_MIN;
             default:
@@ -1050,6 +1076,10 @@ public final class ParameterScreen extends Screen {
                 return IMPULSE_STEP;
             case ConfigWriteTarget.COLLISION_KNOCKBACK:
                 return KNOCKBACK_STEP;
+            case ConfigWriteTarget.COLLISION_KNOCKBACK_K:
+                return KNOCKBACK_K_STEP;
+            case ConfigWriteTarget.COLLISION_KNOCKBACK_MAX:
+                return KNOCKBACK_CAP_STEP;
             case ConfigWriteTarget.COLLISION_COOLDOWN:
                 return COOLDOWN_STEP;
             default:

@@ -24,19 +24,29 @@ import java.util.List;
  *       {@code samplePath} call, no projection onto the rails - exactly like a real head light,
  *       which leaves the rails as soon as the track curves away.</li>
  *   <li><b>Its origin and heading are per car.</b> They come from the car at that end of the
- *       train: {@link TrainPose#front()} / {@link TrainPose#forward()} for the head,
- *       {@link TrainPose#rear()} / {@link TrainPose#backward()} for the tail. Each car samples the
- *       rail tangent under its own centre, so on a curve the nose (already turned) and the tail
- *       (still on the straight) point in genuinely different directions. Using one whole-train
- *       chord for both - the previous version - left the tail chip's beam off the rails.</li>
- *   <li><b>Pitch follows too.</b> The heading is the full 3D tangent, so it already contains the
+ *       train: {@link TrainPose#front()} / {@link TrainPose#carBodyForward(int)} for the head,
+ *       {@link TrainPose#rear()} / {@link TrainPose#carBodyForward(int)} negated for the tail. On a
+ *       curve the nose (already turned) and the tail (still on the straight) point in genuinely
+ *       different directions.</li>
+ *   <li><b>The heading is the car body's chord, not the rail tangent.</b> MTR rotates the car body
+ *       by the chord between its own two faces ({@code Train#calculateCar}: yaw from
+ *       {@code positions[car]}, {@code positions[car + 1]}), so the chord is the direction the
+ *       player actually sees. The rail tangent at the car's midpoint is only a second-order
+ *       approximation of it: on a tight curve, across a rail joint, or for a <b>single car</b> (where
+ *       the two boundaries are the ends of one short arc) the tangent swings away from the body and
+ *       the sheet visibly fishtails. That was the "光带在弯道乱晃" bug. The tangent survives only as
+ *       the degenerate-chord fallback - see {@link #endDir}.</li>
+ *   <li><b>One direction source for sheet and cone.</b> {@link #endDir} is the only place the
+ *       heading is chosen, and {@link ProtoBeamCone}'s {@code GLOW} cone source calls it too (through
+ *       {@link #headGeom} / {@link #tailGeom}), so on a curve the cone and the sheet cannot disagree.</li>
+ *   <li><b>Pitch follows too.</b> The heading is the full 3D chord, so it already contains the
  *       grade. Flattening it (the obvious first version) makes the beam too short uphill and too
  *       long downhill, because the ground-projected length changes with the pitch.</li>
  * </ul>
  *
  * <h2>Geometry - x/z from the 3D advance, y from the ground</h2>
  * <pre>
- * dir   = the car's own unit tangent at that end    // 3D, includes the grade
+ * dir   = the car's own body chord at that end      // 3D, includes the grade
  * right = normalize(dir x (0,1,0))                  // lateral, always horizontal
  * base  = that car face's rail point                // rail surface at THIS end (not max of both)
  * path(t)   = base + dir * t                        // straight ray; only x/z are used
@@ -138,6 +148,14 @@ public final class BeamGlow {
     private static int dPoseOk;
     private static int dDrawn;
     private static int dSubmit;
+    /** 本窗口参与几何的<b>车节</b>总数（每列车 {@link TrainPose#cars()} 之和）。 */
+    private static int dCars;
+    /** 本窗口真正写进顶点缓冲的光束数（每列车最多 2：头 + 尾）。 */
+    private static int dBeams;
+    /** 本窗口用<b>车体弦</b>代替轨道切线的端数（弦退化的那一端只能退回切线，不计入）。 */
+    private static int dDirFix;
+    /** 本窗口里光带开关是开着的 —— 决定 {@code [lte] glow:} 那一行要不要打印。 */
+    private static boolean windowOn;
     private static int sCfg;
     private static int sProbe;
     private static int sPass;
@@ -153,12 +171,9 @@ public final class BeamGlow {
     private static int sAuto;
 
     private static void diag(final String gate) {
-        if (!DIAG) {
-            return;
-        }
         // gate is null once per frame (end of render) - switching on it NPEs every single frame,
         // which used to spill a 12-line stack trace into the log ~100 times a second.
-        if (gate != null) {
+        if (DIAG && gate != null) {
             switch (gate) {
                 case "cfg" -> sCfg++;
                 case "probe" -> sProbe++;
@@ -181,6 +196,21 @@ public final class BeamGlow {
             return;
         }
         diagAt = now;
+        // 光带自己的那一行，每 5 秒一条，<b>不受 DIAG 开关影响</b>（和光柱的 [lte] cone: 一样）：
+        // cars=参与几何的车节数，beams=真的写进缓冲的光束数，dirFix=用车身弦代替轨道切线的端数。
+        // 过弯时 dirFix 应当等于有效端数（每列车 2）；若为 0 而 beams>0，说明弦退化了、走的是
+        // 切线兜底 —— 那正是"弯道乱晃"的老症状。光带开关整窗口都没开时这一行不打。
+        if (windowOn) {
+            MtrHeadlightClient.LOGGER.info("[lte] glow: cars={} beams={} dirFix={}",
+                    dCars, dBeams, dDirFix);
+        }
+        windowOn = false;
+        dCars = 0;
+        dBeams = 0;
+        dDirFix = 0;
+        if (!DIAG) {
+            return;
+        }
         MtrHeadlightClient.LOGGER.info(
                 "beam: calls={} trains={} poseOk={} drawn={} submit={} skip={}"
                         + " [cfg={} probe={} pass={} world={} matrix={} drawable={} eff={}"
@@ -226,6 +256,8 @@ public final class BeamGlow {
             diag("cfg");
             return;
         }
+        // 光带开着：这一窗口的 [lte] glow: 行要打印（见 diag()）。
+        windowOn = true;
         final boolean shaders;
         try {
             shaders = ShaderPackProbe.active();
@@ -298,36 +330,51 @@ public final class BeamGlow {
                 continue;
             }
 
-            // Nose heading is the front car's own tangent, tail heading the last car's (negated):
-            // on a curve these are genuinely different directions.
-            final Vec3d headDir = pose.forward();
-            final Vec3d tailDir = pose.backward();
+            // 出灯方向：车体弦（MTR 旋转车体用的就是同一根弦），切线只在弦退化时兜底。两端各取
+            // 自己那节车 —— 弯道上头与尾本来就可以不同。方向只在 endDir 里选，光柱的 GLOW 源
+            // 调的是同一处（headGeom/tailGeom），所以光带与光柱在弯道上不会各指一个方向。
+            final int cars = Math.max(1, pose.cars());
+            final BeamGeom headGeom = headGeom(cfg, eff, pose);
+            final BeamGeom tailGeom = tailGeom(cfg, eff, pose);
+            final Vec3d headDir = headGeom.axis;
+            final Vec3d tailDir = tailGeom.axis;
             if (headDir == Vec3d.ZERO && tailDir == Vec3d.ZERO) {
                 diag("dir");
                 continue;
             }
+            dCars += cars;
+            // dirFix = 这一端真的用弦代替了切线；弦退化的那一端只能退回切线，不计。
+            if (pose.carBodyFromChord(0)) {
+                dDirFix++;
+            }
+            if (pose.carBodyFromChord(cars - 1)) {
+                dDirFix++;
+            }
 
-            final double lift = Math.max(0.0D, cfg.beamLift);
             final double halfWidth = Math.max(0.25D, eff.beamWidth) * 0.5D;
             final float peak = (float) Math.min(1.0D, cfg.beamAlpha);
             // Start where the lamp is: the same offsets the dynamic light uses, so the sheet and
             // the light it belongs to cannot disagree about where the front face is.
-            // 几何只在这一处算（BeamGeom），光柱的 GLOW 对照模式调的是同一个工厂，所以两者的
-            // base/axis/length 逐位相同 —— 见 BeamGeom 与 ProtoBeamCone 的 coneSource。
-            final BeamGeom headGeom = BeamGeom.of(nose, headDir, cfg.headOffsetClamped(),
-                    eff.beamHeadLength, lift + eff.beamHeadHeight, eff.beamHeadColor);
-            final BeamGeom tailGeom = BeamGeom.of(rear, tailDir, cfg.tailOffsetClamped(),
-                    eff.beamTailLength, lift + eff.beamTailHeight, eff.beamTailColor);
+            // 几何只在这一处算（headGeom/tailGeom → BeamGeom），光柱的 GLOW 对照模式调的是同一个
+            // 工厂、同一组 offset/length/height/colour，所以两者的 base/axis/length 逐位相同 ——
+            // 见 BeamGeom 与 ProtoBeamCone 的 coneSource。
 
             // Head: out of the nose. Its base height is the rail point at that end, never the max
             // of both ends - on a gradient that would float the sheet at the downhill end.
             // The last argument is the ramp-up: 2 blocks from 0 to peak alpha (see HEAD_FADE_BLOCKS).
             final int before = vertexCount;
             beam(world, headGeom, halfWidth, peak, shift, HEAD_FADE_BLOCKS);
+            if (vertexCount > before) {
+                dBeams++;
+            }
             // Tail: its own car's outward heading, its own (shorter, redder, lower) sheet. It gets a
             // short ramp too - shorter than the head's, so the two ends stay distinguishable, but
             // no longer a hard cut at the lamp.
+            final int afterHead = vertexCount;
             beam(world, tailGeom, halfWidth, peak, shift, TAIL_FADE_BLOCKS);
+            if (vertexCount > afterHead) {
+                dBeams++;
+            }
             if (vertexCount > before) {
                 dDrawn++;
             }
@@ -339,6 +386,49 @@ public final class BeamGlow {
             vertexCount = 0;
         }
         diag(null);
+    }
+
+    /**
+     * 一端的出灯方向 —— <b>光带与光柱 GLOW 源唯一的取方向处</b>。
+     *
+     * <p>车体弦优先（{@link TrainPose#carBodyForward(int)}）：MTR 用同一根弦（车节两个端面的连线）
+     * 旋转车体，所以它才是玩家真正看见的那辆车指向的方向。弦退化（两个端面重合，例如短到压在一点
+     * 的路径）时才退回轨道切线 —— 切线以前是默认，正是弯道上光带乱晃的来源：车节中点的切线在急弯
+     * 上偏离车体半段圆弧，过轨道接缝时还会跳，单节车时尤其明显。
+     *
+     * @param head {@code true} 车头向外，{@code false} 车尾向外（弦反向）
+     * @return 单位向量；{@link Vec3d#ZERO} 表示弦与切线都不可用，这一端不画
+     */
+    static Vec3d endDir(final TrainPose pose, final int car, final boolean head) {
+        Vec3d d = pose.carBodyForward(car);
+        if (d == Vec3d.ZERO) {
+            d = pose.carForward(car);            // 退化兜底：轨道切线
+        }
+        if (d == Vec3d.ZERO) {
+            return Vec3d.ZERO;
+        }
+        return head ? d : d.multiply(-1.0D);
+    }
+
+    /**
+     * 车头那束光的几何 —— {@link BeamGeom} 的唯一构造处。offset / length / height / colour 全部
+     * 是光带这一组（{@link HeadlightConfig.Effective}），<b>光柱的 GLOW 源调的就是这个方法</b>，
+     * 所以灯口、方向、长度、离地高度、颜色在两条路径上是同一个对象，不可能错开一层。
+     */
+    static BeamGeom headGeom(final HeadlightConfig cfg, final HeadlightConfig.Effective eff,
+                             final TrainPose pose) {
+        return BeamGeom.of(pose.front(), endDir(pose, 0, true), cfg.headOffsetClamped(),
+                eff.beamHeadLength, Math.max(0.0D, cfg.beamLift) + eff.beamHeadHeight,
+                eff.beamHeadColor);
+    }
+
+    /** 车尾那束光：最后那节车的弦反向，长度/颜色/高度仍取同一组配置。 */
+    static BeamGeom tailGeom(final HeadlightConfig cfg, final HeadlightConfig.Effective eff,
+                             final TrainPose pose) {
+        final int last = Math.max(0, pose.cars() - 1);
+        return BeamGeom.of(pose.rear(), endDir(pose, last, false), cfg.tailOffsetClamped(),
+                eff.beamTailLength, Math.max(0.0D, cfg.beamLift) + eff.beamTailHeight,
+                eff.beamTailColor);
     }
 
     /**

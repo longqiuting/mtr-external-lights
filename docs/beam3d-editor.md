@@ -113,16 +113,29 @@ X 红   Y 绿   Z 蓝        每根末端有个两笔小箭头（指正方向）
 
 ## 导出格式
 
-导出路径：`config/lte_beams/<车型id>.json`（一车一文件；车型 id 里的非法文件名字符
-会被换成 `_`）。要发布时把它放到资源包：
+导出路径：`<桌面>/<key>.json`（桌面取不到时退回 `config/lte_beams/<key>.json`；一车一文件）。
+
+- **`key` = `mtr_custom_resources.json` 里 `custom_trains.<key>` 的键**，也是
+  `assets/mtr/<key>/` 的目录名。MTR 的注册 id 是 `mtr_custom_train_<key>`，导出时会剥掉
+  前缀 —— 例如注册 id `mtr_custom_train_xmq6127agbevl3` → 文件 `xmq6127agbevl3.json`。
+- 文件名里的非法字符会被换成 `_`；读取时同时接受 `<key>.json`、
+  `mtr_custom_train_<key>.json` 和它们的小写形态（大小写不敏感）。
+
+要发布时把它放到资源包：
 
 ```
-assets/<你的命名空间>/lte_beams/<车型id>.json
+assets/lte/beam3D/<key>.json
 ```
 
-> 注意：当前构建（1.0.0）的运行时只读 `lte_vehicle_lights.json`，还没有 `lte_beams/`
-> 的加载器。这份导出目前是**给资源包作者和后续版本用的编辑结果**；要在游戏里生效，
-> 还需要把同样字段并进 `lte_vehicle_lights.json`，或等 `lte_beams/` 加载器接上。
+读取优先级（`BeamPackWriter#read`）：
+
+1. `<桌面>/<key>.json` —— 编辑器上次导出的工作副本；
+2. 已加载的资源包 `assets/lte/beam3D/<key>.json`（其它命名空间的 `assets/<ns>/beam3D/` 也认）；
+3. 已加载的资源包旧路径 `assets/<ns>/lte_beams/<key>.json`（兼容）；
+4. `config/lte_beams/<key>.json`（旧版本导出留下的文件）。
+
+> 资源管理器只接受 `[a-z0-9/._-]` 的路径，`beam3D` 的大写 `D` 不是合法 Identifier，
+> 所以扫描用的是 `ResourcePack#openRoot`（按路径段读包根），不是 `getAllResources`。
 
 文件内容：
 
@@ -130,7 +143,7 @@ assets/<你的命名空间>/lte_beams/<车型id>.json
 {
   "version": 1,
   "_comment": ["..."],
-  "id": "mypack_train_x",
+  "id": "xmq6127agbevl3",
   "beams": [
     {
       "type": "head",
@@ -156,7 +169,7 @@ assets/<你的命名空间>/lte_beams/<车型id>.json
 | `alpha` | 0..1（光柱峰值透明度） | 渲染透明度 |
 
 `BeamGeom` 的 `origin/axis` 是派生值，不在文件里存；文件里存的是作者能改的输入，
-所以导出文件可以被编辑器重新打开（`config/lte_beams/<id>.json` 存在时优先读它）。
+所以导出文件可以被编辑器重新打开（桌面上的 `<key>.json` 存在时优先读它）。
 
 ## 诊断
 
@@ -221,8 +234,8 @@ assets/<你的命名空间>/lte_beams/<车型id>.json
 
 | 包类型 | 写到哪 |
 |---|---|
-| 文件夹包 | `<包>/assets/<ns>/lte_beams/<车型id>.json`（自动建目录，写完立刻读回核对束数） |
-| zip | `config/lte_beams/<车型id>.json`，提示「解压后把 `lte_beams` 放进 `<包>/assets/<ns>/lte_beams/`」——**不改 zip** |
+| 文件夹包 | `<包>/assets/<ns>/beam3D/<key>.json`（自动建目录，写完立刻读回核对束数） |
+| zip | `<桌面>/<key>.json`（桌面不可用时 `config/lte_beams/`），提示「解压后把 `beam3D` 放进 `<包>/assets/<ns>/beam3D/`」——**不改 zip** |
 
 `<ns>` 取 `texture_id`（退化到 `model` / `model_properties`）的命名空间，跳过 `minecraft`，都没有就用 `mtr`。
 

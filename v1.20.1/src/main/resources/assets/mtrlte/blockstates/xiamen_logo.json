@@ -1,8 +1,5 @@
 {
   "variants": {
-    "facing=west": { "model": "mtrlte:block/xiamen_logo" },
-    "facing=north": { "model": "mtrlte:block/xiamen_logo", "y": 90 },
-    "facing=east": { "model": "mtrlte:block/xiamen_logo", "y": 180 },
-    "facing=south": { "model": "mtrlte:block/xiamen_logo", "y": 270 }
+    "": { "model": "mtrlte:block/xiamen_logo" }
   }
 }

@@ -89,12 +89,17 @@ abstract class ConfigWriteTarget {
      */
     static final int DAMAGE_MAX = 30;
     /**
-     * 撞飞距离（格，1–20）：水平初速由它与竖直初速反推。只有全局值。
+     * 撞飞距离（格，1–80）的<b>基准值</b>：{@code d(v) = base · exp(k(v−v0)/50)} 里的 base。
+     * 水平初速由它与竖直初速反推。只有全局值。
      *
      * <p>取代了原来两个「水平初速」行（{@code COLLISION_LAUNCH_H} / {@code COLLISION_FLY_H}）：
      * 那两个字段已废弃、界面上不再出现，但仍留在 {@link HeadlightConfig} 里让旧 JSON 能读。
      */
     static final int COLLISION_KNOCKBACK = 31;
+    /** 撞飞距离的指数系数 k（0–3，默认 1.0）：每快 50 km/h，距离乘 e^k。只有全局值。 */
+    static final int COLLISION_KNOCKBACK_K = 32;
+    /** 撞飞距离上限（格，1–200，默认 80）：指数曲线的天花板。只有全局值。 */
+    static final int COLLISION_KNOCKBACK_MAX = 33;
     static final int[] ALL_VALUES = {
             DISTANCE, LUMINANCE, HEAD_LENGTH, BEAM_DISTANCE, BEAM_HEAD_LENGTH,
             BEAM_TAIL_LENGTH, BEAM_WIDTH, BEAM_HEAD_HEIGHT, BEAM_TAIL_HEIGHT,
@@ -104,6 +109,7 @@ abstract class ConfigWriteTarget {
             COLLISION_LAUNCH_H, COLLISION_LAUNCH_V, COLLISION_FLY_H, COLLISION_FLY_V,
             COLLISION_COOLDOWN, COLLISION_HEIGHT, ROOF_DROP_SPEED, ROOF_DROP_RADIUS,
             HEADLIGHT_MODE, DAMAGE_MIN_SPEED, DAMAGE_MAX, COLLISION_KNOCKBACK,
+            COLLISION_KNOCKBACK_K, COLLISION_KNOCKBACK_MAX,
     };
 
     /**
@@ -307,6 +313,10 @@ abstract class ConfigWriteTarget {
                     return config().trainCollisionDamageMax;
                 case COLLISION_KNOCKBACK:
                     return config().knockbackDistance;
+                case COLLISION_KNOCKBACK_K:
+                    return config().knockbackExpK;
+                case COLLISION_KNOCKBACK_MAX:
+                    return config().knockbackMax;
                 case COLLISION_PUSH_MAX:
                     return config().trainCollisionPushOnlyMaxKmh;
                 case COLLISION_LOW_MAX:
@@ -395,6 +405,12 @@ abstract class ConfigWriteTarget {
                     break;
                 case COLLISION_KNOCKBACK:
                     config().knockbackDistance = value;
+                    break;
+                case COLLISION_KNOCKBACK_K:
+                    config().knockbackExpK = value;
+                    break;
+                case COLLISION_KNOCKBACK_MAX:
+                    config().knockbackMax = value;
                     break;
                 case COLLISION_PUSH_MAX:
                     config().trainCollisionPushOnlyMaxKmh = (int) Math.round(value);
@@ -616,6 +632,12 @@ abstract class ConfigWriteTarget {
                 case COLLISION_KNOCKBACK:
                     c.knockbackDistance = d.knockbackDistance;
                     break;
+                case COLLISION_KNOCKBACK_K:
+                    c.knockbackExpK = d.knockbackExpK;
+                    break;
+                case COLLISION_KNOCKBACK_MAX:
+                    c.knockbackMax = d.knockbackMax;
+                    break;
                 case COLLISION_PUSH_MAX:
                     c.trainCollisionPushOnlyMaxKmh = d.trainCollisionPushOnlyMaxKmh;
                     break;
@@ -767,6 +789,8 @@ abstract class ConfigWriteTarget {
             c.trainCollisionDamageSpeedScaleKmh = d.trainCollisionDamageSpeedScaleKmh;
             c.trainCollisionFlyDamageScale = d.trainCollisionFlyDamageScale;
             c.knockbackDistance = d.knockbackDistance;
+            c.knockbackExpK = d.knockbackExpK;
+            c.knockbackMax = d.knockbackMax;
             c.trainCollisionLaunchHorizontal = d.trainCollisionLaunchHorizontal;
             c.trainCollisionLaunchVertical = d.trainCollisionLaunchVertical;
             c.trainCollisionFlyHorizontal = d.trainCollisionFlyHorizontal;
@@ -874,6 +898,8 @@ abstract class ConfigWriteTarget {
                 case COLLISION_FLY_V:
                 case COLLISION_COOLDOWN:
                 case COLLISION_KNOCKBACK:
+                case COLLISION_KNOCKBACK_K:
+                case COLLISION_KNOCKBACK_MAX:
                 case COLLISION_HEIGHT:
                 case ROOF_DROP_SPEED:
                 case ROOF_DROP_RADIUS:
@@ -942,6 +968,8 @@ abstract class ConfigWriteTarget {
                 case COLLISION_FLY_V:
                 case COLLISION_COOLDOWN:
                 case COLLISION_KNOCKBACK:
+                case COLLISION_KNOCKBACK_K:
+                case COLLISION_KNOCKBACK_MAX:
                 case COLLISION_HEIGHT:
                 case ROOF_DROP_SPEED:
                 case ROOF_DROP_RADIUS:
@@ -1080,6 +1108,8 @@ abstract class ConfigWriteTarget {
                 case COLLISION_FLY_V:
                 case COLLISION_COOLDOWN:
                 case COLLISION_KNOCKBACK:
+                case COLLISION_KNOCKBACK_K:
+                case COLLISION_KNOCKBACK_MAX:
                 case COLLISION_HEIGHT:
                 case ROOF_DROP_SPEED:
                 case ROOF_DROP_RADIUS:
@@ -1210,6 +1240,8 @@ abstract class ConfigWriteTarget {
                 case COLLISION_FLY_V:
                 case COLLISION_COOLDOWN:
                 case COLLISION_KNOCKBACK:
+                case COLLISION_KNOCKBACK_K:
+                case COLLISION_KNOCKBACK_MAX:
                 case COLLISION_HEIGHT:
                 case ROOF_DROP_SPEED:
                 case ROOF_DROP_RADIUS:

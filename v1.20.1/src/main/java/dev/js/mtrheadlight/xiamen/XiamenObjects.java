@@ -1,3 +1,4 @@
+// Ported from Minecraft Transit Railway (MTR), MIT License.
 package dev.js.mtrheadlight.xiamen;
 
 import dev.js.mtrheadlight.LteLog;
@@ -15,43 +16,36 @@ import net.minecraft.registry.Registries;
 import net.minecraft.registry.Registry;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
-import net.minecraft.sound.BlockSoundGroup;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 
 /**
- * 厦门风格物件：创造模式页签 {@code mtrlte:core}（「厦门风格物件 / Xiamen Style Objects」）
- * 以及里面的方块。
+ * 厦门风格物件：创造模式页签 {@code mtrlte:core}（「厦门风格物件 / Xiamen Style Objects」）以及里面的方块。
  *
  * <h2>屏蔽门 = 四个方块 id，一条 3 格高的列</h2>
  * <table border="1">
- *   <caption>和 MTR 的对应关系</caption>
+ *   <caption>和 MTR 的对应关系（本模组已整体移植 MTR 的实现）</caption>
  *   <tr><th>本模组</th><th>MTR</th><th>格</th></tr>
  *   <tr><td>{@code xiamen_psd_door}</td><td>{@code BlockPSDDoor} + {@code BlockPSDAPGDoorBase}</td>
- *       <td>y+0 下段、y+1 上段（2 格高，左右两扇对开）</td></tr>
+ *       <td>y+0 下段、y+1 上段（2 格高，左右两扇对开，有方块实体）</td></tr>
  *   <tr><td>{@code xiamen_psd_glass}</td><td>{@code BlockPSDGlass} + {@code BlockPSDAPGGlassBase}</td>
  *       <td>y+0 下段、y+1 上段</td></tr>
  *   <tr><td>{@code xiamen_psd_end}</td><td>{@code BlockPSDGlassEnd} + {@code BlockPSDAPGGlassEndBase}</td>
- *       <td>y+0 下段、y+1 上段（端头收口，带 {@code EnumPSDAPGGlassEndSide}）</td></tr>
+ *       <td>y+0 下段、y+1 上段（端头收口，带 {@code touching_left/right}）</td></tr>
  *   <tr><td>{@code xiamen_psd_top}</td><td>{@code BlockPSDTop}</td>
- *       <td>y+2 吊板（独立方块，<b>没有</b>物品形态）</td></tr>
+ *       <td>y+2 吊板（独立方块，<b>没有</b>物品形态，有方块实体）</td></tr>
  * </table>
  *
- * <p>放置一律走 {@link XiamenPsdItem}：一次放满整列（门 2 宽 × 3 高 = 6 格，玻璃 / 端部 1 宽 × 3 高 = 3 格），
- * 只消耗 1 个物品；拆任意一格带走整列（见 {@link XiamenPsdBaseBlock#breakStructure}）。
+ * <p>放置走 {@link PsdAPGItem}（MTR 的 {@code ItemPSDAPGBase} 的移植）：门 2 宽、玻璃/端部 1 宽，
+ * 都是 2 高 + 1 格吊板，只消耗 1 个物品。
  *
- * <h2>贴图来源</h2>
- * <p>从玩家资源包「厦门地铁一号线车辆」的 {@code assets/mtr/textures/block/} 拷进本模组，避免依赖资源包：
+ * <h2>贴图</h2>
  * <ul>
- *   <li>{@code psd_door_top_1.png} → {@code xiamen_psd_door_top.png}（上段，带警示条）</li>
- *   <li>{@code psd_door_bottom_1.png} → {@code xiamen_psd_door_bottom.png}（下段）</li>
- *   <li>{@code psd_glass_top_1.png} → {@code xiamen_psd_glass.png}（玻璃上段）</li>
- *   <li>{@code psd_glass_bottom_1.png} → {@code xiamen_psd_glass_bottom.png}（玻璃下段）</li>
- *   <li>{@code psd_door_end_top_1.png} → {@code xiamen_psd_end.png}（端部 / 端部门）</li>
- *   <li>{@code psd_top.png} 是纯白占位图，吊板贴图按同一色系自己生成（{@code xiamen_psd_top.png}）</li>
+ *   <li>门扇、吊板灯箱：厦门包里的 {@code psd_door_*} / {@code psd_top}（转存为
+ *       {@code xiamen_psd_*}，见 docs/report-2026-11-10-xiamen-psd-mtr-port.md）；</li>
+ *   <li>玻璃 / 端部 / 吊板包边：从 MTR 资源包原样搬来的 {@code psd_glass_*} / {@code psd_top*}，
+ *       因为它们的 blockstate 用的是 MTR 那套 UV 分区，换图会错位。</li>
  * </ul>
- *
- * <p>注册放在 {@code main} 入口（两端都要有方块），渲染层 + 门扇 BER 在 {@link XiamenClient} 里挂。
  */
 public final class XiamenObjects {
 
@@ -73,35 +67,39 @@ public final class XiamenObjects {
     /** 门扇的 BlockEntity 类型：{@code mtrlte:xiamen_psd_door}。 */
     public static final Identifier PSD_DOOR_BE_ID = new Identifier("mtrlte", "xiamen_psd_door");
 
+    /** 吊板的 BlockEntity 类型：{@code mtrlte:xiamen_psd_top}。 */
+    public static final Identifier PSD_TOP_BE_ID = new Identifier("mtrlte", "xiamen_psd_top");
+
     /** 页签 id：{@code mtrlte:core} —— 名字由 {@code itemGroup.mtrlte.core} 决定。 */
     public static final Identifier CORE_TAB_ID = new Identifier("mtrlte", "core");
 
-    private static XiamenPsdDoorBlock psdDoor;
-    private static XiamenPsdGlassBlock psdGlass;
-    private static XiamenPsdEndBlock psdEnd;
-    private static XiamenPsdTopBlock psdTop;
+    private static XiamenPsdBlocks.Door psdDoor;
+    private static XiamenPsdBlocks.Glass psdGlass;
+    private static XiamenPsdBlocks.GlassEnd psdEnd;
+    private static PsdTopBlock psdTop;
     private static XiamenLogoBlock logo;
-    private static BlockEntityType<XiamenPsdDoorEntity> psdDoorEntityType;
+    private static BlockEntityType<PsdDoorBlock.TileEntityPsdDoor> psdDoorEntityType;
+    private static BlockEntityType<PsdTopBlock.TileEntityPsdTop> psdTopEntityType;
     private static boolean registered;
 
     private XiamenObjects() {
     }
 
-    public static XiamenPsdDoorBlock psdDoor() {
+    public static XiamenPsdBlocks.Door psdDoor() {
         return psdDoor;
     }
 
-    public static XiamenPsdGlassBlock psdGlass() {
+    public static XiamenPsdBlocks.Glass psdGlass() {
         return psdGlass;
     }
 
-    /** 端部模块（{@link XiamenPsdBaseBlock.Kind#END}，门扇靠它决定 {@code end=true}）。 */
-    public static XiamenPsdEndBlock psdEnd() {
+    /** 端部模块（门扇靠它决定 {@code end=true}）。 */
+    public static XiamenPsdBlocks.GlassEnd psdEnd() {
         return psdEnd;
     }
 
     /** 顶层吊板（y+2）。 */
-    public static XiamenPsdTopBlock psdTop() {
+    public static PsdTopBlock psdTop() {
         return psdTop;
     }
 
@@ -110,8 +108,12 @@ public final class XiamenObjects {
         return logo;
     }
 
-    public static BlockEntityType<XiamenPsdDoorEntity> psdDoorEntityType() {
+    public static BlockEntityType<PsdDoorBlock.TileEntityPsdDoor> psdDoorEntityType() {
         return psdDoorEntityType;
+    }
+
+    public static BlockEntityType<PsdTopBlock.TileEntityPsdTop> psdTopEntityType() {
+        return psdTopEntityType;
     }
 
     /** 方块 + 方块物品 + BlockEntity + 创造页签，{@code main} 入口调一次。 */
@@ -126,8 +128,15 @@ public final class XiamenObjects {
         psdEnd = registerEnd(PSD_END_ID);
         psdTop = registerTop(PSD_TOP_ID);
         logo = registerLogo(LOGO_ID);
+
         psdDoorEntityType = Registry.register(Registries.BLOCK_ENTITY_TYPE, PSD_DOOR_BE_ID,
-                FabricBlockEntityTypeBuilder.create(XiamenPsdDoorEntity::new, psdDoor).build());
+                FabricBlockEntityTypeBuilder.<PsdDoorBlock.TileEntityPsdDoor>create(
+                        (pos, state) -> new PsdDoorBlock.TileEntityPsdDoor(psdDoorEntityType(), pos, state),
+                        psdDoor).build());
+        psdTopEntityType = Registry.register(Registries.BLOCK_ENTITY_TYPE, PSD_TOP_BE_ID,
+                FabricBlockEntityTypeBuilder.<PsdTopBlock.TileEntityPsdTop>create(
+                        (pos, state) -> new PsdTopBlock.TileEntityPsdTop(psdTopEntityType(), pos, state),
+                        psdTop).build());
 
         // 页签图标是一个只画图标的物品（见 TabIcons 的类注释），不是这一页里的门扇 / 玻璃。
         TabIcons.register();
@@ -150,64 +159,49 @@ public final class XiamenObjects {
                 PSD_DOOR_ID, PSD_GLASS_ID, PSD_END_ID, PSD_TOP_ID, LOGO_ID);
     }
 
-    /** 屏蔽门的通用方块属性：薄板不该挡光，声音跟玻璃一个量级。 */
-    private static AbstractBlock.Settings psdSettings() {
-        return AbstractBlock.Settings.create()
-                .mapColor(MapColor.LIGHT_GRAY)
-                .strength(0.5F, 1.0F)
-                .sounds(BlockSoundGroup.GLASS)
-                .nonOpaque();
-    }
-
-    /** 门扇：带 BlockEntity 的可动方块，properties 有 facing / half / side / open / end。 */
-    private static XiamenPsdDoorBlock registerDoor(Identifier id) {
-        final XiamenPsdDoorBlock block = new XiamenPsdDoorBlock(psdSettings());
+    private static XiamenPsdBlocks.Door registerDoor(Identifier id) {
+        final XiamenPsdBlocks.Door block = new XiamenPsdBlocks.Door();
         Registry.register(Registries.BLOCK, id, block);
-        Registry.register(Registries.ITEM, id, new XiamenPsdItem(block, new Item.Settings()));
+        Registry.register(Registries.ITEM, id, new PsdAPGItem(block, PsdAPGItem.Kind.DOOR, new Item.Settings()));
         return block;
     }
 
-    /** 玻璃 / 端部：静止薄板，一次放一整列（1 宽 × 3 高）。 */
-    private static XiamenPsdGlassBlock registerGlass(Identifier id) {
-        final XiamenPsdGlassBlock block = new XiamenPsdGlassBlock(psdSettings());
+    private static XiamenPsdBlocks.Glass registerGlass(Identifier id) {
+        final XiamenPsdBlocks.Glass block = new XiamenPsdBlocks.Glass();
         Registry.register(Registries.BLOCK, id, block);
-        Registry.register(Registries.ITEM, id, new XiamenPsdItem(block, new Item.Settings()));
+        Registry.register(Registries.ITEM, id, new PsdAPGItem(block, PsdAPGItem.Kind.GLASS, new Item.Settings()));
         return block;
     }
 
-    /** 端部收口：元素和玻璃一样，属性换成 {@code touching_left/right}。 */
-    private static XiamenPsdEndBlock registerEnd(Identifier id) {
-        final XiamenPsdEndBlock block = new XiamenPsdEndBlock(psdSettings());
+    private static XiamenPsdBlocks.GlassEnd registerEnd(Identifier id) {
+        final XiamenPsdBlocks.GlassEnd block = new XiamenPsdBlocks.GlassEnd();
         Registry.register(Registries.BLOCK, id, block);
-        Registry.register(Registries.ITEM, id, new XiamenPsdItem(block, new Item.Settings()));
+        Registry.register(Registries.ITEM, id, new PsdAPGItem(block, PsdAPGItem.Kind.END, new Item.Settings()));
         return block;
     }
 
     /**
-     * 顶层吊板：<b>只注册方块，不注册物品</b>。
-     * 它永远由 {@link XiamenPsdItem} 跟着整列一起放下（MTR 的 {@code BlockPSDTop} 也不进创造页签），
-     * 所以没有 {@code BlockItem}、也没有掉落表；打掉它时 {@link XiamenPsdTopBlock#onBreak}
-     * 会手动把下面那一格的物品掉出来。
+     * 顶层吊板：<b>只注册方块，不注册物品</b>（MTR 的 {@code BlockPSDTop} 也不进创造页签）。
+     * 它由 {@link PsdAPGItem} 跟着整列一起放下；没有掉落表（{@code dropsNothing()}），
+     * 中键选取给的是玻璃物品。
      */
-    private static XiamenPsdTopBlock registerTop(Identifier id) {
-        final XiamenPsdTopBlock block = new XiamenPsdTopBlock(psdSettings());
+    private static PsdTopBlock registerTop(Identifier id) {
+        final PsdTopBlock block = new PsdTopBlock();
         Registry.register(Registries.BLOCK, id, block);
         return block;
     }
 
     /**
-     * 厦门地铁标志：设置项<b>照抄 MTR 的 {@code Blocks.LOGO}</b>
-     * （{@code create().requiresTool().hardness(2.0f).luminance(s -> 10)}），
-     * 额外加 {@code nonOpaque()}（薄板不该挡光、不该整格挡脸）和金属音。
+     * 厦门地铁标志：设置项<b>逐字照抄 MTR 的 {@code Blocks.LOGO}</b>
+     * （{@code create().requiresTool().hardness(2.0f).luminance(s -> 10)}）——
+     * 那块是整格立方体，所以这里不能加 {@code nonOpaque()}（会漏光）。
      */
     private static XiamenLogoBlock registerLogo(Identifier id) {
         final XiamenLogoBlock block = new XiamenLogoBlock(AbstractBlock.Settings.create()
                 .mapColor(MapColor.IRON_GRAY)
                 .requiresTool()
                 .hardness(2.0F)
-                .luminance(state -> 10)
-                .sounds(BlockSoundGroup.METAL)
-                .nonOpaque());
+                .luminance(state -> 10));
         Registry.register(Registries.BLOCK, id, block);
         Registry.register(Registries.ITEM, id, new net.minecraft.item.BlockItem(block, new Item.Settings()));
         return block;

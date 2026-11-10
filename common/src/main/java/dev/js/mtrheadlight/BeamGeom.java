@@ -13,7 +13,7 @@ import net.minecraft.util.math.Vec3d;
  *
  * <pre>
  * origin = railPoint + dir * offset          // 车端面往前推 offset，y 仍带坡度
- * axis   = dir                               // 该车自己的单位切线（含坡度）
+ * axis   = dir                               // 该车自己的单位方向（车身弦，含坡度）
  * length = 配置的光束长度
  * height = beamLift + 该端的 beamHead/TailHeight
  * </pre>
@@ -52,7 +52,7 @@ final class BeamGeom {
 
     /**
      * @param railPoint 该车端面的轨道点（{@link TrainPose#front()} / {@link TrainPose#rear()}）
-     * @param dir       该车自己的外向单位切线
+     * @param dir       该车自己的外向单位方向（<b>车身弦</b>，见 {@link BeamGlow#endDir}；含坡度）
      * @param offset    端面到灯口的距离（配置里已钳制的 head/tailOffset）
      * @param length    光束长度
      * @param height    {@code beamLift + 该端 height}

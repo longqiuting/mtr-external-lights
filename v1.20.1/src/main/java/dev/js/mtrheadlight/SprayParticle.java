@@ -21,12 +21,16 @@ import org.joml.Vector3f;
  * 和 {@code force=true}、距离、粒子档位都无关。查表时<b>键不存在走默认 TRUE（放行）</b>，所以
  * 一个它没见过的 id（{@code mtrlte:spray}）不会被任何已有配置屏蔽。
  *
- * <h2>「像原版雨丝」是怎么做出来的</h2>
+ * <h2>「像原版雨丝」的形状是怎么做出来的（颜色已不再是原版）</h2>
  * 原版下雨不是粒子，而是 {@code WeatherRenderer} 拿 {@code textures/environment/rain.png}
  * 画竖向条带：那张图是 64×256 的<b>雨滴图集</b>（4 列 × 16 行、每格 16×16），每格是一根
  * <b>1 像素宽、顶部实、尾部渐隐</b>的竖直雨丝。本类的贴图直接从那 64 格里裁出三根真雨丝
- * （见 {@code assets/mtrlte/textures/particle/spray*.png}），所以 alpha 剖面（{@code FF FF FF …
- * 86}）与配色（{@code #4667C3}）都是原版数据，不是画出来的近似。
+ * （见 {@code assets/mtrlte/textures/particle/spray*.png}），所以 <b>alpha 剖面</b>
+ * （{@code FF FF FF … 86}）是原版数据，不是画出来的近似。
+ *
+ * <p>但原版那 64 格的<b>颜色</b>（{@code #4667C3}）已经全部清掉，贴图现在是纯白 RGB —— 留着它
+ * 就等于每颗都带着「原版雨」的签名色，这正是过去「不仔细看看不出来」的根因。颜色改由 tint 决定
+ * （见下），形状和柔和度一点没动。
  *
  * <p>原版那张图是 1 像素硬边，粒子缩小绘制时会闪，所以裁切时只做了<b>横向柔化</b>（把 1 像素
  * 剖面铺成 4 列、中间两列为主），纵向剖面保持原样。宽度因此只有四分之一格贴图，配合下面的
@@ -34,8 +38,8 @@ import org.joml.Vector3f;
  *
  * <h2>参数（与需求一一对应）</h2>
  * <ul>
- *   <li>寿命 {@value #MIN_LIFE}–{@value #MAX_LIFE} tick（0.4–0.7 s）：比雨滴略长，雨丝有足够的
- *       存在时间去被看见，又不会积成雾带；</li>
+ *   <li>寿命 {@value #MIN_LIFE}–{@value #MAX_LIFE} tick（0.25–0.45 s）：<b>短而密</b>。同一节车厢
+ *       同时挂着的雨丝因此只有 {@code 5–9 × 每秒 24 根} 的滚动量，而不是积成一条雾带；</li>
  *   <li>初速：竖直方向固定 {@value #DRIFT_MIN}–{@value #DRIFT_MAX} blocks/tick 的缓慢上浮
  *       （构造时把传入的 vy 夹到该区间，见 {@link #drift(double)}）；水平分量原样保留（含调用方给的
  *       ±0.08 扩散）；</li>
@@ -46,14 +50,30 @@ import org.joml.Vector3f;
  *       只靠贴图里的细线还不够长，所以自绘四边形时只在竖直方向放大 —— 0.08–0.18 的方块因此变成
  *       0.18–0.40 格高、约 0.02–0.05 格宽的细丝；</li>
  *   <li>透明度：{@value #ALPHA_MIN}–{@value #ALPHA_MAX} 起，按 {@code 1 - t²} 二次衰减到 0；</li>
- *   <li>颜色：贴图自带原版雨丝的 {@code #4667C3}，所以 tint 是白光 {@code (1,1,1)}，不再二次染色。</li>
+ *   <li>颜色：贴图是<b>纯白</b>（原版雨丝的形状 + alpha 剖面，颜色已被清掉），tint
+ *       {@code (}{@value #TINT_R}, {@value #TINT_G}, {@value #TINT_B}{@code )} 在顶点色里乘上去，
+ *       所以画面上是<b>亮灰白</b>而不是原版雨的深蓝 {@code #4667C3}。</li>
  * </ul>
+ *
+ * <h2>为什么现在是灰白而不是原版蓝</h2>
+ * 贴图是从 {@code rain.png} 裁出来的真雨丝，但原版那 64 格里的颜色恒为 {@code #4667C3}
+ * （亮度约 0.36，偏暗偏蓝），粒子 tint 又是白光 {@code (1,1,1)}，于是画出来就是「一小段原版雨」
+ * —— 远看只会被当成原版天气。现在两步都改：
+ * <ol>
+ *   <li>贴图 RGB 全部改成 {@code (255,255,255)}，<b>alpha 剖面逐像素不动</b>（柔和度、渐隐长度都不变）；</li>
+ *   <li>tint 用 {@code (0.94,0.95,0.97)}（略带冷调的白）在顶点色里乘。</li>
+ * </ol>
+ * 顶点色 × 白贴图 = {@code (240,242,247)}：线性相对亮度 {@code 0.149 → 0.889}（约 <b>5.9 倍</b>），
+ * 感知亮度约 <b>2.2 倍</b>；再叠上 alpha 从均值 0.45 提到 0.70（1.56 倍），单根在画面上的贡献约
+ * <b>3.5 倍</b>。
+ * 「亮」全部来自<b>颜色和 alpha</b>，尺寸一点没放大 —— 所以是「看得清的一根根细丝」，
+ * 不是「一团糊的白块」。
  */
 public final class SprayParticle extends SpriteBillboardParticle {
 
-    /** 寿命下/上限（tick）。 */
-    static final int MIN_LIFE = 8;
-    static final int MAX_LIFE = 14;
+    /** 寿命下/上限（tick）。短寿命 + 高密度：单根消失得快，画面由「更密的流」而不是「更长的带」变厚。 */
+    static final int MIN_LIFE = 5;
+    static final int MAX_LIFE = 9;
 
     /**
      * 起始尺寸区间（格，quad 半宽的量级）。0.08–0.18 再经 {@link #VERTICAL_STRETCH} 纵向拉长，
@@ -74,9 +94,9 @@ public final class SprayParticle extends SpriteBillboardParticle {
      */
     private static final float VERTICAL_STRETCH = 2.2F;
 
-    /** 起始不透明度区间；随时间二次衰减到 0。 */
-    private static final float ALPHA_MIN = 0.35F;
-    private static final float ALPHA_MAX = 0.55F;
+    /** 起始不透明度区间；随时间二次衰减到 0。灰白 + 高 alpha 才在雨幕里「跳」出来。 */
+    private static final float ALPHA_MIN = 0.55F;
+    private static final float ALPHA_MAX = 0.85F;
 
     /** 竖直初速区间（blocks/tick），轻微向上。 */
     private static final double DRIFT_MIN = 0.01D;
@@ -85,10 +105,26 @@ public final class SprayParticle extends SpriteBillboardParticle {
     /** 水平阻尼（每 tick 乘一次）。1.0 表示完全不变。 */
     private static final float VELOCITY_MULTIPLIER = 0.90F;
 
-    /** 贴图本身就是原版雨丝的颜色（#4667C3），tint 用白光，不再二次染色。 */
-    private static final float TINT_R = 1.00F;
-    private static final float TINT_G = 1.00F;
-    private static final float TINT_B = 1.00F;
+    /**
+     * 顶点色 tint：略带冷调的灰白。贴图已改成纯白，所以这里就是最终颜色
+     * （{@code 255 × 0.94/0.95/0.97 ≈ 240,242,247}）—— 比原版雨丝的 {@code #4667C3} 亮约 2.5 倍，
+     * 又不像纯白那样在暗景里显得发灰发脏。
+     */
+    private static final float TINT_R = 0.94F;
+    private static final float TINT_G = 0.95F;
+    private static final float TINT_B = 0.97F;
+
+    /**
+     * 诊断用的一行参数说明（{@code RainSpray} 的 {@code spray:} 行里打印）。
+     * 直接读本类的常量，调参数时日志和画面永远是同一个数，不会出现「日志写 0.35、代码是 0.55」。
+     */
+    static String paramsLabel() {
+        return String.format(java.util.Locale.ROOT,
+                "tint=%.2f,%.2f,%.2f life=%d-%d alpha=%.2f-%.2f",
+                Float.valueOf(TINT_R), Float.valueOf(TINT_G), Float.valueOf(TINT_B),
+                Integer.valueOf(MIN_LIFE), Integer.valueOf(MAX_LIFE),
+                Float.valueOf(ALPHA_MIN), Float.valueOf(ALPHA_MAX));
+    }
 
     private final float startScale;
     private final float startAlpha;
@@ -136,8 +172,8 @@ public final class SprayParticle extends SpriteBillboardParticle {
         // 三参父构造：位置 + prevPos + 边界盒。速度随后自己赋，避免 7 参重载的语义差异。
         super(world, x, y, z);
 
-        // 贴图：spray.json 里列了 3 根从原版 rain.png 裁出来的雨丝，随机取一根（长度/亮度各不相同，
-        // 对应原版那张 64 格图集里的多样性）。
+        // 贴图：spray.json 里列了 3 根从原版 rain.png 裁出来的雨丝（长度/亮度各不相同，对应原版那张
+        // 64 格图集里的多样性）。RGB 已统一改成纯白，颜色由下面的 tint 决定。
         this.setSprite(sprites.getSprite(this.random));
 
         this.maxAge = MIN_LIFE + this.random.nextInt(MAX_LIFE - MIN_LIFE + 1);

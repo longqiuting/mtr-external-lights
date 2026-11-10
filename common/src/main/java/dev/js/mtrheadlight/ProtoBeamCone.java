@@ -470,15 +470,12 @@ public final class ProtoBeamCone {
             final int before = vertexCount;
             final int beamsBefore = BEAMS.size();
             if (glowSource) {
-                // 与 BeamGlow 完全相同的输入：同一个 BeamGeom 工厂 + 同一个 startHeight，
-                // offset/height/colour/length 也全部是光带那一组（不用 math.max 再收一遍）。
-                final double sheetLift = Math.max(0.0D, cfg.beamLift);
-                final BeamGeom headGeom = BeamGeom.of(nose, pose.forward(),
-                        cfg.headOffsetClamped(), eff == null ? 16.0D : eff.beamHeadLength,
-                        sheetLift + (eff == null ? 0.15D : eff.beamHeadHeight), headColor);
-                final BeamGeom tailGeom = BeamGeom.of(rear, pose.backward(),
-                        cfg.tailOffsetClamped(), eff == null ? 4.0D : eff.beamTailLength,
-                        sheetLift + (eff == null ? 0.10D : eff.beamTailHeight), tailColor);
+                // 与 BeamGlow 完全相同的输入：同一个 headGeom/tailGeom 工厂（同一个 BeamGeom），
+                // 同一个 endDir（车身弦优先，切线只作退化兜底）+ 同一个 startHeight，offset /
+                // length / height / colour 也全部是光带那一组 —— 所以 GLOW 源下光柱与光带是
+                // 同一个几何对象，灯口和方向逐位重合（glowSource 蕴含 cfg != null，故 eff 非空）。
+                final BeamGeom headGeom = BeamGlow.headGeom(cfg, eff, pose);
+                final BeamGeom tailGeom = BeamGlow.tailGeom(cfg, eff, pose);
                 final Vec3d headApex = headGeom.apex(world);
                 final Vec3d tailApex = tailGeom.apex(world);
                 logGlowOnce(train.id, headGeom, headApex, tailGeom, tailApex);

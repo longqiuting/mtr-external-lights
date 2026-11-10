@@ -55,10 +55,13 @@ import java.util.TreeSet;
  *   <li>车型列表 = 资源包注册表（{@link TrainClientRegistry#forEach}）∪ 世界里正在跑的列车，
  *       所以「资源包里没上车」的车型也能直接调出来编辑；世界里在用的打 {@code ●}。</li>
  *   <li>打开车型 → {@link BeamSession#open}：自动识别 + 资源包覆盖合并后的整份列表。
- *       如果 {@code config/lte_beams/<id>.json} 已经存在，优先读它（编辑器上次导出的结果）。</li>
+ *       如果桌面上的 {@code <id>.json} 已经存在，优先读它（编辑器上次导出的结果）；
+ *       没有就找已加载资源包里的 {@code assets/lte/beam3D/<id>.json}，再退回旧的
+ *       {@code assets/<ns>/lte_beams/<id>.json}（见 {@link BeamPackWriter}）。</li>
  *   <li>拖拽 / 滑块 → 立刻写运行时层（世界里当场预览），<b>不落盘</b>。</li>
- *   <li>「导出」→ 只写当前车型的 {@code config/lte_beams/<id>.json}，并提示放进
- *       {@code assets/<namespace>/lte_beams/}。字段见 {@link BeamPackWriter}。</li>
+ *   <li>「导出」→ 只写当前车型的 {@code <桌面>/<id>.json}（桌面不可用时退回
+ *       {@code config/lte_beams/}），并提示放进 {@code assets/lte/beam3D/}。字段见
+ *       {@link BeamPackWriter}。</li>
  * </ul>
  *
  * <h2>相机的左键归属</h2>
@@ -425,7 +428,7 @@ final class BeamEditor3DScreen extends Screen {
      *
      * <p>导入的是<b>游戏没加载</b>的包（zip / 文件夹），编辑器临时读它的
      * {@code mtr_custom_resources.json} 与模型，把车型加进列表；导出时写回<b>包内</b>
-     * {@code assets/<ns>/lte_beams/<id>.json}（zip 不改，见 {@link CustomPack}）。
+     * {@code assets/<ns>/beam3D/<id>.json}（zip 不改，见 {@link CustomPack}）。
      */
     private void buildImportBar() {
         final int width = Math.max(40, leftW() - 2 * PAD);
@@ -494,7 +497,7 @@ final class BeamEditor3DScreen extends Screen {
      * <p>车型来自导入包（不在注册表里）时走 {@link CustomPack}：模型由包内
      * {@code model / model_properties} 现场构造成 {@link mtr.client.DynamicTrainModel}，
      * 布局也从它算（{@link TrainPreview#imported}）。光束底稿同样来自包内的
-     * {@code assets/<ns>/lte_beams/<id>.json}。
+     * {@code assets/<ns>/beam3D/<id>.json}（旧路径 {@code assets/<ns>/lte_beams/} 也认）。
      */
     private void openVehicle(final String id) {
         this.loadedId = id;
@@ -885,7 +888,7 @@ final class BeamEditor3DScreen extends Screen {
                 return;
             }
             this.status = tr("beam3d.exported", Integer.valueOf(beams),
-                    BeamPackWriter.fileName(this.vehicleId)).getString()
+                    path.toAbsolutePath().toString()).getString()
                     + "  " + tr("beam3d.exportHint").getString();
             LteLog.LOGGER.info("[lte] beam3d: exported {} beams -> {}", Integer.valueOf(beams), path);
         } catch (Throwable t) {
@@ -899,10 +902,11 @@ final class BeamEditor3DScreen extends Screen {
      * 导入的车型：写进<b>那个资源包</b>。
      *
      * <ul>
-     *   <li>文件夹包 → 直接写 {@code <包>/assets/<ns>/lte_beams/<id>.json}（自动建目录），
+     *   <li>文件夹包 → 直接写 {@code <包>/assets/<ns>/beam3D/<id>.json}（自动建目录），
      *       写完立刻从包里读回来核对束数；</li>
-     *   <li>zip → Minecraft/MTR 都不支持原地改 zip，所以写到 {@code config/lte_beams/}
-     *       并提示「解压后放进 {@code assets/<ns>/lte_beams/}」。</li>
+     *   <li>zip → Minecraft/MTR 都不支持原地改 zip，所以写到桌面
+     *       （{@link BeamPackWriter#exportDir()}）并提示「解压后放进
+     *       {@code assets/<ns>/beam3D/}」。</li>
      * </ul>
      */
     private void exportToPack(final CustomPack.Train train) {
@@ -932,8 +936,9 @@ final class BeamEditor3DScreen extends Screen {
     }
 
     /**
-     * 打开导出目录 {@code config/lte_beams/}：目录不存在就先创建（第一次导出前点也没问题），
-     * 然后交给系统的文件管理器（{@link Util#getOperatingSystem()} → Windows 上是 rundll32）。
+     * 打开导出目录（桌面；桌面不可用时是 {@code config/lte_beams/}）：目录不存在就先创建
+     * （第一次导出前点也没问题），然后交给系统的文件管理器
+     * （{@link Util#getOperatingSystem()} → Windows 上是 rundll32）。
      */
     private void openExportDir() {
         try {

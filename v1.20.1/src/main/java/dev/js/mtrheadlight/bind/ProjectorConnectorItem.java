@@ -1,5 +1,6 @@
 package dev.js.mtrheadlight.bind;
 
+import dev.js.mtrheadlight.LteLog;
 import mtr.data.Station;
 import net.minecraft.client.item.TooltipContext;
 import net.minecraft.item.Item;
@@ -24,9 +25,12 @@ import java.util.List;
  * <table border="1">
  *   <caption>两次右键的语义</caption>
  *   <tr><th>第一次</th><th>第二次</th><th>结果</th></tr>
- *   <tr><td>投影机</td><td>车站范围内的任意方块</td><td>投影机显示该车站所有站台的到站</td></tr>
- *   <tr><td>车站范围内的任意方块</td><td>投影机</td><td>同上（只是顺序反过来）</td></tr>
+ *   <tr><td>投影机</td><td>能推出车站的任意方块</td><td>投影机显示该车站所有站台的到站</td></tr>
+ *   <tr><td>能推出车站的任意方块</td><td>投影机</td><td>同上（只是顺序反过来）</td></tr>
  * </table>
+ * <p><b>第二次点哪里都行</b>：车站范围内的方块（{@code Station#inArea}），或者站区外的站台方块 /
+ * 轨道节点 —— 后者靠 {@link LteMtrLookup#stationNearRail} 由「站台」反推「车站」（半径 5 内找不到
+ * 站台时会顺着同一条轨道走）。所以连接器可以在站外使用，不再要求人/方块站在车站范围里。
  * 第一次点击的状态挂在物品 NBT 上（{@code lte_proj} / {@code lte_station_id} / {@code lte_dim}），
  * 和 {@code SignalLinkItem} 一样：{@code ItemUsageContext} 只给「这一次点击」的方块，跨两次点击的
  * 状态只能挂在玩家手上。NBT 只由服务端写（{@code world.isClient} 时直接返回），客户端伪造不了。
@@ -138,9 +142,12 @@ public final class ProjectorConnectorItem extends Item {
 
     private ActionResult onStationClicked(final World world, final ServerPlayerEntity player,
                                           final ItemStack stack, final BlockPos clicked) {
-        final Station station = LteMtrLookup.stationAt(world, clicked);
+        // 车站不再要求「点在车站矩形里」：站区外点站台方块、或点站外的轨道节点，都能反推出车站
+        // （stationAt → 站台 → 车站；站台靠顺轨道走找，见 LteMtrLookup#stationNearRail）。
+        final Station station = LteMtrLookup.stationNearRail(world, clicked);
         if (station == null) {
-            say(player, "message.mtrlte.projector.no_station", Formatting.RED);
+            // 真的推不出来：明确告诉玩家该点什么，别静默失败。
+            say(player, "message.mtrlte.projector.no_station_here", Formatting.RED);
             return ActionResult.PASS;
         }
         final String stationName = station.name == null ? "" : station.name;
@@ -182,6 +189,7 @@ public final class ProjectorConnectorItem extends Item {
             return ActionResult.SUCCESS;
         }
         final List<Long> platforms = LteMtrLookup.platformIdsOf(world, station);
+        LteLog.LOGGER.info("[lte] bind: projector pos={} -> platforms={}", projector, platforms);
         if (!MtrTiles.projectorSetPlatforms(tile, platforms)) {
             say(player, "message.mtrlte.projector.projector_gone", Formatting.RED);
             return ActionResult.SUCCESS;

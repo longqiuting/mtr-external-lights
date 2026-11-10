@@ -1,5 +1,6 @@
 package dev.js.mtrheadlight.bind;
 
+import dev.js.mtrheadlight.LteLog;
 import mtr.data.Station;
 import net.minecraft.client.item.TooltipContext;
 import net.minecraft.item.Item;
@@ -24,9 +25,11 @@ import java.util.List;
  * <table border="1">
  *   <caption>两次右键的语义</caption>
  *   <tr><th>第一次</th><th>第二次</th><th>结果</th></tr>
- *   <tr><td>PIDS（任意一半）</td><td>连着车站轨道的节点</td><td>PIDS 只显示该站台的到站</td></tr>
- *   <tr><td>连着车站轨道的节点</td><td>PIDS（任意一半）</td><td>同上（只是顺序反过来）</td></tr>
+ *   <tr><td>PIDS（任意一半）</td><td>站台方块，或同一条轨道上的节点</td><td>PIDS 只显示该站台的到站</td></tr>
+ *   <tr><td>站台方块 / 轨道节点</td><td>PIDS（任意一半）</td><td>同上（只是顺序反过来）</td></tr>
  * </table>
+ * <p>第二次点哪里都行，<b>不要求在车站范围内</b>：站台附近的节点（MTR 的 ±5 格）直接命中，
+ * 离得远的节点则顺着 {@code getRailsMap()} 上的同一条轨道走到站台为止。
  *
  * <h2>PIDS 认哪些方块</h2>
  * 不按类名认，按<b>方块实体类型</b>认：{@code mtr.data.IPIDS.TileEntityPIDS}。MTR 的
@@ -42,7 +45,9 @@ import java.util.List;
  * 玩家已经调好的自定义消息和翻页不会被这次绑定冲掉。
  *
  * <p>站台是这么算出来的：节点 → {@code RailwayData.getClosePlatformId(...)}（MTR 给 PIDS 找站台用的
- * 就是这一条，半径 5）。所以「我们绑的站台」和「MTR 自己认的站台」永远一致。
+ * 就是这一条，半径 5）；半径内没有站台时（节点在站区外、离站台很远），再顺着 {@code getRailsMap()}
+ * 上的同一条轨道往外走，碰到第一个站台就用它（{@link LteMtrLookup#platformIdOnRail}）。
+ * 也就是说<b>绑定不要求点在车站范围内</b>：站外的轨道节点、站台方块都能绑。
  *
  * <p>绑定记录另存 {@link PidsLinkStore}（{@code world/data/mtrlte_pids_links.dat}），与信号表、
  * 投影机表互不相干。
@@ -82,6 +87,13 @@ public final class PidsConnectorItem extends Item {
             return onNodeClicked(world, player, context.getStack(), node);
         }
 
+        // 3) 右键站台方块（站台轨道上的那一串坐标）：这一格本身就是「要绑的站台」。
+        //    允许在站台区外点 —— 只要这一格真是站台轨道，站台 id 就有了。
+        if (LteMtrLookup.platformIdAtExact(world, clicked) != 0L) {
+            return onNodeClicked(world, player, context.getStack(), clicked);
+        }
+
+        // 4) 什么都没点到：说清楚该点什么，别静默失败。
         say(player, "message.mtrlte.pids.not_linkable", Formatting.RED);
         return ActionResult.PASS;
     }
@@ -157,11 +169,15 @@ public final class PidsConnectorItem extends Item {
     private ActionResult bind(final World world, final ServerPlayerEntity player,
                               final BlockPos pidsPos, final List<MtrTiles.PidsTile> pids,
                               final BlockPos node) {
-        final long platformId = LteMtrLookup.platformIdAt(world, node);
+        // 站台 id 允许从「站区外」推：先看节点旁边（MTR 的 ±5），推不出就顺着同一条轨道走。
+        final long platformId = LteMtrLookup.platformIdOnRail(world, node);
         if (platformId == 0L) {
+            LteLog.LOGGER.info("[lte] bind: pids pos={} node={} -> platforms=[]", pidsPos, node);
             say(player, "message.mtrlte.pids.no_platform", Formatting.RED);
             return ActionResult.SUCCESS;
         }
+        LteLog.LOGGER.info("[lte] bind: pids pos={} -> platforms={}",
+                pidsPos, Collections.singletonList(Long.valueOf(platformId)));
         final String platformName = LteMtrLookup.platformName(world, platformId);
         final Station station = LteMtrLookup.stationOfPlatform(world, platformId);
 

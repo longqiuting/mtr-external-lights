@@ -1,29 +1,32 @@
 {
   "parent": "block/block",
   "textures": {
-    "particle": "mtrlte:block/xiamen_logo",
+    "particle": "mtr:block/metal",
     "metal": "mtr:block/metal",
     "logo": "mtrlte:block/xiamen_logo"
   },
   "elements": [
     {
       "from": [0, 0, 0],
-      "to": [2, 16, 16],
+      "to": [16, 16, 16],
       "faces": {
-        "down": { "uv": [0, 0, 2, 16], "texture": "#metal" },
-        "up": { "uv": [0, 0, 2, 16], "texture": "#metal" },
-        "north": { "uv": [0, 0, 2, 16], "texture": "#metal" },
-        "south": { "uv": [0, 0, 2, 16], "texture": "#metal" },
-        "east": { "uv": [0, 0, 16, 16], "texture": "#metal", "cullface": "east" },
-        "west": { "uv": [0, 0, 16, 16], "texture": "#metal" }
+        "down": { "texture": "#metal", "cullface": "down" },
+        "up": { "texture": "#metal", "cullface": "up" },
+        "east": { "texture": "#metal", "cullface": "east" },
+        "west": { "texture": "#metal", "cullface": "west" },
+        "north": { "texture": "#metal", "cullface": "north" },
+        "south": { "texture": "#metal", "cullface": "south" }
       }
     },
     {
-      "from": [-0.05, 0, 0],
-      "to": [0, 16, 16],
+      "from": [-0.05, 0, -0.05],
+      "to": [16.05, 16, 16.05],
       "shade": false,
       "faces": {
-        "west": { "uv": [0, 0, 16, 16], "texture": "#logo" }
+        "east": { "uv": [0, 0, 16, 16], "texture": "#logo", "cullface": "east" },
+        "west": { "uv": [0, 0, 16, 16], "texture": "#logo", "cullface": "west" },
+        "north": { "uv": [0, 0, 16, 16], "texture": "#logo", "cullface": "north" },
+        "south": { "uv": [0, 0, 16, 16], "texture": "#logo", "cullface": "south" }
       }
     }
   ]

@@ -1143,26 +1143,65 @@ public final class HeadlightConfig {
     }
 
     /**
-     * <b>撞飞距离</b>（格 = 方块，水平落地位移），钳制 <b>1–20</b>，默认 <b>5.5</b>。
+     * <b>撞飞距离的基准值</b>（格 = 方块），钳制 <b>1–80</b>，默认 <b>5.5</b>。
      *
-     * <p>这是「被撞飞多远」的<b>唯一</b>旋钮：水平初速不再手填，而是由它反推 ——
-     * 竖直初速先决定滞空 tick 数 {@code n}，再用平抛公式反解水平初速：
+     * <p>这是指数曲线的起点，不是最终距离：实际飞多远由车速决定 ——
      *
+     * <pre>
+     * d(v) = base · exp(k · (v − 50) / 50)      （钳制 1 … knockbackMax）
+     *        base = 本字段            k = {@link #knockbackExpK}
+     *        50   = 参考车速（km/h），也是 exp 的速度尺度
+     * </pre>
+     *
+     * <p>默认值（base 5.5 / k 1.0 / 参考 50 km/h）下：50 km/h ≈ 5.5 格、80 ≈ 10 格、120 ≈ 22 格、
+     * 160 ≈ 50 格 —— 高速撞击「指数级」飞得更远，低速撞击仍是原来那一下。
+     *
+     * <p>水平初速不手填，而是由距离反推（平抛反解）：竖直初速先决定滞空 tick 数 {@code n}，
+     * 再用
      * <pre>
      * 滞空 n tick（重力 0.08、竖直阻尼 0.98，见 CollisionImpact.flightTicks）
      * 水平每 tick 衰减 0.91（LivingEntity#travel 的空中摩擦）
-     * 落地水平位移 = vx · Σ(0.91^k, k=0..n−1)   ⇒   vx = 距离 / Σ
+     * 落地水平位移 = vx · Σ(0.91^k, k = 0..n−1)   ⇒   vx = d(v) / Σ
      * </pre>
+     * 所以「公式算 22 格」落地时就是 22 格（离线逐 tick 积分见
+     * {@code tools/knockback-curve.js}）。
      *
-     * <p>50–80 km/h（撞飞档）用它；&gt;= 80 km/h（飞出档）用它的 <b>1.5 倍</b>（更狠的那一下）。
-     * 反解在 {@code CollisionImpact.knockbackHorizontal} 里做，离线积分见
-     * {@code tools/knockback-sim.js}。
+     * <p>撞飞档与飞出档用同一条曲线（不再有 1.5 倍），区别只在竖直初速
+     * （{@link #trainCollisionLaunchVertical} / {@link #trainCollisionFlyVertical}）。
      */
     public double knockbackDistance = 5.5D;
 
-    /** {@link #knockbackDistance} 钳制到 1–20 格。 */
+    /** {@link #knockbackDistance} 钳制到 1–80 格。 */
     public double knockbackDistanceClamped() {
-        return clamp(knockbackDistance, 1.0D, 20.0D);
+        return clamp(knockbackDistance, 1.0D, 80.0D);
+    }
+
+    /**
+     * 撞飞距离的<b>指数系数</b> {@code k}，钳制 <b>0–3</b>，默认 <b>1.0</b>。
+     *
+     * <p>{@code k = 0} 退回「固定距离」（所有车速都飞 {@link #knockbackDistance} 格）；
+     * 调大则高速档飞得成倍远：{@code d ∝ exp(k · (v − v0) / 50)}。
+     * 每提高 50 km/h，距离乘 {@code e^k}（k = 1 时 ×2.72）。
+     */
+    public double knockbackExpK = 1.0D;
+
+    /** {@link #knockbackExpK} 钳制到 0–3。 */
+    public double knockbackExpKClamped() {
+        return clamp(knockbackExpK, 0.0D, 3.0D);
+    }
+
+    /**
+     * 撞飞距离的<b>上限</b>（格，指数曲线的天花板），钳制 <b>1–200</b>，默认 <b>80</b>。
+     *
+     * <p>160 km/h 在默认系数下约 50 格，200 km/h 约 113 格 —— 这个值负责兜住「车快到离谱」
+     * 时别把人扔到区块外。同时也把反解出来的水平初速压在合理范围内
+     * （{@code CollisionImpact.knockbackHorizontal} 仍有 8 / 12 格/tick 的硬上限）。
+     */
+    public double knockbackMax = 80.0D;
+
+    /** {@link #knockbackMax} 钳制到 1–200 格。 */
+    public double knockbackMaxClamped() {
+        return clamp(knockbackMax, 1.0D, 200.0D);
     }
 
     /**
@@ -2102,7 +2141,9 @@ public final class HeadlightConfig {
         trainCollisionDamageSpeedScaleKmh = clamp(trainCollisionDamageSpeedScaleKmh, 10.0D, 1000.0D);
         trainCollisionFlyDamageScale = clamp(trainCollisionFlyDamageScale, 1.0D, 10.0D);
         trainCollisionDamageMax = clamp(trainCollisionDamageMax, 0.0D, 200.0D);
-        knockbackDistance = clamp(knockbackDistance, 1.0D, 20.0D);
+        knockbackDistance = clamp(knockbackDistance, 1.0D, 80.0D);
+        knockbackExpK = clamp(knockbackExpK, 0.0D, 3.0D);
+        knockbackMax = clamp(knockbackMax, 1.0D, 200.0D);
         trainCollisionLaunchHorizontal = clamp(trainCollisionLaunchHorizontal, 0.0D, 8.0D);
         trainCollisionLaunchVertical = clamp(trainCollisionLaunchVertical, 0.0D, 4.0D);
         trainCollisionFlyHorizontal = clamp(trainCollisionFlyHorizontal, 0.0D, 12.0D);

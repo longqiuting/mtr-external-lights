@@ -57,10 +57,15 @@ import java.util.Set;
  *       {@value #TOKENS_PER_TICK} 枚、桶上限 {@value #TOKEN_CAP} 枚。</li>
  * </ul>
  *
- * <p>水雾粒子现在是<b>原版雨丝</b>：贴图从原版 {@code rain.png} 的 64 格雨滴图集里裁出真雨丝，
+ * <p>水雾粒子的<b>形状</b>仍是从原版 {@code rain.png} 的 64 格雨滴图集里裁出的真雨丝，
  * 0.08–0.18 的基础尺寸再在竖直方向拉长 {@code 2.2×}（见 {@link SprayParticle}），单根约
- * 0.18–0.40 格高、0.02–0.05 格宽。密度靠配额堆：每 tick 14/48/640，比上一版（8/28/360）
- * 提高近一倍，而且单根更细，所以看到的是成片细密的雨丝，不是几团大白雾。
+ * 0.18–0.40 格高、0.02–0.05 格宽；但<b>颜色已经不是原版</b>：贴图 RGB 清成纯白，tint 用
+ * {@code (0.94,0.95,0.97)} 的灰白，alpha 从 0.35–0.55 提到 0.55–0.85 —— 这才是「看得出是我们自己的
+ * 水雾、而不是原版雨」的那一半，另一半是密度。
+ *
+ * <p>密度靠配额 + 每事件根数堆：每 tick 24/80/1200（每列车/全局/令牌桶），每事件 2 根
+ * （{@link #MIST_PER_EVENT}），寿命 5–9 tick。和上一版（14/48/640、每事件 1 根、寿命 8–14）相比
+ * 同时挂着的雨丝多约 1.3 倍，而单根的存活时间更短 —— 画面是「更密的细流」，不会积成一层白霜。
  *
  * <h2>粒子设置（最少档也看得见）</h2>
  * 1.20.1 的 {@code WorldRenderer#spawnParticle} 对非强制粒子有两道硬闸：距相机 &gt; 32 格丢弃、
@@ -85,23 +90,23 @@ public final class RainSpray {
     public static final double MAX_PLAYER_DISTANCE = 64.0D;
 
     /** 每列车每 tick 的粒子上限（雨丝需要更多根才成片，但仍是硬上限）。 */
-    public static final int MAX_PER_TRAIN_PER_TICK = 14;
+    public static final int MAX_PER_TRAIN_PER_TICK = 24;
 
     /** 全局每 tick 的粒子上限。 */
-    private static final int MAX_PER_TICK = 48;
+    private static final int MAX_PER_TICK = 80;
 
     /**
      * 每列车每 tick 最多检查几节车厢的"露天"（实际取 {@code min(cars, 本值)}）。
      *
      * <p>一列车最多只能出 {@value #MAX_PER_TRAIN_PER_TICK} 个粒子，车厢循环本来就从
-     * {@code tick % cars} 轮转起步，12 节/ tick 覆盖 MTR 绝大多数编组，同时把隧道里整列车
-     * "全查一遍再说"的成本压成常数。
+     * {@code tick % cars} 轮转起步，16 节/ tick 覆盖 MTR 绝大多数编组（含长编组地铁），同时把隧道里
+     * 整列车"全查一遍再说"的成本压成常数。
      */
-    private static final int MAX_CARS_SCANNED = 12;
+    private static final int MAX_CARS_SCANNED = 16;
 
-    /** 令牌桶：每 tick 补充量与桶容量（约 640 个/秒的长期均值）。 */
-    private static final double TOKENS_PER_TICK = 32.0D;
-    private static final double TOKEN_CAP = 120.0D;
+    /** 令牌桶：每 tick 补充量与桶容量（约 1200 个/秒的长期均值）。 */
+    private static final double TOKENS_PER_TICK = 60.0D;
+    private static final double TOKEN_CAP = 240.0D;
 
     /** 速度换算：blocks/tick → km/h（20 t/s × 3.6）。与 MTR 驾驶台速度表一致。 */
     private static final double KMH_PER_BLOCK_PER_TICK = 20.0D * 3.6D;
@@ -166,6 +171,18 @@ public final class RainSpray {
     private static final double MINIMAL_CHANCE_SCALE = 0.55D;
     /** 最小档：一次事件里的雾团数（更多、重叠 → 看起来更大更亮）。 */
     private static final int MINIMAL_PUFFS = 4;
+
+    /**
+     * 一般档一次事件里发几根雨丝。
+     *
+     * <p><b>为什么不是 1</b>：{@value #MAX_PER_TRAIN_PER_TICK} 是「每列车每 tick」的上限，而真正的
+     * 产量是 {@code min(车厢数, }{@value #MAX_CARS_SCANNED}{@code ) × 每事件根数 × 抽签}——MTR 常见的
+     * 4–8 节编组每 tick 最多只轮到 4–8 次事件，光把上限从 14 提到 24 根本吃不到，密度不会变。
+     * 所以把「每事件 2 根」作为真正的密度旋钮：一列车 6 节 = 12 根/tick，配合 5–9 tick 的短寿命，
+     * 同时挂着的雨丝约 12×7×0.55 ≈ 46 根（旧版是 6×11×0.55 ≈ 36 根），密了约 1.3 倍，
+     * 但每根仍是 0.08–0.18 的细丝、且消失得更快，所以是「流得更密」而不是「糊成一片」。
+     */
+    private static final int MIST_PER_EVENT = 2;
     /** 最小档：雾团内部的抖动半径（格）。粒子已经很小，抖动跟着收紧，免得一团散成一圈。 */
     private static final double MINIMAL_JITTER = 0.30D;
 
@@ -498,18 +515,23 @@ public final class RainSpray {
         // 1) 水雾：车体侧面之外的一团白雾，向上飘。最小档是一整团（重叠的几颗，看起来更大更亮），
         //    并且强制生成 —— 不然原版 MINIMAL 闸门会把它们全部丢掉。
         final boolean minimal = mode == ParticlesMode.MINIMAL;
-        final int puffs = minimal ? MINIMAL_PUFFS : 1;
+        final int puffs = minimal ? MINIMAL_PUFFS : MIST_PER_EVENT;
         for (int i = 0; i < puffs; i++) {
             final double jx = minimal ? (world.random.nextDouble() - 0.5D) * 2.0D * MINIMAL_JITTER : 0.0D;
             final double jy = minimal ? (world.random.nextDouble() - 0.5D) * 2.0D * 0.25D : 0.0D;
             final double jz = minimal ? (world.random.nextDouble() - 0.5D) * 2.0D * MINIMAL_JITTER : 0.0D;
+            // 每根雨丝各占一个沿车长的位置、各上一侧：两根挤在同一点会叠成一颗更亮的，
+            // 反而看不出「数量变多」。i=0 沿用事件抽到的那一侧，i=1 走另一侧，两侧同时有水雾。
+            final double alongPuff = 0.12D + world.random.nextDouble() * 0.76D;
+            final Vec3d puffBase = a.add(b.subtract(a).multiply(alongPuff));
+            final double puffSide = (i & 1) == 0 ? side : -side;
             final double mistPad = LATERAL_PAD_MIN
                     + world.random.nextDouble() * (LATERAL_PAD_MAX - LATERAL_PAD_MIN);
             // 带符号的横向偏移：±(半宽 + pad)，pad ≥ 0.20，所以落点永远在车体外侧 ≥ 0.2 格。
             // 车体中心 → 外侧的偏移量就是 here；rx/rz 只负责把它转到世界方向。
-            final double mistLateral = side * (halfW + mistPad);
-            final double mistX = base.x + rx * mistLateral + jx;
-            final double mistZ = base.z + rz * mistLateral + jz;
+            final double mistLateral = puffSide * (halfW + mistPad);
+            final double mistX = puffBase.x + rx * mistLateral + jx;
+            final double mistZ = puffBase.z + rz * mistLateral + jz;
             final double mistY = airY(world, mistX, railY + MIST_Y_MIN
                     + world.random.nextDouble() * (MIST_Y_MAX - MIST_Y_MIN) + jy, mistZ);
             if (Double.isNaN(mistY)) {
@@ -697,9 +719,11 @@ public final class RainSpray {
      * 真正发出的粒子总数，{@code skipped} 是被三层预算或概率抽签挡下的候选数，
      * {@code roofSkipped} 是因为车厢中点不露天（隧道 / 棚顶 / 未加载）被整节跳过的车厢数 ——
      * 后者 &gt;0 而 {@code spawned=0} 就是"在隧道里，本来就不该有水雾"的硬证据。
-     * {@code cap} 是令牌桶容量（本窗口的长期配额 = 32/tick × 20 = 640 个/秒）。
-     * {@code density} 是本窗口的配额占用率 {@code spawned/(48×100)}：分子是真正发出去的粒子数，
+     * {@code cap} 是令牌桶容量（本窗口的长期配额 = 60/tick × 20 = 1200 个/秒）。
+     * {@code density} 是本窗口的配额占用率 {@code spawned/(80×100)}：分子是真正发出去的粒子数，
      * 分母是全局每 tick 上限在 100 tick 窗口里能给出的最多个数 —— 调「密不密」时先看这个数。
+     * {@code tint=} 是 {@link SprayParticle} 实际用的顶点色 tint / 寿命 / alpha 区间（直接读那边的
+     * 常量，日志和画面不会对不上）。
      * 窗口内没有任何候选也会照常打印 0 —— 静默窗口和"没在跑"在日志里必须能区分开。
      */
     private static void report(final HeadlightConfig cfg, final ClientWorld world,
@@ -737,12 +761,13 @@ public final class RainSpray {
             // vanilla 表示已经回退到 minecraft:cloud（原因见启动日志里的 "spray particle type=" 一行）。
             // avgSize= 是本窗口新生粒子的平均起始尺寸（格）：调参后先看它，再看画面。
             MtrHeadlightClient.LOGGER.info(
-                    "[lte] spray: trains={} spawned={} density={} skipped={} roofSkipped={} cap={} avgSize={}"
+                    "[lte] spray: trains={} spawned={} density={} skipped={} roofSkipped={} cap={} avgSize={} {}"
                             + " raining={} weather={} grad={} particles={} sprayType={} culled={} probeAt={}",
                     Integer.valueOf(trains), Integer.valueOf(spawned), density,
                     Integer.valueOf(skipped),
                     Integer.valueOf(roofSkipped), Integer.valueOf((int) TOKEN_CAP),
-                    avgSize, Boolean.valueOf(raining), Boolean.valueOf(RailWeather.weatherRaining(world)),
+                    avgSize, SprayParticle.paramsLabel(),
+                    Boolean.valueOf(raining), Boolean.valueOf(RailWeather.weatherRaining(world)),
                     fmt(RailWeather.rainGradient(world)), mode, SprayType.label(),
                     ParticleCull.culled().isEmpty() ? "none" : ParticleCull.culled(),
                     probeAt == null || tick - probeTick > DIAG_PERIOD_TICKS ? "-" : probeAt);

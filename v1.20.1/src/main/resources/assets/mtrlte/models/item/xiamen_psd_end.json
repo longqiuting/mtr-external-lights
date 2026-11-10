@@ -1,6 +1,6 @@
 {
   "parent": "item/generated",
   "textures": {
-    "layer0": "mtrlte:block/xiamen_psd_end"
+    "layer0": "mtrlte:block/psd_glass_diagonal_top_1"
   }
 }

@@ -8,20 +8,58 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.js.mtrheadlight.VehicleLightOverrides.Beam;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.resource.InputSupplier;
+import net.minecraft.resource.ResourcePack;
+import net.minecraft.resource.ResourcePackManager;
+import net.minecraft.resource.ResourcePackProfile;
+import net.minecraft.resource.ResourceType;
 
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Stream;
 
 /**
- * {@code config/lte_beams/<车型 id>.json} —— 3D 编辑器「导出」写的那一份，一车一文件。
+ * 3D 编辑器「导出」写的那一份，一车一文件：{@code <桌面>/<key>.json}。
+ *
+ * <h2>车型 id = MTR 自定义车的 key</h2>
+ * {@code mtr_custom_resources.json} 里 {@code custom_trains.<key>} 的 <b>key</b> 才是车型 id：
+ * 它同时是 {@code assets/mtr/<key>/} 的目录名，也是导出的文件名。MTR 运行时把注册 id 写成
+ * {@code mtr_custom_train_<key>}，编辑器内部拿到的常常是后者 —— 所以落盘前一律用
+ * {@link #keyOf} 剥掉前缀。显示名（{@code name} 字段）只用于界面，不参与文件名。
  *
  * <h2>为什么不是 {@code lte_vehicle_lights.json}</h2>
  * 老格式是「一个文件装所有车型」，适合手写和发布，但 3D 编辑器每次只编一个车型，
  * 一车一文件才能做到「点导出只覆盖这个车型、不碰别的」。落到资源包里时它就是
- * {@code assets/<namespace>/lte_beams/<车型 id>.json}，一个车型一个文件，diff 也干净。
+ * {@code assets/lte/beam3D/<key>.json}，一个车型一个文件，diff 也干净。
+ *
+ * <h2>读的优先级</h2>
+ * <ol>
+ *   <li>{@code <桌面>/<key>.json} —— 编辑器上次导出的工作副本（桌面取不到时就是
+ *       {@code config/lte_beams/}）；</li>
+ *   <li>已加载的资源包，<b>新路径</b> {@code assets/lte/beam3D/<key>.json}
+ *       （其它命名空间的 {@code assets/<ns>/beam3D/} 也一样认）；</li>
+ *   <li>已加载的资源包，<b>旧路径</b> {@code assets/<ns>/lte_beams/<key>.json}（兼容）；</li>
+ *   <li>{@code config/lte_beams/<key>.json} —— 老版本导出留下的文件（兼容）。</li>
+ * </ol>
+ * 新路径永远压过旧路径：先扫完所有包的 {@code beam3D/}，再看 {@code lte_beams/}。
+ * 每一层都同时接受 {@code <key>.json}、{@code mtr_custom_train_<key>.json} 和小写形态，
+ * 文件名比较一律<b>忽略大小写</b>。
+ *
+ * <h2>为什么直接读包根而不是 {@code Identifier}</h2>
+ * 资源管理器只接受 {@code [a-z0-9/._-]} 的路径，{@code beam3D} 里的 {@code D} 直接不是合法
+ * Identifier —— {@code new Identifier("lte", "beam3D/x.json")} 会抛异常，
+ * {@code getAllResources} 也永远看不到它。所以这里用 {@link ResourcePack#openRoot}
+ * 按<b>路径段</b>读，绕开 Identifier 的字符合法性检查，作者写的目录名原样生效。
  *
  * <h2>字段（与运行时 {@link BeamGeom} 的输入一一对应）</h2>
  * <pre>
@@ -39,14 +77,28 @@ import java.util.List;
  */
 final class BeamPackWriter {
 
-    /** {@code config/lte_beams}。 */
+    /** 桌面导出的旧落点 / 兼容读取目录：{@code config/lte_beams}。 */
     static final String CONFIG_DIR = "lte_beams";
+
+    /** 资源包里的新目录：{@code assets/lte/beam3D/}。 */
+    static final String PACK_DIR = "beam3D";
+
+    /** 新目录的默认命名空间：{@code assets/lte/...}。 */
+    static final String PACK_NAMESPACE = "lte";
+
+    /** 资源包里的旧目录（只读兼容）：{@code assets/<ns>/lte_beams/}。 */
+    static final String LEGACY_PACK_DIR = CONFIG_DIR;
+
+    /** MTR 给自定义车注册 id 时加的前缀（{@code mtr_custom_train_<key>}）。 */
+    static final String ID_PREFIX = "mtr_custom_train_";
 
     private static final int FORMAT_VERSION = 1;
 
     private static final String[] COMMENT = {
         "LTE 3D beam editor export - one vehicle per file.",
-        "Place it at assets/<your_pack>/lte_beams/<vehicleId>.json inside a resource pack.",
+        "The file name is the custom_trains key (no mtr_custom_train_ prefix).",
+        "Place it at assets/lte/beam3D/<key>.json inside a resource pack",
+        "(the older assets/<namespace>/lte_beams/<key>.json is still read).",
         "Beam fields map 1:1 to the runtime BeamGeom inputs:",
         "  color -> rgb, pos -> origin (car-local model space), rot -> axis,",
         "  length/width in blocks, alpha 0..1.",
@@ -62,29 +114,106 @@ final class BeamPackWriter {
     private BeamPackWriter() {
     }
 
-    static Path dir() {
+    // ---------------------------------------------------------------------------------------------
+    // 车型 id → key → 文件名
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * 车型 id → 资源包 key：剥掉 {@code mtr_custom_train_}（大小写不敏感）。
+     * 返回的就是 {@code mtr_custom_resources.json} 里 {@code custom_trains} 的键，
+     * 也是 {@code assets/mtr/<key>/} 的目录名和本模组导出的文件名。
+     */
+    static String keyOf(final String vehicleId) {
+        String raw = vehicleId == null ? "" : vehicleId.trim();
+        if (raw.regionMatches(true, 0, ID_PREFIX, 0, ID_PREFIX.length())) {
+            raw = raw.substring(ID_PREFIX.length());
+        }
+        return raw;
+    }
+
+    /**
+     * key → 文件名。key 里不会出现的通配符 / 路径分隔符统一换成 {@code _}。
+     */
+    static String fileName(final String vehicleId) {
+        final String key = keyOf(vehicleId);
+        final String safe = key.replaceAll("[^A-Za-z0-9._-]", "_");
+        return (safe.isEmpty() ? "unknown" : safe) + ".json";
+    }
+
+    /**
+     * 同一个车型可能出现的所有文件名，按优先级：{@code <key>.json}、
+     * 原样 id（可能是 {@code mtr_custom_train_<key>}）、小写形态。
+     *
+     * <p>为什么要三个：作者手写的包里既可能用 key，也可能照注册 id 命名；而 MTR 的 key
+     * 常是小写、注册 id 却可能带大写 —— 这一层就是「大小写不敏感」的落地点。
+     */
+    static List<String> fileNames(final String vehicleId) {
+        final Set<String> out = new LinkedHashSet<>();
+        final String key = keyOf(vehicleId);
+        final String rawId = vehicleId == null ? "" : vehicleId.trim();
+        for (final String base : new String[] {key, rawId, ID_PREFIX + key}) {
+            if (base == null || base.isEmpty()) {
+                continue;
+            }
+            for (final String variant : new String[] {base, base.toLowerCase(Locale.ROOT)}) {
+                final String safe = variant.replaceAll("[^A-Za-z0-9._-]", "_");
+                if (!safe.isEmpty()) {
+                    out.add(safe + ".json");
+                }
+            }
+        }
+        if (out.isEmpty()) {
+            out.add("unknown.json");
+        }
+        return new ArrayList<>(out);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // 导出位置
+    // ---------------------------------------------------------------------------------------------
+
+    /** {@code config/lte_beams}：老导出的落点，也是桌面不可用时的退路。 */
+    static Path configDir() {
         return FabricLoader.getInstance().getConfigDir().resolve(CONFIG_DIR);
     }
 
     /**
-     * 车型 id → 文件名。id 可能带通配符 {@code *}、命名空间冒号或路径分隔符，
-     * 统一换成 {@code _}；保留扩展名可读性（文件名本身就叫 {@code <id>.json}）。
+     * 导出目录 = 桌面：{@code System.getProperty("user.home") + "\\Desktop"}。
+     *
+     * <p>桌面不存在 / 不可写（服务器、纯命令行环境）时退回 {@link #configDir()}，
+     * 所以「导出」永远不会因为找不到桌面而失败。
      */
-    static String fileName(final String vehicleId) {
-        final String raw = vehicleId == null ? "unknown" : vehicleId.trim();
-        final String safe = raw.replaceAll("[^A-Za-z0-9._-]", "_");
-        return (safe.isEmpty() ? "unknown" : safe) + ".json";
+    static Path exportDir() {
+        try {
+            final String home = System.getProperty("user.home");
+            if (home != null && !home.isBlank()) {
+                final Path desktop = Paths.get(home + "\\Desktop");
+                if (Files.isDirectory(desktop) && Files.isWritable(desktop)) {
+                    return desktop;
+                }
+            }
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] beam editor: desktop unavailable, falling back to config", t);
+        }
+        return configDir();
     }
 
+    /** {@link #exportDir()} 的别名；界面上的「导出目录」按钮就开这里。 */
+    static Path dir() {
+        return exportDir();
+    }
+
+    /** 导出落点（桌面，或退回 config）：{@code <dir>/<key>.json}。 */
     static Path pathFor(final String vehicleId) {
-        return dir().resolve(fileName(vehicleId));
+        return exportDir().resolve(fileName(vehicleId));
     }
 
     /** 写一个车型的文件，返回落盘路径。调用方负责把异常变成界面提示。 */
     static Path write(final String vehicleId, final List<Beam> beams) throws Exception {
         final Path path = pathFor(vehicleId);
         Files.createDirectories(path.getParent());
-        Files.writeString(path, toJson(vehicleId, beams), StandardCharsets.UTF_8);
+        // 文件内容里的 id 也必须是 key（不是 mtr_custom_train_<key>）。
+        Files.writeString(path, toJson(keyOf(vehicleId), beams), StandardCharsets.UTF_8);
         return path;
     }
 
@@ -125,32 +254,233 @@ final class BeamPackWriter {
         return sb.toString();
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // 读回
+    // ---------------------------------------------------------------------------------------------
+
     /**
-     * 读回同一份文件（编辑器重新打开某车型时优先用它，而不是运行时层）。
-     * 复用 {@link VehicleLightJson} 的解析器做校验，因此非法字段会被丢弃而不是让界面崩掉。
+     * 读回这个车型：桌面导出 → 资源包新路径 → 资源包旧路径 → config 旧文件。
      *
-     * @return 光束列表；文件不存在 / 读不懂 / 没有 beams 时返回空列表
+     * <p>「文件存在但一条光束都没有」是合法结果（= 关掉覆盖），所以这里区分
+     * 「没有这个文件」（继续往下找）和「文件里有 0 束」。
+     *
+     * @return 光束列表；四处都没有时返回空列表
      */
     static List<Beam> read(final String vehicleId) {
-        final Path path = pathFor(vehicleId);
-        if (!Files.isRegularFile(path)) {
-            return List.of();
+        final List<String> names = fileNames(vehicleId);
+        final Path exported = locate(exportDir(), names);
+        if (exported != null) {
+            final List<Beam> beams = readFile(exported, vehicleId);
+            if (beams != null) {
+                LteLog.LOGGER.info("[lte] beam editor: {} <- {}", fileName(vehicleId), exported);
+                return beams;
+            }
         }
+        final List<Beam> packed = readFromPacks(vehicleId, names);
+        if (packed != null) {
+            return packed;
+        }
+        final Path legacyDir = configDir();
+        if (!sameDir(legacyDir, exportDir())) {
+            final Path legacy = locate(legacyDir, names);
+            if (legacy != null) {
+                final List<Beam> old = readFile(legacy, vehicleId);
+                if (old != null) {
+                    LteLog.LOGGER.info("[lte] beam editor: {} <- {} (legacy)", fileName(vehicleId), legacy);
+                    return old;
+                }
+            }
+        }
+        return List.of();
+    }
+
+    private static boolean sameDir(final Path a, final Path b) {
         try {
-            return parse(Files.readString(path, StandardCharsets.UTF_8), vehicleId, path.toString());
+            return a != null && b != null
+                    && a.toAbsolutePath().normalize().equals(b.toAbsolutePath().normalize());
         } catch (Throwable t) {
-            LteLog.LOGGER.warn("[lte] beam editor: cannot read {}", path, t);
-            return List.of();
+            return false;
         }
     }
 
     /**
-     * 解析一份 {@code lte_beams} 文件（同一格式，来源可以是 config、也可以是导入资源包里的
-     * {@code assets/<ns>/lte_beams/<id>.json}）。复用 {@link VehicleLightJson} 的解析器做校验，
-     * 因此非法字段会被丢弃而不是让界面崩掉。
+     * 在目录里找第一个存在的候选文件：先按名字直接 resolve（Windows 上大小写不敏感，
+     * 一步命中），再列目录按忽略大小写比一遍（Linux / 作者大小写写错的导出）。
+     */
+    static Path locate(final Path dir, final List<String> names) {
+        if (dir == null || names == null || names.isEmpty() || !Files.isDirectory(dir)) {
+            return null;
+        }
+        for (final String name : names) {
+            final Path direct = dir.resolve(name);
+            if (Files.isRegularFile(direct)) {
+                return direct;
+            }
+        }
+        final Set<String> lowered = new LinkedHashSet<>();
+        for (final String name : names) {
+            lowered.add(name.toLowerCase(Locale.ROOT));
+        }
+        try (Stream<Path> list = Files.list(dir)) {
+            return list.filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName() != null
+                            && lowered.contains(p.getFileName().toString().toLowerCase(Locale.ROOT)))
+                    .findFirst()
+                    .orElse(null);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * 读一份具体的文件。
+     *
+     * @return null = 文件不存在 / 读不了；否则是解析结果（可能是空列表）
+     */
+    private static List<Beam> readFile(final Path path, final String vehicleId) {
+        if (path == null || !Files.isRegularFile(path)) {
+            return null;
+        }
+        try {
+            return parse(Files.readString(path, StandardCharsets.UTF_8), keyOf(vehicleId), path.toString());
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] beam editor: cannot read {}", path, t);
+            return null;
+        }
+    }
+
+    /**
+     * 已加载资源包里的这个车型：先扫全部包的 {@code assets/lte/beam3D/<key>.json}
+     * （以及其它命名空间的 {@code assets/<ns>/beam3D/}），再扫旧路径
+     * {@code assets/<ns>/lte_beams/<key>.json}。同一个路径类别里，栈顶（后加载）的包赢。
+     *
+     * @return null = 所有已加载的包都没有这个文件
+     */
+    private static List<Beam> readFromPacks(final String vehicleId, final List<String> names) {
+        final List<ResourcePack> packs = enabledPacks();
+        if (packs.isEmpty()) {
+            return null;
+        }
+        try {
+            final List<Beam> fresh = scanPacks(packs, vehicleId, names, PACK_DIR);
+            if (fresh != null) {
+                return fresh;
+            }
+            return scanPacks(packs, vehicleId, names, LEGACY_PACK_DIR);
+        } finally {
+            for (final ResourcePack pack : packs) {
+                try {
+                    pack.close();
+                } catch (Throwable ignored) {
+                    // 关不掉也只是一次文件句柄，不影响读数
+                }
+            }
+        }
+    }
+
+    /**
+     * 一个目录类别、全部包扫一遍：优先级低 → 高遍历，后命中的覆盖前面，所以最后命中
+     * 的就是生效的那一份（与 Minecraft「栈顶包赢」一致）。目录名同时试 {@code beam3D}
+     * 和它的小写形态（有的作者写 {@code beam3d}）。
+     *
+     * @return null = 一个包都没有这个文件
+     */
+    private static List<Beam> scanPacks(final List<ResourcePack> packs, final String vehicleId,
+                                        final List<String> names, final String dir) {
+        final String[] dirs = new String[] {dir, dir.toLowerCase(Locale.ROOT)};
+        List<Beam> winner = null;
+        String from = null;
+        for (final ResourcePack pack : packs) {
+            for (final String namespace : namespacesOf(pack)) {
+                for (final String candidate : dirs) {
+                    for (final String name : names) {
+                        final InputSupplier<InputStream> supplier;
+                        try {
+                            supplier = pack.openRoot("assets", namespace, candidate, name);
+                        } catch (Throwable t) {
+                            continue;
+                        }
+                        final String json = readAll(supplier);
+                        if (json == null || json.isBlank()) {
+                            continue;
+                        }
+                        winner = parse(json, keyOf(vehicleId),
+                                pack.getName() + "!assets/" + namespace + "/" + candidate + "/" + name);
+                        from = pack.getName() + ":assets/" + namespace + "/" + candidate + "/" + name;
+                    }
+                }
+            }
+        }
+        if (winner != null) {
+            LteLog.LOGGER.info("[lte] beam editor: {} <- {} ({} beams)", fileName(vehicleId), from,
+                    Integer.valueOf(winner.size()));
+        }
+        return winner;
+    }
+
+    /** 这个包里值得找的命名空间：{@link #PACK_NAMESPACE}（{@code lte}）排最前，其余按字母序。 */
+    private static Set<String> namespacesOf(final ResourcePack pack) {
+        final Set<String> out = new LinkedHashSet<>();
+        out.add(PACK_NAMESPACE);
+        try {
+            final List<String> rest = new ArrayList<>();
+            for (final String namespace : pack.getNamespaces(ResourceType.CLIENT_RESOURCES)) {
+                if (namespace != null && !namespace.isBlank()
+                        && !PACK_NAMESPACE.equalsIgnoreCase(namespace)) {
+                    rest.add(namespace.toLowerCase(Locale.ROOT));
+                }
+            }
+            rest.sort(String.CASE_INSENSITIVE_ORDER);
+            out.addAll(rest);
+        } catch (Throwable ignored) {
+            // 包不报命名空间（老/自建包）：只试默认的那一个
+        }
+        return out;
+    }
+
+    /** 已加载的资源包，低 → 高优先级（{@code getEnabledProfiles} 的顺序就是栈序）。 */
+    private static List<ResourcePack> enabledPacks() {
+        final List<ResourcePack> out = new ArrayList<>();
+        try {
+            final MinecraftClient client = MinecraftClient.getInstance();
+            if (client == null) {
+                return out;
+            }
+            final ResourcePackManager manager = client.getResourcePackManager();
+            if (manager == null) {
+                return out;
+            }
+            for (final ResourcePackProfile profile : manager.getEnabledProfiles()) {
+                try {
+                    out.add(profile.createResourcePack());
+                } catch (Throwable t) {
+                    LteLog.LOGGER.warn("[lte] beam editor: cannot open pack {}", profile.getName());
+                }
+            }
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] beam editor: pack scan unavailable", t);
+        }
+        return out;
+    }
+
+    private static String readAll(final InputSupplier<InputStream> supplier) {
+        if (supplier == null) {
+            return null;
+        }
+        try (InputStream in = supplier.get()) {
+            return in == null ? null : new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * 解析一份文件（同一格式，来源可以是桌面 / config、也可以是资源包里的
+     * {@code assets/lte/beam3D/<key>.json} 或旧的 {@code assets/<ns>/lte_beams/<key>.json}）。
+     * 复用 {@link VehicleLightJson} 的解析器做校验，因此非法字段会被丢弃而不是让界面崩掉。
      *
      * @param json     文件内容
-     * @param vehicleId 车型 id（写回包装用）
+     * @param vehicleId 车型 key（写回包装用）
      * @param source   出错时打印的来源（文件 / zip!条目）
      */
     static List<Beam> parse(final String json, final String vehicleId, final String source) {

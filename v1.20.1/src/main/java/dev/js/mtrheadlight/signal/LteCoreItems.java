@@ -1,6 +1,7 @@
 package dev.js.mtrheadlight.signal;
 
 import dev.js.mtrheadlight.TabIcons;
+import dev.js.mtrheadlight.bind.BeamEditorItem;
 import dev.js.mtrheadlight.bind.LteDashboardItem;
 import dev.js.mtrheadlight.bind.PidsConnectorItem;
 import dev.js.mtrheadlight.bind.ProjectorConnectorItem;
@@ -36,9 +37,10 @@ import net.minecraft.util.Identifier;
  * 这个名字让给了「厦门风格物件」页签（{@link dev.js.mtrheadlight.xiamen.XiamenObjects}），
  * 因为 1.20.1 的页签是 registry 条目，同一个 id 注册两次会直接崩。
  *
- * <p>页签里的四件东西：{@code signal_linker}（信号灯 → 轨道节点）、{@code projector_connector}
- * （投影机 → 车站）、{@code pids_connector}（PIDS → 站台）、{@code lte_dashboard}（右键开配置界面）。
- * 前三件都是服务端权威的绑定工具，第四件只在客户端打开界面 —— 但<b>四个物品都在两端注册</b>：
+ * <p>页签里的东西：{@code signal_linker}（信号灯 → 轨道节点）、{@code projector_connector}
+ * （投影机 → 车站）、{@code pids_connector}（PIDS → 站台）、{@code lte_dashboard}（右键开配置界面）、
+ * {@code beam_editor}（右键开 3D 光束编辑器）。
+ * 前三件都是服务端权威的绑定工具，后两件只在客户端打开界面 —— 但<b>五个物品都在两端注册</b>：
  * 只在客户端注册的物品在服务器上是「未知物品」，联机时会掉。
  */
 public final class LteCoreItems {
@@ -55,6 +57,9 @@ public final class LteCoreItems {
     /** 物品 id：{@code mtrlte:lte_dashboard}（右键开配置界面，仅客户端）。 */
     public static final Identifier DASHBOARD_ID = new Identifier("mtrlte", "lte_dashboard");
 
+    /** 物品 id：{@code mtrlte:beam_editor}（右键开 3D 光束编辑器，仅客户端）。 */
+    public static final Identifier BEAM_EDITOR_ID = new Identifier("mtrlte", "beam_editor");
+
     /** 页签 id：{@code mtrlte:tools}。 */
     public static final Identifier TOOLS_TAB_ID = new Identifier("mtrlte", "tools");
 
@@ -62,6 +67,7 @@ public final class LteCoreItems {
     private static ProjectorConnectorItem projectorConnector;
     private static PidsConnectorItem pidsConnector;
     private static LteDashboardItem dashboard;
+    private static BeamEditorItem beamEditor;
     private static boolean registered;
 
     private LteCoreItems() {
@@ -83,6 +89,10 @@ public final class LteCoreItems {
         return dashboard;
     }
 
+    public static BeamEditorItem beamEditor() {
+        return beamEditor;
+    }
+
     public static void register() {
         if (registered) {
             return;
@@ -98,6 +108,9 @@ public final class LteCoreItems {
                 new PidsConnectorItem(new Item.Settings().maxCount(1)));
         dashboard = Registry.register(Registries.ITEM, DASHBOARD_ID,
                 new LteDashboardItem(new Item.Settings().maxCount(1)));
+        // 车灯编辑器：右键开 3D 光束编辑器（和 /mtr_lte beam3d 同一个屏幕）。
+        beamEditor = Registry.register(Registries.ITEM, BEAM_EDITOR_ID,
+                new BeamEditorItem(new Item.Settings().maxCount(1)));
 
         // 页签图标：不是本页签里的任何物品，而是一个只画图标的物品（见 TabIcons 的类注释）。
         TabIcons.register();
@@ -114,6 +127,7 @@ public final class LteCoreItems {
                     entries.add(projectorConnector);
                     entries.add(pidsConnector);
                     entries.add(dashboard);
+                    entries.add(beamEditor);
                 });
     }
 

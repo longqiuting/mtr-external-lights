@@ -1,6 +1,6 @@
 {
   "parent": "item/generated",
   "textures": {
-    "layer0": "mtrlte:block/xiamen_psd_door"
+    "layer0": "mtrlte:block/xiamen_psd_door_top"
   }
 }

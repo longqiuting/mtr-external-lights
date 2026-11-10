@@ -63,8 +63,9 @@ import java.util.UUID;
  * <h2>冲量</h2>
  *
  * <pre>
- * 距离    : knockbackDistance              (格，默认 5.5，钳制 1–20)
- *           50 ≤ v &lt; launchMax 用它；v ≥ launchMax 用 1.5 倍（飞出档更狠）
+ * 距离    : d(v) = knockbackDistance · exp(knockbackExpK · (v − 50) / 50)   (格)
+ *           50 = 参考车速（基准距离就是这个车速下的距离），结果钳制 1 … knockbackMax（默认 80）
+ *           50 km/h ≈ 5.5 格、80 ≈ 10 格、120 ≈ 22 格、160 ≈ 50 格
  * 竖直    : launchVertical (0.45 格/tick) / flyVertical (0.60 格/tick)
  * 水平    : 由距离反推 —— 竖直初速先定滞空 n tick，再用平抛公式
  *           vx = 距离 / Σ(0.91^k, k = 0..n−1)        （空气摩擦 0.91/tick）
@@ -73,8 +74,8 @@ import java.util.UUID;
  * </pre>
  *
  * <p>水平初速不再手填：{@link HeadlightConfig#trainCollisionLaunchHorizontal} 已废弃，只由
- * {@link HeadlightConfig#knockbackDistance} 反推，所以「配置里写 5.5 格」落地时就是 5.5 格
- * （离线积分见 {@code tools/knockback-sim.js}）。撞飞锁（{@link #impulseActive}）覆盖<b>整个滞空
+ * {@link #knockbackDistanceAt} 反推，所以「公式算 22 格」落地时就是 22 格
+ * （离线逐 tick 积分见 {@code tools/knockback-curve.js}）。撞飞锁（{@link #impulseActive}）覆盖<b>整个滞空
  * 阶段直到落地</b>（{@link #grounded}：{@code isOnGround()} 或脚底离地 &lt; 0.1 格），否则下一 tick
  * 的「跟着车走」速度推送会把冲量压回去 —— 那正是「撞飞看着只挪了一格」的另一半原因。锁到落地
  * 还有个副作用是好的：落地后再被同一列车重复施加冲量/推送不会发生（除了 20 tick 冷却之外的第二次
@@ -289,11 +290,12 @@ public final class CollisionImpact {
     /**
      * 撞飞档的水平初速（格/tick）。
      *
-     * @deprecated 已被 {@link #knockbackHorizontal} 取代（由 {@code knockbackDistance} 反推）。
+     * @deprecated 已被 {@link #knockbackHorizontal(HeadlightConfig, Tier, double)} 取代；
+     *             保留这个重载只为旧调用点，车速未知时按 {@code v0 + 50}（约 10 格）估算。
      */
     @Deprecated
     public static double launchHorizontal(final HeadlightConfig cfg, final Tier tier) {
-        return knockbackHorizontal(cfg, tier);
+        return knockbackHorizontal(cfg, tier, cfg.trainCollisionPushOnlyMaxKmhClamped() + 50.0D);
     }
 
     /**
@@ -305,13 +307,46 @@ public final class CollisionImpact {
                 : cfg.trainCollisionLaunchVerticalClamped();
     }
 
-    /** 飞出档比撞飞档多飞多少倍（1.5×）。 */
-    public static final double FLY_DISTANCE_SCALE = 1.5D;
+    /**
+     * 撞飞距离的速度尺度与参考速度（km/h）：
+     * {@code d(v) = base · exp(k · (v − 50) / 50)}。
+     *
+     * <p>取固定的 50 而不是伤害起点 {@code trainCollisionPushOnlyMaxKmh}（默认 5）或侧线的覆盖值：
+     * 那个值可以低到 0、也可以高到 300，直接当 {@code v0} 用会让 {@code exp} 在同一档位内
+     * 差出几十倍（{@code v0 = 10} 时 100 km/h 就吃掉 {@code e^9}，人直接被扔出区块）。
+     * 固定的 50 让「每快 50 km/h 距离乘 {@code e^k}」成为一条与档位、侧线都无关的手感规则，
+     * 也让默认值正好满足「50 km/h = 基准距离」。
+     */
+    public static final double KNOCKBACK_EXP_SCALE_KMH = 50.0D;
 
-    /** 这一档要飞多远（格）。 */
-    public static double launchDistance(final HeadlightConfig cfg, final Tier tier) {
+    /** 基准距离对应的车速（km/h），见 {@link #KNOCKBACK_EXP_SCALE_KMH}。 */
+    public static final double KNOCKBACK_REF_KMH = 50.0D;
+
+    /**
+     * 这个车速要飞多远（格）。
+     *
+     * <p>{@code d(v) = knockbackDistance · exp(knockbackExpK · (v − 50) / 50)}，钳制
+     * 1 … {@code knockbackMax}。车速低于 50 时曲线照样算（只是更短），下限 1 格保证
+     * 「被撞飞」至少离开原来的位置；真正会不会飞由 {@link Tier#launches()} 决定。
+     *
+     * <p>{@code exp} 的指数先做上界判断：{@code k} 上限 3、车速 400 时指数是 21，{@code exp(21)}
+     * 还有效但已经远大于任何上限，直接返回 {@code knockbackMax} 更省事，也顺手挡掉
+     * {@code exp} 溢出成 {@code Infinity} 之后 {@code min} 的比较。
+     */
+    public static double knockbackDistanceAt(final HeadlightConfig cfg, final double speedKmh) {
         final double base = cfg.knockbackDistanceClamped();
-        return tier == Tier.FLY ? base * FLY_DISTANCE_SCALE : base;
+        final double k = cfg.knockbackExpKClamped();
+        final double max = cfg.knockbackMaxClamped();
+        final double exponent = k * (speedKmh - KNOCKBACK_REF_KMH) / KNOCKBACK_EXP_SCALE_KMH;
+        if (!(exponent < 20.0D)) {
+            // exp(20) ≈ 4.9e8，早已越界；也让 NaN / Infinity 走同一条路（!(x < 20) 对 NaN 为真）。
+            return max;
+        }
+        final double d = base * Math.exp(exponent);
+        if (!(d > 0.0D)) {
+            return 1.0D;
+        }
+        return Math.min(max, Math.max(1.0D, d));
     }
 
     /** 重力（格/tick²），与 {@code LivingEntity#travel} 的 0.08 一致。 */
@@ -365,19 +400,21 @@ public final class CollisionImpact {
     }
 
     /**
-     * 撞飞/飞出的水平初速（格/tick）—— 由 {@link HeadlightConfig#knockbackDistance} 反推：
-     * {@code vx = 距离 / Σ(0.91^k)}。
+     * 撞飞/飞出的水平初速（格/tick）—— 由 {@link #knockbackDistanceAt} 反推：
+     * {@code vx = d(v) / Σ(0.91^k)}。
      *
      * <p>竖直初速越小，滞空越短，同样的距离需要越大的水平速度；所以这个反推对配置里的竖直初速
-     * 完全自适应，改竖直不改距离。
+     * 完全自适应，改竖直不改距离。反推之后再用同一套系数逐 tick 积分，落地位移就等于公式值
+     * （{@code tools/knockback-curve.js} 里对四档都验过）。
      *
-     * <p>上限 8 / 12 格/tick 只是防御：距离钳到 20 格、竖直 0.45 时反推出来约 2.9，远到不了上限；
-     * 竖直被改成 0.01 这种离谱值时才会撞上限（那时人也飞不出 20 格，属于配置自找的）。
+     * <p>上限 8 / 12 格/tick 只是防御：默认配置下 160 km/h 反推约 6.7 格/tick（80 格上限时
+     * 10.8），只有把竖直改成 0.01 这种离谱值才会撞上限（那时人也飞不出公式值，属于配置自找的）。
      */
-    public static double knockbackHorizontal(final HeadlightConfig cfg, final Tier tier) {
+    public static double knockbackHorizontal(final HeadlightConfig cfg, final Tier tier,
+                                             final double speedKmh) {
         final double vy = launchVertical(cfg, tier);
         final double reach = Math.max(1.0E-3D, horizontalReach(vy));
-        final double vx = launchDistance(cfg, tier) / reach;
+        final double vx = knockbackDistanceAt(cfg, speedKmh) / reach;
         final double cap = tier == Tier.FLY ? 12.0D : 8.0D;
         return Math.min(cap, Math.max(0.0D, vx));
     }
@@ -572,7 +609,7 @@ public final class CollisionImpact {
                 && now - s.lastImpulse >= cfg.trainCollisionImpactCooldownTicksClamped()) {
             s.lastImpulse = now;
             // 不看 s.damageOn：伤害关掉时撞飞照旧，否则高速车会「穿过」人。
-            final double vx = impulse(entity, cfg, tier, dirX, dirZ);
+            final double vx = impulse(entity, cfg, tier, speedKmh, dirX, dirZ);
             if (vx > 0.0D) {
                 pushed = true;
                 s.launchVx = vx;
@@ -918,12 +955,14 @@ public final class CollisionImpact {
 
     /**
      * 冲量：水平远离车体（方向由几何那边给），水平速度由 {@link #knockbackHorizontal} 按
-     * {@code knockbackDistance} 反推，竖直给一个够滞空的向上分量（0.45 / 0.60）。
+     * {@code d(v) = base·exp(k(v−50)/50)} 反推，竖直给一个够滞空的向上分量（0.45 / 0.60）。
      *
+     * @param speedKmh 撞击时的车速 —— 距离就是它算出来的，撞得越快飞得越远（指数）
      * @return 实际施加的水平初速（格/tick）；0 = 没有方向，没飞
      */
     private static double impulse(final LivingEntity entity, final HeadlightConfig cfg,
-                                  final Tier tier, final double dirX, final double dirZ) {
+                                  final Tier tier, final double speedKmh,
+                                  final double dirX, final double dirZ) {
         double x = dirX;
         double z = dirZ;
         double len = Math.sqrt(x * x + z * z);
@@ -932,7 +971,7 @@ public final class CollisionImpact {
         }
         x /= len;
         z /= len;
-        final double horizontal = knockbackHorizontal(cfg, tier);
+        final double horizontal = knockbackHorizontal(cfg, tier, speedKmh);
         final double vertical = launchVertical(cfg, tier);
         try {
             entity.setVelocity(x * horizontal, vertical, z * horizontal);
@@ -950,9 +989,14 @@ public final class CollisionImpact {
                     // 镜像失败只影响手感，不影响伤害。
                 }
             }
-            LteLog.LOGGER.info("[lte] knockback: tier={} dist={} vx={} vy={} air={}t",
+            LteLog.LOGGER.info("[lte] knockback: tier={} v={}km/h base={} k={} max={} dist={} vx={} vy={} air={}t",
                     tier.name(),
-                    String.format(Locale.ROOT, "%.2f", Double.valueOf(launchDistance(cfg, tier))),
+                    String.format(Locale.ROOT, "%.0f", Double.valueOf(speedKmh)),
+                    String.format(Locale.ROOT, "%.2f", Double.valueOf(cfg.knockbackDistanceClamped())),
+                    String.format(Locale.ROOT, "%.2f", Double.valueOf(cfg.knockbackExpKClamped())),
+                    String.format(Locale.ROOT, "%.0f", Double.valueOf(cfg.knockbackMaxClamped())),
+                    String.format(Locale.ROOT, "%.2f",
+                            Double.valueOf(knockbackDistanceAt(cfg, speedKmh))),
                     String.format(Locale.ROOT, "%.3f", Double.valueOf(horizontal)),
                     String.format(Locale.ROOT, "%.2f", Double.valueOf(vertical)),
                     Integer.valueOf(flightTicks(vertical)));
