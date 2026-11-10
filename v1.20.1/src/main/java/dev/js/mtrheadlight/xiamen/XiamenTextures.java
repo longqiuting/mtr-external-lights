@@ -57,6 +57,15 @@ public final class XiamenTextures {
      */
     private static final ThreadLocal<String> ACTIVE_NAMESPACE = new ThreadLocal<>();
 
+    /**
+     * 「当前正在画的门，门灯该用哪个颜色」（{@code orange} / {@code green} / {@code blue}）。
+     *
+     * <p>和命名空间同一个 ThreadLocal 通道：门灯贴图 id 也是在 {@code RenderPSDAPGDoor#render} 里
+     * {@code String.format} 出来的（{@code light_%s.png} / {@code apg_door_light_%s.png}），
+     * 只有在这一层能改。颜色由 {@link XiamenDoorLights#colorFor} 按“门所在的站台属于哪条线路”算出来。
+     */
+    private static final ThreadLocal<String> ACTIVE_LIGHT_COLOR = new ThreadLocal<>();
+
     private XiamenTextures() {
     }
 
@@ -66,6 +75,16 @@ public final class XiamenTextures {
      * <p>{@link #useModTextures} 关掉时直接执行，不碰 ThreadLocal。
      */
     public static void withNamespace(final String namespace, final Runnable body) {
+        withNamespace(namespace, null, body);
+    }
+
+    /**
+     * 同上，另外指定门灯颜色（{@code orange} / {@code green} / {@code blue}，null = 用基础贴图）。
+     *
+     * <p>{@code orange} 与 null 等价：模组自带的 {@code light_on.png} / {@code apg_door_light_on.png}
+     * 就是 MTR 原版那张橙色图，不必再放一份 {@code _orange} 变体。
+     */
+    public static void withNamespace(final String namespace, final String doorLightColor, final Runnable body) {
         if (body == null) {
             return;
         }
@@ -74,7 +93,11 @@ public final class XiamenTextures {
             return;
         }
         final String previous = ACTIVE_NAMESPACE.get();
+        final String previousColor = ACTIVE_LIGHT_COLOR.get();
         ACTIVE_NAMESPACE.set(namespace);
+        if (doorLightColor != null) {
+            ACTIVE_LIGHT_COLOR.set(doorLightColor);
+        }
         try {
             body.run();
         } finally {
@@ -82,6 +105,11 @@ public final class XiamenTextures {
                 ACTIVE_NAMESPACE.remove();
             } else {
                 ACTIVE_NAMESPACE.set(previous);
+            }
+            if (previousColor == null) {
+                ACTIVE_LIGHT_COLOR.remove();
+            } else {
+                ACTIVE_LIGHT_COLOR.set(previousColor);
             }
         }
     }
@@ -96,7 +124,7 @@ public final class XiamenTextures {
             return formatted;
         }
         try {
-            return resolve(namespace, formatted);
+            return resolve(namespace, formatted, ACTIVE_LIGHT_COLOR.get());
         } catch (Throwable t) {
             // 渲染线程上任何异常都不能抛出去。
             return formatted;
@@ -121,6 +149,11 @@ public final class XiamenTextures {
      * 免得为了打一行日志再造一个假实例）。
      */
     public static String resolve(final String namespace, final String raw) {
+        return resolve(namespace, raw, null);
+    }
+
+    /** 完整形态：带上门灯颜色（{@code null} / {@code orange} = 基础贴图）。 */
+    public static String resolve(final String namespace, final String raw, final String doorLightColor) {
         if (!useModTextures || raw == null) {
             return raw;
         }
@@ -128,21 +161,43 @@ public final class XiamenTextures {
                 || !raw.startsWith(PACK_NAMESPACE + ":")) {
             return raw;
         }
-        // 缓存作废必须发生在 computeIfAbsent 之外（映射函数里不许改这张表）。
+        // 缓存作废必须发生在查表之外（映射函数里不许改这张表）。
         resetIfResourceManagerChanged();
-        final String key = namespace + '|' + raw;
+        final String tint = doorLightColor == null ? "" : doorLightColor;
+        final String key = namespace + '|' + tint + '|' + raw;
         final String cached = RESOLVED.get(key);
         if (cached != null) {
             return cached;
         }
-        final String resolved = remap(namespace, raw);
+        final String resolved = remap(namespace, raw, tint);
         RESOLVED.put(key, resolved);
         return resolved;
     }
 
-    /** {@code mtr:path} → {@code mtrlte:path}，不存在就退回原样。 */
-    private static String remap(final String namespace, final String raw) {
-        final String candidate = namespace + ':' + raw.substring(PACK_NAMESPACE.length() + 1);
+    /**
+     * {@code mtr:path} → {@code mtrlte:path}（门灯还先试同色的变体），不存在就退回原样。
+     *
+     * <p>门灯变体的命名：{@code light_on.png} → {@code light_on_green.png}、
+     * {@code apg_door_light_off.png} → {@code apg_door_light_off_green.png}。
+     * 三门色（orange/green/blue）的图都在 {@code assets/mtrlte/textures/block/} 里，
+     * 橙色就是 MTR 原版那一份，所以 {@code orange} 直接走基础贴图。
+     */
+    private static String remap(final String namespace, final String raw, final String lightColor) {
+        final String path = raw.substring(PACK_NAMESPACE.length() + 1);
+        if (lightColor != null && !lightColor.isEmpty() && !"orange".equals(lightColor) && isDoorLight(path)) {
+            final String variantPath = path.endsWith(".png")
+                    ? path.substring(0, path.length() - 4) + '_' + lightColor + ".png"
+                    : path + '_' + lightColor + ".png";
+            final String variant = namespace + ':' + variantPath;
+            if (exists(variant)) {
+                return variant;
+            }
+            if (REPORTED_MISSING.add(raw + '@' + lightColor)) {
+                LteLog.LOGGER.info("[lte] door light {} is not in {} -> using {}",
+                        variantPath, namespace, path);
+            }
+        }
+        final String candidate = namespace + ':' + path;
         if (exists(candidate)) {
             return candidate;
         }
@@ -150,6 +205,11 @@ public final class XiamenTextures {
             LteLog.LOGGER.info("[lte] texture {} is not in {} -> keeping the resource-pack id", raw, namespace);
         }
         return raw;
+    }
+
+    /** 门灯贴图：{@code light_on/off.png} 与 {@code apg_door_light_on/off.png}。 */
+    private static boolean isDoorLight(final String path) {
+        return path.endsWith("light_on.png") || path.endsWith("light_off.png");
     }
 
     /** 资源包栈里有没有这张图（{@code getAllResources} 只在完全找不到时返回空表）。 */

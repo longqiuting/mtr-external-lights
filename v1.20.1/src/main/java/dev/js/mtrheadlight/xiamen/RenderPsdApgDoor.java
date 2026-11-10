@@ -43,7 +43,7 @@ public class RenderPsdApgDoor extends RenderPSDAPGDoor<XiamenPsdBlocks.TileEntit
     @Override
     public void render(XiamenPsdBlocks.TileEntityXiamenAPGDoor entity, float tickDelta, MatrixStack matrices,
                        VertexConsumerProvider vertexConsumers, int light, int overlay) {
-        XiamenTextures.withNamespace(lte$textureNamespace(),
+        XiamenTextures.withNamespace(lte$textureNamespace(), XiamenDoorLights.colorFor(entity.getPos()),
                 () -> this.drawInMtr(entity, tickDelta, matrices, vertexConsumers, light, overlay));
     }
 

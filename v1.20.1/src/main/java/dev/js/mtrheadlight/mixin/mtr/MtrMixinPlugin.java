@@ -40,6 +40,10 @@ public final class MtrMixinPlugin implements IMixinConfigPlugin {
             // 门扇贴图命名空间切换：只要 MTR 的门扇渲染器在就应用（与列车注册表无关）。
             return HostProbe.mtrPsdDoorRenderer();
         }
+        if (mixinClassName.endsWith(".RouteMapArtMixin")) {
+            // 线路条带重绘：只要 MTR 的线路图生成器在就应用（与列车注册表无关）。
+            return HostProbe.mtrRouteMap();
+        }
         return HostProbe.mtrTrainRegistry();
     }
 

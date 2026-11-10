@@ -1,0 +1,889 @@
+### mtr.data.Train
+public abstract class mtr.data.Train extends mtr.data.NameColorDataBase implements mtr.packet.IPacket {
+  protected float speed;
+  protected double railProgress;
+  protected boolean doorTarget;
+  protected float doorValue;
+  protected float elapsedDwellTicks;
+  protected int nextStoppingIndex;
+  protected int nextPlatformIndex;
+  protected boolean reversed;
+  protected boolean isOnRoute;
+  protected boolean isCurrentlyManual;
+  protected int manualNotch;
+  protected boolean useLegacyManualNotch;
+  public final long sidingId;
+  public final java.lang.String trainId;
+  public final java.lang.String baseTrainType;
+  public final mtr.data.TransportMode transportMode;
+  public final int spacing;
+  public final int width;
+  public final int trainCars;
+  public final float accelerationConstant;
+  public final boolean isManualAllowed;
+  public boolean enablePredictiveBraking;
+  public final int maxManualSpeed;
+  public final int manualToAutomaticTime;
+  public final java.util.List<mtr.path.PathData> path;
+  protected final java.util.List<java.lang.Double> distances;
+  protected final int repeatIndex1;
+  protected final int repeatIndex2;
+  protected final java.util.Set<java.util.UUID> ridingEntities;
+  protected final net.minecraft.inventory.SimpleInventory inventory;
+  public static final float ACCELERATION_DEFAULT;
+  public static final float MAX_ACCELERATION;
+  public static final float MIN_ACCELERATION;
+  public static final int ACCELERATION_DECIMAL_PLACES;
+  public static final int DOOR_MOVE_TIME;
+  protected static final int MAX_CHECK_DISTANCE;
+  protected static final int DOOR_DELAY;
+  public static final int P5;
+  public static final int P4;
+  public static final int P3;
+  public static final int P2;
+  public static final int P1;
+  public static final int N;
+  public static final int B1;
+  public static final int B2;
+  public static final int B3;
+  public static final int B4;
+  public static final int B5;
+  public static final int B6;
+  public static final int B7;
+  public static final int EB;
+  public static final int MAX_POWER_NOTCH;
+  public static final int MAX_BRAKE_NOTCH;
+  public static final int OLD_MAX_POWER;
+  public static final int OLD_MAX_BRAKE;
+  public static final int OLD_EMERGENCY_BRAKE;
+  protected boolean isManualBrakingToReversal;
+  protected int reversalTargetIndex;
+  public static float getManualNotchAccelerationMultiplier(int);
+  public mtr.data.Train(long, long, float, java.lang.String, java.lang.String, int, java.util.List<mtr.path.PathData>, java.util.List<java.lang.Double>, int, int, float, boolean, int, int);
+  public mtr.data.Train(long, float, java.util.List<mtr.path.PathData>, java.util.List<java.lang.Double>, int, int, float, boolean, int, int, java.util.Map<java.lang.String, org.msgpack.value.Value>);
+  public mtr.data.Train(long, float, java.util.List<mtr.path.PathData>, java.util.List<java.lang.Double>, int, int, float, boolean, int, int, net.minecraft.nbt.NbtCompound);
+  public mtr.data.Train(net.minecraft.network.PacketByteBuf);
+  public void toMessagePack(org.msgpack.core.MessagePacker) throws java.io.IOException;
+  public int messagePackLength();
+  public void writePacket(net.minecraft.network.PacketByteBuf);
+  protected final boolean hasTransportMode();
+  public final boolean getIsOnRoute();
+  public final double getRailProgress();
+  public final boolean closeToDepot(int);
+  public final boolean isCurrentlyManual();
+  public boolean changeManualSpeed(boolean);
+  public boolean changeManualSpeedNew(boolean);
+  public int getManualNotchPercentageForDisplay();
+  public boolean isInEmergencyBrake();
+  public static boolean isEmergencyBrakeLegacy(int);
+  public static boolean isManualNotchInLegacyRange(int);
+  public boolean toggleDoors();
+  public final int getIndex(int, int, boolean);
+  public final int getIndex(double, boolean);
+  public final float getRailSpeed(int);
+  public final boolean isPlayerRiding(net.minecraft.entity.player.PlayerEntity);
+  public final float getSpeed();
+  public final float getDoorValue();
+  public final float getElapsedDwellTicks();
+  public final boolean isReversed();
+  public final boolean isOnRoute();
+  public int getTotalDwellTicks();
+  protected int getAdcTimeTicks();
+  protected final void simulateTrain(net.minecraft.world.World, float, mtr.data.Depot);
+  protected final void calculateCar(net.minecraft.world.World, net.minecraft.util.math.Vec3d[], int, int, mtr.data.Train$CalculateCarCallback);
+  protected void startUp(net.minecraft.world.World, int, int, boolean);
+  protected boolean openDoors();
+  protected float getModelZOffset();
+  protected boolean isRepeat();
+  protected abstract void simulateCar(net.minecraft.world.World, int, float, double, double, double, float, float, double, double, double, float, float, boolean, boolean, double);
+  protected abstract boolean handlePositions(net.minecraft.world.World, net.minecraft.util.math.Vec3d[], float);
+  protected abstract boolean canDeploy(mtr.data.Depot);
+  protected abstract boolean isRailBlocked(int);
+  protected abstract boolean skipScanBlocks(net.minecraft.world.World, double, double, double);
+  protected abstract boolean openDoors(net.minecraft.world.World, net.minecraft.block.Block, net.minecraft.util.math.BlockPos, int);
+  protected abstract double asin(double);
+  public static boolean isHoldingKey(net.minecraft.entity.player.PlayerEntity);
+  public static boolean isHoldingOnboardTool(net.minecraft.entity.player.PlayerEntity);
+  public static double getAverage(double, double);
+  public static mtr.data.RailType convertMaxManualSpeed(int);
+  protected boolean isStoppingAtPlatform();
+}
+### mtr.data.TrainClient
+public class mtr.data.TrainClient extends mtr.data.Train implements mtr.data.IGui {
+  public boolean isRemoved;
+  public final mtr.render.TrainRendererBase trainRenderer;
+  public final mtr.sound.TrainSoundBase trainSound;
+  public final mtr.data.VehicleRidingClient vehicleRidingClient;
+  public final java.util.List<mtr.client.ScrollingText> scrollingTexts;
+  public mtr.data.TrainClient(net.minecraft.network.PacketByteBuf);
+  protected void simulateCar(net.minecraft.world.World, int, float, double, double, double, float, float, double, double, double, float, float, boolean, boolean, double);
+  protected boolean handlePositions(net.minecraft.world.World, net.minecraft.util.math.Vec3d[], float);
+  protected boolean canDeploy(mtr.data.Depot);
+  protected boolean isRailBlocked(int);
+  protected boolean skipScanBlocks(net.minecraft.world.World, double, double, double);
+  protected boolean openDoors(net.minecraft.world.World, net.minecraft.block.Block, net.minecraft.util.math.BlockPos, int);
+  protected float getModelZOffset();
+  protected double asin(double);
+  public void simulateTrain(net.minecraft.world.World, float, mtr.data.TrainClient$SpeedCallback, mtr.data.TrainClient$AnnouncementCallback, mtr.data.TrainClient$AnnouncementCallback);
+  public void renderTranslucent();
+  public net.minecraft.util.math.Vec3d getViewOffset();
+  public int getCurrentStationIndex();
+  public mtr.data.Route getThisRoute();
+  public mtr.data.Route getNextRoute();
+  public mtr.data.Station getThisStation();
+  public mtr.data.Station getNextStation();
+  public mtr.data.Station getLastStation();
+  public int getManualNotch();
+  public int getMaxManualSpeedKmh();
+  public double getDistanceToNextStop();
+  public void startRidingClient(java.util.UUID, float, float);
+  public void updateRiderPercentages(java.util.UUID, float, float);
+  public void copyFromTrain(mtr.data.Train);
+  public final float speedChange();
+  public boolean justOpening();
+  public boolean justClosing(float);
+  public final boolean isDoorOpening();
+  public final java.util.List<java.lang.Long> getRouteIds();
+}
+### mtr.client.ClientData
+public final class mtr.client.ClientData {
+  public static java.lang.String DASHBOARD_SEARCH;
+  public static java.lang.String ROUTES_PLATFORMS_SEARCH;
+  public static java.lang.String ROUTES_PLATFORMS_SELECTED_SEARCH;
+  public static java.lang.String TRAINS_SEARCH;
+  public static java.lang.String EXIT_PARENTS_SEARCH;
+  public static java.lang.String EXIT_DESTINATIONS_SEARCH;
+  public static final java.util.Set<mtr.data.Station> STATIONS;
+  public static final java.util.Set<mtr.data.Platform> PLATFORMS;
+  public static final java.util.Set<mtr.data.Siding> SIDINGS;
+  public static final java.util.Set<mtr.data.Route> ROUTES;
+  public static final java.util.Set<mtr.data.Depot> DEPOTS;
+  public static final java.util.Set<mtr.data.LiftClient> LIFTS;
+  public static final mtr.data.SignalBlocks SIGNAL_BLOCKS;
+  public static final java.util.Map<java.util.UUID, java.lang.Boolean> OCCUPIED_RAILS;
+  public static final java.util.Map<net.minecraft.util.math.BlockPos, java.util.Map<net.minecraft.util.math.BlockPos, mtr.data.Rail>> RAILS;
+  public static final java.util.Set<mtr.data.TrainClient> TRAINS;
+  public static final java.util.List<mtr.data.DataConverter> RAIL_ACTIONS;
+  public static final java.util.Map<java.lang.Long, java.util.Set<mtr.data.ScheduleEntry>> SCHEDULES_FOR_PLATFORM;
+  public static final mtr.client.ClientCache DATA_CACHE;
+  public mtr.client.ClientData();
+  public static void tick();
+  public static void writeRails(net.minecraft.client.MinecraftClient, net.minecraft.network.PacketByteBuf);
+  public static void appendRails(net.minecraft.client.MinecraftClient, net.minecraft.network.PacketByteBuf);
+  public static void updateTrains(net.minecraft.client.MinecraftClient, net.minecraft.network.PacketByteBuf);
+  public static void deleteTrains(net.minecraft.client.MinecraftClient, net.minecraft.network.PacketByteBuf);
+  public static void updateLifts(net.minecraft.client.MinecraftClient, net.minecraft.network.PacketByteBuf);
+  public static void deleteLifts(net.minecraft.client.MinecraftClient, net.minecraft.network.PacketByteBuf);
+  public static void updateTrainPassengers(net.minecraft.client.MinecraftClient, net.minecraft.network.PacketByteBuf);
+  public static void updateTrainPassengerPosition(net.minecraft.client.MinecraftClient, net.minecraft.network.PacketByteBuf);
+  public static void updateLiftPassengers(net.minecraft.client.MinecraftClient, net.minecraft.network.PacketByteBuf);
+  public static void updateLiftPassengerPosition(net.minecraft.client.MinecraftClient, net.minecraft.network.PacketByteBuf);
+  public static void updateRailActions(net.minecraft.client.MinecraftClient, net.minecraft.network.PacketByteBuf);
+  public static void updateSchedule(net.minecraft.client.MinecraftClient, net.minecraft.network.PacketByteBuf);
+  public static void receivePacket(net.minecraft.network.PacketByteBuf);
+  public static <T extends mtr.data.NameColorDataBase> java.util.Set<T> getFilteredDataSet(mtr.data.TransportMode, java.util.Set<T>);
+  public static void updatePlayerRidingOffset(java.util.UUID);
+  public static boolean isRiding(java.util.UUID);
+  public static boolean hasPermission();
+  public static float getShiftHoldingTicks();
+  static {};
+}
+### mtr.client.DynamicTrainModel
+public class mtr.client.DynamicTrainModel extends mtr.model.ModelTrainBase implements mtr.client.IResourcePackCreatorProperties {
+  public final java.util.Map<java.lang.String, mtr.mappings.ModelMapper> parts;
+  public final java.util.Map<java.lang.String, java.util.Set<mtr.client.DynamicTrainModel$PartInfo>> partsInfo;
+  public final com.google.gson.JsonObject properties;
+  public final int doorMax;
+  public mtr.client.DynamicTrainModel(com.google.gson.JsonObject, com.google.gson.JsonObject, mtr.client.DoorAnimationType);
+  protected void render(net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumer, mtr.model.ModelTrainBase$RenderStage, int, float, float, float, float, int, int, boolean, boolean);
+  protected void renderTextDisplays(net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumerProvider, net.minecraft.client.font.TextRenderer, net.minecraft.client.render.VertexConsumerProvider$Immediate, mtr.data.Route, mtr.data.Route, mtr.data.Station, mtr.data.Station, mtr.data.Station, java.lang.String, int, int, boolean, java.util.List<mtr.client.ScrollingText>);
+  public int getDoorMax();
+}
+### mtr.render.JonModelTrainRenderer
+public class mtr.render.JonModelTrainRenderer extends mtr.render.TrainRendererBase implements mtr.data.IGui {
+  public final mtr.model.ModelTrainBase model;
+  public final java.lang.String textureId;
+  public final java.lang.String gangwayConnectionId;
+  public final java.lang.String trainBarrierId;
+  public mtr.render.JonModelTrainRenderer(mtr.model.ModelTrainBase, java.lang.String, java.lang.String, java.lang.String);
+  public mtr.render.TrainRendererBase createTrainInstance(mtr.data.TrainClient);
+  public void renderCar(int, double, double, double, float, float, boolean, boolean);
+  public void renderConnection(net.minecraft.util.math.Vec3d, net.minecraft.util.math.Vec3d, net.minecraft.util.math.Vec3d, net.minecraft.util.math.Vec3d, net.minecraft.util.math.Vec3d, net.minecraft.util.math.Vec3d, net.minecraft.util.math.Vec3d, net.minecraft.util.math.Vec3d, double, double, double, float, float);
+  public void renderBarrier(net.minecraft.util.math.Vec3d, net.minecraft.util.math.Vec3d, net.minecraft.util.math.Vec3d, net.minecraft.util.math.Vec3d, net.minecraft.util.math.Vec3d, net.minecraft.util.math.Vec3d, net.minecraft.util.math.Vec3d, net.minecraft.util.math.Vec3d, double, double, double, float, float);
+  public net.minecraft.util.Identifier resolveTexture(java.lang.String, java.util.function.Function<java.lang.String, java.lang.String>);
+  static {};
+}
+### mtr.model.ModelTrainBase
+public abstract class mtr.model.ModelTrainBase extends net.minecraft.client.render.entity.model.EntityModel<net.minecraft.entity.Entity> implements mtr.data.IGui {
+  public final mtr.client.DoorAnimationType doorAnimationType;
+  public final boolean renderDoorOverlay;
+  public mtr.model.ModelTrainBase(mtr.client.DoorAnimationType, boolean);
+  public void setAngles(net.minecraft.entity.Entity, float, float, float, float, float);
+  public final void render(net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumer, int, int, float, float, float, float);
+  public final void render(net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumerProvider, mtr.data.NameColorDataBase, net.minecraft.util.Identifier, int, float, float, boolean, int, int, boolean, boolean, boolean, boolean, boolean);
+  protected void renderExtraDetails(net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumerProvider, int, int, boolean, float, float, float, float);
+  protected void renderTextDisplays(net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumerProvider, net.minecraft.client.font.TextRenderer, net.minecraft.client.render.VertexConsumerProvider$Immediate, mtr.data.Route, mtr.data.Route, mtr.data.Station, mtr.data.Station, mtr.data.Station, java.lang.String, int, int, boolean, java.util.List<mtr.client.ScrollingText>);
+  protected float getDoorDuration();
+  protected void baseTransform(net.minecraft.client.util.math.MatrixStack);
+  protected abstract void render(net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumer, mtr.model.ModelTrainBase$RenderStage, int, float, float, float, float, int, int, boolean, boolean);
+  protected abstract int getDoorMax();
+  protected java.lang.String getDestinationString(mtr.data.Station, java.lang.String, mtr.model.ModelTrainBase$TextSpacingType, boolean);
+  protected java.lang.String defaultDestinationString();
+  protected static void setRotationAngle(mtr.mappings.ModelMapper, float, float, float);
+  protected static void renderMirror(mtr.mappings.ModelMapper, net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumer, int, float);
+  protected static void renderOnce(mtr.mappings.ModelMapper, net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumer, int, float);
+  protected static void renderOnce(mtr.mappings.ModelMapper, net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumer, int, float, float);
+  protected static void renderOnce(mtr.mappings.ModelMapper, net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumer, int, float, float, float);
+  protected static void renderOnceFlipped(mtr.mappings.ModelMapper, net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumer, int, float);
+  protected static void renderOnceFlipped(mtr.mappings.ModelMapper, net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumer, int, float, float);
+  protected static void renderOnceFlipped(mtr.mappings.ModelMapper, net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumer, int, float, float, float);
+  protected static boolean isIndex(int, int, int[]);
+  protected static java.lang.String getAlternatingString(java.lang.String);
+  protected static java.lang.String getHongKongNextStationString(mtr.data.Station, mtr.data.Station, boolean, boolean);
+  protected static java.lang.String getLondonNextStationString(mtr.data.Route, mtr.data.Route, mtr.data.Station, mtr.data.Station, mtr.data.Station, java.lang.String, boolean);
+}
+### mtr.block.BlockPSDAPGDoorBase
+public abstract class mtr.block.BlockPSDAPGDoorBase extends mtr.block.BlockPSDAPGBase implements mtr.mappings.EntityBlockMapper {
+  public static final int MAX_OPEN_VALUE;
+  public static final net.minecraft.state.property.BooleanProperty END;
+  public static final net.minecraft.state.property.BooleanProperty UNLOCKED;
+  public static final net.minecraft.state.property.BooleanProperty TEMP;
+  public mtr.block.BlockPSDAPGDoorBase();
+  public net.minecraft.block.BlockState getStateForNeighborUpdate(net.minecraft.block.BlockState, net.minecraft.util.math.Direction, net.minecraft.block.BlockState, net.minecraft.world.WorldAccess, net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos);
+  public void onBreak(net.minecraft.world.World, net.minecraft.util.math.BlockPos, net.minecraft.block.BlockState, net.minecraft.entity.player.PlayerEntity);
+  public void tick(net.minecraft.block.BlockState, net.minecraft.server.world.ServerWorld, net.minecraft.util.math.BlockPos);
+  public net.minecraft.util.ActionResult onUse(net.minecraft.block.BlockState, net.minecraft.world.World, net.minecraft.util.math.BlockPos, net.minecraft.entity.player.PlayerEntity, net.minecraft.util.Hand, net.minecraft.util.hit.BlockHitResult);
+  public net.minecraft.util.shape.VoxelShape getCollisionShape(net.minecraft.block.BlockState, net.minecraft.world.BlockView, net.minecraft.util.math.BlockPos, net.minecraft.block.ShapeContext);
+  protected void appendProperties(net.minecraft.state.StateManager$Builder<net.minecraft.block.Block, net.minecraft.block.BlockState>);
+  static {};
+}
+### mtr.block.BlockPSDTop
+public class mtr.block.BlockPSDTop extends mtr.mappings.BlockDirectionalMapper implements mtr.mappings.EntityBlockMapper,mtr.block.IBlock {
+  public static final float PERSISTENT_OFFSET_SMALL;
+  public static final net.minecraft.state.property.BooleanProperty AIR_LEFT;
+  public static final net.minecraft.state.property.BooleanProperty AIR_RIGHT;
+  public static final net.minecraft.state.property.IntProperty ARROW_DIRECTION;
+  public static final net.minecraft.state.property.EnumProperty<mtr.block.BlockPSDTop$EnumPersistent> PERSISTENT;
+  public mtr.block.BlockPSDTop();
+  public net.minecraft.util.ActionResult onUse(net.minecraft.block.BlockState, net.minecraft.world.World, net.minecraft.util.math.BlockPos, net.minecraft.entity.player.PlayerEntity, net.minecraft.util.Hand, net.minecraft.util.hit.BlockHitResult);
+  public net.minecraft.block.BlockState rotate(net.minecraft.block.BlockState, net.minecraft.util.BlockRotation);
+  public net.minecraft.item.Item asItem();
+  public net.minecraft.item.ItemStack getPickStack(net.minecraft.world.BlockView, net.minecraft.util.math.BlockPos, net.minecraft.block.BlockState);
+  public void onBreak(net.minecraft.world.World, net.minecraft.util.math.BlockPos, net.minecraft.block.BlockState, net.minecraft.entity.player.PlayerEntity);
+  public net.minecraft.block.BlockState getStateForNeighborUpdate(net.minecraft.block.BlockState, net.minecraft.util.math.Direction, net.minecraft.block.BlockState, net.minecraft.world.WorldAccess, net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos);
+  public net.minecraft.util.shape.VoxelShape getOutlineShape(net.minecraft.block.BlockState, net.minecraft.world.BlockView, net.minecraft.util.math.BlockPos, net.minecraft.block.ShapeContext);
+  protected void appendProperties(net.minecraft.state.StateManager$Builder<net.minecraft.block.Block, net.minecraft.block.BlockState>);
+  public mtr.mappings.BlockEntityMapper createBlockEntity(net.minecraft.util.math.BlockPos, net.minecraft.block.BlockState);
+  public static net.minecraft.block.BlockState getActualState(net.minecraft.world.BlockView, net.minecraft.util.math.BlockPos);
+  static {};
+}
+### mtr.block.BlockAPGGlass
+public class mtr.block.BlockAPGGlass extends mtr.block.BlockPSDAPGGlassBase implements mtr.mappings.EntityBlockMapper {
+  public static final net.minecraft.state.property.IntProperty ARROW_DIRECTION;
+  public mtr.block.BlockAPGGlass();
+  public net.minecraft.item.Item asItem();
+  public net.minecraft.util.ActionResult onUse(net.minecraft.block.BlockState, net.minecraft.world.World, net.minecraft.util.math.BlockPos, net.minecraft.entity.player.PlayerEntity, net.minecraft.util.Hand, net.minecraft.util.hit.BlockHitResult);
+  public mtr.mappings.BlockEntityMapper createBlockEntity(net.minecraft.util.math.BlockPos, net.minecraft.block.BlockState);
+  protected void appendProperties(net.minecraft.state.StateManager$Builder<net.minecraft.block.Block, net.minecraft.block.BlockState>);
+  static {};
+}
+### mtr.block.BlockAPGGlassEnd
+public class mtr.block.BlockAPGGlassEnd extends mtr.block.BlockPSDAPGGlassEndBase {
+  public mtr.block.BlockAPGGlassEnd();
+  public net.minecraft.item.Item asItem();
+}
+### mtr.block.BlockAPGDoor
+public class mtr.block.BlockAPGDoor extends mtr.block.BlockPSDAPGDoorBase {
+  public mtr.block.BlockAPGDoor();
+  public mtr.mappings.BlockEntityMapper createBlockEntity(net.minecraft.util.math.BlockPos, net.minecraft.block.BlockState);
+  public net.minecraft.item.Item asItem();
+}
+### mtr.block.BlockPSDAPGBase
+public abstract class mtr.block.BlockPSDAPGBase extends mtr.block.BlockDirectionalDoubleBlockBase {
+  public mtr.block.BlockPSDAPGBase();
+  public net.minecraft.item.ItemStack getPickStack(net.minecraft.world.BlockView, net.minecraft.util.math.BlockPos, net.minecraft.block.BlockState);
+  public net.minecraft.util.shape.VoxelShape getOutlineShape(net.minecraft.block.BlockState, net.minecraft.world.BlockView, net.minecraft.util.math.BlockPos, net.minecraft.block.ShapeContext);
+  public net.minecraft.util.shape.VoxelShape getCameraCollisionShape(net.minecraft.block.BlockState, net.minecraft.world.BlockView, net.minecraft.util.math.BlockPos, net.minecraft.block.ShapeContext);
+  protected boolean isAPG();
+}
+### mtr.block.BlockPSDAPGGlassBase
+public abstract class mtr.block.BlockPSDAPGGlassBase extends mtr.block.BlockPSDAPGBase {
+  public mtr.block.BlockPSDAPGGlassBase();
+  public net.minecraft.util.ActionResult onUse(net.minecraft.block.BlockState, net.minecraft.world.World, net.minecraft.util.math.BlockPos, net.minecraft.entity.player.PlayerEntity, net.minecraft.util.Hand, net.minecraft.util.hit.BlockHitResult);
+  protected void appendProperties(net.minecraft.state.StateManager$Builder<net.minecraft.block.Block, net.minecraft.block.BlockState>);
+}
+### mtr.block.BlockPSDAPGGlassEndBase
+public abstract class mtr.block.BlockPSDAPGGlassEndBase extends mtr.block.BlockPSDAPGGlassBase {
+  public static final net.minecraft.state.property.EnumProperty<mtr.block.BlockPSDAPGGlassEndBase$EnumPSDAPGGlassEndSide> TOUCHING_LEFT;
+  public static final net.minecraft.state.property.EnumProperty<mtr.block.BlockPSDAPGGlassEndBase$EnumPSDAPGGlassEndSide> TOUCHING_RIGHT;
+  public mtr.block.BlockPSDAPGGlassEndBase();
+  public net.minecraft.block.BlockState getStateForNeighborUpdate(net.minecraft.block.BlockState, net.minecraft.util.math.Direction, net.minecraft.block.BlockState, net.minecraft.world.WorldAccess, net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos);
+  public net.minecraft.util.shape.VoxelShape getOutlineShape(net.minecraft.block.BlockState, net.minecraft.world.BlockView, net.minecraft.util.math.BlockPos, net.minecraft.block.ShapeContext);
+  protected void appendProperties(net.minecraft.state.StateManager$Builder<net.minecraft.block.Block, net.minecraft.block.BlockState>);
+  public static net.minecraft.util.shape.VoxelShape getEndOutlineShape(net.minecraft.util.shape.VoxelShape, net.minecraft.block.BlockState, int, int, boolean, boolean);
+  static {};
+}
+### mtr.block.IBlock
+public interface mtr.block.IBlock {
+  public static final net.minecraft.state.property.EnumProperty<net.minecraft.block.enums.DoubleBlockHalf> HALF;
+  public static final net.minecraft.state.property.EnumProperty<mtr.block.IBlock$EnumThird> THIRD;
+  public static final net.minecraft.state.property.EnumProperty<mtr.block.IBlock$EnumSide> SIDE_EXTENDED;
+  public static final net.minecraft.state.property.EnumProperty<mtr.block.IBlock$EnumSide> SIDE;
+  public default <T extends java.lang.Comparable<T>> void propagate(net.minecraft.world.World, net.minecraft.util.math.BlockPos, net.minecraft.util.math.Direction, net.minecraft.state.property.Property<T>, int);
+  public default void propagate(net.minecraft.world.World, net.minecraft.util.math.BlockPos, net.minecraft.util.math.Direction, java.util.function.Consumer<net.minecraft.util.math.BlockPos>, int);
+  public static net.minecraft.util.ActionResult checkHoldingBrush(net.minecraft.world.World, net.minecraft.entity.player.PlayerEntity, java.lang.Runnable, java.lang.Runnable);
+  public static net.minecraft.util.ActionResult checkHoldingItem(net.minecraft.world.World, net.minecraft.entity.player.PlayerEntity, java.util.function.Consumer<net.minecraft.item.Item>, java.lang.Runnable, net.minecraft.item.Item...);
+  public static net.minecraft.util.ActionResult checkHoldingBrush(net.minecraft.world.World, net.minecraft.entity.player.PlayerEntity, java.lang.Runnable);
+  public static net.minecraft.util.shape.VoxelShape getVoxelShapeByDirection(double, double, double, double, double, double, net.minecraft.util.math.Direction);
+  public static boolean isReplaceable(net.minecraft.item.ItemPlacementContext, net.minecraft.util.math.Direction, int);
+  public static void onBreakCreative(net.minecraft.world.World, net.minecraft.entity.player.PlayerEntity, net.minecraft.util.math.BlockPos);
+  public static net.minecraft.util.math.Direction getSideDirection(net.minecraft.block.BlockState);
+  public static <T extends java.lang.Comparable<T>> T getStatePropertySafe(net.minecraft.world.BlockView, net.minecraft.util.math.BlockPos, net.minecraft.state.property.Property<T>);
+  public static <T extends java.lang.Comparable<T>> T getStatePropertySafe(net.minecraft.block.BlockState, net.minecraft.state.property.Property<T>);
+  static {};
+}
+### mtr.render.RenderSignalBase
+public abstract class mtr.render.RenderSignalBase<T extends mtr.mappings.BlockEntityMapper> extends mtr.mappings.BlockEntityRendererMapper<T> implements mtr.block.IBlock, mtr.data.IGui {
+  protected final boolean isSingleSided;
+  protected final int aspects;
+  public mtr.render.RenderSignalBase(net.minecraft.client.render.block.entity.BlockEntityRenderDispatcher, boolean, int);
+  public mtr.render.RenderSignalBase(net.minecraft.client.render.block.entity.BlockEntityRenderDispatcher, boolean);
+  public final void render(T, float, net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumerProvider, int, int);
+  protected void render(net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumerProvider, net.minecraft.client.render.VertexConsumer, T, float, net.minecraft.util.math.Direction, int, boolean);
+  protected void render(net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumerProvider, net.minecraft.client.render.VertexConsumer, T, float, net.minecraft.util.math.Direction, boolean, boolean);
+  public void render(net.minecraft.block.entity.BlockEntity, float, net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumerProvider, int, int);
+}
+### mtr.client.TrainClientRegistry
+public class mtr.client.TrainClientRegistry {
+  public mtr.client.TrainClientRegistry();
+  public static void register(java.lang.String, mtr.client.TrainProperties);
+  public static void register(java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, mtr.model.ModelTrainBase, java.lang.String, int, java.lang.String, java.lang.String, float, float, float, boolean, java.lang.String, mtr.sound.JonTrainSound$JonTrainSoundConfig);
+  public static void reset();
+  public static mtr.client.TrainProperties getTrainProperties(java.lang.String);
+  public static mtr.client.TrainProperties getTrainProperties(mtr.data.TransportMode, int);
+  public static java.lang.String getTrainId(mtr.data.TransportMode, int);
+  public static void forEach(mtr.data.TransportMode, java.util.function.BiConsumer<java.lang.String, mtr.client.TrainProperties>);
+  static {};
+}
+### mtr.client.TrainProperties
+public class mtr.client.TrainProperties {
+  public final java.lang.String baseTrainType;
+  public final net.minecraft.text.Text name;
+  public final java.lang.String description;
+  public final java.lang.String wikipediaArticle;
+  public final int color;
+  public final float riderOffset;
+  public final float riderOffsetDismounting;
+  public final float bogiePosition;
+  public final boolean isJacobsBogie;
+  public final boolean hasGangwayConnection;
+  public final mtr.render.TrainRendererBase renderer;
+  public final mtr.sound.TrainSoundBase sound;
+  public mtr.client.TrainProperties(java.lang.String, net.minecraft.text.Text, java.lang.String, java.lang.String, int, float, float, float, boolean, boolean, mtr.render.TrainRendererBase, mtr.sound.TrainSoundBase);
+  public static mtr.client.TrainProperties getBlankProperties();
+}
+### mtr.client.ClientCache
+public class mtr.client.ClientCache extends mtr.data.DataCache implements mtr.data.IGui {
+  public final java.util.Map<java.lang.Long, java.util.Map<java.lang.Integer, mtr.client.ClientCache$ColorNameTuple>> stationIdToRoutes;
+  public final java.util.Map<java.lang.Long, mtr.data.LiftClient> liftsClientIdMap;
+  public static final float LINE_HEIGHT_MULTIPLIER;
+  public mtr.client.ClientCache(java.util.Set<mtr.data.Station>, java.util.Set<mtr.data.Platform>, java.util.Set<mtr.data.Siding>, java.util.Set<mtr.data.Route>, java.util.Set<mtr.data.Depot>, java.util.Set<mtr.data.LiftClient>);
+  protected void syncAdditional();
+  public void resetFonts();
+  public void refreshDynamicResources();
+  public void syncLiftIds();
+  public java.util.Map<java.lang.Long, mtr.data.Platform> requestStationIdToPlatforms(long);
+  public java.util.Map<java.lang.Long, mtr.data.Siding> requestDepotIdToSidings(long);
+  public java.util.List<mtr.client.ClientCache$PlatformRouteDetails> requestPlatformIdToRoutes(long);
+  public java.lang.String[] requestLiftFloorText(net.minecraft.util.math.BlockPos);
+  public java.util.Set<mtr.data.Station> getConnectingStationsIncludingThisOne(mtr.data.Station);
+  public java.util.Map<java.lang.Integer, mtr.client.ClientCache$ColorNameTuple> getAllRoutesIncludingConnectingStations(mtr.data.Station);
+  public java.lang.String getFormattedRouteDestination(mtr.data.Route, int, java.lang.String);
+  public mtr.client.ClientCache$DynamicResource getPixelatedText(java.lang.String, int, int, float, boolean);
+  public mtr.client.ClientCache$DynamicResource getColorStrip(long);
+  public mtr.client.ClientCache$DynamicResource getStationName(java.lang.String, float);
+  public mtr.client.ClientCache$DynamicResource getTallStationName(int, java.lang.String, int, float);
+  public mtr.client.ClientCache$DynamicResource getStationNameEntrance(int, java.lang.String, float);
+  public mtr.client.ClientCache$DynamicResource getSingleRowStationName(long, float);
+  public mtr.client.ClientCache$DynamicResource getSignText(java.lang.String, mtr.data.IGui$HorizontalAlignment, float, int, int);
+  public mtr.client.ClientCache$DynamicResource getLiftPanelDisplay(java.lang.String, int);
+  public mtr.client.ClientCache$DynamicResource getExitSignLetter(java.lang.String, java.lang.String, int);
+  public mtr.client.ClientCache$DynamicResource getRouteSquare(int, java.lang.String, mtr.data.IGui$HorizontalAlignment);
+  public mtr.client.ClientCache$DynamicResource getDirectionArrow(long, boolean, boolean, mtr.data.IGui$HorizontalAlignment, boolean, float, float, int, int, int);
+  public mtr.client.ClientCache$DynamicResource getRouteMap(long, boolean, boolean, float, boolean);
+  public byte[] getTextPixels(java.lang.String, int[], int, int);
+  public byte[] getTextPixels(java.lang.String, int[], int, int, int, int, int, mtr.data.IGui$HorizontalAlignment);
+  public void clearDataIfNeeded();
+  public java.util.Map<net.minecraft.util.math.BlockPos, java.util.List<mtr.data.Platform>> getPosToPlatforms(mtr.data.TransportMode);
+  public java.util.Map<net.minecraft.util.math.BlockPos, java.util.List<mtr.data.Siding>> getPosToSidings(mtr.data.TransportMode);
+  static {};
+}
+### mtr.client.DoorAnimationType
+public final class mtr.client.DoorAnimationType extends java.lang.Enum<mtr.client.DoorAnimationType> {
+  public static final mtr.client.DoorAnimationType STANDARD;
+  public static final mtr.client.DoorAnimationType STANDARD_SLOW;
+  public static final mtr.client.DoorAnimationType CONSTANT;
+  public static final mtr.client.DoorAnimationType PLUG_FAST;
+  public static final mtr.client.DoorAnimationType PLUG_SLOW;
+  public static final mtr.client.DoorAnimationType BOUNCY_1;
+  public static final mtr.client.DoorAnimationType BOUNCY_2;
+  public static final mtr.client.DoorAnimationType MLR;
+  public static final mtr.client.DoorAnimationType R179;
+  public static final mtr.client.DoorAnimationType R211;
+  public final float maxTime;
+  public static mtr.client.DoorAnimationType[] values();
+  public static mtr.client.DoorAnimationType valueOf(java.lang.String);
+  public static float getDoorAnimationX(mtr.client.DoorAnimationType, float);
+  public static float getDoorAnimationZ(mtr.client.DoorAnimationType, int, float, float, boolean);
+  static {};
+}
+### mtr.render.RenderPSDAPGDoor
+public class mtr.render.RenderPSDAPGDoor<T extends mtr.block.BlockPSDAPGDoorBase$TileEntityPSDAPGDoorBase> extends mtr.mappings.BlockEntityRendererMapper<T> implements mtr.data.IGui, mtr.block.IBlock {
+  public mtr.render.RenderPSDAPGDoor(net.minecraft.client.render.block.entity.BlockEntityRenderDispatcher, int);
+  public void render(T, float, net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumerProvider, int, int);
+  public boolean shouldRenderOffScreen(T);
+  public boolean rendersOutsideBoundingBox(net.minecraft.block.entity.BlockEntity);
+  public void render(net.minecraft.block.entity.BlockEntity, float, net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumerProvider, int, int);
+  static {};
+}
+### mtr.render.RenderAPGGlass
+public class mtr.render.RenderAPGGlass extends mtr.render.RenderRouteBase<mtr.block.BlockAPGGlass$TileEntityAPGGlass> {
+  public mtr.render.RenderAPGGlass(net.minecraft.client.render.block.entity.BlockEntityRenderDispatcher);
+  protected mtr.render.RenderRouteBase$RenderType getRenderType(net.minecraft.world.BlockView, net.minecraft.util.math.BlockPos, net.minecraft.block.BlockState);
+  protected void renderAdditional(mtr.render.StoredMatrixTransformations, long, net.minecraft.block.BlockState, int, int, net.minecraft.util.math.Direction, int, int);
+}
+### mtr.render.RenderPSDTop
+public class mtr.render.RenderPSDTop extends mtr.render.RenderRouteBase<mtr.block.BlockPSDTop$TileEntityPSDTop> {
+  public mtr.render.RenderPSDTop(net.minecraft.client.render.block.entity.BlockEntityRenderDispatcher);
+  protected mtr.render.RenderRouteBase$RenderType getRenderType(net.minecraft.world.BlockView, net.minecraft.util.math.BlockPos, net.minecraft.block.BlockState);
+  protected void renderAdditionalUnmodified(mtr.render.StoredMatrixTransformations, net.minecraft.block.BlockState, net.minecraft.util.math.Direction, int);
+  protected void renderAdditional(mtr.render.StoredMatrixTransformations, long, net.minecraft.block.BlockState, int, int, net.minecraft.util.math.Direction, int, int);
+  protected float getAdditionalOffset(net.minecraft.block.BlockState);
+  protected java.lang.String getStationNameForRendering(long);
+  static {};
+}
+### mtr.render.RenderPIDS
+public class mtr.render.RenderPIDS<T extends mtr.mappings.BlockEntityMapper> extends mtr.mappings.BlockEntityRendererMapper<T> implements mtr.data.IGui {
+  public static final int MAX_VIEW_DISTANCE;
+  public mtr.render.RenderPIDS(net.minecraft.client.render.block.entity.BlockEntityRenderDispatcher, int, int, float, float, float, float, int, boolean, boolean, mtr.data.PIDSType, int, int, float, boolean);
+  public mtr.render.RenderPIDS(net.minecraft.client.render.block.entity.BlockEntityRenderDispatcher, int, int, float, float, float, float, int, boolean, boolean, mtr.data.PIDSType, int, int);
+  public void render(T, float, net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumerProvider, int, int);
+  public java.util.List<mtr.data.ScheduleEntry> getSchedules(T, net.minecraft.util.math.BlockPos, java.util.Map<java.lang.Long, java.lang.String>);
+  public void render(net.minecraft.block.entity.BlockEntity, float, net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumerProvider, int, int);
+}
+### mtr.data.DataCache
+public class mtr.data.DataCache {
+  public final java.util.Map<java.lang.Long, mtr.data.Station> stationIdMap;
+  public final java.util.Map<java.lang.Long, mtr.data.Platform> platformIdMap;
+  public final java.util.Map<java.lang.Long, mtr.data.Siding> sidingIdMap;
+  public final java.util.Map<java.lang.Long, mtr.data.Route> routeIdMap;
+  public final java.util.Map<java.lang.Long, mtr.data.Depot> depotIdMap;
+  public final java.util.Map<java.lang.Long, mtr.data.LiftServer> liftsServerIdMap;
+  public final java.util.Map<java.lang.Long, mtr.data.Station> platformIdToStation;
+  public final java.util.Map<java.lang.Long, mtr.data.Depot> sidingIdToDepot;
+  public final java.util.Map<java.lang.Long, mtr.data.Depot> routeIdToOneDepot;
+  public final java.util.Map<mtr.data.Station, java.util.Set<mtr.data.Station>> stationIdToConnectingStations;
+  public final java.util.Map<net.minecraft.util.math.BlockPos, mtr.data.Station> blockPosToStation;
+  public final it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap blockPosToPlatformId;
+  public final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<mtr.data.RailwayDataRouteFinderModule$ConnectionDetails>> platformConnections;
+  protected final java.util.Set<mtr.data.Station> stations;
+  protected final java.util.Set<mtr.data.Platform> platforms;
+  protected final java.util.Set<mtr.data.Siding> sidings;
+  protected final java.util.Set<mtr.data.Route> routes;
+  protected final java.util.Set<mtr.data.Depot> depots;
+  public mtr.data.DataCache(java.util.Set<mtr.data.Station>, java.util.Set<mtr.data.Platform>, java.util.Set<mtr.data.Siding>, java.util.Set<mtr.data.Route>, java.util.Set<mtr.data.Depot>, java.util.Set<mtr.data.LiftServer>);
+  public final void sync();
+  public boolean needsRefresh(long);
+  protected void syncAdditional();
+  public static <T, U> U tryGet(java.util.Map<T, java.util.Map<T, U>>, T, T, U);
+  public static <T, U> U tryGet(java.util.Map<T, java.util.Map<T, U>>, T, T);
+  public static <U> U tryGet(it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<U>>, long, long);
+  public static int tryGet2(it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap>, long, long, int);
+  public static <U> void put(it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<U>>, long, long, java.util.function.Function<U, U>);
+  public static void put2(it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap>, long, long, java.util.function.Function<java.lang.Integer, java.lang.Integer>);
+  protected static <U extends mtr.data.NameColorDataBase> void mapIds(java.util.Map<java.lang.Long, U>, java.util.Set<U>);
+}
+### mtr.data.RailwayData
+public class mtr.data.RailwayData extends mtr.mappings.PersistentStateMapper implements mtr.packet.IPacket {
+  public final java.util.Set<mtr.data.Station> stations;
+  public final java.util.Set<mtr.data.Platform> platforms;
+  public final java.util.Set<mtr.data.Siding> sidings;
+  public final java.util.Set<mtr.data.Route> routes;
+  public final java.util.Set<mtr.data.Depot> depots;
+  public final java.util.Set<mtr.data.LiftServer> lifts;
+  public final mtr.data.DataCache dataCache;
+  public final mtr.data.RailwayDataLoggingModule railwayDataLoggingModule;
+  public final mtr.data.RailwayDataCoolDownModule railwayDataCoolDownModule;
+  public final mtr.data.RailwayDataPathGenerationModule railwayDataPathGenerationModule;
+  public final mtr.data.RailwayDataRailActionsModule railwayDataRailActionsModule;
+  public final mtr.data.RailwayDataDriveTrainModule railwayDataDriveTrainModule;
+  public final mtr.data.RailwayDataRouteFinderModule railwayDataRouteFinderModule;
+  public mtr.data.RailwayData(net.minecraft.world.World);
+  public void load(net.minecraft.nbt.NbtCompound);
+  public void save(java.io.File);
+  public net.minecraft.nbt.NbtCompound writeNbt(net.minecraft.nbt.NbtCompound);
+  public void simulateTrains();
+  public void onPlayerJoin(net.minecraft.server.network.ServerPlayerEntity);
+  public long addRail(net.minecraft.entity.player.PlayerEntity, mtr.data.TransportMode, net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos, mtr.data.Rail, boolean);
+  public long addSignal(net.minecraft.entity.player.PlayerEntity, net.minecraft.util.DyeColor, net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos);
+  public void removeNode(net.minecraft.entity.player.PlayerEntity, net.minecraft.util.math.BlockPos, mtr.data.TransportMode);
+  public void removeRailConnection(net.minecraft.entity.player.PlayerEntity, net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos);
+  public void removeLiftFloorTrack(net.minecraft.util.math.BlockPos);
+  public boolean hasSavedRail(net.minecraft.util.math.BlockPos);
+  public boolean containsRail(net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos);
+  public long removeSignal(net.minecraft.entity.player.PlayerEntity, net.minecraft.util.DyeColor, net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos);
+  public void disconnectPlayer(net.minecraft.entity.player.PlayerEntity);
+  public void getSchedulesForStation(java.util.Map<java.lang.Long, java.util.List<mtr.data.ScheduleEntry>>, long);
+  public java.util.List<mtr.data.ScheduleEntry> getSchedulesAtPlatform(long);
+  public java.util.Map<java.lang.Long, java.util.Map<net.minecraft.util.math.BlockPos, mtr.data.TrainDelay>> getTrainDelays();
+  public void resetTrainDelays(mtr.data.Depot);
+  public boolean getUseTimeAndWindSync();
+  public void setUseTimeAndWindSync(boolean);
+  public static mtr.data.Platform getPlatformByPos(java.util.Set<mtr.data.Platform>, net.minecraft.util.math.BlockPos);
+  public java.util.Map<net.minecraft.util.math.BlockPos, java.util.Map<net.minecraft.util.math.BlockPos, mtr.data.Rail>> getRailsMap();
+  public static void addRail(java.util.Map<net.minecraft.util.math.BlockPos, java.util.Map<net.minecraft.util.math.BlockPos, mtr.data.Rail>>, java.util.Set<mtr.data.Platform>, java.util.Set<mtr.data.Siding>, mtr.data.TransportMode, net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos, mtr.data.Rail, long);
+  public static void removeNode(net.minecraft.world.World, java.util.Map<net.minecraft.util.math.BlockPos, java.util.Map<net.minecraft.util.math.BlockPos, mtr.data.Rail>>, net.minecraft.util.math.BlockPos);
+  public static <T extends mtr.data.Lift> void removeLiftFloorTrack(net.minecraft.world.World, java.util.Set<T>, net.minecraft.util.math.BlockPos);
+  public static void removeRailConnection(net.minecraft.world.World, java.util.Map<net.minecraft.util.math.BlockPos, java.util.Map<net.minecraft.util.math.BlockPos, mtr.data.Rail>>, net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos);
+  public static boolean containsRail(java.util.Map<net.minecraft.util.math.BlockPos, java.util.Map<net.minecraft.util.math.BlockPos, mtr.data.Rail>>, net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos);
+  public static mtr.data.Station getStation(java.util.Set<mtr.data.Station>, mtr.data.DataCache, net.minecraft.util.math.BlockPos);
+  public static long getClosePlatformId(java.util.Set<mtr.data.Platform>, mtr.data.DataCache, net.minecraft.util.math.BlockPos);
+  public static long getClosePlatformId(java.util.Set<mtr.data.Platform>, mtr.data.DataCache, net.minecraft.util.math.BlockPos, int, int, int);
+  public static boolean useRoutesAndStationsFromIndex(int, java.util.List<java.lang.Long>, mtr.data.DataCache, mtr.data.RailwayData$RouteAndStationsCallback);
+  public static boolean isBetween(double, double, double);
+  public static boolean isBetween(double, double, double, double);
+  public static float round(double, int);
+  public static void writeMessagePackDataset(org.msgpack.core.MessagePacker, java.util.Collection<? extends mtr.data.SerializedDataBase>, java.lang.String) throws java.io.IOException;
+  public static java.util.Map<java.lang.String, org.msgpack.value.Value> castMessagePackValueToSKMap(org.msgpack.value.Value);
+  public static boolean hasNoPermission(net.minecraft.server.network.ServerPlayerEntity);
+  public static boolean hasPermission(net.minecraft.world.GameMode);
+  public static boolean chunkLoaded(net.minecraft.world.World, net.minecraft.util.math.BlockPos);
+  public static java.lang.String prettyPrint(com.google.gson.JsonElement);
+  public static net.minecraft.util.math.BlockPos newBlockPos(net.minecraft.util.math.Vec3d);
+  public static net.minecraft.util.math.BlockPos newBlockPos(double, double, double);
+  public static net.minecraft.util.math.BlockPos newBlockPos(int, int, int);
+  public static net.minecraft.util.math.BlockPos offsetBlockPos(net.minecraft.util.math.BlockPos, double, double, double);
+  public static mtr.data.RailwayData getInstance(net.minecraft.world.World);
+  public static void benchmark(java.lang.Runnable, float);
+}
+### mtr.data.Platform
+public final class mtr.data.Platform extends mtr.data.SavedRailBase {
+  public mtr.data.Platform(long, mtr.data.TransportMode, net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos);
+  public mtr.data.Platform(mtr.data.TransportMode, net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos);
+  public mtr.data.Platform(java.util.Map<java.lang.String, org.msgpack.value.Value>);
+  public mtr.data.Platform(net.minecraft.nbt.NbtCompound);
+  public mtr.data.Platform(net.minecraft.network.PacketByteBuf);
+  public void update(java.lang.String, net.minecraft.network.PacketByteBuf);
+  public void setDwellTime(int, java.util.function.Consumer<net.minecraft.network.PacketByteBuf>);
+  public void setAdcTime(int, java.util.function.Consumer<net.minecraft.network.PacketByteBuf>);
+  public void setStopWithoutOpeningDoors(boolean, java.util.function.Consumer<net.minecraft.network.PacketByteBuf>);
+  public void setPsdDisplayMode(int, java.util.function.Consumer<net.minecraft.network.PacketByteBuf>);
+}
+### mtr.data.Station
+public final class mtr.data.Station extends mtr.data.AreaBase {
+  public int zone;
+  public final java.util.Map<java.lang.String, java.util.List<java.lang.String>> exits;
+  public mtr.data.Station();
+  public mtr.data.Station(long);
+  public mtr.data.Station(java.util.Map<java.lang.String, org.msgpack.value.Value>);
+  public mtr.data.Station(net.minecraft.nbt.NbtCompound);
+  public mtr.data.Station(net.minecraft.network.PacketByteBuf);
+  public void toMessagePack(org.msgpack.core.MessagePacker) throws java.io.IOException;
+  public int messagePackLength();
+  public void writePacket(net.minecraft.network.PacketByteBuf);
+  public void update(java.lang.String, net.minecraft.network.PacketByteBuf);
+  protected boolean hasTransportMode();
+  public void setZone(java.util.function.Consumer<net.minecraft.network.PacketByteBuf>);
+  public void setExitParent(java.lang.String, java.lang.String, java.util.function.Consumer<net.minecraft.network.PacketByteBuf>);
+  public void deleteExitParent(java.lang.String, java.util.function.Consumer<net.minecraft.network.PacketByteBuf>);
+  public void setExitDestinations(java.lang.String, java.util.function.Consumer<net.minecraft.network.PacketByteBuf>);
+  public java.util.Map<java.lang.String, java.util.List<java.lang.String>> getGeneratedExits();
+  public static long serializeExit(java.lang.String);
+  public static java.lang.String deserializeExit(long);
+}
+### mtr.data.Depot
+public class mtr.data.Depot extends mtr.data.AreaBase implements mtr.data.IReducedSaveData {
+  public int clientPathGenerationSuccessfulSegments;
+  public int clientPathGenerationTotalSegments;
+  public int clientPathGenerationReason;
+  public java.lang.String clientPathGenerationSiding;
+  public static final int PATH_REASON_SEGMENTS;
+  public static final int PATH_REASON_NO_SIDING;
+  public static final int PATH_REASON_NOT_GENERATED;
+  public static final int PATH_REASON_LEGACY;
+  public long lastDeployedMillis;
+  public boolean useRealTime;
+  public boolean repeatInfinitely;
+  public int cruisingAltitude;
+  public final java.util.List<java.lang.Long> routeIds;
+  public final java.util.Map<java.lang.Long, java.util.Map<java.lang.Long, java.lang.Float>> platformTimes;
+  public final java.util.List<java.lang.Integer> departures;
+  public final java.util.List<java.lang.Integer> tempDepartures;
+  public static final int HOURS_IN_DAY;
+  public static final int TRAIN_FREQUENCY_MULTIPLIER;
+  public static final int TICKS_PER_HOUR;
+  public static final int MILLIS_PER_TICK;
+  public static final int MILLISECONDS_PER_DAY;
+  public static final int DEFAULT_CRUISING_ALTITUDE;
+  public mtr.data.Depot(mtr.data.TransportMode);
+  public mtr.data.Depot(long, mtr.data.TransportMode);
+  public mtr.data.Depot(java.util.Map<java.lang.String, org.msgpack.value.Value>);
+  public mtr.data.Depot(net.minecraft.nbt.NbtCompound);
+  public mtr.data.Depot(net.minecraft.network.PacketByteBuf);
+  public void toMessagePack(org.msgpack.core.MessagePacker) throws java.io.IOException;
+  public void toReducedMessagePack(org.msgpack.core.MessagePacker) throws java.io.IOException;
+  public int messagePackLength();
+  public int reducedMessagePackLength();
+  public void writePacket(net.minecraft.network.PacketByteBuf);
+  protected boolean hasTransportMode();
+  public void update(java.lang.String, net.minecraft.network.PacketByteBuf);
+  public int getFrequency(int);
+  public void setFrequency(int, int);
+  public void setData(java.util.function.Consumer<net.minecraft.network.PacketByteBuf>);
+  public void generateMainRoute(net.minecraft.server.MinecraftServer, net.minecraft.world.World, mtr.data.DataCache, java.util.Map<net.minecraft.util.math.BlockPos, java.util.Map<net.minecraft.util.math.BlockPos, mtr.data.Rail>>, java.util.Set<mtr.data.Siding>, java.util.function.Consumer<java.lang.Thread>);
+  public void requestDeploy(long, mtr.data.TrainServer);
+  public void deployTrain(mtr.data.RailwayData, net.minecraft.world.World);
+  public int getNextDepartureMillis();
+  public int getMillisUntilDeploy(int);
+  public int getMillisUntilDeploy(int, int);
+  public void generateTempDepartures(net.minecraft.world.World);
+}
+### mtr.data.Siding
+public class mtr.data.Siding extends mtr.data.SavedRailBase implements mtr.packet.IPacket,mtr.data.IReducedSaveData {
+  public final float railLength;
+  public mtr.data.Siding(long, mtr.data.TransportMode, net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos, float);
+  public mtr.data.Siding(mtr.data.TransportMode, net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos, float);
+  public mtr.data.Siding(java.util.Map<java.lang.String, org.msgpack.value.Value>);
+  public mtr.data.Siding(net.minecraft.nbt.NbtCompound);
+  public mtr.data.Siding(net.minecraft.network.PacketByteBuf);
+  public void toMessagePack(org.msgpack.core.MessagePacker) throws java.io.IOException;
+  public void toReducedMessagePack(org.msgpack.core.MessagePacker) throws java.io.IOException;
+  public int messagePackLength();
+  public int reducedMessagePackLength();
+  public void writePacket(net.minecraft.network.PacketByteBuf);
+  public void update(java.lang.String, net.minecraft.network.PacketByteBuf);
+  public void setTrainIdAndBaseType(java.lang.String, java.lang.String, java.util.function.Consumer<net.minecraft.network.PacketByteBuf>);
+  public void setUnlimitedTrains(boolean, int, boolean, int, boolean, float, int, boolean, java.util.function.Consumer<net.minecraft.network.PacketByteBuf>);
+  public void setUnlimitedTrains(boolean, int, boolean, int, float, int, boolean, java.util.function.Consumer<net.minecraft.network.PacketByteBuf>);
+  public java.lang.String getTrainId();
+  public java.lang.String getBaseTrainType();
+  public int getTrainCars();
+  public float getAccelerationConstant();
+  public void setSidingData(net.minecraft.world.World, mtr.data.Depot, java.util.Map<net.minecraft.util.math.BlockPos, java.util.Map<net.minecraft.util.math.BlockPos, mtr.data.Rail>>);
+  public int generateRoute(net.minecraft.server.MinecraftServer, java.util.List<mtr.path.PathData>, int, java.util.Map<net.minecraft.util.math.BlockPos, java.util.Map<net.minecraft.util.math.BlockPos, mtr.data.Rail>>, mtr.data.SavedRailBase, mtr.data.SavedRailBase, boolean, int, boolean);
+  public void simulateTrain(mtr.data.DataCache, mtr.data.RailwayDataDriveTrainModule, java.util.List<java.util.Map<java.util.UUID, java.lang.Long>>, mtr.data.SignalBlocks, java.util.Map<net.minecraft.entity.player.PlayerEntity, java.util.Set<mtr.data.TrainServer>>, java.util.Set<mtr.data.TrainServer>, java.util.Map<java.lang.Long, java.util.List<mtr.data.ScheduleEntry>>, java.util.Map<java.lang.Long, java.util.Map<net.minecraft.util.math.BlockPos, mtr.data.TrainDelay>>);
+  public boolean isValidVehicle(int);
+  public int getMaxTrains();
+  public boolean getIsManual();
+  public int getMaxManualSpeed();
+  public boolean getEnablePredictiveBraking();
+  public void setEnablePredictiveBraking(boolean);
+  public boolean getUnlimitedTrains();
+  public void clearTrains();
+}
+### mtr.data.Route
+public final class mtr.data.Route extends mtr.data.NameColorDataBase implements mtr.data.IGui {
+  public mtr.data.RouteType routeType;
+  public boolean isLightRailRoute;
+  public boolean isHidden;
+  public boolean disableNextStationAnnouncements;
+  public mtr.data.Route$CircularState circularState;
+  public java.lang.String lightRailRouteNumber;
+  public final java.util.List<mtr.data.Route$RoutePlatform> platformIds;
+  public mtr.data.Route(mtr.data.TransportMode);
+  public mtr.data.Route(long, mtr.data.TransportMode);
+  public mtr.data.Route(java.util.Map<java.lang.String, org.msgpack.value.Value>);
+  public mtr.data.Route(net.minecraft.nbt.NbtCompound);
+  public mtr.data.Route(net.minecraft.network.PacketByteBuf);
+  public void toMessagePack(org.msgpack.core.MessagePacker) throws java.io.IOException;
+  public int messagePackLength();
+  public void writePacket(net.minecraft.network.PacketByteBuf);
+  public void update(java.lang.String, net.minecraft.network.PacketByteBuf);
+  protected boolean hasTransportMode();
+  public void setPlatformIds(java.util.function.Consumer<net.minecraft.network.PacketByteBuf>);
+  public void setPlatformIds(java.util.function.Consumer<net.minecraft.network.PacketByteBuf>, boolean);
+  public void setExtraData(java.util.function.Consumer<net.minecraft.network.PacketByteBuf>);
+  public int getPlatformIdIndex(long);
+  public boolean containsPlatformId(long);
+  public long getFirstPlatformId();
+  public long getLastPlatformId();
+  public java.lang.String getDestination(int);
+  public static boolean destinationIsReset(java.lang.String);
+}
+### mtr.data.Rail
+public class mtr.data.Rail extends mtr.data.SerializedDataBase {
+  public final mtr.data.RailType railType;
+  public final mtr.data.TransportMode transportMode;
+  public final mtr.data.RailAngle facingStart;
+  public final mtr.data.RailAngle facingEnd;
+  public mtr.data.Rail(net.minecraft.util.math.BlockPos, mtr.data.RailAngle, net.minecraft.util.math.BlockPos, mtr.data.RailAngle, mtr.data.RailType, mtr.data.TransportMode);
+  public mtr.data.Rail(java.util.Map<java.lang.String, org.msgpack.value.Value>);
+  public mtr.data.Rail(net.minecraft.nbt.NbtCompound);
+  public mtr.data.Rail(net.minecraft.network.PacketByteBuf);
+  public void toMessagePack(org.msgpack.core.MessagePacker) throws java.io.IOException;
+  public int messagePackLength();
+  public void writePacket(net.minecraft.network.PacketByteBuf);
+  public java.util.Map<java.lang.String, java.lang.String> getRailData();
+  public void setRailData(java.util.Map<java.lang.String, java.lang.String>);
+  public net.minecraft.util.math.Vec3d getPosition(double);
+  public double getLength();
+  public void render(mtr.data.Rail$RenderRail, float, float);
+  public boolean goodRadius();
+  public boolean isValid();
+}
+### mtr.data.RailType
+public final class mtr.data.RailType extends java.lang.Enum<mtr.data.RailType> implements mtr.data.IGui {
+  public static final mtr.data.RailType WOODEN;
+  public static final mtr.data.RailType STONE;
+  public static final mtr.data.RailType EMERALD;
+  public static final mtr.data.RailType IRON;
+  public static final mtr.data.RailType OBSIDIAN;
+  public static final mtr.data.RailType BLAZE;
+  public static final mtr.data.RailType QUARTZ;
+  public static final mtr.data.RailType DIAMOND;
+  public static final mtr.data.RailType PLATFORM;
+  public static final mtr.data.RailType SIDING;
+  public static final mtr.data.RailType TURN_BACK;
+  public static final mtr.data.RailType CABLE_CAR;
+  public static final mtr.data.RailType CABLE_CAR_STATION;
+  public static final mtr.data.RailType RUNWAY;
+  public static final mtr.data.RailType AIRPLANE_DUMMY;
+  public static final mtr.data.RailType NONE;
+  public final int speedLimit;
+  public final float maxBlocksPerTick;
+  public final int color;
+  public final boolean hasSavedRail;
+  public final boolean canAccelerate;
+  public final boolean hasSignal;
+  public final mtr.data.RailType$RailSlopeStyle railSlopeStyle;
+  public static mtr.data.RailType[] values();
+  public static mtr.data.RailType valueOf(java.lang.String);
+  public static float getDefaultMaxBlocksPerTick(mtr.data.TransportMode);
+  static {};
+}
+### mtr.path.PathData
+public class mtr.path.PathData extends mtr.data.SerializedDataBase {
+  public final mtr.data.Rail rail;
+  public final long savedRailBaseId;
+  public int dwellTime;
+  public int adcTime;
+  public boolean stopWithoutOpeningDoors;
+  public final int stopIndex;
+  public final net.minecraft.util.math.BlockPos startingPos;
+  public mtr.path.PathData(mtr.data.Rail, long, int, int, net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos, int);
+  public mtr.path.PathData(mtr.data.Rail, long, int, int, boolean, net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos, int);
+  public mtr.path.PathData(mtr.data.Rail, long, int, net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos, int);
+  public mtr.path.PathData(java.util.Map<java.lang.String, org.msgpack.value.Value>);
+  public mtr.path.PathData(net.minecraft.nbt.NbtCompound);
+  public mtr.path.PathData(net.minecraft.network.PacketByteBuf);
+  public void toMessagePack(org.msgpack.core.MessagePacker) throws java.io.IOException;
+  public int messagePackLength();
+  public void writePacket(net.minecraft.network.PacketByteBuf);
+  public boolean isSameRail(mtr.path.PathData);
+  public boolean isOppositeRail(mtr.path.PathData);
+  public java.util.UUID getRailProduct();
+  public static java.util.UUID getRailProduct(net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos);
+}
+### mtr.data.TrainServer
+public class mtr.data.TrainServer extends mtr.data.Train {
+  public mtr.data.TrainServer(long, long, float, java.lang.String, java.lang.String, int, java.util.List<mtr.path.PathData>, java.util.List<java.lang.Double>, int, int, float, java.util.List<mtr.data.Siding$TimeSegment>, boolean, int, int);
+  public mtr.data.TrainServer(long, float, java.util.List<mtr.data.Siding$TimeSegment>, java.util.List<mtr.path.PathData>, java.util.List<java.lang.Double>, int, int, float, boolean, int, int, java.util.Map<java.lang.String, org.msgpack.value.Value>);
+  public mtr.data.TrainServer(long, float, java.util.List<mtr.data.Siding$TimeSegment>, java.util.List<mtr.path.PathData>, java.util.List<java.lang.Double>, int, int, float, boolean, int, int, net.minecraft.nbt.NbtCompound);
+  protected void startUp(net.minecraft.world.World, int, int, boolean);
+  protected boolean openDoors();
+  protected void simulateCar(net.minecraft.world.World, int, float, double, double, double, float, float, double, double, double, float, float, boolean, boolean, double);
+  protected boolean handlePositions(net.minecraft.world.World, net.minecraft.util.math.Vec3d[], float);
+  protected boolean canDeploy(mtr.data.Depot);
+  protected boolean isRailBlocked(int);
+  protected boolean skipScanBlocks(net.minecraft.world.World, double, double, double);
+  protected boolean openDoors(net.minecraft.world.World, net.minecraft.block.Block, net.minecraft.util.math.BlockPos, int);
+  protected double asin(double);
+  public boolean simulateTrain(net.minecraft.world.World, float, mtr.data.Depot, mtr.data.DataCache, java.util.List<java.util.Map<java.util.UUID, java.lang.Long>>, java.util.Map<net.minecraft.entity.player.PlayerEntity, java.util.Set<mtr.data.TrainServer>>, java.util.Map<java.lang.Long, java.util.List<mtr.data.ScheduleEntry>>, java.util.Map<java.lang.Long, java.util.Map<net.minecraft.util.math.BlockPos, mtr.data.TrainDelay>>);
+  public void writeTrainPositions(java.util.List<java.util.Map<java.util.UUID, java.lang.Long>>, mtr.data.SignalBlocks);
+  public void deployTrain();
+}
+### mtr.data.TransportMode
+public final class mtr.data.TransportMode extends java.lang.Enum<mtr.data.TransportMode> {
+  public static final mtr.data.TransportMode TRAIN;
+  public static final mtr.data.TransportMode BOAT;
+  public static final mtr.data.TransportMode CABLE_CAR;
+  public static final mtr.data.TransportMode AIRPLANE;
+  public final int maxLength;
+  public final boolean continuousMovement;
+  public final boolean hasPitchAscending;
+  public final boolean hasPitchDescending;
+  public final boolean hasRouteTypeVariation;
+  public final int railOffset;
+  public static mtr.data.TransportMode[] values();
+  public static mtr.data.TransportMode valueOf(java.lang.String);
+  static {};
+}
+### mtr.block.BlockNode
+public class mtr.block.BlockNode extends mtr.mappings.BlockDirectionalMapper {
+  public final mtr.data.TransportMode transportMode;
+  public static final net.minecraft.state.property.BooleanProperty FACING;
+  public static final net.minecraft.state.property.BooleanProperty IS_22_5;
+  public static final net.minecraft.state.property.BooleanProperty IS_45;
+  public static final net.minecraft.state.property.BooleanProperty IS_CONNECTED;
+  public static final net.minecraft.state.property.BooleanProperty WATERLOGGED;
+  public mtr.block.BlockNode(mtr.data.TransportMode);
+  public net.minecraft.block.BlockState getPlacementState(net.minecraft.item.ItemPlacementContext);
+  public net.minecraft.fluid.FluidState getFluidState(net.minecraft.block.BlockState);
+  public net.minecraft.block.BlockState getStateForNeighborUpdate(net.minecraft.block.BlockState, net.minecraft.util.math.Direction, net.minecraft.block.BlockState, net.minecraft.world.WorldAccess, net.minecraft.util.math.BlockPos, net.minecraft.util.math.BlockPos);
+  public void onBreak(net.minecraft.world.World, net.minecraft.util.math.BlockPos, net.minecraft.block.BlockState, net.minecraft.entity.player.PlayerEntity);
+  public net.minecraft.util.shape.VoxelShape getOutlineShape(net.minecraft.block.BlockState, net.minecraft.world.BlockView, net.minecraft.util.math.BlockPos, net.minecraft.block.ShapeContext);
+  public net.minecraft.util.shape.VoxelShape getCollisionShape(net.minecraft.block.BlockState, net.minecraft.world.BlockView, net.minecraft.util.math.BlockPos, net.minecraft.block.ShapeContext);
+  protected void appendProperties(net.minecraft.state.StateManager$Builder<net.minecraft.block.Block, net.minecraft.block.BlockState>);
+  public static void resetRailNode(net.minecraft.world.World, net.minecraft.util.math.BlockPos);
+  public static float getAngle(net.minecraft.block.BlockState);
+  static {};
+}
+### mtr.block.BlockSignalLightBase
+public abstract class mtr.block.BlockSignalLightBase extends mtr.mappings.BlockDirectionalMapper implements mtr.mappings.EntityBlockMapper {
+  public mtr.block.BlockSignalLightBase(net.minecraft.block.AbstractBlock$Settings, int, int);
+  public mtr.block.BlockSignalLightBase(net.minecraft.block.AbstractBlock$Settings);
+  public net.minecraft.block.BlockState getPlacementState(net.minecraft.item.ItemPlacementContext);
+  public net.minecraft.util.shape.VoxelShape getOutlineShape(net.minecraft.block.BlockState, net.minecraft.world.BlockView, net.minecraft.util.math.BlockPos, net.minecraft.block.ShapeContext);
+  protected void appendProperties(net.minecraft.state.StateManager$Builder<net.minecraft.block.Block, net.minecraft.block.BlockState>);
+}
+### mtr.block.BlockSignalSemaphoreBase
+public abstract class mtr.block.BlockSignalSemaphoreBase extends mtr.mappings.BlockDirectionalMapper implements mtr.mappings.EntityBlockMapper {
+  public mtr.block.BlockSignalSemaphoreBase(net.minecraft.block.AbstractBlock$Settings);
+  public net.minecraft.block.BlockState getPlacementState(net.minecraft.item.ItemPlacementContext);
+  public net.minecraft.util.shape.VoxelShape getOutlineShape(net.minecraft.block.BlockState, net.minecraft.world.BlockView, net.minecraft.util.math.BlockPos, net.minecraft.block.ShapeContext);
+  protected void appendProperties(net.minecraft.state.StateManager$Builder<net.minecraft.block.Block, net.minecraft.block.BlockState>);
+}
+### mtr.mappings.BlockEntityMapper
+public abstract class mtr.mappings.BlockEntityMapper extends net.minecraft.block.entity.BlockEntity {
+  public mtr.mappings.BlockEntityMapper(net.minecraft.block.entity.BlockEntityType<?>, net.minecraft.util.math.BlockPos, net.minecraft.block.BlockState);
+  public final void readNbt(net.minecraft.nbt.NbtCompound);
+  public final void writeNbt(net.minecraft.nbt.NbtCompound);
+  public void readCompoundTag(net.minecraft.nbt.NbtCompound);
+  public void writeCompoundTag(net.minecraft.nbt.NbtCompound);
+}
+### mtr.client.RouteMapGenerator
+public class mtr.client.RouteMapGenerator implements mtr.data.IGui {
+  public static final int PIXEL_SCALE;
+  public mtr.client.RouteMapGenerator();
+  public static void setConstants();
+  public static net.minecraft.client.texture.NativeImage generatePixelatedText(java.lang.String, int, int, float, boolean);
+  public static net.minecraft.client.texture.NativeImage generateColorStrip(long);
+  public static net.minecraft.client.texture.NativeImage generateStationName(java.lang.String, float);
+  public static net.minecraft.client.texture.NativeImage generateTallStationName(int, java.lang.String, int, float);
+  public static net.minecraft.client.texture.NativeImage generateStationNameEntrance(int, java.lang.String, float);
+  public static net.minecraft.client.texture.NativeImage generateSingleRowStationName(long, float);
+  public static net.minecraft.client.texture.NativeImage generateSignText(java.lang.String, mtr.data.IGui$HorizontalAlignment, float, int, int);
+  public static net.minecraft.client.texture.NativeImage generateLiftPanel(java.lang.String, int);
+  public static net.minecraft.client.texture.NativeImage generateExitSignLetter(java.lang.String, java.lang.String, int);
+  public static net.minecraft.client.texture.NativeImage generateRouteSquare(int, java.lang.String, mtr.data.IGui$HorizontalAlignment);
+  public static net.minecraft.client.texture.NativeImage generateDirectionArrow(long, boolean, boolean, mtr.data.IGui$HorizontalAlignment, boolean, float, float, int, int, int);
+  public static net.minecraft.client.texture.NativeImage generateRouteMap(long, boolean, boolean, float, boolean);
+  public static void scrollTextLightRail(net.minecraft.client.util.math.MatrixStack, net.minecraft.client.render.VertexConsumer, int, float, float, int, int);
+}
+### mtr.client.ScrollingText
+public class mtr.client.ScrollingText implements mtr.data.IGui {
+  public mtr.client.ScrollingText(float, float, int, boolean);
+  public void changeImage(mtr.client.ClientCache$DynamicResource);
+  public void setVertexConsumer(net.minecraft.client.render.VertexConsumerProvider);
+  public void scrollText(net.minecraft.client.util.math.MatrixStack);
+}

@@ -113,8 +113,9 @@ public class RenderPsdDoor extends RenderPSDAPGDoor<XiamenPsdBlocks.TileEntityXi
         if (world != null) {
             logRequested(world.getBlockState(entity.getPos()));
         }
-        // 画之前把「这张门该用哪个命名空间」塞进 XiamenTextures，MTR 内部拼 id 时由 mixin 换掉。
-        XiamenTextures.withNamespace(lte$textureNamespace(),
+        // 画之前把「这张门该用哪个命名空间 / 哪个颜色的门灯」塞进 XiamenTextures，
+        // MTR 内部拼 id 时由 mixin 换掉。
+        XiamenTextures.withNamespace(lte$textureNamespace(), XiamenDoorLights.colorFor(entity.getPos()),
                 () -> this.drawInMtr(entity, tickDelta, matrices, vertexConsumers, light, overlay));
     }
 

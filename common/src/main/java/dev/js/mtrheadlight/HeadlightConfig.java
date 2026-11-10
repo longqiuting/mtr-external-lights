@@ -25,7 +25,7 @@ import java.util.Map;
 public final class HeadlightConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     /** Bumped when a default changes in a way an existing file has to be migrated onto. */
-    private static final int CONFIG_VERSION = 19;
+    private static final int CONFIG_VERSION = 20;
 
     /**
      * {@code railChunkBuildPerFrame} 的上限（每帧最多重建几个轨道区块）。
@@ -779,6 +779,83 @@ public final class HeadlightConfig {
      * {@code config/mtrlte.json} 里设为 {@code false} 可关。
      */
     public boolean weatherDiagnostics = true;
+
+    // ---------------------------------------------------------------------------------------------
+    // 厦门吊板 / APG 玻璃的线路条带（RouteMapGenerator 位图的替代绘制）
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * 线路条带是否用厦门实拍的样式重画（白底长条 + 线路色主线 + 站点圆点 + 当前站大圈 + 终点箭头）。
+     *
+     * <p>关掉就完全回到 MTR 自己的 {@code RouteMapGenerator#generateRouteMap} 位图（黑底细线那套），
+     * 用作一键回退。条带的<b>几何与着色</b>详见 {@code XiamenRouteStrip}；
+     * 颜色一律取“当前站台那条线路的颜色”（{@code Route#color}），本配置<b>不</b>预设任何颜色。
+     */
+    public boolean xiamenRouteStrip = true;
+
+    /**
+     * 站名排在线的上方（厦门 LCD 全图那一套，45° 斜排，默认）还是下方（正排）。
+     *
+     * <p>实拍吊板用斜排：板子只有 0.44 格高，正排站名放不下几个字；正排留给宽而矮的
+     * APG 玻璃试版式时用。
+     */
+    public boolean routeStripNamesBelow = false;
+
+    /**
+     * <b>可选</b>的线路色手工覆盖：键 = 线路 id、线路全名（{@code 1号线}）或线路号（{@code 1}），
+     * 值 = {@code #RRGGBB}。
+     *
+     * <p>默认<b>空</b>——条带一律用 MTR 里那条线路自己的 {@code Route#color}（厦门 1 号线绿、
+     * 4 号线红都会自动跟随）。这张表只用来在“MTR 里线路没设色（color = 0）”时补一个颜色，
+     * 或者临时试配色。匹配顺序：id → 全名 → 线路号；都没有就取线路色，线路色是 0 时用灰白
+     * fallback（{@code #808080}）。
+     */
+    public Map<String, String> lineColors = new LinkedHashMap<>();
+
+    // ---------------------------------------------------------------------------------------------
+    // 屏蔽门门灯颜色（橙色是 MTR 原版贴图的颜色，按线路可切）
+    // ---------------------------------------------------------------------------------------------
+
+    /** 门灯默认颜色：{@code orange}（MTR 原版 {@code light_on.png} = #FF9900）/ {@code green} / {@code blue}。 */
+    public static final String DOOR_LIGHT_ORANGE = "orange";
+    public static final String DOOR_LIGHT_GREEN = "green";
+    public static final String DOOR_LIGHT_BLUE = "blue";
+
+    /**
+     * 门灯颜色。默认 {@link #DOOR_LIGHT_ORANGE} —— 就是 MTR jar 里 {@code textures/block/light_on.png}
+     * （#FF9900）/ {@code light_off.png}（#993300）那一对橙色。
+     *
+     * <p>资源包会把这两张图换成别的颜色（厦门包里是蓝色），本模组自带的副本优先于资源包，
+     * 所以这里选什么颜色，门上就是什么颜色。
+     */
+    public String doorLightColor = DOOR_LIGHT_ORANGE;
+
+    /**
+     * <b>可选</b>的按线路门灯颜色：键 = 线路号（{@code 4} / {@code 6} / {@code 1号线}），
+     * 值 = {@code orange|green|blue}，优先于 {@link #doorLightColor}。
+     *
+     * <p>默认空。以后 4/6 号线要切绿，加一条 {@code "4": "green"} 即可，不用改代码。
+     * 线路号的判定：门所在站台（{@code RailwayData.getClosePlatformId}）→ 该站台的第一条线路
+     * → 线路名里抽数字。
+     */
+    public Map<String, String> doorLightByLine = new LinkedHashMap<>();
+
+    /** 把 {@code orange|green|blue} 之外的写法（大小写 / 空 / 拼错）收回橙色。 */
+    public static String normalizeDoorLightColor(final String raw) {
+        if (raw != null) {
+            final String s = raw.trim().toLowerCase(java.util.Locale.ROOT);
+            if (DOOR_LIGHT_GREEN.equals(s)) {
+                return DOOR_LIGHT_GREEN;
+            }
+            if (DOOR_LIGHT_BLUE.equals(s)) {
+                return DOOR_LIGHT_BLUE;
+            }
+            if (DOOR_LIGHT_ORANGE.equals(s)) {
+                return DOOR_LIGHT_ORANGE;
+            }
+        }
+        return DOOR_LIGHT_ORANGE;
+    }
 
 
     // ---------------------------------------------------------------------------------------------
@@ -1996,6 +2073,11 @@ public final class HeadlightConfig {
         // "a train that has been standing still in the depot for 10 s stops shining"). Absent keys
         // already mean exactly those defaults, so nothing has to be rewritten - the bump writes
         // them into an existing file so they are discoverable by hand.
+        // Version 20 only appends the xiamen route-strip block (xiamenRouteStrip /
+        // routeStripNamesBelow / lineColors) and the door-light block (doorLightColor /
+        // doorLightByLine). Every one of them starts at the shipped default - the strip follows the
+        // route colour, the door light is orange - so nothing is rewritten; the bump exists so the
+        // keys show up in an existing config/mtrlte.json and can be edited by hand.
         configVersion = CONFIG_VERSION;
         return true;
     }
@@ -2159,7 +2241,50 @@ public final class HeadlightConfig {
         // 字符串枚举：null / 空串 / 拼错的值都收回 AUTO（Gson 不会因为一个字段读坏整份配置）。
         headlightMode = normalizeHeadlightMode(headlightMode);
         beamConeSource = normalizeConeSource(beamConeSource);
+        // 线路色覆盖表 / 按线路门灯表：手改的 JSON 可能有 null 键值或非法颜色，读一遍就过滤掉
+        // （坏一条只丢一条，不影响别的线路）。
+        lineColors = sanitizeColorMap(lineColors);
+        doorLightByLine = sanitizeDoorLightMap(doorLightByLine);
+        doorLightColor = normalizeDoorLightColor(doorLightColor);
         return this;
+    }
+
+    /** 去掉空的/非法的 {@code #RRGGBB} 条目，键统一 trim。 */
+    private static Map<String, String> sanitizeColorMap(final Map<String, String> raw) {
+        final Map<String, String> out = new LinkedHashMap<>();
+        if (raw != null) {
+            raw.forEach((key, value) -> {
+                if (key == null || value == null) {
+                    return;
+                }
+                final String k = key.trim();
+                if (k.isEmpty()) {
+                    return;
+                }
+                final int parsed = parseColor(value, -1);
+                if (parsed >= 0) {
+                    out.put(k, formatColor(parsed));
+                }
+            });
+        }
+        return out;
+    }
+
+    /** 同上，但值必须是 {@code orange|green|blue}。 */
+    private static Map<String, String> sanitizeDoorLightMap(final Map<String, String> raw) {
+        final Map<String, String> out = new LinkedHashMap<>();
+        if (raw != null) {
+            raw.forEach((key, value) -> {
+                if (key == null || value == null) {
+                    return;
+                }
+                final String k = key.trim();
+                if (!k.isEmpty()) {
+                    out.put(k, normalizeDoorLightColor(value));
+                }
+            });
+        }
+        return out;
     }
 
     private void save(final Path path) {

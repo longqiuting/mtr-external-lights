@@ -22,6 +22,8 @@ public final class HostProbe {
     private static final String MTR_PIDS_RENDERER = "mtr.render.RenderPIDS";
     /** MTR 的屏蔽门门扇渲染器（贴图 id 命名空间切换的注入目标）。 */
     private static final String MTR_PSD_DOOR_RENDERER = "mtr.render.RenderPSDAPGDoor";
+    /** MTR 的线路图位图生成器（线路条带重绘的注入目标）。 */
+    private static final String MTR_ROUTE_MAP = "mtr.client.RouteMapGenerator";
     /** MTR 的站台 / 侧线基类（{@code isCloseToSavedRail} 是「到站数据范围」的注入目标）。 */
     private static final String MTR_SAVED_RAIL = "mtr.data.SavedRailBase";
 
@@ -31,6 +33,7 @@ public final class HostProbe {
     private static final boolean MTR_SERVER = present(MTR_TRAIN_SERVER);
     private static final boolean MTR_PIDS = present(MTR_PIDS_RENDERER);
     private static final boolean MTR_PSD_DOOR = present(MTR_PSD_DOOR_RENDERER);
+    private static final boolean MTR_ROUTE_MAP_PRESENT = present(MTR_ROUTE_MAP);
     private static final boolean MTR_SAVED_RAIL_BASE = present(MTR_SAVED_RAIL);
 
     private HostProbe() {
@@ -62,6 +65,15 @@ public final class HostProbe {
      */
     public static boolean mtrPsdDoorRenderer() {
         return MTR_PSD_DOOR;
+    }
+
+    /**
+     * {@code mtr.client.RouteMapGenerator} 是否存在 —— 线路条带重绘的注入目标。
+     *
+     * <p>没有它就没有 {@code generateRouteMap} 可拦（条带回到 MTR 原版），所以单独探测。
+     */
+    public static boolean mtrRouteMap() {
+        return MTR_ROUTE_MAP_PRESENT;
     }
 
     /**

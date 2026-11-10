@@ -9,7 +9,8 @@
     "TrainClientRegistryMixin",
     "RenderSignalBaseMixin",
     "RenderPIDSStationMixin",
-    "RenderPsdDoorTextureMixin"
+    "RenderPsdDoorTextureMixin",
+    "RouteMapArtMixin"
   ],
   "injectors": {
     "defaultRequire": 0
