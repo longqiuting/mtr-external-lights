@@ -512,3 +512,11 @@ MTR 的门同样如此；真正的不透明门板是「下半段」那张（65% 
 | 产物 | `v1.20.1/build/libs/lte-1.0.22.jar`（1,016,366 B，`md5 9ad7ee192693c12b08ee5f6db777e6e0`，`BUILD SUCCESSFUL in 18s`）→ 桌面 `lte-1.0.22.jar` + `lte-1.0.22+1.20.1.jar` + 实例 `mods/lte-1.0.22.jar`（三份 md5 一致，旧的 1.0.21 已从 mods 删除） |
 | 工具 | `temp/psdstats.js`（像素统计）、`temp/scan.js`（批量扫描）、`temp/compose.js`（叠棋盘格导出，用来看 alpha） |
 
+
+---
+
+## 16. 半高 APG（`xiamen_apg_glass` / `xiamen_apg_end`）
+
+半高门是另一条路：玻璃上的线路图来自 **另一个 BER** `mtr.render.RenderAPGGlass`
+（同一套 `RenderRouteBase` / `RouteMapGenerator` 数据，几何 `z=4/16, top=8/16, bottom=4/16, side=8/16`），
+端部紫黑块是 blockstate 文件名与方块 id 不匹配。详见 `docs/mtr-apg-glass-report.md`。

@@ -2,6 +2,7 @@
 package dev.js.mtrheadlight.xiamen;
 
 import dev.js.mtrheadlight.LteLog;
+import mtr.render.RenderAPGGlass;
 import mtr.render.RenderPSDTop;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.blockrenderlayer.v1.BlockRenderLayerMap;
@@ -22,6 +23,10 @@ import net.minecraft.client.render.block.entity.BlockEntityRenderer;
  *       {@code TileEntityRouteBase}（为了能用自己注册的 BlockEntityType），所以注册时要做一次
  *       不检查的向下转型；运行期 {@code RenderRouteBase} 只按 {@code TileEntityRouteBase} 调
  *       {@code getPlatformId}，是安全的。</li>
+ *   <li>半高 APG 玻璃：<b>MTR 自己的 {@code RenderAPGGlass}</b> —— 和吊板<b>同一个</b>
+ *       {@code RenderRouteBase} 基类和同一份 {@code RouteMapGenerator} 数据，只是几何参数不同
+ *       （{@code z=4/16, topPadding=8/16, bottomPadding=4/16, sidePadding=8/16}），
+ *       并且只画在<b>上段</b>（下段 {@code getRenderType} 直接返回 {@code NONE}）。</li>
  * </ul>
  *
  * <p>渲染层与 MTR 自己的 {@code MTRClient} 一致：屏蔽门那一族（门 / 玻璃 / 端部 / 吊板）都是
@@ -61,7 +66,22 @@ public final class XiamenClient implements ClientModInitializer {
             LteLog.LOGGER.error("[lte] could not register the xiamen apg door renderer", t);
         }
 
-        // 4) 方块渲染层（照 MTR 的 MTRClient：PSD_DOOR / APG_GLASS / PSD_TOP 全部是 cutout）。
+        // 4) 半高 APG 玻璃渲染器 —— <b>MTR 自己的 RenderAPGGlass</b>（线路图 + 色带 + 站名 + 箭头）。
+        //    它写死泛型参数 BlockAPGGlass.TileEntityAPGGlass，而我们的方块实体继承的是
+        //    TileEntityRouteBase（为了能用自己注册的 BlockEntityType），所以注册时做一次不检查的
+        //    向下转型 —— 和上面 RenderPSDTop 同一个道理：RenderRouteBase 只会按
+        //    TileEntityRouteBase 调 getPlatformId()，运行期是安全的。
+        try {
+            BlockEntityRendererRegistry.register(XiamenObjects.apgGlassEntityType(), context ->
+                    (BlockEntityRenderer<XiamenPsdBlocks.TileEntityXiamenAPGGlass>) (Object)
+                            new RenderAPGGlass(context.getRenderDispatcher()));
+            LteLog.LOGGER.info("[lte] xiamen apg glass route map renderer registered: {}",
+                    RenderAPGGlass.class.getName());
+        } catch (Throwable t) {
+            LteLog.LOGGER.error("[lte] could not register the xiamen apg glass renderer", t);
+        }
+
+        // 5) 方块渲染层（照 MTR 的 MTRClient：PSD_DOOR / APG_GLASS / PSD_TOP 全部是 cutout）。
         put(XiamenObjects.psdDoor(), "psd door");
         put(XiamenObjects.psdGlass(), "psd glass");
         put(XiamenObjects.psdEnd(), "psd end");

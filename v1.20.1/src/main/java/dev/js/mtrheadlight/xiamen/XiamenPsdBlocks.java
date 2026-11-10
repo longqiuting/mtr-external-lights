@@ -4,6 +4,7 @@ package dev.js.mtrheadlight.xiamen;
 import java.util.function.Consumer;
 
 import mtr.block.BlockAPGDoor;
+import mtr.block.BlockAPGGlass;
 import mtr.block.BlockAPGGlassEnd;
 import mtr.block.BlockPSDAPGDoorBase;
 import mtr.block.BlockPSDAPGBase;
@@ -32,7 +33,7 @@ import net.minecraft.world.WorldAccess;
  *
  * <p>全高 PSD：{@code Door / Glass / GlassEnd / Top}（2 高 + 吊板）；
  * 半高 APG：{@code ApgDoor / ApgGlass / ApgEnd}（2 高、无吊板，父类分别是 MTR 的
- * {@code BlockAPGDoor / BlockPSDAPGGlassBase / BlockAPGGlassEnd}）。
+ * {@code BlockAPGDoor / BlockAPGGlass / BlockAPGGlassEnd}）。
  *
  * <h2>为什么必须继承（这是列车能自动开门的前提）</h2>
  * <p>MTR 的 {@code mtr.data.Train} 在扫描列车周围的方块时用的是
@@ -288,17 +289,45 @@ public final class XiamenPsdBlocks {
     /**
      * APG 玻璃板（{@code side_extended} = left / middle / right / single，JSON 模型）。
      *
-     * <p>父类<b>故意</b>取 {@code BlockPSDAPGGlassBase} 而不是 MTR 的 {@code BlockAPGGlass}：
-     * 后者多一个 {@code arrow_direction} 属性（{@code ARROW_DIRECTION}，刷子切箭头用），
-     * 而它的 blockstate JSON 只按 {@code facing/side/half} 三个属性写变体 —— 我们照抄那份 JSON 时
-     * 就会变成「属性对不上 → 模型加载不到」。贴图与几何在本模组里由
-     * {@code mtrlte:block/apg_glass_*} 那套 JSON 负责，用基类完全一致。
+     * <p><b>父类必须是 MTR 的 {@code BlockAPGGlass}</b>（不是 {@code BlockPSDAPGGlassBase}）——
+     * 玻璃上的线路图<b>不是方块模型画的</b>，而是 MTR 的方块实体渲染器
+     * {@code mtr.render.RenderAPGGlass}（{@code extends RenderRouteBase<BlockAPGGlass.TileEntityAPGGlass>}）
+     * 每帧现画的；而这个 BER 只挂在 {@code BlockEntityTypes.APG_GLASS_TILE_ENTITY} 上。要吃到它，
+     * 方块必须
+     * <ol>
+     *   <li>{@code extends BlockAPGGlass}（它 {@code implements EntityBlockMapper}、并且多一个
+     *       {@code ARROW_DIRECTION} 属性 —— {@code RenderRouteBase.render} 无条件读这个属性来定箭头朝向，
+     *       刷子右键切换也靠它）；</li>
+     *   <li>有自己的方块实体，且父类为 {@code BlockPSDTop.TileEntityRouteBase}
+     *       （线路图的数据入口 {@code getPlatformId(ClientData.PLATFORMS, ClientData.DATA_CACHE)} 就在那里）。</li>
+     * </ol>
+     *
+     * <p>以前这里继承的是 {@code BlockPSDAPGGlassBase}：那个基类<b>根本没有方块实体</b>
+     * （{@code javap}：只有一个 {@code use} 和 {@code connectGlass}），所以玻璃是纯静态模型，
+     * 线路图自然一格都没有。顺带一提 {@code BlockPSDAPGBase#isAPG()} 是用
+     * {@code instanceof BlockAPGGlass} 判的，继承基类还会让上段的选中框高度错成整格。
      */
-    public static final class ApgGlass extends BlockPSDAPGGlassBase {
+    public static final class ApgGlass extends BlockAPGGlass {
+
+        @Override
+        public BlockEntityMapper createBlockEntity(BlockPos pos, BlockState state) {
+            return new TileEntityXiamenAPGGlass(pos, state);
+        }
 
         @Override
         public Item asItem() {
             return itemOrAir(XiamenObjects.apgGlassItem());
+        }
+    }
+
+    /**
+     * APG 玻璃的方块实体 —— 父类是 MTR 的 {@code TileEntityRouteBase}，与吊板（{@code TileEntityPSDTop}）
+     * 同一个基类、同一套站台定位逻辑，所以玻璃和吊板画的是<b>同一份</b>线路图数据。
+     */
+    public static final class TileEntityXiamenAPGGlass extends BlockPSDTop.TileEntityRouteBase {
+
+        public TileEntityXiamenAPGGlass(BlockPos pos, BlockState state) {
+            super(XiamenObjects.apgGlassEntityType(), pos, state);
         }
     }
 

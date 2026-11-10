@@ -79,6 +79,15 @@ public final class XiamenObjects {
     /** APG 门扇的 BlockEntity 类型：{@code mtrlte:xiamen_apg_door}。 */
     public static final Identifier APG_DOOR_BE_ID = new Identifier("mtrlte", "xiamen_apg_door");
 
+    /**
+     * APG 玻璃的 BlockEntity 类型：{@code mtrlte:xiamen_apg_glass}。
+     *
+     * <p>这个方块实体是<b>线路图的入口</b>：MTR 的 {@code RenderAPGGlass} 从它取
+     * {@code getPlatformId(...)}，再拿站台 id 去 {@code ClientData.DATA_CACHE} 里生成
+     * 线路图 / 站名 / 色带纹理。没有它，玻璃就是一块死的静态模型。
+     */
+    public static final Identifier APG_GLASS_BE_ID = new Identifier("mtrlte", "xiamen_apg_glass");
+
     /** 页签 id：{@code mtrlte:core} —— 名字由 {@code itemGroup.mtrlte.core} 决定。 */
     public static final Identifier CORE_TAB_ID = new Identifier("mtrlte", "core");
 
@@ -100,6 +109,7 @@ public final class XiamenObjects {
     private static BlockEntityType<XiamenPsdBlocks.TileEntityXiamenPSDDoor> psdDoorEntityType;
     private static BlockEntityType<XiamenPsdBlocks.TileEntityXiamenPSDTop> psdTopEntityType;
     private static BlockEntityType<XiamenPsdBlocks.TileEntityXiamenAPGDoor> apgDoorEntityType;
+    private static BlockEntityType<XiamenPsdBlocks.TileEntityXiamenAPGGlass> apgGlassEntityType;
     private static boolean registered;
 
     private XiamenObjects() {
@@ -179,6 +189,11 @@ public final class XiamenObjects {
         return apgDoorEntityType;
     }
 
+    /** APG 玻璃的 BlockEntity 类型（线路图 BER 按它注册）。 */
+    public static BlockEntityType<XiamenPsdBlocks.TileEntityXiamenAPGGlass> apgGlassEntityType() {
+        return apgGlassEntityType;
+    }
+
     /** 方块 + 方块物品 + BlockEntity + 创造页签，{@code main} 入口调一次。 */
     public static void register() {
         if (registered) {
@@ -207,6 +222,10 @@ public final class XiamenObjects {
                 FabricBlockEntityTypeBuilder.<XiamenPsdBlocks.TileEntityXiamenAPGDoor>create(
                         XiamenPsdBlocks.TileEntityXiamenAPGDoor::new,
                         apgDoor).build());
+        apgGlassEntityType = Registry.register(Registries.BLOCK_ENTITY_TYPE, APG_GLASS_BE_ID,
+                FabricBlockEntityTypeBuilder.<XiamenPsdBlocks.TileEntityXiamenAPGGlass>create(
+                        XiamenPsdBlocks.TileEntityXiamenAPGGlass::new,
+                        apgGlass).build());
 
         // 页签图标是一个只画图标的物品（见 TabIcons 的类注释），不是这一页里的门扇 / 玻璃。
         TabIcons.register();
