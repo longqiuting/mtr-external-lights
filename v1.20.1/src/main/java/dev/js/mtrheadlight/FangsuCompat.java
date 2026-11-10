@@ -55,7 +55,9 @@ import net.fabricmc.loader.api.FabricLoader;
  * {@code BlockEntityTrafficLight.lightState}，只由积木程序（{@code dispType=program}）写；
  * 「MTR 信号联动」那一档在 1.3.2 里是空实现（{@code whenRendering} 只在 {@code "program"} 时
  * 调 {@code drive()}），方速内部唯一相关的 {@code MinecraftClientUtil#getOccupiedAspect}
- * 以灯自身坐标为起点且无调用点。右键时由 {@code signal.FangsuSignalCompat} 认出来并给出提示，
+ * 以灯自身坐标为起点且无调用点。右键它<b>不会</b>再有专门提示：连不上的方块一律由
+ * {@code signal.SignalLinkItem} 回一条红字「不可链接」（{@code signal.FangsuSignalCompat}
+ * 仍认得这个方块，只是不再参与提示），
  * 完整字节码证据见 {@code docs/report-2026-11-10-fangsu-signal-and-node-marks.md}。
  */
 public final class FangsuCompat {

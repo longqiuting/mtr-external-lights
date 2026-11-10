@@ -200,8 +200,10 @@ public final class ProtoBeamCone {
      *   <li><b>g6</b> 位姿为空（{@code cars <= 0} 或车节切线退化成零向量）；</li>
      *   <li><b>g7</b> 光束 apex 超出距离闸门（{@code range}，见 {@link #beamRange}）；</li>
      *   <li><b>g8</b> 名额已满 / 参数退化（length、radius、alpha 小到画不出东西）；</li>
-     *   <li><b>g9</b> 仅 {@code GLOW} 源：这条车自己不发车灯（未出库 / 自动关灯），光带本来就没画，
-     *       光柱也不画 —— 保证对照模式只在"看得见光带"的车上出光柱。</li>
+     *   <li><b>g9</b> 这条车自己不发车灯（未出库 / 自动关灯）—— 光带本来就没画，光柱也不画。
+     *       <b>两种源都过这道闸</b>（{@code coneSource} 是 MODEL 还是 GLOW 无关），判定与
+     *       {@link BeamGlow} / {@link LightController} 是同一个 {@link HeadlightSwitch#isLit}
+     *       加同一个 {@code train.id} 去抖键，所以光带、动态光源、光柱不会出现「一半亮」。</li>
      * </ol>
      * {@code beams>0} 时它们应全为 0；{@code beams==0} 时哪一个不为 0，问题就在哪一道闸。
      * {@code GLOW} 源下 g3 / g4 一定为 0（那条路根本不读车型灯位）。
@@ -453,15 +455,21 @@ public final class ProtoBeamCone {
                 cNear++;
             }
 
+            // 车灯没亮就不画光柱 —— 与 BeamGlow / LightController / 轨道烘焙问的是同一个
+            // HeadlightSwitch.isLit，并且带同一个 train.id 去抖键，所以光带、动态光源、轨道
+            // 烘焙、光柱对"这列车现在亮不亮"只能是同一个答案。
+            //
+            // 这条闸以前只写在下面的 GLOW 源分支里，而 coneSource 默认是 MODEL：于是白天露天
+            // 自动关灯后光带灭了、动态光源摘了，光柱还挂在车头上 —— 就是"光柱没有跟着同步"。
+            // 现在提到分支外，两条源共用（诊断行里记在 g9）。
+            if (!DepartureState.departed(train)
+                    || !HeadlightSwitch.isLit(world, pose, cfg, train.id)) {
+                gate(9);
+                continue;
+            }
             final int before = vertexCount;
             final int beamsBefore = BEAMS.size();
             if (glowSource) {
-                // 光带自己的可见性闸（停库 / 自动关灯）也照抄一份：只在"看得见光带"的车上出光柱，
-                // 否则对照会被"光带没有、光柱却有"的车搅乱。
-                if (!DepartureState.departed(train) || !HeadlightSwitch.isLit(world, pose, cfg)) {
-                    gate(9);
-                    continue;
-                }
                 // 与 BeamGlow 完全相同的输入：同一个 BeamGeom 工厂 + 同一个 startHeight，
                 // offset/height/colour/length 也全部是光带那一组（不用 math.max 再收一遍）。
                 final double sheetLift = Math.max(0.0D, cfg.beamLift);

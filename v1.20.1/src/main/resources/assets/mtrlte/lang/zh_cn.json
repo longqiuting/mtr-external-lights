@@ -240,6 +240,8 @@
   "beam3d.slider.width": "宽度",
   "beam3d.slider.alpha": "透明",
   "beam3d.dragMove": "移动第 %s 束：拖动改变位置",
+  "beam3d.dragAxis": "沿 %1$s 轴移动第 %2$s 束：只改这一个分量（Shift = 0.5 格）",
+  "beam3d.axisHint": "拖动彩色坐标轴：X 红 / Y 绿 / Z 蓝 —— 只沿该轴移动（Shift = 0.5 格）",
   "beam3d.dragRotate": "旋转第 %s 束：左右 = 偏航，上下 = 俯仰",
   "beam3d.pickHint": "左键点一束光束开始编辑",
   "beam3d.snap.title": "吸附（车头 = −Z）",
@@ -299,6 +301,8 @@
   "block.mtrlte.xiamen_psd_glass": "厦门地铁屏蔽门（玻璃）",
   "block.mtrlte.xiamen_psd_end": "厦门地铁屏蔽门（端部）",
   "item.mtrlte.signal_linker": "信号连接器",
+  "item.mtrlte.tab_core": "厦门风格物件（页签图标）",
+  "item.mtrlte.tab_tools": "LTE 工具（页签图标）",
   "tooltip.mtrlte.signal_link.hint": "右键轨道节点 → 信号灯（顺序可反），或 信号灯 → 信号灯 同步显示",
   "tooltip.mtrlte.signal_link.selected": "已选节点：%s",
   "tooltip.mtrlte.signal_link.selected_lamp": "已选信号灯：%s",
@@ -315,7 +319,6 @@
   "message.mtrlte.signal_link.facing_hint": "提示：这盏灯的朝向和节点上的轨道对不上，可能不亮 — 请手动转动灯的方向",
   "message.mtrlte.signal_link.unlinked": "已解除绑定",
   "message.mtrlte.signal_link.not_linked": "这个信号灯还没有绑定",
-  "message.mtrlte.signal_link.not_signal": "请右键轨道节点或信号灯",
-  "message.mtrlte.signal_link.fangsu_unsupported": "方速交通灯不支持节点绑定：它只按自己所在位置取轨道占用，且它那档「MTR信号联动」在 1.3.2 里没有可替换节点的调用点（详见日志/FangsuSignalCompat）",
+  "message.mtrlte.signal_link.not_linkable": "不可链接",
   "tooltip.mtrlte.signal_link.node_marks": "手持时附近轨道节点会显示白色轮廓（已选中的为青色）"
 }

@@ -69,9 +69,12 @@ import net.minecraft.util.Identifier;
  * 所以既没有可以替换坐标的地方（我们改不了它的扫描起点），也没有「每帧会走到」的入口可供 mixin。
  *
  * <h2>因此这里的做法</h2>
- * <p>仍然认得出这个方块（按 registry id，不引入编译期 {@code com.fangsu} 依赖），这样右键它时能给出
- * <b>具体原因</b>，而不是让玩家以为「点歪了」。绑定表里不会写入任何方速交通灯：写进去也没有消费者，
+ * <p>这个类只保留「认得出是方速交通灯」这件事（按 registry id，不引入编译期 {@code com.fangsu}
+ * 依赖），给需要区分方块类型的地方用。绑定表里不会写入任何方速交通灯：写进去也没有消费者，
  * 那才是真正的假功能。
+ *
+ * <p>右键时它<b>不再有专门文案</b>：连不上的方块（含方速交通灯）由
+ * {@code SignalLinkItem#useOnBlock} 统一回一条红字「不可链接」，不解释、不打日志。
  */
 public final class FangsuSignalCompat {
 

@@ -1,8 +1,20 @@
 {
   "variants": {
-    "facing=west": { "model": "mtrlte:block/xiamen_psd_door" },
-    "facing=north": { "model": "mtrlte:block/xiamen_psd_door", "y": 90 },
-    "facing=east": { "model": "mtrlte:block/xiamen_psd_door", "y": 180 },
-    "facing=south": { "model": "mtrlte:block/xiamen_psd_door", "y": 270 }
+    "facing=west,open=false,side=left": { "model": "mtrlte:block/xiamen_psd_door_empty" },
+    "facing=west,open=false,side=right": { "model": "mtrlte:block/xiamen_psd_door_empty" },
+    "facing=west,open=true,side=left": { "model": "mtrlte:block/xiamen_psd_door_empty" },
+    "facing=west,open=true,side=right": { "model": "mtrlte:block/xiamen_psd_door_empty" },
+    "facing=north,open=false,side=left": { "model": "mtrlte:block/xiamen_psd_door_empty" },
+    "facing=north,open=false,side=right": { "model": "mtrlte:block/xiamen_psd_door_empty" },
+    "facing=north,open=true,side=left": { "model": "mtrlte:block/xiamen_psd_door_empty" },
+    "facing=north,open=true,side=right": { "model": "mtrlte:block/xiamen_psd_door_empty" },
+    "facing=east,open=false,side=left": { "model": "mtrlte:block/xiamen_psd_door_empty" },
+    "facing=east,open=false,side=right": { "model": "mtrlte:block/xiamen_psd_door_empty" },
+    "facing=east,open=true,side=left": { "model": "mtrlte:block/xiamen_psd_door_empty" },
+    "facing=east,open=true,side=right": { "model": "mtrlte:block/xiamen_psd_door_empty" },
+    "facing=south,open=false,side=left": { "model": "mtrlte:block/xiamen_psd_door_empty" },
+    "facing=south,open=false,side=right": { "model": "mtrlte:block/xiamen_psd_door_empty" },
+    "facing=south,open=true,side=left": { "model": "mtrlte:block/xiamen_psd_door_empty" },
+    "facing=south,open=true,side=right": { "model": "mtrlte:block/xiamen_psd_door_empty" }
   }
 }

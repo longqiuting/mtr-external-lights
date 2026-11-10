@@ -77,13 +77,6 @@ public final class SignalLinkItem extends Item {
         final BlockPos clicked = context.getBlockPos();
         final BlockState clickedState = world.getBlockState(clicked);
 
-        // 0) 方速交通灯：认得出来，但绑不了（原因见 FangsuSignalCompat 的类注释）。
-        //    单独一条提示，否则玩家会看到「请右键轨道节点或信号灯」，误以为是自己点歪了。
-        if (FangsuSignalCompat.isFangsuTrafficLight(clickedState)) {
-            say(player, "message.mtrlte.signal_link.fangsu_unsupported", Formatting.GOLD);
-            return ActionResult.SUCCESS;
-        }
-
         // 1) 右键信号灯：完成 / 解除绑定
         if (isSignal(clickedState)) {
             return onSignalClicked(world, player, context.getStack(), clicked);
@@ -95,7 +88,10 @@ public final class SignalLinkItem extends Item {
             return onNodeClicked(world, player, context.getStack(), node);
         }
 
-        say(player, "message.mtrlte.signal_link.not_signal", Formatting.GRAY);
+        // 3) 什么都绑不上：一条红字，不解释原因、不打日志。
+        //    方速交通灯也走这里（它本来就不参与绑定，见 FangsuSignalCompat 的类注释）——
+        //    玩家不需要知道是哪一种「绑不了」，只要知道这一下没生效。
+        say(player, "message.mtrlte.signal_link.not_linkable", Formatting.RED);
         return ActionResult.PASS;
     }
 

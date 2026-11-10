@@ -101,6 +101,8 @@ public final class LightController {
             LightBackends.backend().clearAll();
             TrainPose.clearCache();
             VehicleLights.clearCache();
+            // 露天判定的 0.5 s 去抖状态按 train.id 存，换世界后同一 id 可能指另一列车，清掉。
+            RailWeather.reset();
             lastWorld = world;
             tickCounter = 0L;
         }
@@ -218,7 +220,7 @@ public final class LightController {
             // 遮挡开灯；ALWAYS / OFF 不做自动关灯，一发车就亮。
             // 这是一道"输出前"的闸，不是第二套状态机——DepartureState 仍然只回答"发车了没有"，
             // 这里回答"现在这个位置/时刻该不该亮"。
-            final boolean weatherLit = HeadlightSwitch.isLit(world, pose, cfg);
+            final boolean weatherLit = HeadlightSwitch.isLit(world, pose, cfg, train.id);
 
             // Per-end judgement: the beam belongs to the front car, the tail light to the rear car.
             // Both distances use the same boundary the light is built from.
@@ -269,7 +271,7 @@ public final class LightController {
                 }
             }
 
-            weatherLine(world, pose, cfg, skyLines);
+            weatherLine(world, pose, cfg, train.id, skyLines);
         }
 
         // 诊断窗口的收尾：一行/车（最多 8 行）+ 一条"采样了几列 / 数据里共几列 / 引擎里还有几盏"。
@@ -422,22 +424,28 @@ public final class LightController {
     /**
      * One line of the 5-second auto-light diagnostic, appended to {@code out} (null outside the
      * window). Format:
-     * {@code auto light: mode=AUTO openSky=true night=true sky=0.20 lit=on}.
+     * {@code auto light: mode=AUTO openSky=true night=false sky=15 skyMid=15 bright=1.00 lit=off}.
      *
      * <p>Built by {@link HeadlightSwitch#diagnose}, i.e. by the same call the gate itself uses, so
      * {@code lit} in the log is the gate's answer and not a second opinion. Every field is
      * independent, so one line localises a failure: {@code mode} is the setting, {@code openSky}
-     * the raw open-sky verdict, {@code night} the world-clock verdict, {@code sky} the sky
-     * brightness (0.20 midnight … 1.00 noon) and {@code lit} the final answer. {@code lit=on}
-     * with {@code openSky=true night=false sky=1.00} is a rain/thunder light; {@code lit=off
-     * openSky=true night=true} would mean the clock verdict is broken.
+     * the debounced open-sky verdict, {@code night} the world-clock verdict, {@code sky} /
+     * {@code skyMid} the two sky-light levels (0-15, -1 = unreadable), {@code bright} the sky
+     * brightness (0.20 midnight … 1.00 noon) and {@code lit} the final answer.
+     *
+     * <p>{@code sky=15 skyMid=15 lit=off} is the healthy daytime case. {@code sky=15} together with
+     * {@code openSky=false} means the mid probe is under a roof, or the 0.5 s debounce is still
+     * holding a tunnel verdict. A dip to 13 while running in the open is a catenary mast overhead;
+     * with the debounce that must NOT flip {@code openSky}, and if it does, {@code sky=} is the
+     * evidence.
      */
     private static void weatherLine(final ClientWorld world, final TrainPose pose,
-                                    final HeadlightConfig cfg, final List<String> out) {
+                                    final HeadlightConfig cfg, final long trainId,
+                                    final List<String> out) {
         if (out == null || out.size() >= WEATHER_DIAG_MAX) {
             return;
         }
-        out.add(HeadlightSwitch.diagnose(world, pose, cfg));
+        out.add(HeadlightSwitch.diagnose(world, pose, cfg, trainId));
     }
 
     private static List<TrainClient> snapshotTrains() {

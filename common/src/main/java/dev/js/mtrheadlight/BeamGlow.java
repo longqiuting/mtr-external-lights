@@ -287,7 +287,7 @@ public final class BeamGlow {
             // 车灯开关模式与环境判定：唯一信号源是 HeadlightSwitch（动态光源、轨道烘焙问的是
             // 同一个方法），所以光带和灯永远一起亮灭。AUTO 才让环境接管；ALWAYS / OFF 一律画。
             // 放在距离闸之前：被自动关掉的列车不该在日志里显示成"太远"。
-            if (!HeadlightSwitch.isLit(world, pose, cfg)) {
+            if (!HeadlightSwitch.isLit(world, pose, cfg, train.id)) {
                 diag("auto");
                 continue;
             }

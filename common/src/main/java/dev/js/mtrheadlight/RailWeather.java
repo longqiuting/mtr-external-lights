@@ -5,19 +5,37 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.Heightmap;
+import net.minecraft.world.LightType;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 露天 / 昼夜 / 降雨判定 —— 车灯自动开关（{@link LightController}、{@link BeamGlow}）和
  * 雨天水花（1.20.1 的 {@code RainSpray}）共用的<b>唯一</b>信号源，所以车灯和水花对"这列车现在
  * 是不是在隧道里"永远给出同一个答案。
  *
- * <h2>露天判定用什么 API</h2>
- * 1.20.1 的 yarn 里没有 {@code World#canSeeSky}，能看到天空的公开入口是
- * {@code WorldView#isSkyVisibleAllowingSea(BlockPos)}（一个 default 方法，内部拿
- * {@code MOTION_BLOCKING} 高度图与 {@code pos.getY()} 比较）。它在四个支持版本
- * （1.18.2 / 1.19.2 / 1.19.4 / 1.20.1）的 yarn 里同名同签名，所以这段代码放在 {@code common}
- * 里对每个版本都能编译。读不到时退回
- * {@code pos.getY() >= getTopY(MOTION_BLOCKING, x, z)}，两者都抛异常才按"露天"处理。
+ * <h2>露天判定用什么 API（旧实现为什么会闪）</h2>
+ * 旧实现用的是 {@code WorldView#isSkyVisibleAllowingSea(BlockPos)}：它拿
+ * {@code MOTION_BLOCKING} 高度图与 {@code pos.getY()} 比较，回答的是<b>「这一列方块里有没有
+ * 任何碰撞体挡在头顶」</b>。接触网支架 / 吊柱 / 雨棚边梁都是全方块碰撞体，列车从下面开过时
+ * 这一列就被判成「看不见天空」——于是白天露天行驶时车灯每隔几米开一次关一次。这不是判定
+ * 写错，而是<b>问错了问题</b>：车灯关心的是「现在这个位置有多亮」，不是「这一列有没有方块」。
+ *
+ * <p>所以改读<b>天空光照</b>：{@code world.getLightLevel(LightType.SKY, probe)}。
+ * 天空光在竖直方向不衰减、只被方块从上方遮蔽，横向每格 -1，所以：
+ * <ul>
+ *   <li>露天轨道 = 15；</li>
+ *   <li>一根 1 格宽的接触网柱子正上方 = 14（横向从邻列借光），仍然算露天；</li>
+ *   <li>隧道 / 长棚 / 两格以上的实体顶盖 = 13 以下 → 判隧道，开灯。</li>
+ * </ul>
+ * 阈值 {@value #SKY_LIGHT_MIN}，即「离露天只差一格以内」算露天。这个量是连续的：柱子经过时
+ * 光照是从 15 掉到 14 再回来，而不是像高度图那样在 true/false 之间跳。
+ *
+ * <p>剩下的临界抖动由<b>去抖</b>兜住：{@link #openSky(ClientWorld, TrainPose, long)} 对每列车
+ * 记住已提交的答案，原始采样要连续 {@value #DEBOUNCE_TICKS} tick（= 0.5 s，{@link #DEBOUNCE_MS}）
+ * 保持另一个值才翻转。0.5 s 比一列 6 节车以 60 km/h 通过一根柱子（约 0.36 s）长，所以「开过
+ * 一根柱子」不会被看见，而「真的进隧道」最多晚半秒开灯。
  *
  * <h2>昼夜判定：不要用 {@code World#isDay()}（曾经的 bug）</h2>
  * 1.20.1 的 {@code World#isDay()} 字节码是
@@ -48,19 +66,59 @@ import net.minecraft.world.Heightmap;
  *       关心的；</li>
  *   <li>车中：取中间那节车厢 {@code carStart/ carEnd} 的中点。</li>
  * </ul>
- * 两点<b>都</b>能看到天空才算露天。一列长车横跨隧道口时车头在外面、车中在里面：按隧道处理
+ * 两点<b>都</b>够亮才算露天。一列长车横跨隧道口时车头在外面、车中在里面：按隧道处理
  * （开灯），这也是两种错误里更不刺眼的那一种——白天多亮一盏灯，比列车钻进隧道口那半秒突然
  * 灭灯要好。
  *
- * <p>采样点抬高 {@value #PROBE_LIFT} 格：轨面/枕木本身就在高度图里，直接拿车厢坐标取整很可能
- * 落在轨枕那一层，于是每条地面线路都会被判成"有遮挡"，白天灯永远关不掉。
+ * <p>采样点抬高 {@value #PROBE_LIFT} 格：轨面/枕木就在脚下，原位取整会落在轨枕那一层，光照
+ * 是 0，于是每条地面线路都会被判成"有遮挡"，白天灯永远关不掉。
  */
 public final class RailWeather {
     /**
-     * 采样点相对车厢坐标的抬高量（格）。1.0 落在车厢内部（车顶之下、轨面之上），隧道顶棚仍然
-     * 在它上方，所以既能跳过轨枕又不会穿透隧道。
+     * 采样点相对车厢坐标的抬高量（格）。1.0 落在车厢内部（车顶之下、轨面之上）：轨面方块本身
+     * 会把车底那一格的光照压到 0，直接拿车厢坐标取整会让每条地面线路都判成隧道。
      */
     public static final double PROBE_LIFT = 1.0D;
+
+    /**
+     * 露天判定的天空光照阈值（0–15）。{@code >= } 它算露天。
+     *
+     * <p>15 = 头顶没有方块；14 = 正上方有 1 格宽的东西（接触网柱子 / 吊柱 / 电线杆）时借着邻列
+     * 的光；13 及以下只有「头顶有连续实体遮蔽」才出现（隧道、雨棚、桥面下）。所以 14 是「离
+     * 露天只差一格」的边界，正好把柱子从「隧道」里摘出去。
+     */
+    public static final int SKY_LIGHT_MIN = 14;
+
+    /**
+     * 去抖窗口：原始采样要连续这么多 tick（{@value #DEBOUNCE_TICKS} × 50 ms = 0.5 s）保持
+     * 另一个值，状态才翻转。一列 6 节车以 60 km/h 通过一根柱子约 0.36 s &lt; 0.5 s，所以看不见；
+     * 真的进隧道最多晚半秒开灯。
+     */
+    public static final int DEBOUNCE_TICKS = 10;
+    /** {@link #DEBOUNCE_TICKS} 的毫秒形式：判定在渲染线程也会被调用，用墙钟比自带 tick 简单。 */
+    public static final long DEBOUNCE_MS = DEBOUNCE_TICKS * 50L;
+
+    /** {@link #openSky(ClientWorld, TrainPose, long)} 的「不做去抖」键（诊断 / 单点采样用）。 */
+    public static final long NO_KEY = Long.MIN_VALUE;
+
+    /** 去抖状态表的上限：超过就整表清空重建，比无界增长安全。 */
+    private static final int DEBOUNCE_MAX_ENTRIES = 256;
+
+    /**
+     * 每列车的去抖状态（键 = {@code TrainClient.id}）。光带与光柱在渲染线程、动态光源在 client
+     * tick、轨道烘焙可能在区块构建线程，所以用并发表。
+     */
+    private static final Map<Long, Debounce> DEBOUNCE = new ConcurrentHashMap<>();
+
+    /**
+     * 一列车的去抖状态：{@link #value} 是<b>已提交</b>的答案（消费方看到的永远是它），
+     * {@link #candidate} 是正在计时的原始采样，连续 {@link #DEBOUNCE_MS} 不变才提交。
+     */
+    private static final class Debounce {
+        boolean value;
+        boolean candidate;
+        long candidateSince;
+    }
 
     /**
      * 夜晚区间起点（一天内 tick）。13000 是原版"可以睡觉"的时刻，天光开始明显变暗；到
@@ -87,59 +145,141 @@ public final class RailWeather {
     }
 
     /**
-     * 单点是否露天。{@code pos} 是车厢的世界坐标（轨面高度）。未加载的区块按"露天"处理：
-     * 那个区块里的列车本来也不会被渲染，让它白天保持关灯即可。
+     * 单点天空光照（0–15），露天判定的<b>唯一</b>原始读数。{@code -1} = 读不到（未加载区块 /
+     * API 异常），调用方按"露天"处理：读不到的区块里列车本来也不会被渲染，让它白天保持关灯。
+     *
+     * <p>{@code pos} 是车厢的世界坐标（轨面高度），探针抬 {@value #PROBE_LIFT} 格。
+     * {@code getLightLevel(LightType.SKY, BlockPos)} 在四个支持版本的 {@code World} 上同名同
+     * 签名，所以这段代码放在 {@code common} 里每版都能编译。读不到时退回高度图，再抛异常才
+     * 放弃（-1）。
      */
-    public static boolean openSky(final ClientWorld world, final Vec3d pos) {
+    public static int skyLevel(final ClientWorld world, final Vec3d pos) {
         if (world == null || pos == null) {
-            return true;
+            return -1;
         }
         final int x = (int) Math.floor(pos.x);
         final int z = (int) Math.floor(pos.z);
         try {
             if (!world.isChunkLoaded(x >> 4, z >> 4)) {
-                return true;
+                return -1;
             }
         } catch (Throwable t) {
-            // 读不到区块状态就继续往下问一次天空：不做判断比判断错更安全。
+            // 读不到区块状态就继续往下问一次光照：不做判断比判断错更安全。
         }
-        // +1 格：轨面/枕木自己在高度图里，原位取整会落到地形方块上。
         // 三个坐标自己 floor 再 new BlockPos(int,int,int)：BlockPos.ofFloored 在 1.18.2/1.19.2 的
         // yarn 里没有，而 (double,double,double) 构造器在 1.19.4+ 又被删了——这段代码在 common
         // 里，四个版本都得能编译。
         final int py = (int) Math.floor(pos.y + PROBE_LIFT);
         final BlockPos probe = new BlockPos(x, py, z);
         try {
-            return world.isSkyVisibleAllowingSea(probe);
+            return world.getLightLevel(LightType.SKY, probe);
         } catch (Throwable t) {
             try {
-                return probe.getY() >= world.getTopY(Heightmap.Type.MOTION_BLOCKING, x, z);
+                return probe.getY() >= world.getTopY(Heightmap.Type.MOTION_BLOCKING, x, z) ? 15 : 0;
             } catch (Throwable second) {
-                return true;
+                return -1;
             }
         }
     }
 
     /**
-     * 整列车是否露天：车头（{@code pose.front()}）与车中那节车厢的中点都要看到天空。
-     *
-     * @param pose 本 tick 的列车几何，必须与车灯用的是同一个实例（{@link TrainPose#ofShared}）
+     * 单点是否露天：{@code skyLevel >= }{@value #SKY_LIGHT_MIN}。{@code pos} 是车厢的世界坐标
+     * （轨面高度）。这个重载<b>不去抖</b>——水花按每节车厢逐点采样，要的是逐点结论。
      */
-    public static boolean openSky(final ClientWorld world, final TrainPose pose) {
+    public static boolean openSky(final ClientWorld world, final Vec3d pos) {
+        final int level = skyLevel(world, pos);
+        return level < 0 || level >= SKY_LIGHT_MIN;
+    }
+
+    /** 车中那节车厢的中点探针；退化姿态（{@code cars <= 0}）返回 null。 */
+    private static Vec3d midProbe(final TrainPose pose) {
+        final int cars = pose.cars();
+        if (cars <= 0) {
+            return null;
+        }
+        final int mid = cars / 2;
+        return pose.carStart(mid).add(pose.carEnd(mid)).multiply(0.5D);
+    }
+
+    /** 车头探针的光照（光束就是从这里射出去的，车灯最关心它）。 */
+    public static int skyLevelNose(final ClientWorld world, final TrainPose pose) {
+        return pose == null ? -1 : skyLevel(world, pose.front());
+    }
+
+    /** 车中探针的光照；退化姿态或没有这个点时返回 {@code -1}。 */
+    public static int skyLevelMid(final ClientWorld world, final TrainPose pose) {
+        final Vec3d centre = pose == null ? null : midProbe(pose);
+        return centre == null ? -1 : skyLevel(world, centre);
+    }
+
+    /**
+     * 整列车的<b>原始</b>露天结论（无去抖）：车头与车中两点都要 {@code >= }{@value #SKY_LIGHT_MIN}。
+     *
+     * <p>两点<b>都</b>够亮才算露天。一列长车横跨隧道口时车头在外面、车中在里面：按隧道处理
+     * （开灯），这也是两种错误里更不刺眼的那一种——白天多亮一盏灯，比列车钻进隧道口那半秒突然
+     * 灭灯要好。
+     */
+    public static boolean openSkyNow(final ClientWorld world, final TrainPose pose) {
         if (world == null || pose == null) {
             return true;
         }
-        if (!openSky(world, pose.front())) {
+        final int nose = skyLevelNose(world, pose);
+        if (nose >= 0 && nose < SKY_LIGHT_MIN) {
             return false;
         }
-        final int cars = pose.cars();
-        if (cars <= 0) {
-            // 只有车头一个点可用（退化姿态），它的结论就是整列的结论。
-            return true;
+        final int mid = skyLevelMid(world, pose);
+        // mid == -1 有两种含义：退化姿态（没有这个点）或读不到 —— 两种都按「露天」处理。
+        return mid < 0 || mid >= SKY_LIGHT_MIN;
+    }
+
+    /**
+     * 整列车这一刻是否露天 —— <b>带 {@value #DEBOUNCE_TICKS} tick (0.5 s) 去抖</b>，所有车灯
+     * 消费方（{@link HeadlightSwitch}）都走这个重载。
+     *
+     * @param trainId 列车的稳定标识（{@code TrainClient#id}）。同一列车在光带、动态光源、轨道
+     *                烘焙、光柱四处必须传同一个值，否则它们各自去抖就会出现「光带灭了光柱还亮」。
+     *                {@link #NO_KEY} = 不去抖（只给诊断用）。
+     */
+    public static boolean openSky(final ClientWorld world, final TrainPose pose, final long trainId) {
+        final boolean raw = openSkyNow(world, pose);
+        if (trainId == NO_KEY) {
+            return raw;
         }
-        final int mid = cars / 2;
-        final Vec3d centre = pose.carStart(mid).add(pose.carEnd(mid)).multiply(0.5D);
-        return openSky(world, centre);
+        final long now = System.currentTimeMillis();
+        Debounce state = DEBOUNCE.get(Long.valueOf(trainId));
+        if (state == null) {
+            if (DEBOUNCE.size() >= DEBOUNCE_MAX_ENTRIES) {
+                DEBOUNCE.clear();
+            }
+            state = new Debounce();
+            // 第一次见到这列车：直接采用原始值，不等待（否则进场后 0.5 s 内灯是猜的）。
+            state.value = raw;
+            state.candidate = raw;
+            state.candidateSince = now;
+            DEBOUNCE.put(Long.valueOf(trainId), state);
+            return raw;
+        }
+        if (raw == state.value) {
+            // 回到已提交的状态：撤掉候选，下一次翻转要重新等满窗口。
+            state.candidate = raw;
+            state.candidateSince = now;
+            return state.value;
+        }
+        if (raw != state.candidate) {
+            // 原始值又变了（临界处来回跳）：候选重置，计时从头开始 —— 这正是去抖要压掉的抖动。
+            state.candidate = raw;
+            state.candidateSince = now;
+            return state.value;
+        }
+        if (now - state.candidateSince >= DEBOUNCE_MS) {
+            state.value = raw;
+        }
+        return state.value;
+    }
+
+    /** 清空去抖状态（换世界 / 重载配置时调用，避免旧世界的答案留在表里）。 */
+    public static void reset() {
+        DEBOUNCE.clear();
     }
 
     /**
@@ -250,12 +390,15 @@ public final class RailWeather {
      * 才由调用方采用，见 {@link HeadlightConfig#autoHeadlights()}）。
      *
      * <p>暗（夜 / 天黑 / 雨 / 雷）或隧道内 → 开；白天 + 露天 + 无雨 → 关。暗的时候直接短路，
-     * 省掉两次高度图查询（这时露天与否不影响结论）。
+     * 省掉两次光照查询（这时露天与否不影响结论）。
+     *
+     * <p>露天那一半是<b>带 0.5 s 去抖</b>的 {@link #openSky(ClientWorld, TrainPose, long)}，
+     * {@code trainId} 必须与其它消费方传的是同一个值。
      */
-    public static boolean lightsNeeded(final ClientWorld world, final TrainPose pose) {
+    public static boolean lightsNeeded(final ClientWorld world, final TrainPose pose, final long trainId) {
         if (dark(world)) {
             return true;
         }
-        return !openSky(world, pose);
+        return !openSky(world, pose, trainId);
     }
 }

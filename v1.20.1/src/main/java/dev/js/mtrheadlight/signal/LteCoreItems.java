@@ -1,5 +1,6 @@
 package dev.js.mtrheadlight.signal;
 
+import dev.js.mtrheadlight.TabIcons;
 import net.fabricmc.fabric.api.itemgroup.v1.FabricItemGroup;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
 import net.minecraft.item.Item;
@@ -24,8 +25,9 @@ import net.minecraft.util.Identifier;
  *       {@code Item.Settings#group(...)}（1.19.3 起后者已删除）。</li>
  * </ol>
  *
- * <p>页签图标用本模组自己的物品：{@code () -> new ItemStack(SIGNAL_LINKER)}，
- * 是 supplier，注册顺序不敏感。
+ * <p>页签图标是一个只画图标的物品（{@link dev.js.mtrheadlight.TabIcons#tools()}，
+ * 贴图 {@code assets/mtrlte/textures/item/tab_tools.png}），不是本页签里的信号连接器 ——
+ * {@code icon} 收的是 supplier，注册顺序不敏感。
  *
  * <p>页签 id 从 1.0.0 起是 {@code mtrlte:tools}（「LTE 工具」）。{@code mtrlte:core}
  * 这个名字让给了「厦门风格物件」页签（{@link dev.js.mtrheadlight.xiamen.XiamenObjects}），
@@ -58,10 +60,13 @@ public final class LteCoreItems {
         signalLinker = Registry.register(Registries.ITEM, SIGNAL_LINKER_ID,
                 new SignalLinkItem(new Item.Settings().maxCount(1)));
 
+        // 页签图标：不是本页签里的任何物品，而是一个只画图标的物品（见 TabIcons 的类注释）。
+        TabIcons.register();
+
         Registry.register(Registries.ITEM_GROUP, TOOLS_TAB_ID,
                 FabricItemGroup.builder()
                         .displayName(Text.translatable("itemGroup.mtrlte.tools"))
-                        .icon(() -> new ItemStack(signalLinker))
+                        .icon(() -> new ItemStack(TabIcons.tools()))
                         .build());
 
         ItemGroupEvents.modifyEntriesEvent(RegistryKey.of(RegistryKeys.ITEM_GROUP, TOOLS_TAB_ID))

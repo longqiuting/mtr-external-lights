@@ -43,7 +43,7 @@ import java.util.Set;
  * <h2>粒子放在哪（这是"看得见"的关键）</h2>
  * 粒子必须落在<b>车体轮廓之外</b>。车身半宽取 {@code max(1.30, train.width / 2)}（与
  * {@code CollisionSystem} 同一个折算），粒子的横向偏移从
- * {@code 半宽 + 0.10} 起算，纵向从轨面 {@code +0.30} 到 {@code +1.05} 格（裙板到车窗下沿）。
+ * {@code 半宽 + 0.20} 起算（两侧都撒，{@code side = ±1}），纵向从轨面 {@code +0.30} 到 {@code +1.00} 格（裙板到车窗下沿）。
  * 旧实现用的是 {@code 1.30 - 0.15 + rnd * 0.45} = 1.15–1.60 格，其中大半<b>落在 1.5 格宽的
  * 车体里面</b>、高度又贴着轨面，于是粒子明明生成了却被车身挡得看不见——这就是"spawned&gt;0
  * 但屏幕上什么都没有"的原因。
@@ -114,9 +114,12 @@ public final class RainSpray {
 
     /**
      * 粒子横向偏移相对车体半宽的外扩量（格）：{@code 半宽 + [MIN, MAX]}。
-     * 起点必须 &gt; 0，否则粒子又钻回车体里（旧实现的 bug）。
+     *
+     * <p>起点 {@value #LATERAL_PAD_MIN} &gt; 0 是硬要求：{@code 半宽 + 0.2} 是"车体外侧"的
+     * 最小保证，再小就钻回车体里（旧实现 {@code 1.30 - 0.15 + rnd*0.45} 有一大半落在车体内，
+     * 于是"spawned&gt;0 却一颗也看不见"）。
      */
-    private static final double LATERAL_PAD_MIN = 0.10D;
+    private static final double LATERAL_PAD_MIN = 0.20D;
     private static final double LATERAL_PAD_MAX = 0.70D;
 
     /** 水花的横向偏移（贴着轮对/裙板，同样在车体之外）。 */
@@ -125,7 +128,7 @@ public final class RainSpray {
 
     /** 水雾的纵向范围（轨面之上，格）：裙板下沿到车窗下沿。 */
     private static final double MIST_Y_MIN = 0.30D;
-    private static final double MIST_Y_MAX = 1.05D;
+    private static final double MIST_Y_MAX = 1.00D;
 
     /**
      * 水点的水平初速随机扩散（blocks/tick，± 该值）。
@@ -169,6 +172,10 @@ public final class RainSpray {
 
     /** 自己数 tick：不受 LightController 的计数器影响（那条 tick 可能因为主开关提前 return）。 */
     private static long tick;
+
+    /** 最近一次调试探针的中心坐标（{@code x,y,z}，已格式化）与当时的 tick。 */
+    private static String probeAt;
+    private static long probeTick = Long.MIN_VALUE;
 
     /** 令牌桶（全局，跨列车共享）。 */
     private static double tokens = TOKEN_CAP;
@@ -242,11 +249,27 @@ public final class RainSpray {
         if (player == null) {
             return;
         }
-        final net.minecraft.util.math.Vec3d look =
-                net.minecraft.util.math.Vec3d.fromPolar(0.0F, player.getYaw());
-        final double cx = player.getX() - look.x * 2.5D;
+        // getRotationVec 就是前方向量（yaw 0 → +Z，水平分量 (-sin yaw, cos yaw)），和
+        // Vec3d.fromPolar(pitch, yaw) 完全同一个约定。这里必须 <b>加</b>：旧实现减了一次，
+        // 于是那一圈粒子正好撒在玩家<b>背后</b> 2.5 格 —— 第一人称看不见，切第三人称才露出来。
+        final net.minecraft.util.math.Vec3d look = player.getRotationVec(1.0F);
+        double lx = look.x;
+        double lz = look.z;
+        final double llen = Math.sqrt(lx * lx + lz * lz);
+        if (llen < 1.0E-4D) {
+            // 垂直朝上/朝下看：水平朝向退化，用一个固定值，别让 2.5 格缩成 0。
+            lx = 0.0D;
+            lz = 1.0D;
+        } else {
+            lx /= llen;
+            lz /= llen;
+        }
+        final double cx = player.getX() + lx * 2.5D;
         final double cy = player.getEyeY();
-        final double cz = player.getZ() - look.z * 2.5D;
+        final double cz = player.getZ() + lz * 2.5D;
+        // 诊断用：探针中心是"眼前还是背后"只有坐标能回答（第三人称下肉眼判断不出来）。
+        probeAt = fmtCoord(cx) + "," + fmtCoord(cy) + "," + fmtCoord(cz);
+        probeTick = tick;
         final net.minecraft.particle.ParticleEffect effect = SprayType.effect();
         for (int i = 0; i < 12; i++) {
             final double a = Math.PI * 2.0D * i / 12.0D
@@ -448,7 +471,10 @@ public final class RainSpray {
         }
         fx /= len;
         fz /= len;
-        // 行车方向的右向量（水平面内）：cross(f, up) = (-fz, 0, fx)。
+        // 水平右向量（MC 的 yaw 约定：f = (0,0,1)（朝南）时右手边是 (-1,0,0)（西））：
+        // cross(f, up) = (-fz, 0, fx)。注意这不是"前"也不是"后"，而是一条垂直于车体的轴；
+        // 横向落点 = 中线 + side * (半宽 + pad) * 右向量，side 取 ±1 所以两侧都撒，
+        // 不存在"符号取反就只往一侧偏"的问题 —— 唯一能出错的是 pad 变成负数（钻回车体里）。
         final double rx = -fz;
         final double rz = fx;
 
@@ -479,6 +505,8 @@ public final class RainSpray {
             final double jz = minimal ? (world.random.nextDouble() - 0.5D) * 2.0D * MINIMAL_JITTER : 0.0D;
             final double mistPad = LATERAL_PAD_MIN
                     + world.random.nextDouble() * (LATERAL_PAD_MAX - LATERAL_PAD_MIN);
+            // 带符号的横向偏移：±(半宽 + pad)，pad ≥ 0.20，所以落点永远在车体外侧 ≥ 0.2 格。
+            // 车体中心 → 外侧的偏移量就是 here；rx/rz 只负责把它转到世界方向。
             final double mistLateral = side * (halfW + mistPad);
             final double mistX = base.x + rx * mistLateral + jx;
             final double mistZ = base.z + rz * mistLateral + jz;
@@ -710,16 +738,17 @@ public final class RainSpray {
             // avgSize= 是本窗口新生粒子的平均起始尺寸（格）：调参后先看它，再看画面。
             MtrHeadlightClient.LOGGER.info(
                     "[lte] spray: trains={} spawned={} density={} skipped={} roofSkipped={} cap={} avgSize={}"
-                            + " raining={} weather={} grad={} particles={} sprayType={} culled={}",
+                            + " raining={} weather={} grad={} particles={} sprayType={} culled={} probeAt={}",
                     Integer.valueOf(trains), Integer.valueOf(spawned), density,
                     Integer.valueOf(skipped),
                     Integer.valueOf(roofSkipped), Integer.valueOf((int) TOKEN_CAP),
                     avgSize, Boolean.valueOf(raining), Boolean.valueOf(RailWeather.weatherRaining(world)),
                     fmt(RailWeather.rainGradient(world)), mode, SprayType.label(),
-                    ParticleCull.culled().isEmpty() ? "none" : ParticleCull.culled());
+                    ParticleCull.culled().isEmpty() ? "none" : ParticleCull.culled(),
+                    probeAt == null || tick - probeTick > DIAG_PERIOD_TICKS ? "-" : probeAt);
             for (final Diag d : lines) {
                 MtrHeadlightClient.LOGGER.info(
-                        "spray-diag: id={} speed={} rail={} raining={} sky={} dist={} lat={} halfW={} dy={} at={} spawned={} blocked={} reason={}",
+                        "spray-diag: id={} speed={} rail={} raining={} sky={} dist={} lat={} halfW={} dy={} at={} spawned={} blocked={} reason={} probeAt={}",
                         d.id, fmt(d.kmh), fmt(d.railKmh), Boolean.valueOf(d.raining),
                         d.sky == null ? "-" : skyName(d.sky),
                         d.dist < 0.0D ? "-" : fmt(d.dist),
@@ -727,7 +756,8 @@ public final class RainSpray {
                         d.halfW < 0.0D ? "-" : fmt(d.halfW),
                         d.dy == Double.MAX_VALUE ? "-" : fmt(d.dy),
                         d.at == null ? "-" : d.at,
-                        Integer.valueOf(d.spawned), Integer.valueOf(d.blocked), d.reason);
+                        Integer.valueOf(d.spawned), Integer.valueOf(d.blocked), d.reason,
+                        probeAt == null || tick - probeTick > DIAG_PERIOD_TICKS ? "-" : probeAt);
             }
         } catch (Throwable t) {
             // 日志永远不许影响 tick。

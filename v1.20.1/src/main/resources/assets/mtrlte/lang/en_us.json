@@ -240,6 +240,8 @@
   "beam3d.slider.width": "Width",
   "beam3d.slider.alpha": "Alpha",
   "beam3d.dragMove": "Moving beam %s: drag to change its position",
+  "beam3d.dragAxis": "Moving beam %s along %s: only that axis changes (Shift = 0.5 block steps)",
+  "beam3d.axisHint": "Drag a coloured axis: X red / Y green / Z blue — only that axis moves (Shift = 0.5)",
   "beam3d.dragRotate": "Rotating beam %s: horizontal = yaw, vertical = pitch",
   "beam3d.pickHint": "Left click a beam to start editing",
   "beam3d.snap.title": "Snap (nose = -Z)",
@@ -299,6 +301,8 @@
   "block.mtrlte.xiamen_psd_glass": "Xiamen Metro PSD Glass Panel",
   "block.mtrlte.xiamen_psd_end": "Xiamen PSD End",
   "item.mtrlte.signal_linker": "Signal linker",
+  "item.mtrlte.tab_core": "Xiamen Style Objects (tab icon)",
+  "item.mtrlte.tab_tools": "LTE Tools (tab icon)",
   "tooltip.mtrlte.signal_link.hint": "Right-click a track node then a signal light (any order), or a light then another light to mirror it",
   "tooltip.mtrlte.signal_link.selected": "Node selected: %s",
   "tooltip.mtrlte.signal_link.selected_lamp": "Signal light selected: %s",
@@ -315,7 +319,6 @@
   "message.mtrlte.signal_link.facing_hint": "Heads up: this light does not face the track at that node, so it may stay dark - rotate the light yourself",
   "message.mtrlte.signal_link.unlinked": "Link removed",
   "message.mtrlte.signal_link.not_linked": "This signal light is not linked",
-  "message.mtrlte.signal_link.not_signal": "Right-click a track node or a signal light",
-  "message.mtrlte.signal_link.fangsu_unsupported": "Fangsu traffic lights cannot host a node link: they read rail occupancy at their own position, and their MTR-signal mode has no call site in 1.3.2 that a node could replace",
+  "message.mtrlte.signal_link.not_linkable": "Not linkable",
   "tooltip.mtrlte.signal_link.node_marks": "Holding this outlines nearby track nodes in white (the selected one in cyan)"
 }

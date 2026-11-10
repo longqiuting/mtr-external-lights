@@ -112,6 +112,8 @@ final class BeamEditor3DScreen extends Screen {
     private static final int DRAG_BEAM_ROTATE = 4;
     /** 拖动左栏滚动条（不重建控件，只改 scrollRow）。 */
     private static final int DRAG_SCROLL = 5;
+    /** 按住某根坐标轴拖动：只沿那一根轴移动（射线 × 轴线的最近点投影）。 */
+    private static final int DRAG_BEAM_AXIS = 6;
 
     // --- slider kinds ------------------------------------------------------------------------
     private static final int SLIDER_R = 0;
@@ -193,6 +195,17 @@ final class BeamEditor3DScreen extends Screen {
     private double[] moveAnchor;
     private double moveAccumX;
     private double moveAccumY;
+    /**
+     * 轴向拖拽的状态：{@code axisAnchor} 是按下那一刻的 {@code beam.pos}，
+     * {@code axisBase} 是轴线的基点（= pos + 该节车的编组偏移），{@code axisGrab} 是按下时
+     * 鼠标射线落到轴线上的参数（格）。之后每帧只更新被选中的那一个分量。
+     */
+    private int dragAxis = -1;
+    private double[] axisAnchor;
+    private double[] axisBase;
+    private double axisGrab = Double.NaN;
+    /** 悬停在哪根坐标轴上（仅在移动模式、没在拖动时算），用来高亮。 */
+    private int hoverAxis = -1;
 
     BeamEditor3DScreen(final Screen parent, final String vehicleId) {
         super(tr("beam3d.title"));
@@ -981,6 +994,10 @@ final class BeamEditor3DScreen extends Screen {
                     this.drag = DRAG_NONE;
                     return true;
                 }
+                // 坐标轴手柄优先于光束本体：手柄就长在光束起点上，不先判它的话永远点不到。
+                if (this.mode == MODE_MOVE && beginAxisDrag(mouseX, mouseY)) {
+                    return true;
+                }
                 final TrainPreview.Hit hit = this.session == null ? null
                         : TrainPreview.pick(this.camera, mouseX, mouseY,
                         this.viewX0, this.viewY0, this.viewX1, this.viewY1, this.session.work);
@@ -1032,6 +1049,9 @@ final class BeamEditor3DScreen extends Screen {
             case DRAG_BEAM_MOVE:
                 moveSelected(dx, dy);
                 break;
+            case DRAG_BEAM_AXIS:
+                moveAlongAxis(mouseX, mouseY);
+                break;
             case DRAG_BEAM_ROTATE:
                 rotateSelected(dx, dy);
                 break;
@@ -1052,6 +1072,10 @@ final class BeamEditor3DScreen extends Screen {
             this.drag = DRAG_NONE;
             this.dragButton = -1;
             this.moveAnchor = null;
+            this.dragAxis = -1;
+            this.axisAnchor = null;
+            this.axisBase = null;
+            this.axisGrab = Double.NaN;
             return true;
         }
         return super.mouseReleased(mouseX, mouseY, button);
@@ -1095,6 +1119,98 @@ final class BeamEditor3DScreen extends Screen {
         beam.pos[2] = clamp(snap ? BeamSnap.stepped(z) : z, POS_MIN, POS_MAX);
         round(beam.pos);
         this.session.save();
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // 轴向约束拖拽（XYZ 坐标轴手柄）
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * 按下时先看有没有点在坐标轴手柄上。命中就进入 {@link #DRAG_BEAM_AXIS}：
+     * 记下按下点的 {@code pos}、轴线基点、以及鼠标射线在轴线上的参数。
+     *
+     * @return true = 已经接管这次按下（调用方必须直接 return）
+     */
+    private boolean beginAxisDrag(final double mouseX, final double mouseY) {
+        final Beam beam = selectedBeam();
+        if (beam == null) {
+            return false;
+        }
+        if (beam.pos == null) {
+            beam.pos = new double[]{0.0D, 0.0D, 0.0D};
+        }
+        final TrainPreview.AxisHit hit = TrainPreview.pickAxis(this.camera, mouseX, mouseY,
+                this.viewX0, this.viewY0, this.viewX1, this.viewY1, beam.pos,
+                TrainPreview.carOffsets(this.subject, this.carCount));
+        if (hit == null) {
+            return false;
+        }
+        // 轴线基点带上该节车的编组偏移：手柄画在哪一节车上，就按哪一节车的轴拖。
+        this.axisBase = new double[]{beam.pos[0] + hit.ox, beam.pos[1], beam.pos[2] + hit.oz};
+        this.axisGrab = TrainPreview.axisCoordinate(this.camera, mouseX, mouseY,
+                this.viewX0, this.viewY0, this.viewX1, this.viewY1,
+                this.axisBase, TrainPreview.axisUnit(hit.axis));
+        if (Double.isNaN(this.axisGrab)) {
+            // 这根轴几乎正对相机：屏幕上就是一个点，没法投影位移，别进入拖拽。
+            this.axisBase = null;
+            return false;
+        }
+        this.drag = DRAG_BEAM_AXIS;
+        this.dragAxis = hit.axis;
+        this.axisAnchor = beam.pos.clone();
+        this.status = tr("beam3d.dragAxis", TrainPreview.axisName(hit.axis),
+                Integer.valueOf(this.selected + 1)).getString();
+        return true;
+    }
+
+    /**
+     * 只沿 {@link #dragAxis} 这一根轴移动。
+     *
+     * <p>位移不是“像素差 / scale”（那样视角一斜就和光标脱节），而是
+     * {@code 当前射线×轴线的最近点 − 按下时的那个最近点}：光标始终贴着轴上的同一个点走。
+     * 另外两个分量从按下时的快照里原样写回，保证「只动一根轴」不会因为取整而漂。
+     * Shift 仍然把结果量化到 0.5 格（和自由移动同一个 {@link BeamSnap#stepped}）。
+     */
+    private void moveAlongAxis(final double mouseX, final double mouseY) {
+        final Beam beam = selectedBeam();
+        if (beam == null || beam.pos == null || this.dragAxis < 0
+                || this.axisAnchor == null || this.axisBase == null) {
+            return;
+        }
+        final double t = TrainPreview.axisCoordinate(this.camera, mouseX, mouseY,
+                this.viewX0, this.viewY0, this.viewX1, this.viewY1,
+                this.axisBase, TrainPreview.axisUnit(this.dragAxis));
+        if (Double.isNaN(t)) {
+            return;
+        }
+        final int axis = this.dragAxis;
+        double value = this.axisAnchor[axis] + (t - this.axisGrab);
+        if (hasShiftDown()) {
+            value = BeamSnap.stepped(value);
+        }
+        beam.pos[axis] = clamp(value, POS_MIN, POS_MAX);
+        beam.pos[(axis + 1) % 3] = this.axisAnchor[(axis + 1) % 3];
+        beam.pos[(axis + 2) % 3] = this.axisAnchor[(axis + 2) % 3];
+        round(beam.pos);
+        this.session.save();
+    }
+
+    /** 鼠标现在悬在哪根轴上（-1 = 没有）。拖动中直接返回正在拖的那根。 */
+    private int axisUnder(final double mouseX, final double mouseY) {
+        if (this.drag == DRAG_BEAM_AXIS) {
+            return this.dragAxis;
+        }
+        if (this.mode != MODE_MOVE || this.drag != DRAG_NONE) {
+            return -1;
+        }
+        final Beam beam = selectedBeam();
+        if (beam == null || beam.pos == null) {
+            return -1;
+        }
+        final TrainPreview.AxisHit hit = TrainPreview.pickAxis(this.camera, mouseX, mouseY,
+                this.viewX0, this.viewY0, this.viewX1, this.viewY1, beam.pos,
+                TrainPreview.carOffsets(this.subject, this.carCount));
+        return hit == null ? -1 : hit.axis;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -1291,9 +1407,12 @@ final class BeamEditor3DScreen extends Screen {
 
         // 3D 先画：之后的 2D 全部落在深度 0（最前），不会被模型压住。
         // carCount 只是预览里的编组节数（车体局部坐标不变，所以光束/导出都不受影响）。
+        // 移动模式下给选中的光柱画 XYZ 手柄；悬停/正在拖的那根高亮。
+        this.hoverAxis = axisUnder(mouseX, mouseY);
         TrainPreview.draw(this.subject, context, this.camera,
                 this.viewX0, this.viewY0, this.viewX1, this.viewY1,
-                this.session == null ? List.of() : this.session.work, this.selected, this.carCount);
+                this.session == null ? List.of() : this.session.work, this.selected, this.carCount,
+                this.mode == MODE_MOVE && this.selected >= 0, this.hoverAxis);
 
         context.fill(0, 0, this.width, TOP_H, 0xE0181818);
         context.fill(0, TOP_H, leftW(), this.height, 0xE0181818);
@@ -1482,6 +1601,12 @@ final class BeamEditor3DScreen extends Screen {
                     BeamSession.typeName(BeamSession.typeOf(beam)),
                     BeamSession.hex(beam.color)).getString();
             context.drawTextWithShadow(this.textRenderer, Text.literal(head), left, top + 12, 0xFFE08A);
+
+            if (this.mode == MODE_MOVE) {
+                // 手柄只画一次说明，不占按钮位（三个颜色块 + 一句提示已经够认）。
+                context.drawTextWithShadow(this.textRenderer, tr("beam3d.axisHint"),
+                        left, top + 24, 0x9DD0FF);
+            }
 
             if (this.propertiesY >= 0) {
                 final int x = this.width - rightW() + PAD;
