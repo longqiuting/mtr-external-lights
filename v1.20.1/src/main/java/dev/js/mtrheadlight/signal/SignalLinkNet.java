@@ -29,7 +29,13 @@ import java.util.Map;
  *   <li>{@code 0} SYNC —— 进服时整维度下发：dim, n, [signal, node]×n；</li>
  *   <li>{@code 1} PUT —— 新增/覆盖一条：dim, signal, node；</li>
  *   <li>{@code 2} REMOVE —— 解绑：dim, signal。</li>
+ *   <li>{@code 3} LAMP_SYNC —— 进服时整维度下发「灯 → 灯」：dim, n, [lamp, source]×n；</li>
+ *   <li>{@code 4} LAMP_PUT —— 灯 → 灯 新增/覆盖：dim, lamp, source；</li>
+ *   <li>{@code 5} LAMP_REMOVE —— 灯 → 灯 解绑：dim, lamp。</li>
  * </ul>
+ *
+ * <p>「灯 → 灯」故意用新的包类型而不是往 {@code SYNC} 尾巴上追加：旧版客户端收到未知类型会直接
+ * 忽略（{@code default -> {}}），整张节点表照常同步，不会因为多出来的几个字节把整包读崩。
  */
 public final class SignalLinkNet {
 
@@ -38,6 +44,9 @@ public final class SignalLinkNet {
     private static final byte KIND_SYNC = 0;
     private static final byte KIND_PUT = 1;
     private static final byte KIND_REMOVE = 2;
+    private static final byte KIND_LAMP_SYNC = 3;
+    private static final byte KIND_LAMP_PUT = 4;
+    private static final byte KIND_LAMP_REMOVE = 5;
 
     /** {@code RailwayData#getInstance(World)}，见 {@link #railwayData(World)}。 */
     private static Method getInstance;
@@ -77,15 +86,46 @@ public final class SignalLinkNet {
         return buf;
     }
 
+    public static PacketByteBuf lampSync(final String dim, final Map<BlockPos, BlockPos> links) {
+        final PacketByteBuf buf = PacketByteBufs.create();
+        buf.writeByte(KIND_LAMP_SYNC);
+        buf.writeString(dim);
+        buf.writeVarInt(links.size());
+        for (final Map.Entry<BlockPos, BlockPos> entry : links.entrySet()) {
+            buf.writeBlockPos(entry.getKey());
+            buf.writeBlockPos(entry.getValue());
+        }
+        return buf;
+    }
+
+    public static PacketByteBuf lampPut(final String dim, final BlockPos lamp, final BlockPos source) {
+        final PacketByteBuf buf = PacketByteBufs.create();
+        buf.writeByte(KIND_LAMP_PUT);
+        buf.writeString(dim);
+        buf.writeBlockPos(lamp);
+        buf.writeBlockPos(source);
+        return buf;
+    }
+
+    public static PacketByteBuf lampRemove(final String dim, final BlockPos lamp) {
+        final PacketByteBuf buf = PacketByteBufs.create();
+        buf.writeByte(KIND_LAMP_REMOVE);
+        buf.writeString(dim);
+        buf.writeBlockPos(lamp);
+        return buf;
+    }
+
     // ---------------------------------------------------------------- 发
 
-    /** 进服：整维度下发一次。 */
+    /** 进服：整维度下发一次（两张表各一包）。 */
     public static void sendAll(final ServerPlayerEntity player, final String dim,
-                               final Map<BlockPos, BlockPos> links) {
+                               final Map<BlockPos, BlockPos> links,
+                               final Map<BlockPos, BlockPos> lampLinks) {
         if (player == null || !ServerPlayNetworking.canSend(player, ID)) {
             return;
         }
         ServerPlayNetworking.send(player, ID, sync(dim, links));
+        ServerPlayNetworking.send(player, ID, lampSync(dim, lampLinks));
     }
 
     /**
@@ -113,6 +153,30 @@ public final class SignalLinkNet {
         for (final ServerPlayerEntity player : PlayerLookup.all(server)) {
             if (ServerPlayNetworking.canSend(player, ID)) {
                 ServerPlayNetworking.send(player, ID, remove(dim, signal));
+            }
+        }
+    }
+
+    public static void broadcastLampPut(final MinecraftServer server, final String dim,
+                                        final BlockPos lamp, final BlockPos source) {
+        if (server == null) {
+            return;
+        }
+        for (final ServerPlayerEntity player : PlayerLookup.all(server)) {
+            if (ServerPlayNetworking.canSend(player, ID)) {
+                ServerPlayNetworking.send(player, ID, lampPut(dim, lamp, source));
+            }
+        }
+    }
+
+    public static void broadcastLampRemove(final MinecraftServer server, final String dim,
+                                           final BlockPos lamp) {
+        if (server == null) {
+            return;
+        }
+        for (final ServerPlayerEntity player : PlayerLookup.all(server)) {
+            if (ServerPlayNetworking.canSend(player, ID)) {
+                ServerPlayNetworking.send(player, ID, lampRemove(dim, lamp));
             }
         }
     }

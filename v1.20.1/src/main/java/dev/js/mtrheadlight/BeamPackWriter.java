@@ -137,8 +137,28 @@ final class BeamPackWriter {
             return List.of();
         }
         try {
-            final JsonElement rootEl = JsonParser.parseString(
-                    Files.readString(path, StandardCharsets.UTF_8));
+            return parse(Files.readString(path, StandardCharsets.UTF_8), vehicleId, path.toString());
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] beam editor: cannot read {}", path, t);
+            return List.of();
+        }
+    }
+
+    /**
+     * 解析一份 {@code lte_beams} 文件（同一格式，来源可以是 config、也可以是导入资源包里的
+     * {@code assets/<ns>/lte_beams/<id>.json}）。复用 {@link VehicleLightJson} 的解析器做校验，
+     * 因此非法字段会被丢弃而不是让界面崩掉。
+     *
+     * @param json     文件内容
+     * @param vehicleId 车型 id（写回包装用）
+     * @param source   出错时打印的来源（文件 / zip!条目）
+     */
+    static List<Beam> parse(final String json, final String vehicleId, final String source) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            final JsonElement rootEl = JsonParser.parseString(json);
             if (rootEl == null || !rootEl.isJsonObject()) {
                 return List.of();
             }
@@ -157,13 +177,13 @@ final class BeamPackWriter {
             vehicles.add(vehicle);
             wrapper.add("vehicles", vehicles);
             final VehicleLightJson.Result result = VehicleLightJson.parse(
-                    GSON.toJson(wrapper), path.toString());
+                    GSON.toJson(wrapper), source);
             if (!result.ok() || result.vehicles.isEmpty()) {
                 return List.of();
             }
             return new ArrayList<>(result.vehicles.get(0).beams);
         } catch (Throwable t) {
-            LteLog.LOGGER.warn("[lte] beam editor: cannot read {}", path, t);
+            LteLog.LOGGER.warn("[lte] beam editor: cannot parse {}", source, t);
             return List.of();
         }
     }

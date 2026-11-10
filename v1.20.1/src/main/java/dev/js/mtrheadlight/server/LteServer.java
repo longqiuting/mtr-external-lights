@@ -65,15 +65,24 @@ public final class LteServer implements ModInitializer {
             LteLog.LOGGER.warn("[lte] signal linker item unavailable", t);
         }
 
+        // 厦门风格物件页签 + 屏蔽门方块（同样是两端都需要的 registry 条目）。
+        try {
+            dev.js.mtrheadlight.xiamen.XiamenObjects.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] xiamen objects unavailable", t);
+        }
+
         try {
             ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
                 try {
-                    // 进服：把玩家所在维度的绑定表整份同步过去（渲染要它）。
+                    // 进服：把玩家所在维度的两张表都同步过去（渲染要它）。
                     final net.minecraft.server.network.ServerPlayerEntity player = handler.player;
                     final net.minecraft.server.world.ServerWorld world = player.getServerWorld();
+                    final dev.js.mtrheadlight.signal.SignalLinkStore store =
+                            dev.js.mtrheadlight.signal.SignalLinkStore.get(world);
                     dev.js.mtrheadlight.signal.SignalLinkNet.sendAll(player,
                             dev.js.mtrheadlight.signal.SignalLinkNet.dimensionOf(world),
-                            dev.js.mtrheadlight.signal.SignalLinkStore.get(world).links());
+                            store.links(), store.lampLinks());
                 } catch (Throwable ignored) {
                     // 同步失败只是绑定的信号灯不亮，不影响进服。
                 }

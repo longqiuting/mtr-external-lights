@@ -40,6 +40,45 @@
 - 快捷键：`1`–`4` 切工具，`Delete` 删除选中束，`Ctrl+D` 复制选中束，`Esc` 关闭。
 - 改动**立刻写运行时层**（世界里马上生效），但**不落盘**；只有「导出 JSON」会写文件。
 
+## 坐标约定（车头朝 -Z）
+
+模型的 `pos` / `rot` 全部在 **MTR 资源包的建模空间**里，和 `VehicleLights` / `TrainPose` 同一套：
+
+```
+x = 横向（车体右方 = +X）    y = 向上（车厢参考点起算）    z = 沿车长，负 = 车头
+```
+
+所以预览**不对模型做任何额外变换**（旧版本压了一个 `Rz(180)`，整台车看起来上下颠倒 + 左右镜像，
+已去掉；真要翻，`TrainPreview` 里的 `MODEL_FLIP_Y180` / `MODEL_FLIP_Z180` 各是一个 180° 开关）。
+
+光束方向由 `rot = [yaw, pitch, roll]`（度）给出，**零旋转 = 该类型的出厂方向**：
+
+| 类型 | 出厂方向 | 公式 |
+|---|---|---|
+| `head` | 车头 **-Z** | `dir = (-sin(yaw)·cos(pitch), -sin(pitch), -cos(yaw)·cos(pitch))` |
+| `tail` | 车尾 **+Z** | `dir = -dir(head, yaw-180)`，即 `(sin(yaw)·cos(pitch), sin(pitch), cos(yaw)·cos(pitch))` |
+
+尾灯 axis 永远是**车头方向取反**，和 world 端一致（`TrainPose#backward() = -carDir[last]`、
+`ProtoBeamCone#emitSlot` 对尾端做 `dir.multiply(-1)`）。`lengthAxis = X` 的模型沿 X 排，符号规则相同。
+
+## 轴向吸附 + 步进
+
+选中一束后，视口左下角出现六个按钮（也可用快捷键）：
+
+| 按钮 | 快捷键 | yaw | pitch | 方向 |
+|---|---|---|---|---|
+| 前 -Z | `F` | 0° | 0° | (0, 0, -1) |
+| 后 +Z | `B` | 180° | 0° | (0, 0, +1) |
+| 上 +Y | `U` | 0° | -90° | (0, +1, 0) |
+| 下 -Y | `D` | 0° | +90° | (0, -1, 0) |
+| 左 -X | `L` | +90° | 0° | (-1, 0, 0) |
+| 右 +X | `R` | -90° | 0° | (+1, 0, 0) |
+
+注意 `pitch` 的正负：公式里是 `-sin(pitch)`，所以**抬头是负 pitch**（和旋转工具上下拖动同向）。
+
+移动工具下**按住 Shift 拖动** = 0.5 格步进：位移以按下时那一点为基准重新量化（不是每帧各自取整，
+否则 0.02 格的小位移会被吃掉、光束根本拖不动）。
+
 ## 导出格式
 
 导出路径：`config/lte_beams/<车型id>.json`（一车一文件；车型 id 里的非法文件名字符
@@ -104,6 +143,75 @@ assets/<你的命名空间>/lte_beams/<车型id>.json
   「没有可用车型（资源包未加载？）」+ 关闭按钮，不再是空白窗；`/mtr_lte beam3d <车型id>`
   仍然能打开指定车型。
 
+## 车型名 / 导入未加载的包 / 多节预览
+
+### 列表显示的是「名字」，不是内部 id
+
+名字来源（实证，不是猜的）：
+
+| 位置 | 内容 |
+|---|---|
+| 资源包内路径 | **`assets/mtr/mtr_custom_resources.json`** —— MTR 的 `CustomResources#reload` 里写死的资源 id 只有 `mtr:mtr_custom_resources.json` 这一个，没有第二个路径 |
+| 结构 | `{ "custom_trains": { "<key>": { "name": "...", ... } } }` |
+| `name` 缺失时 | MTR 用条目 key 当默认值（`getOrDefault(obj, "name", key)`） |
+| 注册 id | `"mtr_custom_train_" + key`（`CustomResources` 的字符串拼接常量就是 `mtr_custom_train_\u0001`） |
+| 进游戏的路径 | `TrainClientRegistry#register` 把 `name` 包成 `Text.translatable(name)` 塞进 `TrainProperties#name` |
+
+所以编辑器解析名字的顺序是：
+
+1. `TrainClientRegistry.getTrainProperties(id).name` → 用 `Language.getInstance().get(key)` 解析
+   （可翻译文本的 `getString()` 只返回键，必须先过语言表，这才是游戏里渲染的那一步），
+   查不到译文就用原文 —— 包里 `name` 写字面名字时就是这个分支，等价于原样显示。
+2. 注册表里没有（内置车型被 `disableBuiltInTrains` 裁掉、或包刚导入还没注册）→ 直接读上面那份
+   json 的 `custom_trains.*.name`。
+3. 都没有 → 去掉 `mtr_custom_train_` 前缀的 id。
+
+搜索框同时匹配**名字 / id / 包名**，所以按 id 找车的习惯不变；视口左上角显示
+`包名 · 名字 (id)`。
+
+### 导入一个「游戏没加载」的资源包
+
+左栏最下方「导入资源包…」→ 选 zip 或文件夹：
+
+- 自动列出 `<game>/resourcepacks/` 与 `config/lte_packs/`（各两层）里**真的带
+  `mtr_custom_resources.json`** 的包，点一下填路径；
+- 也可以直接粘任意绝对路径；
+- 读的是包内 `assets/mtr/mtr_custom_resources.json`（找不到再扫任意层的同名文件，兼容老包），
+  车型 id 用与 MTR 一致的 `mtr_custom_train_<key>`，列表里用偏蓝的字色区分；
+- 模型：`model` / `model_properties` 是资源路径（如 `mypack:models/train/x.bbmodel`），
+  映射成 `assets/<ns>/<path>`，直接 `new DynamicTrainModel(modelJson, propsJson, doorAnimationType)`
+  —— 这个构造器是 public 的，**不需要把包注册进 MTR** 就能预览；
+- 贴图：`texture_id + ".png"` 从包里读出 PNG，用 `NativeImageBackedTexture` 挂到贴图管理器上
+  （合成 id `mtrlte:import/...`），关编辑器时释放；
+- 名字：优先包自带 `assets/<ns>/lang/{zh_cn,en_us}.json`（未加载的包在游戏语言表里查不到）。
+
+导出（导入的车型）：
+
+| 包类型 | 写到哪 |
+|---|---|
+| 文件夹包 | `<包>/assets/<ns>/lte_beams/<车型id>.json`（自动建目录，写完立刻读回核对束数） |
+| zip | `config/lte_beams/<车型id>.json`，提示「解压后把 `lte_beams` 放进 `<包>/assets/<ns>/lte_beams/`」——**不改 zip** |
+
+`<ns>` 取 `texture_id`（退化到 `model` / `model_properties`）的命名空间，跳过 `minecraft`，都没有就用 `mtr`。
+
+两类包都支持：
+
+| 包的写法 | 模型从哪来 |
+|---|---|
+| 整车包：`model` + `model_properties` | 直接读包内文件构造 `DynamicTrainModel` |
+| 涂装包：只有 `texture_id` + `base_train_type` | 复用**基础车型**已加载的模型，贴图用包里那张（与 MTR 注册时 `new JonModelTrainRenderer(baseModel, 本包 texture)` 一致） |
+
+### 多节车厢预览
+
+右栏「车厢 ×N」（1…8 循环），只影响预览，**不影响导出的 JSON**（光束坐标始终是单车局部的）。
+
+- 间距：`VehicleLights.Layout#sectionLen` = 模型沿长度轴的几何跨度 / `sections`，
+  一个 bbmodel 里塞了几节车时会自动拆开；量不出（≤0.5 格）再试 `length`，都不行才用 **10 格**；
+- 方向：`Layout#lengthAxis`（`X` 或 `Z`）；
+- 摆放：以视口中心对称，第 i 节偏移 `(i - (N-1)/2) * 间距`，`carIndex / trainCars` 照实传给模型；
+- 光束按节重复画（同一份车体局部坐标），换节数时自动按整列重新取景；
+- 视口右上角显示「编组 N 节 · 间距 X.X 格」。
+
 ## 相关代码
 
 | 文件 | 作用 |
@@ -111,5 +219,8 @@ assets/<你的命名空间>/lte_beams/<车型id>.json
 | `v1.20.1/.../BeamEditor3DScreen.java` | 界面、工具、拖拽、滑块、车型列表 |
 | `v1.20.1/.../TrainPreview.java` | 在 GUI 里渲染 MTR 模型 + 正交反投影拾取 |
 | `v1.20.1/.../BeamPackWriter.java` | `config/lte_beams/<id>.json` 的读写 |
+| `v1.20.1/.../TrainNames.java` | 车型名：`TrainProperties#name` → 语言表 → 包里 json 的 `name` |
+| `v1.20.1/.../CustomPack.java` | 读一个未加载的 zip/文件夹包：json、模型、贴图、导出到包内 |
+| `v1.20.1/.../PackImportScreen.java` | 「导入资源包」页：自动扫 + 路径框 |
 | `common/.../BeamSession.java` | 光束会话（自动识别 + 覆盖合并、增删改、运行时 put） |
 | `common/.../VehicleLightJson.java` | 光束字段的解析/序列化（复用同一套字段名） |

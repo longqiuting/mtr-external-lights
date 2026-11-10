@@ -380,15 +380,17 @@ public final class ParameterScreen extends Screen {
      * The row table of THIS category only. Side-by-side comparison of the five partitions:
      * <pre>
      *   光源  总开关|渲染距离 · 车灯模式(自动/常亮/关闭，全局页) · 光带|照射长度 · 光柱 ·
-     *         车头/车尾颜色 · 光束距离/车头长度/车尾长度/光束宽度/车头高度/车尾高度 ·
-     *         动态光源|车灯亮度 · 光束编辑
+     *         动态光源|车灯亮度 · 车头/车尾颜色 · 光束距离/车头长度/车尾长度/光束宽度/
+     *         车头高度/车尾高度 · 光束编辑
      *   碰撞  车体碰撞 · 碰撞高度 · 道床碰撞 · 车头延长 · 车尾延长 · 车顶掉落速度 · 车顶弯道半径
      *   粒子  雨天水雾|水雾起始速度 · 挡雨
      *   伤害  伤害开关 · 创造模式也受伤 · 伤害起点速度 · 伤害上限 · 4 个速度档 · 4 个伤害系数 · 撞飞距离 · 2 个竖直初速 · 冲量冷却 · 生物受伤
      *   其他  内置车型屏蔽 · 重载内置车型 · 立即重载光源
      * </pre>
      * 「车灯模式」放在光源分区第二行（用户要求：它决定灯什么时候亮，属于光源，不属于其他），
-     * 并且只在全局页出现 —— 它没有侧线覆盖。
+     * 并且只在全局页出现 —— 它没有侧线覆盖。三个「灯」开关连在一起：
+     * <b>光带 → 光柱 → 动态光源</b>（同一件事的三层：贴地光带 / 体积光锥 / 真实方块光照），
+     * 动态光源那行右边仍然是车灯亮度滑块，改开关立刻能用滑块看到效果。
      * {@code isGlobal()} 为假时只留下侧线真能覆盖的行：光源全部（除车灯模式）、碰撞的两个端部延长、
      * 粒子的三项，以及伤害的开关 / 起点速度 / 上限。
      */
@@ -406,6 +408,10 @@ public final class ParameterScreen extends Screen {
                 // 光柱是光带之外的另一件事（体积光锥 vs 贴地光带）：整行一个开关。它可按侧线覆盖，
                 // 所以侧线页也有这一行（alpha / 采样数 / 遮挡只在 JSON 里，见 SidingSettings）。
                 this.rows.add(Row.toggleWide(ConfigWriteTarget.BEAM_CONE));
+                // 动态光源 + 车灯亮度：和光带 / 光柱三个开关并排，紧跟在它们后面。
+                // 这三个是同一件事的三个层次（贴地光带 → 体积光锥 → 真实方块光照），
+                // 以前它在光源页最底下（要滚到底才看见），也在「其他」页出现过，现在归位到这里。
+                this.rows.add(Row.toggle(ConfigWriteTarget.DYNAMIC_LIGHT, ConfigWriteTarget.LUMINANCE));
                 this.rows.add(Row.color(true));
                 this.rows.add(Row.color(false));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_DISTANCE));
@@ -414,8 +420,6 @@ public final class ParameterScreen extends Screen {
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_WIDTH));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_HEAD_HEIGHT));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_TAIL_HEIGHT));
-                // 动态光源和它的亮度放在同一行：改开关立刻能用滑块看到效果。
-                this.rows.add(Row.toggle(ConfigWriteTarget.DYNAMIC_LIGHT, ConfigWriteTarget.LUMINANCE));
                 // 光束编辑：逐车型、逐束的几何 / 颜色 / 长度，入口放在光源分区最底部。
                 this.rows.add(Row.worldAction(tr("btn.beamEditor"), this::openBeamEditor));
                 break;

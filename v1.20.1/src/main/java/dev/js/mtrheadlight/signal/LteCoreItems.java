@@ -26,14 +26,18 @@ import net.minecraft.util.Identifier;
  *
  * <p>页签图标用本模组自己的物品：{@code () -> new ItemStack(SIGNAL_LINKER)}，
  * 是 supplier，注册顺序不敏感。
+ *
+ * <p>页签 id 从 1.0.0 起是 {@code mtrlte:tools}（「LTE 工具」）。{@code mtrlte:core}
+ * 这个名字让给了「厦门风格物件」页签（{@link dev.js.mtrheadlight.xiamen.XiamenObjects}），
+ * 因为 1.20.1 的页签是 registry 条目，同一个 id 注册两次会直接崩。
  */
 public final class LteCoreItems {
 
     /** 物品 id：{@code mtrlte:signal_linker}。 */
     public static final Identifier SIGNAL_LINKER_ID = new Identifier("mtrlte", "signal_linker");
 
-    /** 页签 id：{@code mtrlte:core}。 */
-    public static final Identifier CORE_TAB_ID = new Identifier("mtrlte", "core");
+    /** 页签 id：{@code mtrlte:tools}。 */
+    public static final Identifier TOOLS_TAB_ID = new Identifier("mtrlte", "tools");
 
     private static SignalLinkItem signalLinker;
     private static boolean registered;
@@ -54,18 +58,18 @@ public final class LteCoreItems {
         signalLinker = Registry.register(Registries.ITEM, SIGNAL_LINKER_ID,
                 new SignalLinkItem(new Item.Settings().maxCount(1)));
 
-        Registry.register(Registries.ITEM_GROUP, CORE_TAB_ID,
+        Registry.register(Registries.ITEM_GROUP, TOOLS_TAB_ID,
                 FabricItemGroup.builder()
-                        .displayName(Text.translatable("itemGroup.mtrlte.core"))
+                        .displayName(Text.translatable("itemGroup.mtrlte.tools"))
                         .icon(() -> new ItemStack(signalLinker))
                         .build());
 
-        ItemGroupEvents.modifyEntriesEvent(RegistryKey.of(RegistryKeys.ITEM_GROUP, CORE_TAB_ID))
+        ItemGroupEvents.modifyEntriesEvent(RegistryKey.of(RegistryKeys.ITEM_GROUP, TOOLS_TAB_ID))
                 .register(entries -> entries.add(signalLinker));
     }
 
     /** 页签在 registry 里的那一份（调试 / 其它模组想往里加东西时用）。 */
     public static ItemGroup tab() {
-        return Registries.ITEM_GROUP.get(CORE_TAB_ID);
+        return Registries.ITEM_GROUP.get(TOOLS_TAB_ID);
     }
 }

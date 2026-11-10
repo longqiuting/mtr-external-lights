@@ -258,7 +258,16 @@ public final class VehicleLights {
         public double halfWidth = 0.0D;
         public double minY = 0.0D;
         public double maxY = 0.0D;
-        public int frontSign = 1;
+        /**
+         * 车头在车长轴上的符号：{@code -1} = 车头朝模型空间 <b>-Z</b>，{@code +1} = 车头朝 +Z。
+         *
+         * <p>MTR 资源包的建模约定就是<b>车头朝 -Z</b>（{@code docs/builtin-light-table.md}：
+         * 「{@code z} 沿车长（负 = 车头端）」，那张表是从真实模型渲染出的顶点量出来的，与本类同一套坐标）。
+         * 只有带 {@code head*} 名字的灯组能投票（{@link #analyse}）；一个名字都投不出来时默认
+         * {@code -1}，即按资源包约定，而不是旧代码里「+Z 是车头」的假设 —— 那个默认值让没有
+         * head 命名的车型把车头/车尾整个搞反。
+         */
+        public int frontSign = -1;
         public Slot head;
         public Slot tail;
         /** Empty when the model parsed cleanly; the reason otherwise (never thrown upwards). */
@@ -672,13 +681,14 @@ public final class VehicleLights {
             return;
         }
         // Which end of a car is the front? Vote with the groups the packs themselves call "head...".
+        // 没有一票（模型里没有 head 命名的组）时按资源包约定取 -1：车头在 -Z。
         double votes = 0.0D;
         for (final Group g : out.groups.values()) {
             if (containsAny(g.lower, HEAD_WORDS) && !isRejected(g.lower) && !isRoof(out, g)) {
                 votes += Math.signum(g.s);
             }
         }
-        out.frontSign = votes < 0.0D ? -1 : 1;
+        out.frontSign = votes > 0.0D ? 1 : -1;
         out.head = pick(out, true);
         out.tail = pick(out, false);
     }

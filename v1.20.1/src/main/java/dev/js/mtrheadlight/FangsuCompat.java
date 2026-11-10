@@ -49,6 +49,14 @@ import net.fabricmc.loader.api.FabricLoader;
  * combination instead of leaving it to guesswork. Detection here is by mod id only - the mixin path
  * uses its own class probe and is the only place that names a fangsu class, and it names it as a
  * string.
+ *
+ * <p><b>交通灯（{@code fangsu:traffic_light}）不做绑定。</b>它继承 {@code BaseObjBlock}
+ * （= {@code HorizontalFacingBlock}）而不是 {@code BlockSignalLightBase}，红绿灯颜色来自
+ * {@code BlockEntityTrafficLight.lightState}，只由积木程序（{@code dispType=program}）写；
+ * 「MTR 信号联动」那一档在 1.3.2 里是空实现（{@code whenRendering} 只在 {@code "program"} 时
+ * 调 {@code drive()}），方速内部唯一相关的 {@code MinecraftClientUtil#getOccupiedAspect}
+ * 以灯自身坐标为起点且无调用点。右键时由 {@code signal.FangsuSignalCompat} 认出来并给出提示，
+ * 完整字节码证据见 {@code docs/report-2026-11-10-fangsu-signal-and-node-marks.md}。
  */
 public final class FangsuCompat {
     /** Fangsu's mod id in its {@code fabric.mod.json}. */
@@ -77,6 +85,13 @@ public final class FangsuCompat {
                                 + "registerLightUpdate cover them; the hand-built turnout OBJ is lit by "
                                 + "the optional fangsu mixins (FangsuTurnoutRenderMixin + "
                                 + "FangsuBaseRenderLightMixin, require=0)");
+                MtrHeadlightClient.LOGGER.info(
+                        "[lte] 方速交通灯 fangsu:traffic_light 不参与信号连接器绑定：它的 MTR 信号联动档"
+                                + "（dispType=mtr）在 1.3.2 里没有实现，唯一相关的 API "
+                                + "MinecraftClientUtil#getOccupiedAspect(pos, angle, depth) 也以灯自身坐标"
+                                + "为起点、全 jar 无调用点；右键时会给出提示。证据见 "
+                                + "docs/report-2026-11-10-fangsu-signal-and-node-marks.md");
+
             }
         } catch (Throwable t) {
             // Diagnostics must never break startup.

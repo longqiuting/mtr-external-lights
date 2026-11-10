@@ -46,6 +46,23 @@ public final class SignalLinkClient implements ClientModInitializer {
                             final BlockPos signal = buf.readBlockPos();
                             client.execute(() -> SignalLinks.remove(dim, signal));
                         }
+                        case 3 -> { // LAMP_SYNC
+                            final int n = buf.readVarInt();
+                            final Map<BlockPos, BlockPos> lamps = new HashMap<>();
+                            for (int i = 0; i < n; i++) {
+                                lamps.put(buf.readBlockPos(), buf.readBlockPos());
+                            }
+                            client.execute(() -> SignalLinks.replaceLamps(dim, lamps));
+                        }
+                        case 4 -> { // LAMP_PUT
+                            final BlockPos lamp = buf.readBlockPos();
+                            final BlockPos source = buf.readBlockPos();
+                            client.execute(() -> SignalLinks.putLamp(dim, lamp, source));
+                        }
+                        case 5 -> { // LAMP_REMOVE
+                            final BlockPos lamp = buf.readBlockPos();
+                            client.execute(() -> SignalLinks.removeLamp(dim, lamp));
+                        }
                         default -> {
                             // 未知类型：忽略（向前兼容）。
                         }

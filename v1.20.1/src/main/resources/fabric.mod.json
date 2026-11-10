@@ -3,7 +3,7 @@
   "id": "mtrlte",
   "version": "${version}",
   "name": "LTE (LTY's transit expansion)",
-  "description": "Adds dynamic head and tail lights to Minecraft Transit Railway trains. Client side is read-only towards MTR: no blocks are placed and no train logic is modified. Install it on the server as well and train collisions damage, launch and kill you server-side (with a custom death message); without it on the server the mod keeps working client-side only.",
+  "description": "Adds dynamic head and tail lights to Minecraft Transit Railway trains, plus a Xiamen-style objects creative tab with its own platform screen door blocks (models reuse MTR's PSD geometry, textures come from the Xiamen Metro line 1 pack). Install it on the server as well and train collisions damage, launch and kill you server-side (with a custom death message); without it on the server the mod keeps working client-side only.",
   "authors": [
     "厦航在拍车的无名机长 (kigurumiLTY)"
   ],
@@ -30,7 +30,8 @@
       "dev.js.mtrheadlight.collision.CollisionBootstrap",
       "dev.js.mtrheadlight.mtr.BuiltInTrainsInit",
       "dev.js.mtrheadlight.VehicleLightsJsonClient",
-      "dev.js.mtrheadlight.signal.SignalLinkClient"
+      "dev.js.mtrheadlight.signal.SignalLinkClient",
+      "dev.js.mtrheadlight.xiamen.XiamenClient"
     ],
     "lambdynlights:initializer": [
       "dev.js.mtrheadlight.MtrHeadlightDynamicLights"

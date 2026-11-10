@@ -7,12 +7,15 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.SliderWidget;
+import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
+import net.minecraft.util.Util;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.glfw.GLFW;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -28,19 +31,23 @@ import java.util.TreeSet;
  * <pre>
  * ┌────────────────────────────────────────────────────────────────────┐
  * │ [选择][移动][旋转][颜色]                        当前：pack·车型      │ 顶部工具条
- * ├──────────────┬──────────────────────────────────┬──────────────────┤
- * │ 车型（资源包）│                                  │ 添加光柱          │
- * │ ● pack·id    │      真实列车模型 + 光束线框      │ 复制              │
- * │   pack·id    │      左键空白处转视角             │ 删除              │
- * │   ...        │      左键拖光束 = 当前工具        │ 导出 JSON         │
- * │              │      右键拖动平移 / 滚轮缩放      │ 关闭              │
- * │              │                                  │ ── 颜色 ──        │
- * │              │                                  │ R/G/B 滑块        │
- * │              │                                  │ ── 几何 ──        │
- * │              │                                  │ 长 / 宽 / 透明    │
- * ├──────────────┴──────────────────────────────────┴──────────────────┤
- * │ 状态行 / 操作提示                                                   │
+ * ├──────────┬────────────────────────────────────────┬────────────────┤
+ * │ 车型(150)│                                        │ 添加光柱(130)  │
+ * │ [搜索…]  │                                        │ 复制           │
+ * │ ● pack·id│        真实列车模型 + 光束线框          │ 删除           │
+ * │   pack·id│        左键空白处转视角                 │ 类型           │
+ * │   ...  ║ │        左键拖光束 = 当前工具            │ 导出 JSON      │
+ * │        ║ │        右键拖动平移 / 滚轮缩放          │ 打开导出目录   │
+ * │        ║ │                                        │ 关闭           │
+ * │        ║ │                                        │ ── 颜色 ──     │
+ * │        ║ │                                        │ R/G/B 滑块     │
+ * │        ║ │                                        │ ── 几何 ──     │
+ * │        ║ │                                        │ 长 / 宽 / 透明 │
+ * ├──────────┴────────────────────────────────────────┴────────────────┤
+ * │ 状态行 / 操作提示                                                  │
  * └────────────────────────────────────────────────────────────────────┘
+ *   左侧 ║ 是可见的滚动条（滑轨 + 可拖滑块）；窗口变窄时两栏等比收缩，
+ *   中间的 3D 视图优先保住（见 {@link #leftW()} / {@link #rightW()}）。
  * </pre>
  *
  * <h2>数据流</h2>
@@ -64,13 +71,28 @@ final class BeamEditor3DScreen extends Screen {
 
     // --- layout ------------------------------------------------------------------------------
     private static final int TOP_H = 28;
-    private static final int LEFT_W = 170;
-    private static final int RIGHT_W = 206;
+    /** 左栏基准宽（窄栏：只放车型名 + 搜索框 + 滚动条）。 */
+    private static final int LEFT_W = 150;
+    /** 右栏基准宽（窄栏：动作按钮 + 滑块）。 */
+    private static final int RIGHT_W = 130;
+    /** 窗口变窄时按这个下限收缩，宁可挤侧栏也要给 3D 视图留 {@link #MIN_VIEW_W}px。 */
+    private static final int MIN_LEFT_W = 104;
+    private static final int MIN_RIGHT_W = 112;
+    private static final int MIN_VIEW_W = 180;
     private static final int PAD = 8;
     private static final int ROW_H = 18;
     private static final int PITCH = 22;
-    private static final int LIST_TOP = TOP_H + 22;
+    private static final int SCROLL_W = 6;
+    private static final int SEARCH_H = 16;
+    /** 搜索框顶边（左栏标题下面一行）。 */
+    private static final int SEARCH_Y = TOP_H + 18;
+    /** 车型列表第一行的顶边（搜索框下面）。 */
+    private static final int LIST_TOP = SEARCH_Y + SEARCH_H + 6;
     private static final int FOOTER_H = 20;
+    /** 视口左下角「轴向吸附」按钮：3 列 × 2 行，40×14。 */
+    private static final int SNAP_W = 40;
+    private static final int SNAP_H = 14;
+    private static final int SNAP_GAP = 3;
 
     // --- tools -------------------------------------------------------------------------------
     private static final int MODE_SELECT = 0;
@@ -88,6 +110,8 @@ final class BeamEditor3DScreen extends Screen {
     private static final int DRAG_PAN = 2;
     private static final int DRAG_BEAM_MOVE = 3;
     private static final int DRAG_BEAM_ROTATE = 4;
+    /** 拖动左栏滚动条（不重建控件，只改 scrollRow）。 */
+    private static final int DRAG_SCROLL = 5;
 
     // --- slider kinds ------------------------------------------------------------------------
     private static final int SLIDER_R = 0;
@@ -121,8 +145,24 @@ final class BeamEditor3DScreen extends Screen {
     /** 资源包里一个车型都没有：屏幕上只画一行提示 + 关闭按钮（见 {@link #init()}）。 */
     private boolean empty;
 
+    /** 全量车型目录（只读；搜索时过滤到 {@link #shown}）。 */
     private List<VehicleRow> vehicles = List.of();
+    /** 当前显示的行（搜索过滤结果）。列表是自绘的，滚动/选中都不重建控件。 */
+    private List<VehicleRow> shown = List.of();
+    /** 搜索框文本（rebuild 时用它把输入恢复回去）。 */
+    private String search = "";
+    private TextFieldWidget searchBox;
     private int scrollRow;
+    /** 滚轮/拖动滚动条时累计的小数位移，避免触控板的小步进被截断。 */
+    private double scrollAccum;
+    /** 按下滚动条时鼠标相对滑块顶边的偏移（拖动时保持相对位置）。 */
+    private double scrollGrab;
+
+    /** 导入的、<b>没被游戏加载</b>的资源包；null = 只用 MTR 注册表（+ 世界里在跑的车）。 */
+    private CustomPack imported;
+    /** 预览编组节数（1..{@link TrainPreview#MAX_CARS}），只影响预览，不影响导出的 JSON。 */
+    private int carCount = 1;
+    private ButtonWidget importButton;
 
     private int viewX0;
     private int viewY0;
@@ -146,11 +186,20 @@ final class BeamEditor3DScreen extends Screen {
     private double pressY;
     private double lastX;
     private double lastY;
+    /**
+     * 移动拖动的起点 + 累计像素位移。Shift 的 0.5 格步进必须以"按下时那一点"为基准重新量化，
+     * 否则每帧各自取整会把 0.02 格这种小位移整个吃掉（光束永远不动）。
+     */
+    private double[] moveAnchor;
+    private double moveAccumX;
+    private double moveAccumY;
 
     BeamEditor3DScreen(final Screen parent, final String vehicleId) {
         super(tr("beam3d.title"));
         this.parent = parent;
         this.vehicleId = vehicleId;
+        // 车型名的 json 缓存每次开编辑器都作废重读：玩家可能刚加了个包 / 重载了资源。
+        TrainNames.refresh();
         // 这一行是「指令到底有没有把屏幕装上」的唯一证据：构造器跑了却看不到界面，说明是渲染/
         // 布局侧的问题；连这一行都没有，说明 setScreen 就没走到（见 Commands#openBeamEditor）。
         LteLog.LOGGER.info("[lte] beam3d: vehicles={} vehicleId={} loaded={}",
@@ -171,35 +220,60 @@ final class BeamEditor3DScreen extends Screen {
     // 车型目录
     // ---------------------------------------------------------------------------------------------
 
-    /** 一条车型行：id + 世界里是否正在用。 */
+    /**
+     * 一条车型行：名字（资源包里的 {@code name}）+ 世界里有没在用。
+     *
+     * <p>列表显示<b>名字</b>而不是内部 id：MTR 的 {@code mtr_custom_resources.json} 里
+     * {@code custom_trains.<key>.name} 就是车厂里看到的那一行，注册 id 则是
+     * {@code mtr_custom_train_<key>}（见 {@link TrainNames}）。
+     * 搜索同时匹配名字和 id，所以按 id 找车的习惯不受影响。
+     */
     private static final class VehicleRow {
         final String id;
         final boolean inUse;
-        /** 贴图命名空间（懒加载，列表滚动时只算可见行）。 */
+        /** 来自导入包（不在 MTR 注册表里）时为该车型，null = 注册表车型。 */
+        final CustomPack.Train imported;
+        /** 贴图命名空间 / 名字（懒加载，列表滚动时只算可见行）。 */
         private String pack;
+        private String name;
 
         VehicleRow(final String id, final boolean inUse) {
+            this(id, inUse, null);
+        }
+
+        VehicleRow(final String id, final boolean inUse, final CustomPack.Train imported) {
             this.id = id;
             this.inUse = inUse;
+            this.imported = imported;
         }
 
         String pack() {
             if (this.pack == null) {
-                this.pack = TrainPreview.packOf(this.id);
+                this.pack = this.imported != null ? this.imported.pack.label
+                        : TrainPreview.packOf(this.id);
             }
             return this.pack;
         }
 
+        /** 游戏里显示的名字（资源包 name → 语言表 → 内部 id）。 */
+        String name() {
+            if (this.name == null) {
+                this.name = this.imported != null ? this.imported.name : TrainNames.of(this.id);
+            }
+            return this.name;
+        }
+
         String label() {
-            return (this.inUse ? "● " : "") + pack() + " · " + this.id;
+            return (this.inUse ? "● " : "") + name();
         }
     }
 
     /**
-     * 资源包里注册的全部车型 + 世界里正在跑的车型。MTR 的注册表按
-     * {@link TransportMode} 分组暴露 {@code forEach}，这是唯一能枚举「包里有什么车」的公开入口。
+     * 资源包里注册的全部车型 + 世界里正在跑的车型 + {@code imported} 里导入的车型。
+     * MTR 的注册表按 {@link TransportMode} 分组暴露 {@code forEach}，这是唯一能枚举
+     * 「包里有什么车」的公开入口；没被加载的包只能靠 {@link CustomPack} 自己读。
      */
-    private static List<VehicleRow> catalog() {
+    private static List<VehicleRow> catalog(final CustomPack imported) {
         final Set<String> inUse = BeamSession.inUseIds();
         final TreeSet<String> ids = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         ids.addAll(inUse);
@@ -220,7 +294,16 @@ final class BeamEditor3DScreen extends Screen {
         }
         final List<VehicleRow> rows = new ArrayList<>(ids.size());
         for (final String id : ids) {
-            rows.add(new VehicleRow(id, containsIgnoreCase(inUse, id)));
+            // 同 id 的车型如果来自导入包，就挂上包引用：打开时用包内模型、导出写进包里。
+            final CustomPack.Train train = imported == null ? null : imported.train(id);
+            rows.add(new VehicleRow(id, containsIgnoreCase(inUse, id), train));
+        }
+        if (imported != null) {
+            for (final CustomPack.Train train : imported.trains()) {
+                if (!ids.contains(train.id)) {
+                    rows.add(new VehicleRow(train.id, containsIgnoreCase(inUse, train.id), train));
+                }
+            }
         }
         rows.sort(Comparator.comparing((VehicleRow row) -> !row.inUse)
                 .thenComparing(row -> row.id, String.CASE_INSENSITIVE_ORDER));
@@ -275,7 +358,7 @@ final class BeamEditor3DScreen extends Screen {
     @Override
     protected void init() {
         if (this.vehicles.isEmpty()) {
-            this.vehicles = catalog();
+            this.vehicles = catalog(this.imported);
         }
         LteLog.LOGGER.info("[lte] beam3d: vehicles={} vehicleId={} loaded={}",
                 Integer.valueOf(this.vehicles.size()), describe(this.vehicleId),
@@ -290,6 +373,9 @@ final class BeamEditor3DScreen extends Screen {
             this.empty = true;
             this.addDrawableChild(ButtonWidget.builder(tr("beam3d.close"), b -> close())
                     .dimensions(this.width / 2 - 60, this.height / 2 + 30, 120, ROW_H).build());
+            // 「一个车型都没有」正是最需要导入的时候（包没启用 / 被裁空），所以这里也给入口。
+            this.addDrawableChild(ButtonWidget.builder(tr("beam3d.import"), b -> openImport())
+                    .dimensions(this.width / 2 - 90, this.height / 2 + 54, 180, ROW_H).build());
             return;
         }
         this.empty = false;
@@ -297,9 +383,9 @@ final class BeamEditor3DScreen extends Screen {
             this.vehicleId = defaultVehicle();
         }
 
-        this.viewX0 = LEFT_W + PAD;
+        this.viewX0 = leftW() + PAD;
         this.viewY0 = TOP_H + PAD;
-        this.viewX1 = Math.max(this.viewX0 + 40, this.width - RIGHT_W - PAD);
+        this.viewX1 = Math.max(this.viewX0 + 40, this.width - rightW() - PAD);
         this.viewY1 = Math.max(this.viewY0 + 40, this.height - FOOTER_H - PAD);
 
         if (this.loadedId == null || !this.loadedId.equals(this.vehicleId)) {
@@ -315,28 +401,120 @@ final class BeamEditor3DScreen extends Screen {
             }
         }
         buildToolbar();
-        buildVehicleList();
+        buildVehicleSearch();
+        buildImportBar();
+        applyFilter();
         buildRightColumn();
     }
 
-    /** 打开一个车型：模型 + 会话 + 相机取景，并优先读回编辑器上次导出的文件。 */
+    /**
+     * 左栏最下方：「导入资源包」。
+     *
+     * <p>导入的是<b>游戏没加载</b>的包（zip / 文件夹），编辑器临时读它的
+     * {@code mtr_custom_resources.json} 与模型，把车型加进列表；导出时写回<b>包内</b>
+     * {@code assets/<ns>/lte_beams/<id>.json}（zip 不改，见 {@link CustomPack}）。
+     */
+    private void buildImportBar() {
+        final int width = Math.max(40, leftW() - 2 * PAD);
+        final int y = this.height - FOOTER_H - PAD - ROW_H;
+        final String label = this.imported == null
+                ? tr("beam3d.import").getString()
+                : tr("beam3d.imported", this.imported.label).getString();
+        this.importButton = this.addDrawableChild(ButtonWidget.builder(
+                        Text.literal(this.textRenderer.trimToWidth(label, width - 6)),
+                        b -> openImport())
+                .dimensions(PAD, y, width, ROW_H).build());
+    }
+
+    /** 打开「导入资源包」页；关掉它以后回到本页（不丢当前车型）。 */
+    private void openImport() {
+        if (this.client == null) {
+            return;
+        }
+        this.client.setScreen(new PackImportScreen(this, this::acceptImport));
+    }
+
+    /** 导入成功：换目录、优先打开包里第一辆车，并让 {@link #openVehicle} 走包内模型。 */
+    private void acceptImport(final CustomPack pack) {
+        if (pack == null) {
+            return;
+        }
+        if (this.imported != null && this.imported != pack) {
+            this.imported.release();
+        }
+        this.imported = pack;
+        this.vehicles = catalog(pack);
+        this.shown = this.vehicles;
+        this.search = "";
+        this.scrollRow = 0;
+        this.loadedId = null;
+        final CustomPack.Train first = pack.trains().isEmpty() ? null : pack.trains().get(0);
+        if (first != null) {
+            this.vehicleId = first.id;
+        }
+        this.status = tr("beam3d.import.done", pack.label,
+                Integer.valueOf(pack.trains().size())).getString();
+        LteLog.LOGGER.info("[lte] beam3d: imported {} ({} trains)", pack,
+                Integer.valueOf(pack.trains().size()));
+        rebuild();
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // 左右栏宽度：窗口够宽就用基准窄栏；不够时两栏等比收缩，优先保住中间的 3D 视图
+    // ---------------------------------------------------------------------------------------------
+
+    /** 左栏实际宽度：{@code LEFT_W} 减去窗口溢出的一半，不低于 {@code MIN_LEFT_W}。 */
+    private int leftW() {
+        final int overflow = Math.max(0, LEFT_W + RIGHT_W + MIN_VIEW_W - this.width);
+        return Math.max(MIN_LEFT_W, LEFT_W - (overflow + 1) / 2);
+    }
+
+    /** 右栏实际宽度：与左栏对称收缩，不低于 {@code MIN_RIGHT_W}。 */
+    private int rightW() {
+        final int overflow = Math.max(0, LEFT_W + RIGHT_W + MIN_VIEW_W - this.width);
+        return Math.max(MIN_RIGHT_W, RIGHT_W - overflow / 2);
+    }
+
+    /**
+     * 打开一个车型：模型 + 会话 + 相机取景，并优先读回编辑器上次导出的文件。
+     *
+     * <p>车型来自导入包（不在注册表里）时走 {@link CustomPack}：模型由包内
+     * {@code model / model_properties} 现场构造成 {@link mtr.client.DynamicTrainModel}，
+     * 布局也从它算（{@link TrainPreview#imported}）。光束底稿同样来自包内的
+     * {@code assets/<ns>/lte_beams/<id>.json}。
+     */
     private void openVehicle(final String id) {
         this.loadedId = id;
-        this.subject = id == null ? null : TrainPreview.find(id);
-        this.session = id == null ? null : BeamSession.open(id);
+        final CustomPack.Train train = this.imported == null ? null : this.imported.train(id);
+        if (train != null) {
+            final mtr.model.ModelTrainBase model = train.model();
+            final mtr.client.DynamicTrainModel dynamic = train.dynamic();
+            final VehicleLights.Layout layout = dynamic == null
+                    ? null : VehicleLights.layoutFor(dynamic, 0);
+            this.subject = model == null ? null
+                    : TrainPreview.imported(train.id, train.pack.label, train.texture(), model, layout);
+            this.session = BeamSession.open(id, layout);
+            if (model == null) {
+                LteLog.LOGGER.warn("[lte] beam3d: imported model unavailable for {} ({})",
+                        id, train.error());
+            }
+        } else {
+            this.subject = id == null ? null : TrainPreview.find(id);
+            this.session = id == null ? null : BeamSession.open(id);
+        }
         this.selected = -1;
         if (this.session != null) {
             this.session.selected.clear();
         }
         if (this.subject != null) {
             this.camera.targetY = (float) this.subject.centreY();
-            this.camera.scale = this.subject.fitScale(this.viewY1 - this.viewY0);
+            this.camera.scale = this.subject.fitScale(this.viewY1 - this.viewY0, this.carCount);
             this.camera.panX = 0.0F;
             this.camera.panY = 0.0F;
         }
 
         if (id != null && !id.isBlank()) {
-            final List<Beam> saved = BeamPackWriter.read(id);
+            final List<Beam> saved = train != null ? this.imported.readBeams(train) : BeamPackWriter.read(id);
             if (!saved.isEmpty() && this.session != null) {
                 this.session.work.clear();
                 this.session.base.clear();
@@ -345,7 +523,8 @@ final class BeamEditor3DScreen extends Screen {
                     this.session.work.add(materialised);
                     this.session.base.add(materialised.copy());
                 }
-                this.status = tr("beam3d.loadedFile", BeamPackWriter.fileName(id),
+                this.status = tr("beam3d.loadedFile",
+                        train != null ? train.beamPath() : BeamPackWriter.fileName(id),
                         Integer.valueOf(this.session.size())).getString();
             }
         }
@@ -353,7 +532,7 @@ final class BeamEditor3DScreen extends Screen {
 
     private void buildToolbar() {
         final int gap = 4;
-        final int available = Math.max(MODE_COUNT * 48, this.width - LEFT_W - 2 * PAD);
+        final int available = Math.max(MODE_COUNT * 48, this.width - leftW() - 2 * PAD);
         final int width = Math.max(48, Math.min(92, (available - gap * (MODE_COUNT - 1)) / MODE_COUNT));
         for (int i = 0; i < MODE_COUNT; i++) {
             final int index = i;
@@ -367,30 +546,127 @@ final class BeamEditor3DScreen extends Screen {
         }
     }
 
-    private void buildVehicleList() {
-        if (this.vehicles.isEmpty()) {
-            return;
+    /**
+     * 左栏搜索框（按车型 id 过滤，大小写不敏感）。文本框是唯一的真实控件；
+     * 车型行是自绘的（见 {@link #drawVehicleList}），所以选中/滚动都不会重建控件 ——
+     * 这既保住了滚动位置，也不会把输入焦点从搜索框上抢走。
+     */
+    private void buildVehicleSearch() {
+        final int w = Math.max(40, leftW() - 2 * PAD);
+        final TextFieldWidget box = new TextFieldWidget(this.textRenderer, PAD, SEARCH_Y, w, SEARCH_H,
+                tr("beam3d.search"));
+        box.setMaxLength(64);
+        // setText 会触发 changedListener，所以先写文本再挂监听，避免 init 时把滚动位置清掉。
+        box.setText(this.search == null ? "" : this.search);
+        box.setChangedListener(value -> {
+            this.search = value == null ? "" : value;
+            this.scrollRow = 0;
+            applyFilter();
+        });
+        this.searchBox = box;
+        this.addDrawableChild(box);
+    }
+
+    /**
+     * 按 {@link #search} 过滤车型目录到 {@link #shown}，并把滚动位置夹回合法范围。
+     *
+     * <p>同时匹配<b>名字</b>（资源包 {@code name}）和 <b>id</b>：用户按车厂里的名字搜，
+     * 或者按 {@code /mtr_lte beam3d <id>} 用的 id 搜，都能命中。
+     */
+    private void applyFilter() {
+        final String query = this.search == null ? "" : this.search.trim().toLowerCase(Locale.ROOT);
+        if (query.isEmpty()) {
+            this.shown = this.vehicles;
+        } else {
+            final List<VehicleRow> hits = new ArrayList<>();
+            for (final VehicleRow row : this.vehicles) {
+                if (row.id.toLowerCase(Locale.ROOT).contains(query)
+                        || row.name().toLowerCase(Locale.ROOT).contains(query)
+                        || row.pack().toLowerCase(Locale.ROOT).contains(query)) {
+                    hits.add(row);
+                }
+            }
+            this.shown = hits;
         }
-        final int visible = visibleRows();
-        final int last = Math.min(this.vehicles.size(), this.scrollRow + visible);
-        for (int i = this.scrollRow; i < last; i++) {
-            final VehicleRow row = this.vehicles.get(i);
-            final int y = LIST_TOP + (i - this.scrollRow) * PITCH;
-            final boolean active = this.vehicleId != null && this.vehicleId.equalsIgnoreCase(row.id);
-            final String label = this.textRenderer.trimToWidth(row.label(), LEFT_W - 2 * PAD - 6);
-            final ButtonWidget button = this.addDrawableChild(ButtonWidget.builder(
-                            Text.literal((active ? "▸ " : "") + label), b -> {
-                                this.vehicleId = row.id;
-                                this.scrollRow = 0;
-                                rebuild();
-                            })
-                    .dimensions(PAD, y, LEFT_W - 2 * PAD, ROW_H).build());
-            button.active = !active;
+        clampScroll();
+    }
+
+    /** 滚动位置夹到 [0, total-visible]，列表为空时归零。 */
+    private void clampScroll() {
+        final int max = Math.max(0, this.shown.size() - visibleRows());
+        if (this.scrollRow > max) {
+            this.scrollRow = max;
+        }
+        if (this.scrollRow < 0) {
+            this.scrollRow = 0;
         }
     }
 
+    /** 列表区域的可用宽度（右侧留出滚动条的位置）。 */
+    private int rowW() {
+        return Math.max(24, leftW() - 2 * PAD - SCROLL_W - 2);
+    }
+
+    private int listBottom() {
+        return LIST_TOP + visibleRows() * PITCH - 4;
+    }
+
+    /** 鼠标 y → {@link #shown} 里的行号（不在列表区域内返回 -1）。 */
+    private int rowAt(final double mouseX, final double mouseY) {
+        if (mouseX < PAD || mouseX > PAD + rowW()) {
+            return -1;
+        }
+        if (mouseY < LIST_TOP || mouseY >= LIST_TOP + visibleRows() * PITCH) {
+            return -1;
+        }
+        final int index = this.scrollRow + (int) ((mouseY - LIST_TOP) / PITCH);
+        return index >= 0 && index < this.shown.size() ? index : -1;
+    }
+
+    /**
+     * 滚动条的几何：{trackTop, trackLen, thumbTop, thumbLen}。列表不需要滚动时返回 null。
+     * 绘制、命中检测、拖动都用这一份，保证三者一致。
+     */
+    private int[] scrollbar() {
+        final int total = this.shown.size();
+        final int visible = visibleRows();
+        if (total <= visible) {
+            return null;
+        }
+        final int trackTop = LIST_TOP;
+        final int trackLen = Math.max(1, listBottom() - trackTop);
+        final int thumbLen = Math.max(14, (int) ((long) trackLen * visible / total));
+        final int max = Math.max(1, total - visible);
+        final int thumbTop = trackTop
+                + (int) Math.round((double) (trackLen - thumbLen) * this.scrollRow / max);
+        return new int[]{trackTop, trackLen, thumbTop, thumbLen};
+    }
+
+    private int scrollbarX() {
+        return leftW() - PAD - SCROLL_W;
+    }
+
+    /** 选中某个车型：只换车型，不动 scrollRow，也不再重建左栏的滚动位置。 */
+    private void selectVehicle(final int index) {
+        if (index < 0 || index >= this.shown.size()) {
+            return;
+        }
+        final VehicleRow row = this.shown.get(index);
+        if (this.vehicleId != null && this.vehicleId.equalsIgnoreCase(row.id)) {
+            return;
+        }
+        this.vehicleId = row.id;
+        // 点列表行 = 离开输入状态：不主动清焦点的话，之后的 1-4/Del 会继续被文本框吃掉。
+        if (this.searchBox != null) {
+            this.searchBox.setFocused(false);
+        }
+        // rebuild 会重新 init，但 scrollRow / search 都是字段，位置和过滤条件都保留。
+        rebuild();
+    }
+
+    /** 列表能显示多少行：底部要给「导入资源包」按钮留一行。 */
     private int visibleRows() {
-        return Math.max(1, (this.height - FOOTER_H - PAD - LIST_TOP) / PITCH);
+        return Math.max(1, (this.height - FOOTER_H - PAD - ROW_H - 6 - LIST_TOP) / PITCH);
     }
 
     /**
@@ -398,9 +674,10 @@ final class BeamEditor3DScreen extends Screen {
      * 窗口太矮（缩放很大）时省略几何滑块，保证颜色和动作按钮始终可点。
      */
     private void buildRightColumn() {
-        final int x = this.width - RIGHT_W + PAD;
-        final int width = RIGHT_W - 2 * PAD;
+        final int x = this.width - rightW() + PAD;
+        final int width = Math.max(40, rightW() - 2 * PAD);
         final int buttonPitch = 20;
+        final int bottom = this.height - FOOTER_H - PAD;
         int y = TOP_H + PAD;
 
         this.addDrawableChild(ButtonWidget.builder(tr("beam3d.add"), b -> addBeam())
@@ -416,7 +693,15 @@ final class BeamEditor3DScreen extends Screen {
                         b -> cycleType()).dimensions(x, y, width, ROW_H).build());
         typeButton.active = this.selected >= 0;
         y += buttonPitch;
+        // 预览编组节数：只影响预览，不影响导出的 JSON（光束坐标始终是单车局部的）。
+        this.addDrawableChild(ButtonWidget.builder(carsLabel(), b -> cycleCars())
+                .dimensions(x, y, width, ROW_H).build());
+        y += buttonPitch;
         this.addDrawableChild(ButtonWidget.builder(tr("beam3d.export"), b -> export())
+                .dimensions(x, y, width, ROW_H).build());
+        y += buttonPitch;
+        // 导出与「打开导出目录」挨在一起：导出完想找文件就是下一步操作。
+        this.addDrawableChild(ButtonWidget.builder(tr("beam3d.openDir"), b -> openExportDir())
                 .dimensions(x, y, width, ROW_H).build());
         y += buttonPitch;
         this.addDrawableChild(ButtonWidget.builder(tr("beam3d.close"), b -> close())
@@ -432,9 +717,14 @@ final class BeamEditor3DScreen extends Screen {
             this.hintY = y + 4;
             return;
         }
-        y += 12;
-        this.hintY = -1;
         final int sliderH = 16;
+        final int colorBlock = 12 + 3 * (sliderH + 2);
+        if (y + colorBlock > bottom) {
+            // 窗口太矮（GUI 缩放很大）：动作按钮优先，滑块整块省略而不是画到屏幕外。
+            this.hintY = y + 4;
+            return;
+        }
+        y += 12;
         addBeamSlider(x, y, width, sliderH, SLIDER_R);
         y += sliderH + 2;
         addBeamSlider(x, y, width, sliderH, SLIDER_G);
@@ -442,7 +732,8 @@ final class BeamEditor3DScreen extends Screen {
         addBeamSlider(x, y, width, sliderH, SLIDER_B);
         y += sliderH + 6;
 
-        if (this.height >= 320) {
+        final int geometryBlock = 12 + 3 * (sliderH + 2);
+        if (this.height >= 320 && y + geometryBlock <= bottom) {
             this.geometrySectionY = y;
             y += 12;
             addBeamSlider(x, y, width, sliderH, SLIDER_LENGTH);
@@ -540,8 +831,35 @@ final class BeamEditor3DScreen extends Screen {
                 beam == null ? "head" : BeamSession.typeOf(beam)));
     }
 
+    /** 「车厢 ×N」按钮文案。 */
+    private MutableText carsLabel() {
+        return tr("beam3d.cars", Integer.valueOf(this.carCount));
+    }
+
+    /**
+     * 循环 1 → 2 → … → {@link TrainPreview#MAX_CARS} → 1。
+     * 换节数时按整列重新取景（{@link TrainPreview.Subject#fitScale(int, int)}），
+     * 不然 4 节的编组会有一半在视口外。
+     */
+    private void cycleCars() {
+        this.carCount = this.carCount >= TrainPreview.MAX_CARS ? 1 : this.carCount + 1;
+        if (this.subject != null) {
+            this.camera.scale = this.subject.fitScale(this.viewY1 - this.viewY0, this.carCount);
+        }
+        this.status = tr("beam3d.carsHint", Integer.valueOf(this.carCount),
+                String.format(Locale.ROOT, "%.1f", Double.valueOf(TrainPreview.carPitch(this.subject))))
+                .getString();
+        rebuild();
+    }
+
     private void export() {
         if (this.session == null) {
+            return;
+        }
+        final CustomPack.Train importedTrain = this.imported == null
+                ? null : this.imported.train(this.vehicleId);
+        if (importedTrain != null) {
+            exportToPack(importedTrain);
             return;
         }
         try {
@@ -564,6 +882,60 @@ final class BeamEditor3DScreen extends Screen {
         }
     }
 
+    /**
+     * 导入的车型：写进<b>那个资源包</b>。
+     *
+     * <ul>
+     *   <li>文件夹包 → 直接写 {@code <包>/assets/<ns>/lte_beams/<id>.json}（自动建目录），
+     *       写完立刻从包里读回来核对束数；</li>
+     *   <li>zip → Minecraft/MTR 都不支持原地改 zip，所以写到 {@code config/lte_beams/}
+     *       并提示「解压后放进 {@code assets/<ns>/lte_beams/}」。</li>
+     * </ul>
+     */
+    private void exportToPack(final CustomPack.Train train) {
+        try {
+            final int beams = this.session.size();
+            final CustomPack.Export result = this.imported.writeBeams(train, this.session.work);
+            if (result.insidePack) {
+                final int readBack = this.imported.readBeams(train).size();
+                if (readBack != beams) {
+                    this.status = tr("beam3d.exportFail",
+                            "read-back " + readBack + " != " + beams).getString();
+                    return;
+                }
+                this.status = tr("beam3d.exportedPack", Integer.valueOf(beams),
+                        result.packRelative, result.path.toAbsolutePath().toString()).getString();
+            } else {
+                this.status = tr("beam3d.exportedZip", Integer.valueOf(beams),
+                        result.path.toAbsolutePath().toString(), result.packRelative).getString();
+            }
+            LteLog.LOGGER.info("[lte] beam3d: exported {} beams -> {} (inPack={})",
+                    Integer.valueOf(beams), result.path, Boolean.valueOf(result.insidePack));
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] beam3d: export to pack failed", t);
+            this.status = tr("beam3d.exportFail",
+                    t.getClass().getSimpleName() + ": " + t.getMessage()).getString();
+        }
+    }
+
+    /**
+     * 打开导出目录 {@code config/lte_beams/}：目录不存在就先创建（第一次导出前点也没问题），
+     * 然后交给系统的文件管理器（{@link Util#getOperatingSystem()} → Windows 上是 rundll32）。
+     */
+    private void openExportDir() {
+        try {
+            final Path dir = BeamPackWriter.dir();
+            Files.createDirectories(dir);
+            Util.getOperatingSystem().open(dir.toFile());
+            this.status = tr("beam3d.openDirDone", dir.toAbsolutePath().toString()).getString();
+            LteLog.LOGGER.info("[lte] beam3d: opened export dir {}", dir.toAbsolutePath());
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] beam3d: open export dir failed", t);
+            this.status = tr("beam3d.openDirFail",
+                    t.getClass().getSimpleName() + ": " + t.getMessage()).getString();
+        }
+    }
+
     // ---------------------------------------------------------------------------------------------
     // 拖拽 / 输入
     // ---------------------------------------------------------------------------------------------
@@ -577,6 +949,24 @@ final class BeamEditor3DScreen extends Screen {
         if (this.empty) {
             return super.mouseClicked(mouseX, mouseY, button);
         }
+        // 左栏（车型列表 + 滚动条）是自绘的，命中检测自己来；都在 super 之前，避免被按钮抢走。
+        if (button == 0 && mouseX < leftW() && mouseY >= TOP_H) {
+            final int[] bar = scrollbar();
+            if (bar != null && mouseX >= scrollbarX() && mouseX <= scrollbarX() + SCROLL_W
+                    && mouseY >= bar[0] && mouseY <= bar[0] + bar[1]) {
+                this.scrollGrab = mouseY >= bar[2] && mouseY <= bar[2] + bar[3]
+                        ? mouseY - bar[2] : bar[3] / 2.0;
+                this.drag = DRAG_SCROLL;
+                this.dragButton = button;
+                applyScrollDrag(mouseY);
+                return true;
+            }
+            final int row = rowAt(mouseX, mouseY);
+            if (row >= 0) {
+                selectVehicle(row);
+                return true;
+            }
+        }
         if (inViewport(mouseX, mouseY)) {
             this.pressX = mouseX;
             this.pressY = mouseY;
@@ -584,6 +974,13 @@ final class BeamEditor3DScreen extends Screen {
             this.lastY = mouseY;
             this.dragButton = button;
             if (button == 0) {
+                // 吸附按钮盖在视口左下角：先吃掉点击，否则会被当成"点空白处"把选中取消掉。
+                final int snap = snapButtonAt(mouseX, mouseY);
+                if (snap >= 0) {
+                    snapSelected(snap);
+                    this.drag = DRAG_NONE;
+                    return true;
+                }
                 final TrainPreview.Hit hit = this.session == null ? null
                         : TrainPreview.pick(this.camera, mouseX, mouseY,
                         this.viewX0, this.viewY0, this.viewX1, this.viewY1, this.session.work);
@@ -591,6 +988,7 @@ final class BeamEditor3DScreen extends Screen {
                     select(hit.index);
                     if (this.mode == MODE_MOVE) {
                         this.drag = DRAG_BEAM_MOVE;
+                        this.moveAnchor = null;       // 每次按下都从当前 pos 重新起算（Shift 步进要用）
                         this.status = tr("beam3d.dragMove", Integer.valueOf(hit.index + 1)).getString();
                     } else if (this.mode == MODE_ROTATE) {
                         this.drag = DRAG_BEAM_ROTATE;
@@ -637,6 +1035,9 @@ final class BeamEditor3DScreen extends Screen {
             case DRAG_BEAM_ROTATE:
                 rotateSelected(dx, dy);
                 break;
+            case DRAG_SCROLL:
+                applyScrollDrag(mouseY);
+                break;
             default:
                 break;
         }
@@ -650,6 +1051,7 @@ final class BeamEditor3DScreen extends Screen {
         if (this.drag != DRAG_NONE && button == this.dragButton) {
             this.drag = DRAG_NONE;
             this.dragButton = -1;
+            this.moveAnchor = null;
             return true;
         }
         return super.mouseReleased(mouseX, mouseY, button);
@@ -671,15 +1073,117 @@ final class BeamEditor3DScreen extends Screen {
         if (beam.pos == null) {
             beam.pos = new double[]{0.0D, 0.0D, 0.0D};
         }
+        if (this.moveAnchor == null) {
+            this.moveAnchor = beam.pos.clone();
+            this.moveAccumX = 0.0D;
+            this.moveAccumY = 0.0D;
+        }
+        // 累计位移（不是这一帧的增量）：Shift 步进要拿"按下时那一点"重新量化，
+        // 否则每帧各自取整会把小位移吃掉，光束拖不动。
+        this.moveAccumX += dx;
+        this.moveAccumY += dy;
         final Matrix4f inverse = new Matrix4f(TrainPreview.beamRotate(this.camera)).invert();
         final Vector3f delta = inverse.transformDirection(new Vector3f(
-                (float) (dx / this.camera.scale),
-                (float) (-dy / this.camera.scale), 0.0F));
-        beam.pos[0] = clamp(beam.pos[0] + delta.x, POS_MIN, POS_MAX);
-        beam.pos[1] = clamp(beam.pos[1] + delta.y, POS_MIN, POS_MAX);
-        beam.pos[2] = clamp(beam.pos[2] + delta.z, POS_MIN, POS_MAX);
+                (float) (this.moveAccumX / this.camera.scale),
+                (float) (-this.moveAccumY / this.camera.scale), 0.0F));
+        final boolean snap = hasShiftDown();
+        final double x = this.moveAnchor[0] + delta.x;
+        final double y = this.moveAnchor[1] + delta.y;
+        final double z = this.moveAnchor[2] + delta.z;
+        beam.pos[0] = clamp(snap ? BeamSnap.stepped(x) : x, POS_MIN, POS_MAX);
+        beam.pos[1] = clamp(snap ? BeamSnap.stepped(y) : y, POS_MIN, POS_MAX);
+        beam.pos[2] = clamp(snap ? BeamSnap.stepped(z) : z, POS_MIN, POS_MAX);
         round(beam.pos);
         this.session.save();
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // 轴向吸附（六个正交方向 + Shift 0.5 格步进）
+    // ---------------------------------------------------------------------------------------------
+
+    /** 吸附按钮左上角：视口左下角，3 列 × 2 行，色块自绘（不进 Widget 列表，拖动时不会重建）。 */
+    private int snapX(final int dir) {
+        return this.viewX0 + 4 + (dir % 3) * (SNAP_W + SNAP_GAP);
+    }
+
+    private int snapY(final int dir) {
+        return snapTop() + (dir / 3) * (SNAP_H + SNAP_GAP);
+    }
+
+    private int snapTop() {
+        return Math.max(this.viewY0 + 20, this.viewY1 - 6 - 2 * SNAP_H - SNAP_GAP);
+    }
+
+    /** 命中检测：返回 {@link BeamSnap} 的方向，或 -1（没选光束时整排按钮不出现、也不吃点击）。 */
+    private int snapButtonAt(final double mouseX, final double mouseY) {
+        if (selectedBeam() == null) {
+            return -1;
+        }
+        for (int dir = 0; dir < BeamSnap.COUNT; dir++) {
+            final int x = snapX(dir);
+            final int y = snapY(dir);
+            if (mouseX >= x && mouseX <= x + SNAP_W && mouseY >= y && mouseY <= y + SNAP_H) {
+                return dir;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * 把选中的光束摆到六个正交方向之一（角度表见 {@link BeamSnap}）：
+     * 前 = -Z（车头）、后 = +Z（车尾）、上 = +Y、下 = -Y、左 = -X、右 = +X。
+     */
+    private void snapSelected(final int dir) {
+        final Beam beam = selectedBeam();
+        if (beam == null) {
+            this.status = tr("beam3d.needSelection").getString();
+            return;
+        }
+        final double[] rot = BeamSnap.apply(beam, dir);
+        this.session.save();
+        this.status = tr("beam3d.snapDone", tr(BeamSnap.key(dir)),
+                String.format(Locale.ROOT, "%.0f", Double.valueOf(rot[0])),
+                String.format(Locale.ROOT, "%.0f", Double.valueOf(rot[1]))).getString();
+    }
+
+    private void drawSnapButtons(final DrawContext context, final int mouseX, final int mouseY) {
+        if (selectedBeam() == null) {
+            return;
+        }
+        context.drawTextWithShadow(this.textRenderer, tr("beam3d.snap.title"),
+                this.viewX0 + 4, snapTop() - 11, 0x909090);
+        for (int dir = 0; dir < BeamSnap.COUNT; dir++) {
+            final int x = snapX(dir);
+            final int y = snapY(dir);
+            final boolean hover = mouseX >= x && mouseX <= x + SNAP_W
+                    && mouseY >= y && mouseY <= y + SNAP_H;
+            context.fill(x, y, x + SNAP_W, y + SNAP_H, hover ? 0xFF39543A : 0xC0202020);
+            context.fill(x, y, x + SNAP_W, y + 1, hover ? 0xFF9DFF9D : 0xFF5A5A5A);
+            context.drawCenteredTextWithShadow(this.textRenderer,
+                    Text.literal(this.textRenderer.trimToWidth(
+                            tr(BeamSnap.key(dir)).getString(), SNAP_W - 4)),
+                    x + SNAP_W / 2, y + 3, hover ? 0xFFFFFFFF : 0xC8C8C8);
+        }
+    }
+
+    /** 快捷键：F/B = 前后，U/D = 上下，L/R = 左右（按钮上的字母一一对应）。 */
+    private static int snapKeyOf(final int keyCode) {
+        switch (keyCode) {
+            case GLFW.GLFW_KEY_F:
+                return BeamSnap.FRONT;
+            case GLFW.GLFW_KEY_B:
+                return BeamSnap.BACK;
+            case GLFW.GLFW_KEY_U:
+                return BeamSnap.UP;
+            case GLFW.GLFW_KEY_D:
+                return BeamSnap.DOWN;
+            case GLFW.GLFW_KEY_L:
+                return BeamSnap.LEFT;
+            case GLFW.GLFW_KEY_R:
+                return BeamSnap.RIGHT;
+            default:
+                return -1;
+        }
     }
 
     /** 横向拖动 = 偏航，纵向拖动 = 俯仰（和建模软件里的旋转工具同向）。 */
@@ -696,6 +1200,25 @@ final class BeamEditor3DScreen extends Screen {
         this.session.save();
     }
 
+    /**
+     * 滚动条拖动：把鼠标 y 换算成 scrollRow。滚不动的列表（内容比视口短）直接归零。
+     * 只改字段，不重建控件 —— 这样拖动时不会掉帧，也不会丢失搜索框焦点。
+     */
+    private void applyScrollDrag(final double mouseY) {
+        final int[] bar = scrollbar();
+        if (bar == null) {
+            return;
+        }
+        final double travel = bar[1] - bar[3];
+        final int max = Math.max(1, this.shown.size() - visibleRows());
+        if (travel <= 0.0D) {
+            this.scrollRow = 0;
+            return;
+        }
+        final double t = (mouseY - this.scrollGrab - bar[0]) / travel;
+        this.scrollRow = (int) Math.round(clamp(t, 0.0D, 1.0D) * max);
+    }
+
     @Override
     public boolean mouseScrolled(final double mouseX, final double mouseY, final double amount) {
         if (this.empty) {
@@ -705,11 +1228,16 @@ final class BeamEditor3DScreen extends Screen {
             this.camera.zoom(amount);
             return true;
         }
-        if (mouseX < LEFT_W && this.vehicles.size() > visibleRows() && amount != 0.0D) {
-            this.scrollRow -= (int) Math.signum(amount);
-            final int max = Math.max(0, this.vehicles.size() - visibleRows());
-            this.scrollRow = Math.max(0, Math.min(max, this.scrollRow));
-            rebuild();
+        if (mouseX < leftW() && mouseY >= LIST_TOP && this.shown.size() > visibleRows()
+                && amount != 0.0D) {
+            // 触控板一次只给 0.1 格：先累加，攒够一格才滚，同时不重建控件。
+            this.scrollAccum += amount;
+            final int steps = (int) this.scrollAccum;
+            if (steps != 0) {
+                this.scrollAccum -= steps;
+                this.scrollRow -= steps;
+                clampScroll();
+            }
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, amount);
@@ -720,6 +1248,10 @@ final class BeamEditor3DScreen extends Screen {
         if (this.empty) {
             return super.keyPressed(keyCode, scanCode, modifiers);
         }
+        // 搜索框有焦点时，1-4 / Delete / Ctrl+D 属于「输入」，不能再当工具快捷键吃掉。
+        if (this.searchBox != null && this.searchBox.isFocused()) {
+            return super.keyPressed(keyCode, scanCode, modifiers);
+        }
         if (keyCode == GLFW.GLFW_KEY_DELETE) {
             deleteBeam();
             return true;
@@ -728,8 +1260,14 @@ final class BeamEditor3DScreen extends Screen {
             this.mode = keyCode - GLFW.GLFW_KEY_1;
             return true;
         }
+        // Ctrl+D 是"复制"，必须在「D = 正下方」之前判掉。
         if (keyCode == GLFW.GLFW_KEY_D && (modifiers & GLFW.GLFW_MOD_CONTROL) != 0) {
             duplicateBeam();
+            return true;
+        }
+        final int snapKey = snapKeyOf(keyCode);
+        if (snapKey >= 0) {
+            snapSelected(snapKey);
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
@@ -752,45 +1290,53 @@ final class BeamEditor3DScreen extends Screen {
         }
 
         // 3D 先画：之后的 2D 全部落在深度 0（最前），不会被模型压住。
+        // carCount 只是预览里的编组节数（车体局部坐标不变，所以光束/导出都不受影响）。
         TrainPreview.draw(this.subject, context, this.camera,
                 this.viewX0, this.viewY0, this.viewX1, this.viewY1,
-                this.session == null ? List.of() : this.session.work, this.selected);
+                this.session == null ? List.of() : this.session.work, this.selected, this.carCount);
 
         context.fill(0, 0, this.width, TOP_H, 0xE0181818);
-        context.fill(0, TOP_H, LEFT_W, this.height, 0xE0181818);
-        context.fill(this.width - RIGHT_W, TOP_H, this.width, this.height, 0xE0181818);
+        context.fill(0, TOP_H, leftW(), this.height, 0xE0181818);
+        context.fill(this.width - rightW(), TOP_H, this.width, this.height, 0xE0181818);
         context.fill(0, this.height - FOOTER_H, this.width, this.height, 0xE0181818);
 
         super.render(context, mouseX, mouseY, delta);
         drawToolbarState(context);
 
-        // 左栏标题
-        final String listTitle = tr("beam3d.vehicles", Integer.valueOf(this.vehicles.size())).getString();
+        // 左栏标题（搜索时显示「命中/总数」）
+        final String count = this.search == null || this.search.isBlank()
+                ? String.valueOf(this.vehicles.size())
+                : this.shown.size() + "/" + this.vehicles.size();
+        final String listTitle = tr("beam3d.vehicles", count).getString();
         context.drawTextWithShadow(this.textRenderer, Text.literal(
-                        this.textRenderer.trimToWidth(listTitle, LEFT_W - 2 * PAD)),
+                        this.textRenderer.trimToWidth(listTitle, leftW() - 2 * PAD)),
                 PAD, TOP_H + 6, 0xA0A0A0);
+
+        drawVehicleList(context, mouseX, mouseY);
+        drawScrollbar(context);
 
         // 右栏分区
         if (this.colorSectionY >= 0) {
             context.drawTextWithShadow(this.textRenderer,
-                    tr("beam3d.section.color"), this.width - RIGHT_W + PAD, this.colorSectionY, 0xC0C0C0);
+                    tr("beam3d.section.color"), this.width - rightW() + PAD, this.colorSectionY, 0xC0C0C0);
         }
         if (this.geometrySectionY >= 0) {
             context.drawTextWithShadow(this.textRenderer,
-                    tr("beam3d.section.geometry"), this.width - RIGHT_W + PAD,
+                    tr("beam3d.section.geometry"), this.width - rightW() + PAD,
                     this.geometrySectionY, 0xC0C0C0);
         }
         if (this.session == null || this.session.size() == 0) {
             if (this.hintY >= 0) {
                 context.drawTextWithShadow(this.textRenderer, tr("beam3d.emptyList"),
-                        this.width - RIGHT_W + PAD, this.hintY, 0x909090);
+                        this.width - rightW() + PAD, this.hintY, 0x909090);
             }
         } else if (this.hintY >= 0) {
             context.drawTextWithShadow(this.textRenderer, tr("beam3d.pickHint"),
-                    this.width - RIGHT_W + PAD, this.hintY, 0x909090);
+                    this.width - rightW() + PAD, this.hintY, 0x909090);
         }
 
         drawViewportTexts(context);
+        drawSnapButtons(context, mouseX, mouseY);
         drawFooter(context);
 
         if (this.deleteButton != null) {
@@ -800,6 +1346,74 @@ final class BeamEditor3DScreen extends Screen {
         if (this.duplicateButton != null) {
             this.duplicateButton.active = this.selected >= 0 && this.session != null;
         }
+    }
+
+    /**
+     * 左栏车型行（自绘）：选中行高亮 + 左侧绿条，悬停行提亮，标签按行宽裁切。
+     * 自绘而不是每行一个 ButtonWidget，是为了滚动/选中时不重建控件（滚动位置和输入焦点都不会丢）。
+     */
+    private void drawVehicleList(final DrawContext context, final int mouseX, final int mouseY) {
+        if (this.shown.isEmpty()) {
+            context.drawTextWithShadow(this.textRenderer,
+                    Text.literal(this.textRenderer.trimToWidth(
+                            tr("beam3d.noMatch").getString(), rowW() - 4)),
+                    PAD + 3, LIST_TOP + 4, 0x909090);
+            return;
+        }
+        // 空搜索框没有 placeholder API（1.20.1 的 TextFieldWidget 不带），自己画一行灰字。
+        if (this.searchBox != null && (this.search == null || this.search.isEmpty())
+                && !this.searchBox.isFocused()) {
+            context.drawTextWithShadow(this.textRenderer, tr("beam3d.search"),
+                    PAD + 4, SEARCH_Y + 4, 0x707070);
+        }
+        final int listW = rowW();
+        final int visible = visibleRows();
+        for (int i = 0; i < visible; i++) {
+            final int index = this.scrollRow + i;
+            if (index >= this.shown.size()) {
+                break;
+            }
+            final VehicleRow row = this.shown.get(index);
+            final int y = LIST_TOP + i * PITCH;
+            final boolean active = this.vehicleId != null && this.vehicleId.equalsIgnoreCase(row.id);
+            final boolean hover = !active && mouseX >= PAD && mouseX <= PAD + listW
+                    && mouseY >= y && mouseY < y + ROW_H;
+            if (active) {
+                context.fill(PAD, y, PAD + listW, y + ROW_H, 0xFF2C4A2C);
+                context.fill(PAD, y, PAD + 2, y + ROW_H, 0xFF7FE07F);
+            } else if (hover) {
+                context.fill(PAD, y, PAD + listW, y + ROW_H, 0x30FFFFFF);
+            }
+            final String label = (active ? "▸ " : "") + row.label();
+            // 导入包里的车型用偏蓝的字色区分（不在 MTR 注册表里，是临时读出来的）。
+            final int colour = active ? 0xFFFFFFFF
+                    : row.imported != null ? (hover ? 0xC0E8FF : 0x9DD0FF)
+                    : (hover ? 0xE8E8E8 : 0xC0C0C0);
+            context.drawTextWithShadow(this.textRenderer,
+                    Text.literal(this.textRenderer.trimToWidth(label, listW - 4)),
+                    PAD + 4, y + 5, colour);
+        }
+    }
+
+    /** 左栏滚动条：可见滑轨 + 滑块（滑轨/滑块都能拖）。列表不需要滚动时不画。 */
+    private void drawScrollbar(final DrawContext context) {
+        final int[] bar = scrollbar();
+        if (bar == null) {
+            return;
+        }
+        final int x = scrollbarX();
+        final int bottom = bar[0] + bar[1];
+        context.fill(x, bar[0], x + SCROLL_W, bottom, 0xFF000000);
+        context.fill(x + 1, bar[0] + 1, x + SCROLL_W - 1, bottom - 1, 0xFF303030);
+        context.fill(x, bar[2], x + SCROLL_W, bar[2] + bar[3], 0xFF9E9E9E);
+        context.fill(x, bar[2], x + SCROLL_W, bar[2] + 1, 0xFFD8D8D8);
+        context.fill(x, bar[2] + bar[3] - 1, x + SCROLL_W, bar[2] + bar[3], 0xFF5A5A5A);
+    }
+
+    /** 当前车型在游戏里显示的名字（导入包优先，其次注册表，最后 id）。 */
+    private String currentName(final String id) {
+        final CustomPack.Train train = this.imported == null ? null : this.imported.train(id);
+        return train != null ? train.name : TrainNames.of(id);
     }
 
     /**
@@ -840,10 +1454,21 @@ final class BeamEditor3DScreen extends Screen {
         final int left = this.viewX0 + 4;
         final int top = this.viewY0 + 4;
         if (this.subject != null) {
-            final String pack = this.subject.pack + " · " + this.subject.id;
+            // 名字在前、内部 id 在后：车厂里看到的是名字，指令里用的是 id。
+            final String name = currentName(this.subject.id);
+            final String pack = this.subject.pack + " · " + name
+                    + (name.equalsIgnoreCase(this.subject.id) ? "" : "  (" + this.subject.id + ")");
             context.drawTextWithShadow(this.textRenderer,
                     Text.literal(this.textRenderer.trimToWidth(pack, this.viewX1 - this.viewX0 - 8)),
                     left, top, 0x9DFF9D);
+            if (this.carCount > 1) {
+                // 编组提示贴视口右上角，别和下面「第 N 束」那行抢位置。
+                final Text badge = tr("beam3d.carsBadge", Integer.valueOf(this.carCount),
+                        String.format(Locale.ROOT, "%.1f",
+                                Double.valueOf(TrainPreview.carPitch(this.subject))));
+                context.drawTextWithShadow(this.textRenderer, badge,
+                        this.viewX1 - 6 - this.textRenderer.getWidth(badge), top, 0x9DD0FF);
+            }
         } else if (this.vehicleId != null) {
             context.drawCenteredTextWithShadow(this.textRenderer, tr("beam3d.noModel"),
                     (this.viewX0 + this.viewX1) / 2, (this.viewY0 + this.viewY1) / 2 - 8, 0xFFD37F);
@@ -859,7 +1484,7 @@ final class BeamEditor3DScreen extends Screen {
             context.drawTextWithShadow(this.textRenderer, Text.literal(head), left, top + 12, 0xFFE08A);
 
             if (this.propertiesY >= 0) {
-                final int x = this.width - RIGHT_W + PAD;
+                final int x = this.width - rightW() + PAD;
                 context.drawTextWithShadow(this.textRenderer,
                         Text.literal(String.format(Locale.ROOT, "pos %.2f %.2f %.2f",
                                 Double.valueOf(axis(beam.pos, 0)), Double.valueOf(axis(beam.pos, 1)),
@@ -1085,6 +1710,11 @@ final class BeamEditor3DScreen extends Screen {
 
     @Override
     public void close() {
+        // 导入包的动态贴图挂在贴图管理器上：关编辑器就释放，免得反复导入把显存堆满。
+        if (this.imported != null) {
+            this.imported.release();
+            this.imported = null;
+        }
         if (this.client != null) {
             this.client.setScreen(this.parent);
         }

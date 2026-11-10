@@ -70,15 +70,39 @@ final class TrainPreview {
     private static boolean detail = true;
     private static boolean detailFailed = false;
 
-    /** 车上下颠倒了就翻这个（默认false：照抄 MTR 编辑器的 rotateX(180)）。 */
-    private static final boolean MODEL_EXTRA_FLIP_X180 = false;
-    /** 光束 pos 的 Y 和模型几何的 Y 方向相反时，翻这个。 */
-    private static final float BEAM_Y_SIGN = 1.0F;
+    /**
+     * 模型空间 = MTR 资源包空间：{@code x} 横向、{@code y} 向上、{@code z} 沿车长且
+     * <b>车头朝 -Z</b>（{@code docs/builtin-light-table.md}「{@code z} 沿车长（负 = 车头端）」，
+     * 那张表是从真实模型渲染出的顶点量出来的，和 {@code VehicleLights} / {@code TrainPose} 同一套坐标）。
+     *
+     * <p>所以预览默认<b>不做任何额外变换</b>：模型怎么建的就怎么画，光束 {@code pos} 也直接用它，
+     * 两者天然重合。旧版本这里压了 {@code Ry(180)·Rx(180)}（= 绕 Z 轴 180°，上下颠倒 + 左右镜像），
+     * 只是为了把灯凑到车身上，反而让整台车看起来"放反了"。
+     *
+     * <p>下面两个开关只在一整台车明显摆错时才打开（都是绕轴 180°，不会把模型拉变形）：
+     * <ul>
+     *   <li>{@link #MODEL_FLIP_Y180} —— 前后对调（绕 Y 轴）。只有某个包的约定真的是车头 +Z 才用。</li>
+     *   <li>{@link #MODEL_FLIP_Z180} —— 上下颠倒 + 左右镜像（绕 Z 轴），即旧版本的那一档；
+     *       升级后发现车是倒着的，打开它就能回到旧画面。</li>
+     * </ul>
+     */
+    private static final boolean MODEL_FLIP_Y180 = false;
+    private static final boolean MODEL_FLIP_Z180 = false;
+    /**
+     * 光束 {@code pos[0]} 与模型 {@code x} 是否互为相反数。两边用的是同一套坐标
+     * （{@code Slot.lateral} 就是模型的 {@code x - latCentre}），所以默认 {@code false}；
+     * 旧版本这里是 {@code scale(-1,1,1)}，那是配合旧的 {@code Rz(180)} 才成立的补偿。
+     */
+    private static final boolean BEAM_MIRROR_X = false;
 
     /** 一个模型在视口里的默认像素密度（每格多少像素）。 */
     static final float DEFAULT_SCALE = 22.0F;
     static final float MIN_SCALE = 4.0F;
     static final float MAX_SCALE = 160.0F;
+    /** 编组上限：预览最多画这么多节（再多就只看到两头，没意义）。 */
+    static final int MAX_CARS = 8;
+    /** 模型里量不出车长时的默认车厢间距（格）。 */
+    static final double FALLBACK_PITCH = 10.0D;
 
     private TrainPreview() {
     }
@@ -111,11 +135,64 @@ final class TrainPreview {
 
         /** 按车长给一个“一开始就能看全”的像素密度。 */
         float fitScale(final int viewportHeight) {
-            final double span = this.layout == null ? 20.0D
+            return fitScale(viewportHeight, 1);
+        }
+
+        /**
+         * 同上，但按 {@code cars} 节的<b>整列编组</b>取景：间距由 {@link #carPitch} 给出，
+         * 所以 3 节车厢时自动缩小到能看全整列。
+         */
+        float fitScale(final int viewportHeight, final int cars) {
+            final int carCount = Math.max(1, Math.min(MAX_CARS, cars));
+            final double single = this.layout == null ? 20.0D
                     : Math.max(this.layout.length, this.layout.width * 2.0D + 4.0D);
+            final double span = single + (carCount - 1) * carPitch(this);
             return (float) Math.max(MIN_SCALE,
                     Math.min(MAX_SCALE, viewportHeight * 0.55D / Math.max(4.0D, span)));
         }
+    }
+
+    /**
+     * 包内模型（未经 MTR 注册）也能画：模型与贴图都由 {@link CustomPack} 从包里读出来，
+     * 这里只负责把它们装进普通的 {@link Subject}。贴图拿不到时退回透明贴图（看不见但能编辑）。
+     */
+    static Subject imported(final String id, final String pack, final Identifier texture,
+                            final ModelTrainBase model, final VehicleLights.Layout layout) {
+        if (model == null) {
+            return null;
+        }
+        final Identifier resolved = texture == null
+                ? new Identifier("mtr:textures/block/transparent.png") : texture;
+        return new Subject(id, pack, resolved, model, layout);
+    }
+
+    /**
+     * 一节车厢在编组方向上的长度（格）——多节预览的间距就是它。
+     *
+     * <p>依据：{@link VehicleLights.Layout#sectionLen} 是模型沿长度轴的实际几何跨度
+     * （{@code span / sections}，一个 bbmodel 里塞了几节车时会自动拆开），
+     * 比 {@code length} 字段（作者写在 model_properties 里的值，可能没写）更可靠：
+     * 先 {@code sections>1 ? sectionLen}，再试 {@code sectionLen}，再试 {@code length}，
+     * 都量不出来才用 {@link #FALLBACK_PITCH}。
+     */
+    static double carPitch(final Subject subject) {
+        final VehicleLights.Layout layout = subject == null ? null : subject.layout;
+        double pitch = 0.0D;
+        if (layout != null) {
+            // sectionLen == 几何跨度 / sections；一个 bbmodel 里塞了几节车时它已经是「一节」的长度。
+            pitch = layout.sectionLen;
+            if (!(pitch > 0.5D)) {
+                pitch = layout.length;
+            }
+        }
+        return pitch > 0.5D ? pitch : FALLBACK_PITCH;
+    }
+
+    /** 模型空间的长度轴（单位向量，只有 X / Z 两个分量）：{@code Layout.lengthAxis} 说了算。 */
+    private static double[] alongAxis(final Subject subject) {
+        final VehicleLights.Layout layout = subject == null ? null : subject.layout;
+        final boolean alongX = layout != null && "X".equalsIgnoreCase(layout.lengthAxis);
+        return alongX ? new double[]{1.0D, 0.0D} : new double[]{0.0D, 1.0D};
     }
 
     /**
@@ -239,9 +316,13 @@ final class TrainPreview {
             final Matrix4f out = new Matrix4f();
             out.rotate(RotationAxis.POSITIVE_X.rotationDegrees(this.pitch));
             out.rotate(RotationAxis.POSITIVE_Y.rotationDegrees(this.yaw));
-            out.rotate(RotationAxis.POSITIVE_Y.rotationDegrees(180.0F));
-            out.rotate(RotationAxis.POSITIVE_X.rotationDegrees(
-                    MODEL_EXTRA_FLIP_X180 ? 0.0F : 180.0F));
+            // 默认不做任何额外变换（模型空间 y 向上、车头 -Z）。两个开关的用途见类头常量注释。
+            if (MODEL_FLIP_Y180) {
+                out.rotate(RotationAxis.POSITIVE_Y.rotationDegrees(180.0F));
+            }
+            if (MODEL_FLIP_Z180) {
+                out.rotate(RotationAxis.POSITIVE_Z.rotationDegrees(180.0F));
+            }
             out.translate(0.0F, -this.targetY, 0.0F);
             return out;
         }
@@ -267,8 +348,26 @@ final class TrainPreview {
     static void draw(final Subject subject, final DrawContext context, final Camera camera,
                      final int x0, final int y0, final int x1, final int y1,
                      final java.util.List<Beam> beams, final int selected) {
+        draw(subject, context, camera, x0, y0, x1, y1, beams, selected, 1);
+    }
+
+    /**
+     * 在 {@code [x0,y0)-[x1,y1)} 里画车 + 光束线框。
+     *
+     * <p>关键点：<b>不动投影矩阵</b>。GUI 的 modelview 上已经有一次 {@code translate(0,0,-11000)}
+     * 把内容推进正交视锥，我们只要把自己的矩阵压上去，按像素坐标摆模型即可。
+     *
+     * <p>多节：同一个模型按 {@link #carPitch} 的间距沿 {@link #alongAxis} 重复摆放
+     * （间距 = 模型量出来的一节车长，量不到时 10 格），每节都以编组中心对称分布，
+     * 并各自带一套光束线框 —— 光束是车体局部坐标，所以编组里每节车的灯位自然一致。
+     * {@code carIndex / trainCars} 也照实传给模型，MTR 的模型会据此挑「头车 / 中间车 / 尾车」的部件。
+     */
+    static void draw(final Subject subject, final DrawContext context, final Camera camera,
+                     final int x0, final int y0, final int x1, final int y1,
+                     final java.util.List<Beam> beams, final int selected, final int cars) {
         final int centreX = (x0 + x1) / 2;
         final int centreY = (y0 + y1) / 2;
+        final int carCount = Math.max(1, Math.min(MAX_CARS, cars));
 
         context.enableScissor(x0, y0, x1, y1);
         RenderSystem.enableDepthTest();
@@ -281,47 +380,58 @@ final class TrainPreview {
 
         if (subject == null || subject.model == null) {
             // 没有 JonModelTrainRenderer（不是动车 / 资源包写错）：直接走包围盒兜底。
-            drawBounds(subject, immediate, camera, centreX, centreY);
-            drawBeams(immediate, camera, centreX, centreY, beams, selected);
+            drawBounds(subject, immediate, camera, centreX, centreY, 0.0D, 0.0D);
+            drawBeams(immediate, camera, centreX, centreY, beams, selected, 0.0D, 0.0D);
             RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
             context.disableScissor();
             return;
         }
 
-        final MatrixStack matrices = new MatrixStack();
-        matrices.multiplyPositionMatrix(camera.toPixels(centreX, centreY));
-        matrices.multiplyPositionMatrix(camera.rotation());
-        /*
-         * MTR 的 jar 是按 <b>intermediary 名</b> 编译的（{@code class_4587} = MatrixStack、
-         * class_4597 = VertexConsumerProvider、class_2960 = Identifier）。本项目同时挂 named 与
-         * intermediary 的 MC jar，所以这三处必须走 (Object) 桥接，否则报“MatrixStack 无法转换为
-         * class_4587”。运行期（生产客户端）两者是同一个类，桥接没有额外成本。
-         */
-        boolean modelDrawn = true;
-        try {
-            subject.model.render(
-                    (net.minecraft.class_4587) (Object) matrices,
-                    (net.minecraft.class_4597) (Object) immediate,
-                    null,
-                    (net.minecraft.class_2960) (Object) subject.texture,
-                    FULL_BRIGHT, 0.0F, 0.0F, false, 0, 1, true, false, false, detail, false);
-        } catch (final Throwable t) {
-            modelDrawn = false;
-            if (detail && !detailFailed) {
-                detailFailed = true;
-                detail = false;
-                LteLog.LOGGER.warn("[lte] preview: detail render failed, retrying without it", t);
-            } else {
-                LteLog.LOGGER.warn("[lte] preview: model render failed, drawing the box instead", t);
-            }
-        }
-        immediate.draw();
+        final double pitch = carPitch(subject);
+        final double[] axis = alongAxis(subject);
+        for (int car = 0; car < carCount; car++) {
+            // 编组以视口中心对称：1 节就是原地，3 节是 -pitch / 0 / +pitch。
+            final double offset = carCount == 1 ? 0.0D : (car - (carCount - 1) * 0.5D) * pitch;
+            final double ox = axis[0] * offset;
+            final double oz = axis[1] * offset;
 
-        // 降级路径：拿不到真实模型（或它在 GUI 里画不出来）时画包围盒 + 光束，编辑器仍然可用。
-        if (!modelDrawn) {
-            drawBounds(subject, immediate, camera, centreX, centreY);
+            final MatrixStack matrices = new MatrixStack();
+            matrices.multiplyPositionMatrix(camera.toPixels(centreX, centreY));
+            matrices.multiplyPositionMatrix(camera.rotation());
+            // 在模型空间里平移（在 rotation 之后压栈 = 先转后移，等价于模型自身沿长度轴挪动）。
+            matrices.translate((float) ox, 0.0F, (float) oz);
+            /*
+             * MTR 的 jar 是按 <b>intermediary 名</b> 编译的（{@code class_4587} = MatrixStack、
+             * class_4597 = VertexConsumerProvider、class_2960 = Identifier）。本项目同时挂 named 与
+             * intermediary 的 MC jar，所以这三处必须走 (Object) 桥接，否则报“MatrixStack 无法转换为
+             * class_4587”。运行期（生产客户端）两者是同一个类，桥接没有额外成本。
+             */
+            boolean drawn = true;
+            try {
+                subject.model.render(
+                        (net.minecraft.class_4587) (Object) matrices,
+                        (net.minecraft.class_4597) (Object) immediate,
+                        null,
+                        (net.minecraft.class_2960) (Object) subject.texture,
+                        FULL_BRIGHT, 0.0F, 0.0F, false, car, carCount, true, false, false, detail, false);
+            } catch (final Throwable t) {
+                drawn = false;
+                if (detail && !detailFailed) {
+                    detailFailed = true;
+                    detail = false;
+                    LteLog.LOGGER.warn("[lte] preview: detail render failed, retrying without it", t);
+                } else {
+                    LteLog.LOGGER.warn("[lte] preview: model render failed, drawing the box instead", t);
+                }
+            }
+            immediate.draw();
+
+            // 降级路径：拿不到真实模型（或它在 GUI 里画不出来）时画包围盒 + 光束，编辑器仍然可用。
+            if (!drawn) {
+                drawBounds(subject, immediate, camera, centreX, centreY, ox, oz);
+            }
+            drawBeams(immediate, camera, centreX, centreY, beams, selected, ox, oz);
         }
-        drawBeams(immediate, camera, centreX, centreY, beams, selected);
 
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         context.disableScissor();
@@ -329,7 +439,8 @@ final class TrainPreview {
 
     /** 车体包围盒线框。没有模型时的兜底，坐标来自 {@code partsInfo} 的统计结果。 */
     private static void drawBounds(final Subject subject, final VertexConsumerProvider.Immediate immediate,
-                                   final Camera camera, final int centreX, final int centreY) {
+                                   final Camera camera, final int centreX, final int centreY,
+                                   final double ox, final double oz) {
         final VehicleLights.Layout layout = subject == null ? null : subject.layout;
         final double halfLength = (layout == null ? 18.0D : Math.max(4.0D, layout.length)) * 0.5D;
         final double halfWidth = (layout == null ? 1.5D : Math.max(0.6D, layout.width * 0.5D));
@@ -338,6 +449,7 @@ final class TrainPreview {
         final VertexConsumer lines = immediate.getBuffer(RenderLayer.getLines());
         final Matrix4f matrix = new Matrix4f(camera.toPixels(centreX, centreY))
                 .mul(beamRotate(camera));
+        matrix.translate((float) ox, 0.0F, (float) oz);
         final double[][] corners = {
                 {-halfWidth, -halfLength}, {halfWidth, -halfLength},
                 {halfWidth, halfLength}, {-halfWidth, halfLength}
@@ -357,20 +469,23 @@ final class TrainPreview {
     /** 光束 = 起点 + 主轴 + 末端环 + 4 条母线。线框足够看清朝向，不做体积光。 */
     private static void drawBeams(final VertexConsumerProvider.Immediate immediate,
                                   final Camera camera, final int centreX, final int centreY,
-                                  final java.util.List<Beam> beams, final int selected) {
+                                  final java.util.List<Beam> beams, final int selected,
+                                  final double ox, final double oz) {
         if (beams == null || beams.isEmpty()) {
             return;
         }
         final VertexConsumer lines = immediate.getBuffer(RenderLayer.getLines());
         final Matrix4f pixels = camera.toPixels(centreX, centreY);
         final Matrix4f matrix = new Matrix4f(pixels).mul(beamRotate(camera));
+        // 同一束在编组里的每一节车都要画一遍：光束坐标是车体局部的。
+        matrix.translate((float) ox, 0.0F, (float) oz);
         for (int i = 0; i < beams.size(); i++) {
             final Beam beam = beams.get(i);
             if (beam == null || beam.pos == null) {
                 continue;
             }
             final double[] pos = beam.pos;
-            final double[] dir = direction(beam.rot);
+            final double[] dir = direction(beam);
             final double length = beam.length == null ? 8.0D : beam.length.doubleValue();
             final double radius = beam.width == null ? 0.4D : beam.width.doubleValue() * 0.5D;
             final int rgb = beam.color == null ? 0xFFFFFF : beam.color.intValue() & 0xFFFFFF;
@@ -424,9 +539,13 @@ final class TrainPreview {
                 .color(r, g, b, alpha).normal(0.0F, 1.0F, 0.0F).next();
     }
 
-    /** 光束与模型只差一个 X 镜像（数据层把模型 +lateral 映射成世界 -right）± Y 号。 */
+    /**
+     * 光束用的矩阵：与模型<b>同一个</b>模型空间（x 横向 / y 向上 / z 车头 -Z），不再做 X 镜像。
+     * 旧版本这里是 {@code scale(-1,1,1)}，只是配合旧的 {@code Rz(180)} 才成立 —— 那一对已经去掉了。
+     */
     static Matrix4f beamRotate(final Camera camera) {
-        return new Matrix4f(camera.rotation()).scale(-1.0F, BEAM_Y_SIGN, 1.0F);
+        final Matrix4f out = new Matrix4f(camera.rotation());
+        return BEAM_MIRROR_X ? out.scale(-1.0F, 1.0F, 1.0F) : out;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -465,7 +584,7 @@ final class TrainPreview {
             if (beam == null || beam.pos == null) {
                 continue;
             }
-            final double[] dir = direction(beam.rot);
+            final double[] dir = direction(beam);
             final double length = beam.length == null ? 8.0D : beam.length.doubleValue();
             final float ax = matrix.m00() * (float) beam.pos[0]
                     + matrix.m10() * (float) beam.pos[1]
@@ -506,13 +625,30 @@ final class TrainPreview {
     // 向量小工具
     // ---------------------------------------------------------------------------------------------
 
-    /** {@code rot = [yaw, pitch, roll]}（度）→ 单位方向。零旋转 = 车头方向 +Z。 */
-    static double[] direction(final double[] rot) {
-        final double yaw = Math.toRadians(rot == null ? 0.0D : rot[0]);
+    /**
+     * 一束光的方向（单位向量）。<b>零旋转 = 该类型的出厂方向</b>：
+     * 头灯沿车头方向 <b>-Z</b>（yaw 0），尾灯沿车尾方向 <b>+Z</b>（等价 yaw 180）。
+     *
+     * <pre>
+     * 头：dir = (-sin(yaw)·cos(pitch), -sin(pitch), -cos(yaw)·cos(pitch))
+     * 尾：dir = -dir(头, yaw-180) = ( sin(yaw)·cos(pitch),  sin(pitch),  cos(yaw)·cos(pitch))
+     * </pre>
+     *
+     * <p>这和 world 端是同一个定义：{@code TrainPose#backward() = -carDir[last]}、
+     * {@code ProtoBeamCone#emitSlot} 对尾端做 {@code dir.multiply(-1)}、{@code BeamGeom.axis}
+     * 就是"出灯方向"。所以尾灯 axis 永远是<b>车头方向取反</b>，不是车头方向本身。
+     */
+    static double[] direction(final Beam beam) {
+        return direction(BeamSession.isHead(beam) ? 0.0D : 180.0D, beam == null ? null : beam.rot);
+    }
+
+    /** {@code rot = [yaw, pitch, roll]}（度）+ 该类型的出厂偏航 → 单位方向。零偏航 = 车头 -Z。 */
+    static double[] direction(final double baseYaw, final double[] rot) {
+        final double yaw = Math.toRadians(baseYaw + (rot == null ? 0.0D : rot[0]));
         final double pitch = Math.toRadians(rot == null ? 0.0D : rot[1]);
         final double cosPitch = Math.cos(pitch);
         return new double[]{-Math.sin(yaw) * cosPitch, -Math.sin(pitch),
-                Math.cos(yaw) * cosPitch};
+                -Math.cos(yaw) * cosPitch};
     }
 
     private static double[] cross(final double[] a, final double[] b) {

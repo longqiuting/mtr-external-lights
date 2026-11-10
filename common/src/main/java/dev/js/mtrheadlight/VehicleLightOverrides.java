@@ -593,6 +593,14 @@ public final class VehicleLightOverrides {
      * The detection's beams in model space. Slot geometry is the car-local one the renderer uses:
      * lateral offsets around the model's centreline, lamp height above the reference plane, and the
      * recess of the lamp behind its own car face.
+     *
+     * <p><b>车头在 -Z。</b>MTR 资源包的建模约定是车头朝模型空间 -Z（{@code docs/builtin-light-table.md}
+     * 「{@code z} 沿车长（负 = 车头端）」），所以车头灯放在 {@code layout.frontSign} 那一端
+     * （默认 {@code -1} = -Z），车尾灯放在相反的一端。旧代码写死「车头 = +Z、车尾 = -Z」，
+     * 结果编辑器里车头灯从车尾出来、尾灯光束朝车头射 —— 两端正好相反。
+     *
+     * <p>{@code rot} 保持 null：方向由 {@link Beam#type} 决定（头灯沿 -Z、尾灯沿 +Z，
+     * 见 {@code TrainPreview#direction}），这样导出文件里不写死的 rot 也能被重新打开。
      */
     public static List<Beam> autoBeams(final VehicleLights.Layout layout) {
         final List<Beam> out = new ArrayList<>(2);
@@ -601,18 +609,20 @@ public final class VehicleLightOverrides {
         }
         final boolean z = !"X".equalsIgnoreCase(layout.lengthAxis);
         final double half = layout.sectionLen * 0.5D;
-        addSlot(out, layout.head, "head", true, half, layout.latCentre, z);
-        addSlot(out, layout.tail, "tail", false, half, layout.latCentre, z);
+        final double front = layout.frontSign >= 0 ? 1.0D : -1.0D;
+        addSlot(out, layout.head, "head", true, front, half, layout.latCentre, z);
+        addSlot(out, layout.tail, "tail", false, front, half, layout.latCentre, z);
         return out;
     }
 
     private static void addSlot(final List<Beam> out, final VehicleLights.Slot slot, final String type,
-                                final boolean head, final double half, final double latCentre,
-                                final boolean z) {
+                                final boolean head, final double front, final double half,
+                                final double latCentre, final boolean z) {
         if (slot == null) {
             return;
         }
-        final double along = head ? half - slot.inset : -half + slot.inset;
+        // 车头端 = front * half（front = -1 → -Z），车尾端 = -front * half；inset 从端面往里收。
+        final double along = (head ? front : -front) * (half - slot.inset);
         final double[] laterals = slot.lateral == null || slot.lateral.length == 0
                 ? new double[]{0.0D} : slot.lateral;
         for (final double lateral : laterals) {

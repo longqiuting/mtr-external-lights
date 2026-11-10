@@ -131,7 +131,7 @@ public final class BuiltinLights {
         out.latCentre = 0.0D;
         out.minY = 0.0D;
         out.maxY = 0.0D;
-        out.frontSign = 1;
+        out.frontSign = -1;                        // 内置表里 z 负 = 车头（见 docs/builtin-light-table.md）
         out.head = head;
         out.tail = tail;
         CACHE.put(key, out);

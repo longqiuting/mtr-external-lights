@@ -86,10 +86,18 @@ final class BeamSession {
 
     /** 打开 {@code vehicleId} 的会话：合并后的整份列表 + 逐束自动识别底稿。 */
     static BeamSession open(final String vehicleId) {
+        return open(vehicleId, null);
+    }
+
+    /**
+     * @param layout 显式布局。导入的资源包车型<b>不在 MTR 注册表里</b>，{@link #layoutOf} 查不到它，
+     *               所以由 3D 编辑器把从包内模型算出来的布局传进来；null 时照旧按 id 查。
+     */
+    static BeamSession open(final String vehicleId, final VehicleLights.Layout layout) {
         final BeamSession session = new BeamSession(vehicleId == null ? "" : vehicleId.trim());
-        final VehicleLights.Layout layout = layoutOf(session.vehicleId);
-        final List<Beam> auto = VehicleLightOverrides.autoBeams(layout);
-        final List<Beam> effective = VehicleLightOverrides.resolve(session.vehicleId, layout);
+        final VehicleLights.Layout resolved = layout != null ? layout : layoutOf(session.vehicleId);
+        final List<Beam> auto = VehicleLightOverrides.autoBeams(resolved);
+        final List<Beam> effective = VehicleLightOverrides.resolve(session.vehicleId, resolved);
         final Map<String, Integer> seen = new LinkedHashMap<>();
         for (final Beam beam : effective) {
             if (beam == null) {

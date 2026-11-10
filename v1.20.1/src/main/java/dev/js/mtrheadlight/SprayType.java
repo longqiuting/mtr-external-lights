@@ -21,10 +21,13 @@ import net.minecraft.util.Identifier;
  * if (!options.particleSettings.otherMap.getOrDefault(id, TRUE)) cir.setReturnValue(null);
  * </pre>
  *
- * 表里只有它在设置界面列出来的原版类型（{@code minecraft:flame} / {@code cloud} / {@code splash}
- * ……）。{@code mtrlte:spray} 这个键<b>不存在</b>，{@code getOrDefault(id, TRUE)} 取到的是默认值
- * <b>TRUE</b> —— 放行。也就是说用户即使把所有原版粒子的开关都关了，这条水雾仍然会进
- * {@code ParticleManager}。这是「注册自己的类型」这条路成立的全部依据。
+ * 表里只有它<b>列出来过</b>的键：{@code getOrDefault(id, TRUE)} 的默认值是 <b>TRUE</b>，所以只要
+ * 用户没在 Sodium Extra 里手动关掉 {@code mtrlte:spray}，这条水雾就一直进 {@code ParticleManager}。
+ * （Sodium Extra 0.5.9 的粒子页是<b>遍历运行时注册表</b>生成的 ——
+ * {@code SodiumExtraGameOptionPages.particle()} 里 {@code Registries.PARTICLE_TYPE.getIds()} +
+ * {@code Collectors.groupingBy(Identifier::getNamespace)}，所以 {@code mtrlte:spray} 会出现在它自己
+ * 的 {@code mtrlte} 分组里，用户能单独开关它，默认开。这是「像 MrCrayfish 家具那样被 Sodium Extra
+ * 单独控制」的正确形态：不是注入它的配置，而是让自己的类型被它枚举到。）
  *
  * <h2>它仍然可能失败</h2>
  * <ul>

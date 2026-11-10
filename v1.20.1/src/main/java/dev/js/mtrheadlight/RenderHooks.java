@@ -1,5 +1,6 @@
 package dev.js.mtrheadlight;
 
+import dev.js.mtrheadlight.signal.SignalNodeHighlight;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 
@@ -69,6 +70,14 @@ public final class RenderHooks {
             }
         });
         ProtoBeamCone.announce();
+
+        // 手持信号连接器时在附近轨道节点上画轮廓（白色；已选中的那颗青色）。纯粹是辅助显示：
+        // 自己往 RenderLayer.getLines() 里塞 12 条线段后立刻 draw，异常一律吞掉。
+        try {
+            WorldRenderEvents.AFTER_TRANSLUCENT.register(SignalNodeHighlight::render);
+        } catch (Throwable t) {
+            MtrHeadlightClient.LOGGER.warn("[lte] could not register the node highlight", t);
+        }
 
         try {
             KeyHooks.init();
