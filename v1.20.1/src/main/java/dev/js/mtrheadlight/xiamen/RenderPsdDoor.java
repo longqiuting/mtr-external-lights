@@ -1,272 +1,187 @@
-// Xiamen door renderer — MTR's geometry / animation, Xiamen textures.
+// Xiamen door renderer — 直接复用 MTR 的 RenderPSDAPGDoor（几何 / 盒子 UV / 贴图 id / 门灯 / 动画全部同一份代码）。
 package dev.js.mtrheadlight.xiamen;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import dev.js.mtrheadlight.LteLog;
-import mtr.MTRClient;
 import mtr.block.BlockPSDAPGDoorBase;
 import mtr.block.IBlock;
+import mtr.render.RenderPSDAPGDoor;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.enums.DoubleBlockHalf;
-import net.minecraft.client.render.LightmapTextureManager;
-import net.minecraft.client.render.RenderLayer;
-import net.minecraft.client.render.VertexConsumer;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.client.render.block.entity.BlockEntityRenderer;
 import net.minecraft.client.render.block.entity.BlockEntityRendererFactory;
 import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.state.property.Properties;
+import net.minecraft.resource.Resource;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.RotationAxis;
 import net.minecraft.world.World;
 
 /**
- * 屏蔽门门扇的渲染器 —— MTR {@code mtr.render.RenderPSDAPGDoor} 的几何 + 动画 + 门灯，
- * 贴图 id 与 MTR 完全同一套（{@code mtr:textures/block/psd_door_*}，受资源包接管，见 {@link #tex(String)}）。
+ * 厦门门扇的渲染器 —— <b>不自己画</b>，直接继承 MTR 的 {@code mtr.render.RenderPSDAPGDoor}。
  *
- * <h2>为什么是「另一份渲染器」而不是直接继承</h2>
- * <p>{@code RenderPSDAPGDoor} 里的模型（{@code ModelSingleCube}）都是 private、几何写死在 static 块里，
- * 没法继承复用；但它的<b>决策数据全部来自 MTR 自己的方块与方块实体</b>，所以这里只重画几何：
+ * <h2>为什么改成继承（以前是自己照抄几何，结果门扇透明）</h2>
+ * <p>MTR 的门扇渲染器本身就是 {@code BlockEntityRenderer<TileEntityPSDAPGDoorBase>}，构造器是
+ * public 的 {@code RenderPSDAPGDoor(BlockEntityRenderDispatcher dispatcher, int type)}；而我们的方块实体
+ * 本来就继承 {@code BlockPSDAPGDoorBase.TileEntityPSDAPGDoorBase}、方块继承
+ * {@code BlockPSDAPGDoorBase}（列车开门用的 {@code instanceof} 判据要求如此）。
+ * 所以只要在注册 BER 时把 {@code context.getRenderDispatcher()} 交给父类，MTR 就会<b>用同一份代码</b>
+ * 画我们的门：
  * <ul>
- *   <li>方块状态（{@code SIDE} / {@code HALF} / {@code END} / {@code UNLOCKED}）→ MTR 的
- *       {@code BlockPSDAPGDoorBase}；</li>
- *   <li>开度 {@code open} / 插值 {@code openClient} → MTR 的
- *       {@code BlockPSDAPGDoorBase.TileEntityPSDAPGDoorBase#getOpen(float)}
- *       （列车调 {@code setOpen}，这里只跟着画）；</li>
- *   <li>门灯亮灭 → 同一套 {@code getOpenValue()}（MTR 的 private {@code isDoorLightOn}）；
- *       帧间隔用 {@code MTRClient#getLastFrameDuration()}，和 MTR 自己的门完全同步。</li>
+ *   <li>贴图 id 由 MTR 自己 {@code String.format} 出来（见 {@link #FMT_DOOR}），前缀必然是
+ *       {@code mtr:} —— 资源包栈里 {@code assets/mtr/textures/block/psd_door_*_1.png} 被谁接管，
+ *       我们的门就和旁边的 MTR 门一起变；</li>
+ *   <li>盒子 UV（{@code ModelSingleCube(36, 18, 0, 0, 0, 16, 16, 2)}）、{@code rotateX(180)} 的
+ *       朝向翻转、{@code open} 平移、门灯 {@code QueuedRenderLayer.LIGHT}/{@code EXTERIOR}、
+ *       「暂停使用」牌，全部与 MTR 逐字节一致；</li>
+ *   <li>渲染层是 MTR 的 {@code MoreRenderLayers.getExterior(id)} = {@code RenderLayer.getEntityCutout(id)}
+ *       （带背面剔除，不是 {@code NoCull}），走 {@code RenderTrains.scheduleRender} 的批处理 ——
+ *       和 MTR 自己的门同一个通道，所以深度/透明度排序也一致。</li>
  * </ul>
+ * 以前那份「照抄几何」的版本里，正面/背面是两个独立 quad、层用 {@code entityCutoutNoCull}、
+ * 还自己算了 UV 与正反配对，任何一处差一点都会表现成「门扇透明/只有玻璃」。现在这些差异<b>按定义不存在</b>。
  *
- * <h2>贴图（盒子 UV，与 MTR 的 ModelSingleCube 同一套数字）</h2>
- * <table border="1">
- *   <caption>MTR 的 {@code new ModelSingleCube(2(d+w), d+h, x, y, z, w, h, d)}，16 倍缩放的图集</caption>
- *   <tr><th>部件</th><th>图集</th><th>单位</th></tr>
- *   <tr><td>上段门扇（普通）</td><td>{@code psd_door_top_left_1.png} / {@code _right_1}</td><td>36 × 18</td></tr>
- *   <tr><td>下段门扇（普通）</td><td>{@code psd_door_bottom_left_1.png} / {@code _right_1}</td><td>36 × 18</td></tr>
- *   <tr><td>上段端部门扇 主扇</td><td>{@code psd_door_end_top_{left,right}_1_1.png}</td><td>20 × 18</td></tr>
- *   <tr><td>上段端部门扇 副扇</td><td>{@code psd_door_end_top_{left,right}_2_1.png}</td><td>20 × 18</td></tr>
- *   <tr><td>下段端部门扇 主/副</td><td>{@code psd_door_end_bottom_{left,right}_{1,2}_1.png}</td><td>20 × 18</td></tr>
- *   <tr><td>门灯</td><td>{@code light_on.png} / {@code light_off.png}</td><td>整张</td></tr>
- *   <tr><td>「暂停使用」牌</td><td>{@code sign/door_not_in_use.png}</td><td>整张</td></tr>
- * </table>
+ * <h2>门扇贴图是「玻璃 + 橙色横幅」这件事本身不是 bug</h2>
+ * <p>厦门包与南北组包里的 {@code psd_door_top_left_1.png}（576×288 = 36×18 单位 ×16）经像素统计：
+ * 整张 45% 像素 alpha=0，门板<b>中部整片是 alpha=0</b>（玻璃），只有顶部橙色警示横幅
+ * （排队候车 / 灯闪铃响）与底部橙色腰线、白色开启箭头是不透明的。MTR 原版那张（72×36）
+ * 更极端：79% alpha=0，只剩一圈黑框。也就是说「能看见玻璃后面的东西」是资源包的设计，
+ * 真正要保证的是「橙色横幅 + 腰线 + 箭头必须画出来」—— 这正是 MTR 渲染器负责的部分。
  *
- * <h2>几何（数字全部照抄 MTR 的 ModelSingleCube）</h2>
- * <table border="1">
- *   <caption>单位是 1/16 格；+z 朝外（朝轨道），+x 沿门宽</caption>
- *   <tr><th>部件</th><th>x</th><th>y</th><th>z</th></tr>
- *   <tr><td>整扇门</td><td>-8..8</td><td>0..16</td><td>6..8</td></tr>
- *   <tr><td>端部门 主扇</td><td>-8..0 / 0..8</td><td>0..16</td><td>6..8</td></tr>
- *   <tr><td>端部门 副扇</td><td>0..8 / -8..0</td><td>0..16</td><td>4..6</td></tr>
- *   <tr><td>门灯</td><td>-8..-7 / 7..8</td><td>16..17</td><td>2..3</td></tr>
- *   <tr><td>「暂停使用」牌</td><td>-3..3</td><td>4..10</td><td>2..3</td></tr>
- * </table>
+ * <h2>贴图自检</h2>
+ * <p>{@link #logTable()} 在第一帧把 MTR 可能请求的 15 个 id 全部打印出来，并附上
+ * <b>实际命中的资源包名</b>（{@code ResourceManager#getAllResources} 的栈顶），
+ * 日志行形如 {@code [lte] psd door tex: mtr:textures/block/psd_door_top_left_1.png <- 南北组 …}。
+ * {@link #logRequested} 再把「这一帧真实用到的 id」逐条打印一次（去重）。出问题时直接看 latest.log，
+ * 不用再猜是哪张图。
  */
-public class RenderPsdDoor implements BlockEntityRenderer<XiamenPsdBlocks.TileEntityXiamenPSDDoor> {
+public class RenderPsdDoor extends RenderPSDAPGDoor<XiamenPsdBlocks.TileEntityXiamenPSDDoor> {
 
-    /** 门板厚度 2px（MTR 的 MODEL_PSD 的 d 参数）。 */
-    private static final float THICK = 2.0F;
-    /** 普通门扇：盒宽 16 → 图集 36 × 18 单位。 */
-    private static final PsdQuads.UvSet UV_DOOR = PsdQuads.UvSet.box(16.0F, 16.0F, THICK);
-    /** 端部门扇：盒宽 8 → 图集 20 × 18 单位。 */
-    private static final PsdQuads.UvSet UV_END = PsdQuads.UvSet.box(8.0F, 16.0F, THICK);
+    /** MTR 的 door type：0 = PSD（{@code psd_door_*_1.png}），1 = PSD 二代（{@code _2}），2 = APG，3/4 = 电梯门。 */
+    private static final int TYPE = 0;
 
-    private static final Identifier TEX_DOOR_TOP_LEFT = tex("psd_door_top_left_1");
-    private static final Identifier TEX_DOOR_TOP_RIGHT = tex("psd_door_top_right_1");
-    private static final Identifier TEX_DOOR_BOTTOM_LEFT = tex("psd_door_bottom_left_1");
-    private static final Identifier TEX_DOOR_BOTTOM_RIGHT = tex("psd_door_bottom_right_1");
-    private static final Identifier TEX_END_TOP_LEFT_1 = tex("psd_door_end_top_left_1_1");
-    private static final Identifier TEX_END_TOP_RIGHT_1 = tex("psd_door_end_top_right_1_1");
-    private static final Identifier TEX_END_TOP_LEFT_2 = tex("psd_door_end_top_left_2_1");
-    private static final Identifier TEX_END_TOP_RIGHT_2 = tex("psd_door_end_top_right_2_1");
-    private static final Identifier TEX_END_BOTTOM_LEFT_1 = tex("psd_door_end_bottom_left_1_1");
-    private static final Identifier TEX_END_BOTTOM_RIGHT_1 = tex("psd_door_end_bottom_right_1_1");
-    private static final Identifier TEX_END_BOTTOM_LEFT_2 = tex("psd_door_end_bottom_left_2_1");
-    private static final Identifier TEX_END_BOTTOM_RIGHT_2 = tex("psd_door_end_bottom_right_2_1");
-    private static final Identifier TEX_LIGHT_ON = tex("light_on");
-    private static final Identifier TEX_LIGHT_OFF = tex("light_off");
-    private static final Identifier TEX_LOCKED = tex("sign/door_not_in_use");
+    // ---- 与 MTR RenderPSDAPGDoor#render 里逐字相同的四个格式串（type=0 → 第三个占位符是 "1"） ----
+    /** 普通门扇：{@code psd_door_<top|bottom>_<left|right>_<1|2>.png}。 */
+    private static final String FMT_DOOR = "mtr:textures/block/psd_door_%s_%s_%s.png";
+    /** 端部门扇主扇：{@code psd_door_end_<half>_<side>_1_<1|2>.png}。 */
+    private static final String FMT_END_MAIN = "mtr:textures/block/psd_door_end_%s_%s_1_%s.png";
+    /** 端部门扇副扇：{@code psd_door_end_<half>_<side>_2_<1|2>.png}。 */
+    private static final String FMT_END_SUB = "mtr:textures/block/psd_door_end_%s_%s_2_%s.png";
+    /** 门灯：{@code light_<on|off>.png}。 */
+    private static final String FMT_LIGHT = "mtr:textures/block/light_%s.png";
+    /** 「暂停使用」牌。 */
+    private static final String ID_SIGN = "mtr:textures/block/sign/door_not_in_use.png";
+
+    /** MTR 侧 type 字段的字符串形态（type 0 → "1"）。 */
+    private static final String TYPE_TAG = TYPE == 1 ? "2" : "1";
+
+    private static final Set<String> SEEN = ConcurrentHashMap.newKeySet();
+    private static final AtomicBoolean TABLE_LOGGED = new AtomicBoolean();
 
     public RenderPsdDoor(BlockEntityRendererFactory.Context context) {
-    }
-
-    /**
-     * 贴图 id —— <b>必须和 MTR 自己拼出来的完全一致</b>。
-     *
-     * <h2>为什么是 {@code mtr:} 而不是本模组的 {@code mtrlte:}（这是「门扇纯白」的真根因）</h2>
-     * <p>{@code RenderPSDAPGDoor} 拼的是 {@code new Identifier("mtr:textures/block/psd_door_top_left_1.png")}，
-     * 也就是 <b>{@code mtr} 命名空间</b>。{@code mtr} 命名空间的贴图会被<b>资源包栈</b>接管：
-     * 玩家装的「厦门地铁一号线车辆」「南北组…屏蔽门材质包」等包，改的都是
-     * {@code assets/mtr/textures/block/psd_door_*_1.png}。
-     *
-     * <p>我们之前把这些图<b>拷进模组自己做了一份 {@code mtrlte:}</b>，于是出现了两套同时存在的门扇贴图：
-     * <ul>
-     *   <li>左边 MTR 自带门 → 读 {@code mtr:…} → 命中的是<b>当前生效资源包</b>那张（白门板 + 橙腰线 + 警示贴）；</li>
-     *   <li>右边我们的门 → 读 {@code mtrlte:…} → 命中的是<b>当初从某个包拷出来的那一份快照</b>。</li>
-     * </ul>
-     * 这两张图<b>不是同一张</b>（厦门包 {@code md5 780a07f5}、南北组包 {@code md5 ace8808c}，都不是 MTR 的
-     * 原图 {@code 72×36}）。厦门包里那一份的门体是 <b>alpha=0 的玻璃扇</b>（实测 only 54.9% 像素不透明，
-     * 门板主体全透明，只剩顶部橙警示条和底部橙纹样），
-     * 而 {@code entityCutout} 会把 alpha&lt;0.1 的像素整片丢弃 —— <b>门板主体一个像素都不画</b>，
-     * 透过门框看到的就是背后那面白墙，观感就是「整个门扇纯白、一点贴图都没有」。
-     * 同一列的玻璃 / 端部 / 吊板走的是方块模型和 MTR 自己的 {@code mtr:} 贴图，所以它们正常。
-     *
-     * <p>改成 {@code mtr:} 后，我们的门扇和旁边的 MTR 门<b>按定义读同一张图</b>：
-     * 装什么屏蔽门材质包，两边就一起变；没装包时一起回落到 MTR 原版图集。
-     * <b>不要再把 psd_door 图集拷进 {@code mtrlte:}</b>，那一定会和资源包栈再次分叉。
-     */
-    private static Identifier tex(String path) {
-        return new Identifier("mtr", "textures/block/" + path + ".png");
+        // 关键的一行：把 MTR 自己的渲染器叫来画我们的方块实体。
+        super(context.getRenderDispatcher(), TYPE);
     }
 
     @Override
     public void render(XiamenPsdBlocks.TileEntityXiamenPSDDoor entity, float tickDelta, MatrixStack matrices,
                        VertexConsumerProvider vertexConsumers, int light, int overlay) {
-        if (!VERIFIED) {
-            verifyTextures();
+        if (TABLE_LOGGED.compareAndSet(false, true)) {
+            logTable();
         }
         World world = entity.getWorld();
-        if (world == null) {
-            return;
+        if (world != null) {
+            logRequested(world.getBlockState(entity.getPos()));
         }
-        BlockPos pos = entity.getPos();
-        BlockState state = world.getBlockState(pos);
-        Direction facing = IBlock.getStatePropertySafe(state, Properties.HORIZONTAL_FACING);
-        boolean side = IBlock.getStatePropertySafe(state, IBlock.SIDE) == IBlock.EnumSide.RIGHT;
-        boolean half = IBlock.getStatePropertySafe(state, IBlock.HALF) == DoubleBlockHalf.UPPER;
-        boolean end = IBlock.getStatePropertySafe(state, BlockPSDAPGDoorBase.END);
-        boolean unlocked = IBlock.getStatePropertySafe(state, BlockPSDAPGDoorBase.UNLOCKED);
-        float open = Math.min(entity.getOpen(MTRClient.getLastFrameDuration()), 1.0F);
-        float direction = side ? -1.0F : 1.0F;
+        super.render(entity, tickDelta, matrices, vertexConsumers, light, overlay);
+    }
 
-        matrices.push();
-        matrices.translate(pos.getX() + 0.5D, pos.getY(), pos.getZ() + 0.5D);
-        matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(-facing.asRotation()));
+    // ------------------------------------------------------------------
+    // 贴图 id：全部集中在这里构造 / 打印，别处不再出现 new Identifier(...)
+    // ------------------------------------------------------------------
 
-        VertexConsumer front = vertexConsumers.getBuffer(
-                RenderLayer.getEntityCutoutNoCull(atlas1(half, end, side)));
-        VertexConsumer back = vertexConsumers.getBuffer(
-                RenderLayer.getEntityCutoutNoCull(atlas2(half, end, side)));
-
-        // 1) 门灯（MTR：只在上段画，1×1×1 的小方块挂在格顶内侧，正好藏在吊板那 1px 缝里）
-        if (half) {
-            boolean lightOn = isDoorLightOn(entity);
-            VertexConsumer lightVc = vertexConsumers.getBuffer(RenderLayer.getEntityCutoutNoCull(
-                    lightOn ? TEX_LIGHT_ON : TEX_LIGHT_OFF));
-            // MTR：亮 = QueuedRenderLayer.LIGHT（全亮），灭 = EXTERIOR（跟随环境光）
-            int lightCoord = lightOn ? LightmapTextureManager.MAX_LIGHT_COORDINATE : light;
-            float lx = side ? 7.0F : -8.0F;
-            PsdQuads.cube(matrices, lightVc, lx, lx + 1.0F, 16.0F, 17.0F, 2.0F, 3.0F,
-                    0.0F, 1.0F, lightCoord, overlay);
+    /** MTR 的 type 0 会请求的全部 15 个 id（顺序就是下面的打印顺序）。 */
+    private static List<String> allIds() {
+        final List<String> ids = new ArrayList<>(16);
+        for (String half : new String[]{"top", "bottom"}) {
+            for (String side : new String[]{"left", "right"}) {
+                ids.add(String.format(FMT_DOOR, half, side, TYPE_TAG));
+                ids.add(String.format(FMT_END_MAIN, half, side, TYPE_TAG));
+                ids.add(String.format(FMT_END_SUB, half, side, TYPE_TAG));
+            }
         }
+        ids.add(String.format(FMT_LIGHT, "on"));
+        ids.add(String.format(FMT_LIGHT, "off"));
+        ids.add(ID_SIGN);
+        return ids;
+    }
 
-        // 2) 端部门的副扇（MTR：不跟着整扇平移，只走一半；z 比主扇靠里 2px）
-        if (end) {
-            VertexConsumer front2 = vertexConsumers.getBuffer(
-                    RenderLayer.getEntityCutoutNoCull(atlas3(half, side)));
-            VertexConsumer back2 = front2;
-            matrices.push();
-            matrices.translate(open / 2.0F * direction, 0.0F, 0.0F);
-            float x0 = side ? -8.0F : 0.0F;
-            PsdQuads.plate(matrices, front2, back2, x0, x0 + 8.0F, 0.0F, 16.0F, 4.0F, 6.0F,
-                    UV_END, light, overlay);
-            matrices.pop();
-        }
-
-        // 3) 整扇门（端头只画半扇；主扇随 open 走满 1 格）
-        matrices.push();
-        matrices.translate(open * direction, 0.0F, 0.0F);
-        if (end) {
-            float x0 = side ? 0.0F : -8.0F;
-            PsdQuads.plate(matrices, front, back, x0, x0 + 8.0F, 0.0F, 16.0F, 6.0F, 8.0F,
-                    UV_END, light, overlay);
+    /** 这一帧真实要用的 id（和 MTR 内部 {@code String.format} 的参数顺序完全相同）。 */
+    private static List<String> requestedFor(BlockState state) {
+        final String half = IBlock.getStatePropertySafe(state, BlockPSDAPGDoorBase.HALF) == DoubleBlockHalf.UPPER
+                ? "top" : "bottom";
+        final String side = IBlock.getStatePropertySafe(state, BlockPSDAPGDoorBase.SIDE) == IBlock.EnumSide.RIGHT
+                ? "right" : "left";
+        final List<String> ids = new ArrayList<>(4);
+        if (IBlock.getStatePropertySafe(state, BlockPSDAPGDoorBase.END)) {
+            ids.add(String.format(FMT_END_SUB, half, side, TYPE_TAG));
+            ids.add(String.format(FMT_END_MAIN, half, side, TYPE_TAG));
         } else {
-            PsdQuads.plate(matrices, front, back, -8.0F, 8.0F, 0.0F, 16.0F, 6.0F, 8.0F,
-                    UV_DOOR, light, overlay);
+            ids.add(String.format(FMT_DOOR, half, side, TYPE_TAG));
         }
-
-        // 4) 「暂停使用」牌（锁着的门；MTR 是个 6×6×1 的小立方体，两面都能看见）
-        if (half && !unlocked) {
-            VertexConsumer lockedVc = vertexConsumers.getBuffer(RenderLayer.getEntityCutoutNoCull(TEX_LOCKED));
-            float xOffset = end ? (side ? 2.0F : -2.0F) : 0.0F;
-            PsdQuads.cube(matrices, lockedVc, -3.0F + xOffset, 3.0F + xOffset, 4.0F, 10.0F,
-                    2.0F, 3.0F, 0.0F, 1.0F, light, overlay);
-        }
-        matrices.pop();
-        matrices.pop();
+        ids.add(String.format(FMT_LIGHT, "on"));
+        ids.add(String.format(FMT_LIGHT, "off"));
+        ids.add(ID_SIGN);
+        return ids;
     }
 
-    /** 正面图集：普通门 / 端部主扇，上段还是下段，左扇还是右扇。 */
-    private static Identifier atlas1(boolean half, boolean end, boolean side) {
-        if (end) {
-            return half ? (side ? TEX_END_TOP_RIGHT_1 : TEX_END_TOP_LEFT_1)
-                    : (side ? TEX_END_BOTTOM_RIGHT_1 : TEX_END_BOTTOM_LEFT_1);
-        }
-        return half ? (side ? TEX_DOOR_TOP_RIGHT : TEX_DOOR_TOP_LEFT)
-                : (side ? TEX_DOOR_BOTTOM_RIGHT : TEX_DOOR_BOTTOM_LEFT);
-    }
-
-    /**
-     * 背面图集。厦门包的 {@code psd_door_*_1.png} 是全盒子图集，背面就在同一张图的右半，
-     * 所以正反面共用一张（MTR 的 3.6 图集也是这样，{@code _back} 那套是旧格式遗留）。
-     */
-    private static Identifier atlas2(boolean half, boolean end, boolean side) {
-        return atlas1(half, end, side);
-    }
-
-    /** 端部副扇图集（{@code _2_1}）。 */
-    private static Identifier atlas3(boolean half, boolean side) {
-        return half ? (side ? TEX_END_TOP_RIGHT_2 : TEX_END_TOP_LEFT_2)
-                : (side ? TEX_END_BOTTOM_RIGHT_2 : TEX_END_BOTTOM_LEFT_2);
-    }
-
-    @Override
-    public boolean rendersOutsideBoundingBox(XiamenPsdBlocks.TileEntityXiamenPSDDoor entity) {
-        return true;
-    }
-
-    // ------------------------------------------------------------------
-    // 一次性自检：把门扇用到的每个 Identifier 打到日志，并核对资源管理器里真的有这张图。
-    // 门扇「空白」这类问题以后第一眼就能在 latest.log 里排除掉「图不存在」。
-    // ------------------------------------------------------------------
-
-    private static volatile boolean VERIFIED = false;
-
-    private static void verifyTextures() {
-        VERIFIED = true;
+    /** 第一帧：把 15 个 id 与「栈顶资源包」一起打出来。 */
+    private static void logTable() {
         try {
-            final var rm = net.minecraft.client.MinecraftClient.getInstance().getResourceManager();
-            final Identifier[] ids = {
-                    TEX_DOOR_TOP_LEFT, TEX_DOOR_TOP_RIGHT, TEX_DOOR_BOTTOM_LEFT, TEX_DOOR_BOTTOM_RIGHT,
-                    TEX_END_TOP_LEFT_1, TEX_END_TOP_RIGHT_1, TEX_END_TOP_LEFT_2, TEX_END_TOP_RIGHT_2,
-                    TEX_END_BOTTOM_LEFT_1, TEX_END_BOTTOM_RIGHT_1, TEX_END_BOTTOM_LEFT_2, TEX_END_BOTTOM_RIGHT_2,
-                    TEX_LIGHT_ON, TEX_LIGHT_OFF, TEX_LOCKED};
-            int missing = 0;
-            for (Identifier id : ids) {
-                final boolean exists = rm.getResource(id).isPresent();
-                if (!exists) {
-                    missing++;
-                    LteLog.LOGGER.warn("[lte] psd door texture MISSING: {}", id);
+            for (String raw : allIds()) {
+                final Identifier id = new Identifier(raw);
+                LteLog.LOGGER.info("[lte] psd door tex: {} <- {}", id, sourceOf(id));
+            }
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] psd door texture table failed", t);
+        }
+    }
+
+    /** 每帧：把这一帧真正请求的 id 打一次（同一个 id 只打一次）。 */
+    private static void logRequested(BlockState state) {
+        try {
+            for (String raw : requestedFor(state)) {
+                if (SEEN.add(raw)) {
+                    final Identifier id = new Identifier(raw);
+                    LteLog.LOGGER.info("[lte] psd door tex: {} <- {}", id, sourceOf(id));
                 }
             }
-            LteLog.LOGGER.info("[lte] psd door textures resolved: {}/{} present, layer={}, uv front={} back={}",
-                    ids.length - missing, ids.length,
-                    RenderLayer.getEntityCutoutNoCull(TEX_DOOR_TOP_LEFT),
-                    UV_DOOR.front(), UV_DOOR.back());
         } catch (Throwable t) {
-            LteLog.LOGGER.warn("[lte] psd door texture self-check failed", t);
+            LteLog.LOGGER.warn("[lte] psd door texture probe failed", t);
         }
     }
 
-    /** MTR 的 {@code isDoorLightOn}：关着 = 灭，全开 = 亮，中间闪（500ms 一个周期）。 */
-    private static boolean isDoorLightOn(XiamenPsdBlocks.TileEntityXiamenPSDDoor entity) {
-        int openValue = entity.getOpenValue();
-        if (openValue <= 0) {
-            return false;
+    /** 栈顶资源包名（= 真正生效的那张图从哪来）。 */
+    private static String sourceOf(Identifier id) {
+        try {
+            final MinecraftClient client = MinecraftClient.getInstance();
+            if (client == null) {
+                return "?";
+            }
+            final List<Resource> all = client.getResourceManager().getAllResources(id);
+            if (all.isEmpty()) {
+                return "MISSING";
+            }
+            final Resource top = all.get(0);
+            final String packs = top.getResourcePackName();
+            return all.size() > 1 ? packs + " (+" + (all.size() - 1) + " lower)" : packs;
+        } catch (Throwable t) {
+            return "lookup failed: " + t.getClass().getSimpleName();
         }
-        if (openValue >= BlockPSDAPGDoorBase.MAX_OPEN_VALUE) {
-            return true;
-        }
-        return System.currentTimeMillis() / 500L % 2L == 0L;
     }
 }

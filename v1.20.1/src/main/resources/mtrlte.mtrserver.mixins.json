@@ -7,7 +7,8 @@
   "plugin": "dev.js.mtrheadlight.mixin.mtrserver.MtrServerMixinPlugin",
   "mixins": [
     "TrainSimulateCaptureMixin",
-    "RailwayDataCaptureMixin"
+    "RailwayDataCaptureMixin",
+    "PidsScheduleScopeMixin"
   ],
   "injectors": {
     "defaultRequire": 0

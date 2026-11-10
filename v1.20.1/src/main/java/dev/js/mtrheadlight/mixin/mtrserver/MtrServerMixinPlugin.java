@@ -33,6 +33,10 @@ public final class MtrServerMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public boolean shouldApplyMixin(final String targetClassName, final String mixinClassName) {
+        if (mixinClassName.endsWith(".PidsScheduleScopeMixin")) {
+            // 到站数据范围：目标类换了就静默跳过（defaultRequire: 0），退回 MTR 原行为。
+            return HostProbe.mtrSavedRail();
+        }
         return HostProbe.mtrServerTrain();
     }
 

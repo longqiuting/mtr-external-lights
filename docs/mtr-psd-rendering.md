@@ -371,3 +371,144 @@ MTR 的盒子来自 `ModelPart`（绕序由 MC 生成，必然正确），所以
 > 按要求**未启动游戏**验证。上面关于「门会显示橙腰线/警示贴」的结论依据是：
 > 修复后门扇与旁边的 MTR 门读**同一个 id 的同一张图**、同一套 box UV、同一个 RenderLayer 家族，
 > 因此不可能再与 MTR 门长得不一样。
+
+---
+
+## 15. 第二轮：用户实测「门扇依旧透明」→ 逐字对账 + 改为直接继承 MTR 渲染器（lte-1.0.22）
+
+### 15.1 结论先行
+
+1. **贴图 id 根本没有差异，这条路是死的。** §11 猜「我们读 `mtrlte:` 快照、MTR 读 `mtr:`」在 1.0.21 里已经修掉；
+   实测日志（`logs/latest.log` 20:59:10）证明：15 个 id 全部 `present`，请求的就是
+   `mtr:textures/block/psd_door_top_left_1.png`，层是 `entity_cutout_no_cull`。
+   所以「门扇透明」**不是 id 拼错、不是图缺失**。
+2. **渲染器本身换掉了**：`RenderPsdDoor` 现在 `extends mtr.render.RenderPSDAPGDoor`，只把
+   `context.getRenderDispatcher()` 和 `type = 0` 交给父类。几何 / 盒子 UV / `rotateX(180)` /
+   正反面配对 / 平移 / 门灯 / 渲染层 / `scheduleRender` 批处理，全部是 MTR 自己的代码，
+   **与旁边的 MTR 门逐字节相同**，不再存在「自己抄一份」的偏差空间。
+3. **同时修掉一个真 bug**：`XiamenClient` 以前把「挂渲染层 + 注册两个 BER」全塞进**一个** `try`，
+   前面任何一个 `putBlock` 抛异常，后面的门扇 BER 注册就被一起吞掉 —— 症状正是「门扇整片透明」。
+   现在每步独立 `try/catch`，且门扇注册排在最前 + 成功时打一行日志。
+
+### 15.2 两边请求的完整 id 对照表（逐字）
+
+MTR 侧原文（CFR 反编译 `mtr.render.RenderPSDAPGDoor#render`，`type` 为构造器第 2 参数）：
+
+```java
+// 门灯（只在 half 时）
+new Identifier(String.format("mtr:textures/block/light_%s.png", doorLightOn ? "on" : "off"))
+// 端部门扇 副扇
+new Identifier(String.format("mtr:textures/block/psd_door_end_%s_%s_2_%s.png",
+        half ? "top" : "bottom", side ? "right" : "left", this.type == 1 ? "2" : "1"))
+// 端部门扇 主扇
+new Identifier(String.format("mtr:textures/block/psd_door_end_%s_%s_1_%s.png",
+        half ? "top" : "bottom", side ? "right" : "left", this.type == 1 ? "2" : "1"))
+// 普通门扇
+new Identifier(String.format("mtr:textures/block/psd_door_%s_%s_%s.png",
+        half ? "top" : "bottom", side ? "right" : "left", this.type == 1 ? "2" : "1"))
+// 「暂停使用」牌
+new Identifier("mtr:textures/block/sign/door_not_in_use.png")
+```
+
+| 部件 | MTR 拼出的 id（type=0，逐字） | 1.0.21 我们请求的 id | 差异 |
+| --- | --- | --- | --- |
+| 上段·左扇 | `mtr:textures/block/psd_door_top_left_1.png` | `mtr:textures/block/psd_door_top_left_1.png` | **无** |
+| 上段·右扇 | `mtr:textures/block/psd_door_top_right_1.png` | 同 | 无 |
+| 下段·左扇 | `mtr:textures/block/psd_door_bottom_left_1.png` | 同 | 无 |
+| 下段·右扇 | `mtr:textures/block/psd_door_bottom_right_1.png` | 同 | 无 |
+| 端部·上·左 主扇 | `mtr:textures/block/psd_door_end_top_left_1_1.png` | 同 | 无 |
+| 端部·上·右 主扇 | `mtr:textures/block/psd_door_end_top_right_1_1.png` | 同 | 无 |
+| 端部·上·左 副扇 | `mtr:textures/block/psd_door_end_top_left_2_1.png` | 同 | 无 |
+| 端部·上·右 副扇 | `mtr:textures/block/psd_door_end_top_right_2_1.png` | 同 | 无 |
+| 端部·下·左/右 主扇 | `mtr:textures/block/psd_door_end_bottom_{left,right}_1_1.png` | 同 | 无 |
+| 端部·下·左/右 副扇 | `mtr:textures/block/psd_door_end_bottom_{left,right}_2_1.png` | 同 | 无 |
+| 门灯 | `mtr:textures/block/light_{on,off}.png` | 同 | 无 |
+| 锁定牌 | `mtr:textures/block/sign/door_not_in_use.png` | 同 | 无 |
+
+**逐字对账的结论：`_left`、`_1`、`_back`、`textures/block/` 前缀一处不差。**
+（`new Identifier("mtr", "textures/block/x.png")` 与 `new Identifier("mtr:textures/block/x.png")`
+解析结果完全相同：namespace=`mtr`、path=`textures/block/x.png`。）
+所以 1.0.22 不再靠猜 id，而是让 MTR 自己 `String.format`（见 15.3），id 按构造必然一致。
+
+### 15.3 改动（选「继承 MTR 渲染器」这条路）
+
+MTR 渲染器的签名（`javap`）：
+
+```
+public class mtr.render.RenderPSDAPGDoor<T extends BlockPSDAPGDoorBase.TileEntityPSDAPGDoorBase>
+        extends mtr.mappings.BlockEntityRendererMapper<T>
+        implements IGui, IBlock
+public RenderPSDAPGDoor(net.minecraft.client.render.block.entity.BlockEntityRenderDispatcher dispatcher, int type)
+public void render(T entity, float tickDelta, MatrixStack, VertexConsumerProvider, int light, int overlay)
+public boolean shouldRenderOffScreen(T blockEntity)   // = true
+```
+
+我们只需（`RenderPsdDoor` 就这一行是「接线」）：
+
+```java
+public RenderPsdDoor(BlockEntityRendererFactory.Context context) {
+    super(context.getRenderDispatcher(), 0);   // type 0 = PSD（psd_door_*_1.png）
+}
+```
+
+注册不用改（`XiamenClient`）：
+
+```java
+BlockEntityRendererRegistry.register(XiamenObjects.psdDoorEntityType(), RenderPsdDoor::new);
+```
+
+之所以能这么干：我们的 `TileEntityXiamenPSDDoor extends BlockPSDAPGDoorBase.TileEntityPSDAPGDoorBase`、
+`Door extends BlockPSDAPGDoorBase`（列车开门 `instanceof` 的硬要求），泛型 `T` 正好满足。
+**贴图 id 会自动跟随方块/资源包**：id 完全由 MTR 在渲染时按方块状态拼 `mtr:` 前缀，
+哪个资源包接管 `assets/mtr/textures/block/psd_door_*_1.png`，我们的门就和 MTR 的门一起变；
+不装包时一起回落到 MTR 内置图集。
+
+`RenderPsdDoor.render()` 现在只多做两件事然后 `super.render(...)`：第一帧打印 15 个 id 的
+**命中来源**，之后每个初次请求的 id 打一行 —— `[lte] psd door tex: <id> <- <资源包名|MISSING>`。
+
+### 15.4 像素统计：哪张才是「门板」
+
+统计脚本 `temp/psdstats.js`（自写 PNG 解码 + box UV 正面区域采样）。「门板正面区」= 图集里
+`u∈[d,d+w]、v∈[d,d+h]` 那一块（MTR `ModelSingleCube` 真正采样的矩形）。
+
+| 贴图（生效包 = 南北组…屏蔽门材质包；厦门包未被启用） | 尺寸 | 整张不透明占比 | alpha=0 占比 | 正面区不透明占比 | 内容 |
+| --- | --- | --- | --- | --- | --- |
+| `psd_door_top_left_1.png`（南北组，生效） | 576×288 | **54.7%** | 45.1% | 50.5% | 顶部橙警示横幅 + 中部**玻璃（整片 alpha=0）** + 底部橙腰线 + 白色开启箭头 |
+| `psd_door_top_right_1.png`（南北组，生效） | 576×288 | 54.7% | 45.1% | 50.5% | 同上（右扇） |
+| `psd_door_bottom_left_1.png`（南北组，生效） | 512×256 | **65.3%** | 32.8% | 64.1% | 灰白门板 + 下部实心（**门板主体是这张**） |
+| `psd_door_bottom_right_1.png`（南北组，生效） | 512×256 | 65.3% | 32.8% | 63.8% | 同上（右扇） |
+| `psd_door_top_left_1.png`（厦门包，**未启用**） | 576×288 | 54.7% | 45.1% | 50.5% | 与南北组同构，腰线是橙色 |
+| `psd_door_bottom_left_1.png`（厦门包，**未启用**） | 144×72 | 46.3% | 53.7% | 39.8% | 更透：门体基本全透，只剩白箭头 + 灰色踢脚 |
+| `psd_door_top_left_1.png`（MTR jar 内置） | 72×36 | **31.3%** | 68.7% | 20.9% | 只有一圈黑框，MTR 原版 PSD 就是玻璃 |
+| `psd_door_bottom_left_1.png`（MTR jar 内置） | 72×36 | 39.7% | 60.3% | 31.4% | 同上（黑框 + 玻璃） |
+| `psd_top.png` / `psd_top_edge.png` | 64×64 | **100%** | 0% | 100% | 纯白（吊板，不是门扇） |
+| `apg_door_bottom.png`（厦门包） | 256×256 | 77.3% | 22.7% | 70.3% | 橙横幅 + 玻璃（APG 也不是白门板） |
+
+**要点**：门扇「上半段」在所有包里都是**玻璃 + 橙色横幅**，中部整片 alpha=0 —— 这是资源包的设计，
+MTR 的门同样如此；真正的不透明门板是「下半段」那张（65% 不透明）。透过玻璃看到的那面白墙，
+就是观感里的「白门板」。`psd_door_end_*` / `psd_glass_*` 同族数据（不透明 27%–65%）见
+`temp/psdstats.js` 的完整输出。
+
+### 15.5 `door_tile_entity_migration/` 是什么
+
+- **是 MTR 自己的历史命名空间，不是作者备份。** MTR jar 里有
+  `assets/mtr/models/block/door_tile_entity_migration/*.json`（36 个）+
+  `assets/mtr/textures/block/door_tile_entity_migration/*.png`（旧格式
+  `psd_door_top_1.png` / `_back_1` / `apg_door_*.png`）。这些 model 的 `parent` 是
+  `door_tile_entity_migration/psd_door_left_base`，贴图写 `#particle = mtr:block/door_tile_entity_migration/psd_door_top_1`。
+- **没有任何代码按这个目录名回退**：`grep -rl "door_tile_entity_migration"` 在 MTR 的 **`.class` 里 0 命中**，
+  在 `blockstates/` 与其它 model 里也 0 命中 —— 唯一出现的地方就是这批 model **自己**。
+  `blockstates/psd_door.json` 现在是 `{"variants":{"":{"model":"minecraft:block/air"}}}`（BER 全权绘制）。
+- 它是 MTR 3.2「方块模型时代」的旧贴图/旧模型，随 3.6 的 BER 化一并留在 jar 里（资源包作者把整份也拷了）。
+  **播放动画用的不是它**；门扇动画（开合 + 门灯闪烁）完全在 `RenderPSDAPGDoor` 里由 `open` 算出来。
+
+### 15.6 本次改动清单（1.0.22）
+
+| 文件 | 改动 |
+| --- | --- |
+| `xiamen/RenderPsdDoor.java` | **整类重写**：`extends mtr.render.RenderPSDAPGDoor<TileEntityXiamenPSDDoor>`，构造器只有 `super(context.getRenderDispatcher(), 0)`；新增 id 表日志（15 个 id + 命中资源包）与逐帧真实请求日志；删掉自写几何 / `PsdQuads` 用法 |
+| `xiamen/XiamenClient.java` | 每步独立 `try/catch`；门扇 BER 注册提到最前并打日志；补 `psdDoor` 的 `cutout` 层（照 MTR `MTRClient` 给 `PSD_DOOR_1` 挂 cutout） |
+| `xiamen/PsdQuads.java` | 无改动，但门扇已不再使用（保留作对照） |
+| 产物 | `v1.20.1/build/libs/lte-1.0.22.jar`（1,016,366 B，`md5 9ad7ee192693c12b08ee5f6db777e6e0`，`BUILD SUCCESSFUL in 18s`）→ 桌面 `lte-1.0.22.jar` + `lte-1.0.22+1.20.1.jar` + 实例 `mods/lte-1.0.22.jar`（三份 md5 一致，旧的 1.0.21 已从 mods 删除） |
+| 工具 | `temp/psdstats.js`（像素统计）、`temp/scan.js`（批量扫描）、`temp/compose.js`（叠棋盘格导出，用来看 alpha） |
+

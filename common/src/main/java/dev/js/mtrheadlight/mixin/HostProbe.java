@@ -20,12 +20,15 @@ public final class HostProbe {
     private static final String MTR_TRAIN_SERVER = "mtr.data.TrainServer";
     /** MTR 的 PIDS / 到站投影机渲染器（{@code getSchedules} 是「站外投影机」的注入目标）。 */
     private static final String MTR_PIDS_RENDERER = "mtr.render.RenderPIDS";
+    /** MTR 的站台 / 侧线基类（{@code isCloseToSavedRail} 是「到站数据范围」的注入目标）。 */
+    private static final String MTR_SAVED_RAIL = "mtr.data.SavedRailBase";
 
     private static final boolean ANTE = present(ANTE_CHUNK);
     private static final boolean NTE = present(NTE_CHUNK);
     private static final boolean MTR = present(MTR_REGISTRY);
     private static final boolean MTR_SERVER = present(MTR_TRAIN_SERVER);
     private static final boolean MTR_PIDS = present(MTR_PIDS_RENDERER);
+    private static final boolean MTR_SAVED_RAIL_BASE = present(MTR_SAVED_RAIL);
 
     private HostProbe() {
     }
@@ -56,6 +59,16 @@ public final class HostProbe {
      */
     public static boolean mtrServerTrain() {
         return MTR_SERVER;
+    }
+
+    /**
+     * {@code mtr.data.SavedRailBase} 是否存在 —— 「到站数据范围」放宽的注入目标。
+     *
+     * <p>用基类而不是 {@code mtr.data.Platform}：{@code isCloseToSavedRail} 声明在基类上，
+     * 侧线（{@code Siding}）也会走到同一个方法（索引里没有它们的站台 id，自然是 no-op）。
+     */
+    public static boolean mtrSavedRail() {
+        return MTR_SAVED_RAIL_BASE;
     }
 
     private static boolean present(final String className) {

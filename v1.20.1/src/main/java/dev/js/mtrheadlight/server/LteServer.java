@@ -118,6 +118,19 @@ public final class LteServer implements ModInitializer {
                     // 服务端碰撞永远不许影响 tick（MTR 数据异常、类缺失都在这里被吞掉）。
                     ServerCollision.warnOnce(t);
                 }
+                // PIDS / 投影机：把「绑定过的站台」加进附近玩家的到站数据范围。
+                // 不加这一步，站外显示屏会在 MTR 下一次 PIDS 数据包（≤3 秒）里被清成空屏。
+                try {
+                    dev.js.mtrheadlight.bind.PidsScheduleScope.tick(server);
+                } catch (Throwable ignored) {
+                    // 索引只是补数据，失败就退回 MTR 原行为。
+                }
+                // 玩家走进 64 格时补推一次方块实体 NBT（绑定那一刻的推送够不到后来的人）。
+                try {
+                    dev.js.mtrheadlight.bind.DisplayPushTicker.tick(server);
+                } catch (Throwable ignored) {
+                    // 同上。
+                }
             });
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] server collision unavailable", t);
