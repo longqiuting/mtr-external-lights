@@ -10,7 +10,9 @@
     "RenderSignalBaseMixin",
     "RenderPIDSStationMixin",
     "RenderPsdDoorTextureMixin",
-    "RouteMapArtMixin"
+    "RouteMapArtMixin",
+    "RouteMapCacheKeyMixin",
+    "RouteAsyncScopeMixin"
   ],
   "injectors": {
     "defaultRequire": 0

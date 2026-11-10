@@ -28,6 +28,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  *
  * <h2>安全</h2>
  * <ul>
+ *   <li><b>只作用于本模组的方块</b>：{@code XiamenRouteStrip.paint / directionArrow / colorStrip}
+ *       第一行就检查 {@link dev.js.mtrheadlight.xiamen.XiamenRouteScope#active()} —— 那个标记由我们自己的
+ *       渲染器（{@code XiamenPsdTopRenderer} / {@code XiamenApgGlassRenderer}）在
+ *       {@code getRenderType} 里压栈、{@code renderAdditional} 里出栈。MTR 原版屏蔽门走的是 MTR 自己
+ *       的渲染器实例，线程里永远是“不是我们的” → 一行都不改；</li>
  *   <li>{@code paint} 返回 null（纵向线路图 / 环线 / 数据没到 / 配置关掉 / 内部异常）→ <b>不取消</b>
  *       → MTR 照原样画它自己那张，绝不会出现紫黑格；</li>
  *   <li>{@code remap = false}：MTR 未 remap，方法名在开发环境和生产环境一致；</li>

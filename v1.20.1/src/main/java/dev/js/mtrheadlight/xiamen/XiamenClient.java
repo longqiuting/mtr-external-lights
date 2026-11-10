@@ -2,8 +2,6 @@
 package dev.js.mtrheadlight.xiamen;
 
 import dev.js.mtrheadlight.LteLog;
-import mtr.render.RenderAPGGlass;
-import mtr.render.RenderPSDTop;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.blockrenderlayer.v1.BlockRenderLayerMap;
 import net.fabricmc.fabric.api.client.rendering.v1.BlockEntityRendererRegistry;
@@ -49,11 +47,11 @@ public final class XiamenClient implements ClientModInitializer {
             LteLog.LOGGER.error("[lte] could not register the xiamen door renderer", t);
         }
 
-        // 2) 吊板渲染器 —— MTR 自己的 RenderPSDTop。
+        // 2) 吊板渲染器 —— MTR 的 RenderPSDTop + 一层作用域标记（只让我们的吊板用厦门版线路图）。
         try {
             BlockEntityRendererRegistry.register(XiamenObjects.psdTopEntityType(), context ->
                     (BlockEntityRenderer<XiamenPsdBlocks.TileEntityXiamenPSDTop>) (Object)
-                            new RenderPSDTop(context.getRenderDispatcher()));
+                            new XiamenPsdTopRenderer(context.getRenderDispatcher()));
         } catch (Throwable t) {
             LteLog.LOGGER.error("[lte] could not register the xiamen psd top renderer", t);
         }
@@ -66,7 +64,8 @@ public final class XiamenClient implements ClientModInitializer {
             LteLog.LOGGER.error("[lte] could not register the xiamen apg door renderer", t);
         }
 
-        // 4) 半高 APG 玻璃渲染器 —— <b>MTR 自己的 RenderAPGGlass</b>（线路图 + 色带 + 站名 + 箭头）。
+        // 4) 半高 APG 玻璃渲染器 —— <b>MTR 自己的 RenderAPGGlass</b>（线路图 + 色带 + 站名 + 箭头），
+        //    外面套一层作用域标记，保证只有我们的玻璃用厦门版线路图。
         //    它写死泛型参数 BlockAPGGlass.TileEntityAPGGlass，而我们的方块实体继承的是
         //    TileEntityRouteBase（为了能用自己注册的 BlockEntityType），所以注册时做一次不检查的
         //    向下转型 —— 和上面 RenderPSDTop 同一个道理：RenderRouteBase 只会按
@@ -74,9 +73,9 @@ public final class XiamenClient implements ClientModInitializer {
         try {
             BlockEntityRendererRegistry.register(XiamenObjects.apgGlassEntityType(), context ->
                     (BlockEntityRenderer<XiamenPsdBlocks.TileEntityXiamenAPGGlass>) (Object)
-                            new RenderAPGGlass(context.getRenderDispatcher()));
+                            new XiamenApgGlassRenderer(context.getRenderDispatcher()));
             LteLog.LOGGER.info("[lte] xiamen apg glass route map renderer registered: {}",
-                    RenderAPGGlass.class.getName());
+                    XiamenApgGlassRenderer.class.getName());
         } catch (Throwable t) {
             LteLog.LOGGER.error("[lte] could not register the xiamen apg glass renderer", t);
         }

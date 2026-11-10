@@ -24,19 +24,22 @@ import java.util.Set;
  * 厦门实拍样式的线路条带，<b>纯 Java2D</b>（这个类刻意不 import 任何 {@code net.minecraft} /
  * {@code mtr} 类型，所以能用 {@code javac} 单独编译，直接吐出 PNG 看版式，不用开游戏）。
  *
- * <h2>v3 版式（2026-11-10 实拍纠正）</h2>
+ * <h2>v4 版式（2026-11-10 第二轮实拍纠正）</h2>
  * <pre>
- *   白底条带            100% 面板高度（和 MTR 原版线路图一样铺满），上下没有透明缝 → 不再透出灰板
- *   主线                条带高度的 8.5%（MTR 的 lineSize = 图高/8，同一比例）
- *   普通站             白心空心环，环宽 15%（MTR drawStation：半径 = 线宽，环厚 0.29×半径）
- *   终点站             更大的空心环 + 圆圈内侧一个指向圆环的<b>实心三角</b>（v3 修正）
- *   当前站             1.3× 空心环 + 一圈细内环
- *   换乘站             追逐箭头环：上半 = 当前线路色、下半（含垂尾）= 换乘线路色，一笔连成
- *                       一个环（v3 修正）；垂尾指向图标正下方<b>居中</b>的换乘线路牌
- *   站名               45° 斜排、中文 + 英文两行、黑体加粗（v3 修正字体）
+ *   白底              铺满整张图（= 面板尺寸不变，不会透出灰板）
+ *   内容区            只占高度的 68%（居中），线宽 / 圆环 / 字号 / 间距全部按内容区缩，
+ *                     上下留白 → 整体不再“撑满整块面板”
+ *   主线              内容区高度的 8.5%
+ *   普通站            白心空心环，环宽 15%
+ *   终点站            和普通站<b>完全同尺寸</b>的环 + 环外侧一个实心三角（v4：不再放大，不再被环盖住）
+ *   当前站            1.3× 空心环 + 一圈细内环
+ *   换乘站            追逐箭头环：上半 = 当前线路色、下半 = 换乘线路色，两段之间<b>留明显空隙</b>；
+ *                     下方一条「矩形杆 + 尖三角」指向线路牌（v4：不再是锥形垂尾）
+ *   站名              45° 斜排、中文 + 英文两行；离圆环外缘至少 8–12px（v4）
+ *   线路号牌          已删除（v4：用户不需要左侧圆角号码牌）
  * </pre>
  *
- * <p>尺寸全部相对“条带高度 bandH”，见下面的常量。</p>
+ * <p>尺寸全部相对“内容区高度 contentH”，见下面的常量。</p>
  */
 public final class XiamenStripPainter {
 
@@ -47,49 +50,70 @@ public final class XiamenStripPainter {
     public static final int MAX_WIDTH = 4096;
 
     /**
-     * 白底条带占面板高度：<b>100%</b>。
+     * 白底（面板底色）占图片高度：<b>100%</b> —— 背景永远是整块白，尺寸不变。
      *
      * <p>v1/v2 是 60%，上下 40% 透明 —— 吊板的透明像素透出模型那块深灰面板，看上去就是
-     * “条带背后贴了一层灰底”。v3 直接铺满：面板可用高度里全是白，和 MTR 原版线路图一样。</p>
+     * “条带背后贴了一层灰底”。v3 起直接铺满。</p>
      */
     public static final float BAND_RATIO = 1.00f;
 
-    /** 主线路宽：条带高度的 8.5%（MTR {@code lineSize = scale / 8}，即图高 12.5% 的上限内）。 */
+    /**
+     * <b>内容区</b>占图片高度：<b>68%</b>（v4）。
+     *
+     * <p>v3 的线宽 / 圆环 / 字号全部按整张图高算，画出来“撑满面板、整体偏大”。v4 只缩内容：
+     * 线宽、圆环、三角、字号、换乘牌全部按这个“内容区高度”算，内容区上下居中，于是白底
+     * 尺寸不变、内容回到面板的 ~2/3，上下自然留白（不是把整张图缩成窄条）。</p>
+     */
+    public static final float CONTENT_RATIO = 0.680f;
+
+    /** 主线路宽：内容区高度的 8.5%（MTR {@code lineSize = scale / 8}）。 */
     public static final float LINE_RATIO = 0.085f;
 
-    /** 普通站圆点直径上限：条带高度的 19%（MTR：直径 = 2×线宽）。 */
+    /** 普通站圆点直径上限：内容区高度的 19%（MTR：直径 = 2×线宽）。 */
     public static final float CIRCLE_RATIO = 0.19f;
 
     /** 当前站圆点相对普通点的倍数。 */
     public static final float CURRENT_SCALE = 1.30f;
 
-    /** 终点站圆环相对普通点的倍数（实拍：终点那个圈明显比中间站大一圈）。 */
-    public static final float TERMINAL_SCALE = 1.60f;
-
     /** 圆环描边 / 内环（MTR drawStation 的 0.29×半径 → 直径的 14.5%）。 */
     public static final float RING_RATIO = 0.15f;
     public static final float INNER_RATIO = 0.58f;
 
-    // ---- 换乘标记（追逐箭头环 + 垂尾 + 正下方居中的线路牌）----
+    /** 终点三角箭头：长 / 宽（× 线宽）。 */
+    public static final float TERM_ARROW_LEN = 2.10f;
+    public static final float TERM_ARROW_HALF = 0.95f;
 
-    /** 追逐箭头环直径（相对条带高度）。比普通站环大一圈，实拍如此。 */
+    // ---- 换乘标记（追逐箭头环 + 「矩形杆 + 尖三角」+ 正下方居中的线路牌）----
+
+    /** 追逐箭头环直径（相对内容区高度）。比普通站环大一圈，实拍如此。 */
     public static final float IX_RING_RATIO = 0.260f;
     /** 环厚 / 直径。 */
     public static final float IX_RING_THICK = 0.200f;
-    /** 箭头尖长度 / 环厚，宽度 / 环厚。 */
-    public static final float IX_HEAD_LEN = 1.55f;
-    public static final float IX_HEAD_W = 1.85f;
-    /** 垂尾根宽 / 环直径。 */
-    public static final float IX_TAIL_W = 0.50f;
-    /** 环下缘 → 线路牌上沿。 */
-    public static final float IX_PLATE_GAP_RATIO = 0.020f;
-    /** 线路牌高度 / 条带高度（两行字：中文 + Line N）。 */
-    public static final float IX_PLATE_H_RATIO = 0.155f;
+    /** 两段弧的起止角（数学角，0° = 正右、90° = 正上）：上段 30–150、下段 210–330。 */
+    public static final float IX_ARC_TOP_FROM = 30f;
+    public static final float IX_ARC_TOP_TO = 150f;
+    public static final float IX_ARC_BOTTOM_FROM = 210f;
+    public static final float IX_ARC_BOTTOM_TO = 330f;
+    /** 箭头尖长度 / 环厚，宽度 / 环厚（v4 调小，免得把两段之间的空隙吃掉）。 */
+    public static final float IX_HEAD_LEN = 1.05f;
+    public static final float IX_HEAD_W = 1.45f;
+    /** 垂尾（矩形杆）根宽 / 环直径。 */
+    public static final float IX_TAIL_W = 0.24f;
+    /** 垂尾末端尖三角的高度 / 环直径（v4：三角比杆短，杆才是主体）。 */
+    public static final float IX_TAIL_HEAD = 0.24f;
+    /** 环下缘 → 线路牌上沿（v4 加大：杆 + 尖三角都要塞在这段空隙里）。 */
+    public static final float IX_PLATE_GAP_RATIO = 0.090f;
+    /** 线路牌高度 / 内容区高度（两行字：中文 + Line N）。 */
+    public static final float IX_PLATE_H_RATIO = 0.135f;
     /** 线路牌左右内边距（× 牌高）。 */
     public static final float IX_PLATE_PAD_RATIO = 0.22f;
 
-    /** 站名字号上限：条带高度的 14%。 */
+    /** 站名字号上限：内容区高度的 14%。 */
     public static final float NAME_RATIO = 0.140f;
+
+    /** 站名与圆环外缘之间的最小 / 最大空隙（像素，v4：随字号在 8–12px 之间取）。 */
+    public static final float NAME_CLEARANCE_MIN = 8.0f;
+    public static final float NAME_CLEARANCE_MAX = 12.0f;
 
     /** 英文行字号 / 中文行字号（实拍：英文明显小一号，贴在中文行下方）。 */
     public static final float EN_RATIO = 0.46f;
@@ -180,7 +204,7 @@ public final class XiamenStripPainter {
         public int currentIndex;
         /** 线路色 {@code 0xRRGGBB}。 */
         public int lineRgb;
-        /** 线路号（左侧色块里的字，空串 = 不画色块）。 */
+        /** 线路号（v4 起不再画左侧号码牌，这里保留字段只做数据透传 / 日志）。 */
         public String lineNumber;
         /** true = 行进方向朝左（MTR 的 arrowDirection == 2）。 */
         public boolean flip;
@@ -259,59 +283,61 @@ public final class XiamenStripPainter {
             }
             final int currentIndex = flip ? count - 1 - current : current;
 
-            // ---- 白底条带：铺满整张图（v3：不再留上下透明缝）----
-            final int bandH = Math.max(8, Math.round(height * BAND_RATIO));
+            // ---- 白底：铺满整张图（面板尺寸不变；v4 只缩内容，不缩背景）----
+            g.setColor(Color.WHITE);
+            g.fillRect(0, 0, width, height);
+
+            // ---- 内容区：所有线条 / 圆环 / 字号 / 间距只占高度的 CONTENT_RATIO，上下居中 ----
+            final int bandH = Math.max(8, Math.round(height * CONTENT_RATIO));
             final int bandTop = (height - bandH) / 2;
             final int bandBottom = bandTop + bandH;
-            final int lineW = Math.max(4, Math.round(bandH * LINE_RATIO));
+            final int lineW = Math.max(3, Math.round(bandH * LINE_RATIO));
             final boolean namesBelow = model.namesBelow;
-            // 45° 站名在线上方 → 线压到条带下部；正排站名在下方 → 线抬高。
-            final int lineY = bandTop + Math.round(bandH * (namesBelow ? 0.30f : 0.68f));
+            // 45° 站名在线上方 → 线压到内容区下部；正排站名在下方 → 线抬高。
+            final int lineY = bandTop + Math.round(bandH * (namesBelow ? 0.30f : 0.64f));
 
-            g.setColor(Color.WHITE);
-            g.fillRect(0, bandTop, width, bandH);
-
-            // ---- 左侧线路号色块 ----
-            final String number = model.lineNumber == null ? "" : model.lineNumber;
-            final int badgeSide = Math.round(bandH * 0.46f);
-            final int badgeX = Math.max(2, Math.round(bandH * 0.09f));
-            final int badgeY = lineY - badgeSide / 2;
-            final int gapAfterBadge = Math.max(4, Math.round(bandH * 0.07f));
-            int contentX = badgeX + badgeSide + gapAfterBadge;
-            if (number.isEmpty()) {
-                contentX = badgeX;
-            }
-
-            // ---- 站点几何 ----
-            // 直径上限同时受“条带高度”和“站距”限制，而站距又取决于终点圆要占的边距，
-            // 所以先按纯高度算一遍，再用真正的站距修正一次。
+            // ---- 站点几何（v4：左侧不再画线路号码牌，线路从最左边开始）----
             final int sidePad = Math.max(3, Math.round(bandH * 0.045f));
-            final int termRGuess = Math.round(bandH * CIRCLE_RATIO * TERMINAL_SCALE / 2f);
-            final float stepGuess = (float) Math.max(1, width - sidePad - termRGuess - contentX - termRGuess)
-                    / (count - 1);
+            final int termArrowLen = Math.max(5, Math.round(lineW * TERM_ARROW_LEN));
+            final int termArrowHalf = Math.max(4, Math.round(lineW * TERM_ARROW_HALF));
+            // 终点那一侧要额外留出“环外三角”的位置（flip 时终点在左端）。
+            final int padLeft = sidePad + (flip ? termArrowLen + 2 : 0);
+            final int padRight = sidePad + (flip ? 0 : termArrowLen + 2);
+            final float stepGuess = (float) Math.max(1, width - padLeft - padRight) / (count - 1);
             final float circle = Math.max(bandH * 0.09f,
                     Math.min(bandH * CIRCLE_RATIO, stepGuess * 0.62f));
-            final int termR = Math.round(circle * TERMINAL_SCALE / 2f);
-            final int edgePad = sidePad + termR;
-            final int xFirst = contentX + termR;
-            final int xLast = Math.max(xFirst + 1, width - edgePad);
+            final int radius = Math.round(circle / 2f);
+            final int xFirst = padLeft + radius;
+            final int xLast = Math.max(xFirst + 1, width - padRight - radius);
             final float step = (float) (xLast - xFirst) / (count - 1);
             final int[] xs = new int[count];
             for (int i = 0; i < count; i++) {
                 xs[i] = Math.round(xFirst + step * i);
+            }
+            final int contentX = Math.max(2, sidePad);
+
+            // ---- 每个站标记的“可见外缘半径”：站名让位 / 终点三角都按它算 ----
+            final int ixRingD = Math.max(14, Math.round(bandH * IX_RING_RATIO));
+            final float[] visR = new float[count];
+            for (int i = 0; i < count; i++) {
+                final float d = swaps[i] != null
+                        ? Math.max(circle, ixRingD)
+                        : (i == currentIndex ? circle * CURRENT_SCALE : circle);
+                // 空心环的描边是居中描的，外缘 = 半径 + 半个描边厚度。
+                visR[i] = swaps[i] != null
+                        ? d / 2f
+                        : d / 2f + Math.max(1.2f, d * RING_RATIO) / 2f;
+            }
+            float maxVisR = 0f;
+            for (final float r : visR) {
+                maxVisR = Math.max(maxVisR, r);
             }
 
             // ---- 主线 ----
             g.setColor(new Color(lineRgb));
             g.fillRect(xFirst, lineY - lineW / 2, Math.max(1, xLast - xFirst), lineW);
 
-            // ---- 终点三角箭头（v3：画在终点圆环内侧、靠线路那一侧，尖端顶到圆环上）----
-            final int terminalIndex = flip ? 0 : count - 1;
-            final int termArrowLen = Math.max(8, Math.round(lineW * 3.0f));
-            final int termArrowHalf = Math.max(5, Math.round(lineW * 1.0f));
-            drawTerminalArrow(g, flip, xs[terminalIndex], lineY, termR, termArrowLen, termArrowHalf);
-
-            // ---- 站点标记 ----
+            // ---- 站点标记（只画环；终点三角放到最后，保证不被圆环盖住）----
             final int plateFloorY = bandBottom - Math.max(2, Math.round(bandH * 0.012f));
             int swapDrawn = 0;
             int plateBottomMax = 0;
@@ -320,21 +346,18 @@ public final class XiamenStripPainter {
                     continue;
                 }
                 final Interchange swap = swaps[i];
-                final boolean terminal = i == terminalIndex;
                 if (swap != null) {
                     final int[] box = new int[2];
                     if (drawInterchange(g, xs[i], lineY, lineRgb, swap, bandH, step, width, plateFloorY, box)) {
                         swapDrawn++;
                         plateBottomMax = Math.max(plateBottomMax, box[1]);
                     }
-                } else if (terminal) {
-                    drawCurrentDot(g, xs[i], lineY, circle * TERMINAL_SCALE, lineRgb, 0f);
                 } else {
+                    // v4：终点站也是普通尺寸的环，只是多一个三角箭头。
                     drawDot(g, xs[i], lineY, circle, lineRgb);
                 }
             }
             final Interchange currentSwap = swaps[currentIndex];
-            final boolean currentIsTerminal = currentIndex == terminalIndex;
             if (currentSwap != null) {
                 final int[] box = new int[2];
                 if (drawInterchange(g, xs[currentIndex], lineY, lineRgb, currentSwap, bandH, step, width,
@@ -343,28 +366,28 @@ public final class XiamenStripPainter {
                     plateBottomMax = Math.max(plateBottomMax, box[1]);
                 }
             } else {
-                drawCurrentDot(g, xs[currentIndex], lineY,
-                        circle * (currentIsTerminal ? TERMINAL_SCALE : CURRENT_SCALE), lineRgb, 0.15f);
+                drawCurrentDot(g, xs[currentIndex], lineY, circle * CURRENT_SCALE, lineRgb, 0.15f);
             }
             lastInterchangeCount = swapDrawn;
 
+            // ---- 终点三角箭头（v4：最后画，尖端贴在环外缘 +1px，整块都在环外）----
+            final int terminalIndex = flip ? 0 : count - 1;
+            final int termRgb = isLight(lineRgb) ? darken(lineRgb, 0.72) : lineRgb;
+            drawTerminalArrow(g, flip, xs[terminalIndex], lineY, visR[terminalIndex],
+                    termArrowLen, termArrowHalf, termRgb);
+
             // 正排站名（namesBelow）时要把换乘牌的位置让出来，否则站名会压在牌子上。
             final float belowExtra = namesBelow && plateBottomMax > 0
-                    ? Math.max(0f, plateBottomMax - (lineY + circle * 0.5f)) : 0f;
-            final float nameSize = drawNames(g, names, namesEn, xs, currentIndex, lineRgb, bandTop, bandBottom,
-                    lineY, circle, step, namesBelow, width, contentX, belowExtra);
-
-            // ---- 线路号色块（最后画，永远不被站名压住）----
-            if (!number.isEmpty()) {
-                drawBadge(g, number, lineRgb, badgeX, badgeY, badgeSide);
-            }
+                    ? Math.max(0f, plateBottomMax - (lineY + maxVisR)) : 0f;
+            final float nameSize = drawNames(g, names, namesEn, xs, visR, currentIndex, lineRgb, bandTop,
+                    bandBottom, lineY, step, namesBelow, width, contentX, belowExtra);
 
             lastBandH = bandH;
             lastLineW = lineW;
             lastCircle = Math.round(circle);
             lastCurrent = Math.round(circle * CURRENT_SCALE);
             lastNameSize = Math.round(nameSize);
-            lastTerminalRing = termR * 2;
+            lastTerminalRing = Math.round(circle);
             lastTerminalArrow = termArrowLen;
         } finally {
             g.dispose();
@@ -372,37 +395,25 @@ public final class XiamenStripPainter {
         return image;
     }
 
-    /** 线路号色块：圆角矩形 + 对比色数字（亮色线路黑字，深色线路白字）。 */
-    private static void drawBadge(final Graphics2D g, final String number, final int lineRgb,
-                                  final int x, final int y, final int side) {
-        g.setColor(new Color(lineRgb));
-        g.fill(new RoundRectangle2D.Float(x, y, side, side, side * 0.22f, side * 0.22f));
-        g.setColor(new Color(contrastText(lineRgb), true));
-        final float size = side * 0.62f;
-        final Font font = font().deriveFont(Font.BOLD, size);
-        g.setFont(font);
-        final int textW = g.getFontMetrics(font).stringWidth(number);
-        final int ascent = g.getFontMetrics(font).getAscent();
-        g.drawString(number, x + (side - textW) / 2f, y + side / 2f + ascent / 2f - size * 0.08f);
-    }
-
     /**
-     * 终点三角箭头：<b>实心三角，画在终点圆环内侧靠线路的那一边，尖端顶在圆环外缘上</b>
-     * （v3 修正 —— v2 是画在线端外侧往外指）。
+     * 终点三角箭头（v4）：<b>实心三角，整块画在终点圆环外侧</b>，尖端只贴住环的外缘（+1px），
+     * 并且由 {@code paint} 在所有圆环<b>之后</b>调用 —— 所以既不会被环的白心盖住，也不会被环描边压掉。
      */
     private static void drawTerminalArrow(final Graphics2D g, final boolean flip, final int cx, final int lineY,
-                                          final int ringR, final int len, final int half) {
-        if (ringR <= 0 || len <= 0) {
+                                          final float ringR, final int len, final int half, final int rgb) {
+        if (ringR <= 0f || len <= 0) {
             return;
         }
+        final int r = Math.round(ringR);
+        g.setColor(new Color(rgb));
         if (flip) {
-            // 终点在左端：尖端在圆的右侧（线路侧），指向左。
-            final int tip = cx + ringR;
-            g.fillPolygon(new int[]{tip, tip + len, tip + len}, new int[]{lineY, lineY - half, lineY + half}, 3);
-        } else {
-            // 终点在右端：尖端在圆的左侧，指向右。
-            final int tip = cx - ringR;
+            // 终点在左端：三角在环的左边，尖端朝右、贴在环外缘 +1px。
+            final int tip = cx - r - 1;
             g.fillPolygon(new int[]{tip, tip - len, tip - len}, new int[]{lineY, lineY - half, lineY + half}, 3);
+        } else {
+            // 终点在右端：三角在环的右边，尖端朝左、贴在环外缘 +1px。
+            final int tip = cx + r + 1;
+            g.fillPolygon(new int[]{tip, tip + len, tip + len}, new int[]{lineY, lineY - half, lineY + half}, 3);
         }
     }
 
@@ -459,18 +470,18 @@ public final class XiamenStripPainter {
     }
 
     /**
-     * 换乘站（v3 版式）：
+     * 换乘站（v4 版式）：
      * <ul>
-     *   <li><b>追逐箭头环</b>：一个环被水平切成两半 —— <b>上半 = 当前线路色</b>、
-     *       <b>下半 = 换乘线路色</b>，两半共用同一个圆心 / 半径 / 厚度，只是分色，
-     *       看起来是一笔连成的环，不是两个独立图形；</li>
-     *   <li>两段弧各带一个箭头尖（上段尖端在下、下段尖端在上，环形追逐）；</li>
-     *   <li>下半的环底伸出一条<b>换乘线路色</b>的锥形垂尾，指向正下方的线路牌；</li>
-     *   <li>线路牌<b>始终挂在图标正下方、水平居中</b>（v3 修正：终点站不再被推到侧面）。</li>
+     *   <li><b>追逐箭头环</b>：一个环由两段圆弧组成 —— <b>上段 = 当前线路色</b>、
+     *       <b>下段 = 换乘线路色</b>，共圆心 / 共半径 / 共厚度；两段之间<br>
+     *       <b>留 60° 的明显空隙</b>（v4：v3 两段几乎连成一片），箭头尖也调小，不再把空隙吃掉；</li>
+     *   <li>下半的环底伸出一条<b>换乘线路色的矩形杆</b>，杆端再收成<b>一个尖三角</b>指向线路牌
+     *       （v4：v3 是一整条锥形垂尾，看起来像梯形）；</li>
+     *   <li>线路牌<b>始终挂在图标正下方、水平居中</b>。</li>
      * </ul>
      *
      * @param box 输出 {牌上沿, 牌下沿}，站名排版要避让
-     * @return 真的把牌子也画出来了（false = 连最小号的牌子都放不下，此时只有环 + 垂尾）
+     * @return 真的把牌子也画出来了（false = 连最小号的牌子都放不下，此时只有环 + 杆）
      */
     private static boolean drawInterchange(final Graphics2D g, final int cx, final int lineY, final int lineRgb,
                                            final Interchange swap, final int bandH, final float step,
@@ -526,28 +537,36 @@ public final class XiamenStripPainter {
         g.setColor(Color.WHITE);
         g.fillOval(Math.round(cx - rOut), Math.round(cy - rOut), ringD, ringD);
 
-        // 下半：175° → 340°，末端箭头尖朝右上（换乘线路色）
+        // 下半：210° → 330°，末端箭头尖朝右上（换乘线路色）
         g.setColor(new Color(swapRgb));
-        g.fill(annularSector(cx, cy, rOut, rIn, 175f, 340f));
-        arrowHead(g, cx, cy, rOut, rIn, 340f, swapRgb);
+        g.fill(annularSector(cx, cy, rOut, rIn, IX_ARC_BOTTOM_FROM, IX_ARC_BOTTOM_TO));
+        arrowHead(g, cx, cy, rOut, rIn, IX_ARC_BOTTOM_TO, swapRgb);
 
-        // 上半：20° → 150°，末端箭头尖朝左下（当前线路色）
+        // 上半：30° → 150°，末端箭头尖朝左下（当前线路色）
         g.setColor(new Color(ringRgb));
-        g.fill(annularSector(cx, cy, rOut, rIn, 20f, 150f));
-        arrowHead(g, cx, cy, rOut, rIn, 150f, ringRgb);
+        g.fill(annularSector(cx, cy, rOut, rIn, IX_ARC_TOP_FROM, IX_ARC_TOP_TO));
+        arrowHead(g, cx, cy, rOut, rIn, IX_ARC_TOP_TO, ringRgb);
 
-        // ---- 垂尾：从环底（内缘）收到牌子上方的一个尖，和下半环同色 → 连成一体 ----
+        // ---- 垂尾（v4）：环底伸出一条矩形杆，杆端再收成一个尖三角，指向线路牌 ----
         final float tailW = ringD * IX_TAIL_W;
-        final float y0 = cy + rIn * 0.94f;
-        final float tipY = plateTop - Math.max(1f, gap * 0.30f);
-        if (tipY > y0) {
+        final float shaftTop = cy + rOut - thick * 0.45f;   // 稍微伸进环里，接缝处不会有白缝
+        final float tipY = plateTop - 2f;
+        // 尖三角的高度按「环底到牌子」之间真正剩下的空间取（不然空间不够时又被挤成一根光杆）。
+        final float tailHead = Math.min(ringD * IX_TAIL_HEAD, Math.max(3f, (tipY - shaftTop) * 0.42f));
+        final float headBaseY = tipY - tailHead;
+        if (headBaseY > shaftTop + 1f) {
             g.setColor(new Color(swapRgb));
+            // 矩形杆
+            g.fillRect(Math.round(cx - tailW / 2f), Math.round(shaftTop),
+                    Math.max(1, Math.round(tailW)), Math.max(1, Math.round(headBaseY - shaftTop)));
+            // 杆端尖三角（底边与杆同宽，尖朝下指向线路牌）
             g.fillPolygon(
                     new int[]{Math.round(cx - tailW / 2f), Math.round(cx + tailW / 2f), cx},
-                    new int[]{Math.round(y0), Math.round(y0), Math.round(tipY)}, 3);
-            // 垂尾与环之间再补一小段矩形，保证接缝处没有白缝
-            g.fillRect(Math.round(cx - tailW / 2f), Math.round(cy + rOut - thick * 0.45f),
-                    Math.max(1, Math.round(tailW)), Math.max(1, Math.round(y0 - (cy + rOut - thick * 0.45f))));
+                    new int[]{Math.round(headBaseY), Math.round(headBaseY), Math.round(tipY)}, 3);
+        } else if (tipY > shaftTop) {
+            g.setColor(new Color(swapRgb));
+            g.fillRect(Math.round(cx - tailW / 2f), Math.round(shaftTop),
+                    Math.max(1, Math.round(tailW)), Math.max(1, Math.round(tipY - shaftTop)));
         }
 
         // ---- 线路牌：换乘线路色圆角矩形 + 两行居中文字（中文 / Line N）----
@@ -672,20 +691,29 @@ public final class XiamenStripPainter {
      * 站名：默认 45° 斜排在线条上方（实拍版式），中文一行 + 英文小字一行；
      * {@code namesBelow} 时正排到线条下方（英文贴在中文下面）。
      *
+     * <p><b>v4：站名离圆环外缘至少 8–12px</b>（{@code radii[i]} 是每个站标记的可见外缘半径，
+     * 换乘环比普通环大、当前站又比普通站大，所以逐站算）。英文行画在中文行<b>下面</b>，
+     * 45° 斜排时它更贴近圆环，所以留的距离还要加上一个行距，两行都不会贴到环上。</p>
+     *
      * <p>超长线路：先按实测字宽反解字号（45° 投影不超过站距 92%，且不超过可用竖直空间），
      * 低于 {@link #NAME_FLOOR} 就隔一个画一个（stride 2/3/4），还不行就不画站名 ——
      * <b>不换行、不重叠</b>。
      */
     private static float drawNames(final Graphics2D g, final String[] names, final String[] ens, final int[] xs,
-                                   final int currentIndex, final int lineRgb, final int bandTop,
-                                   final int bandBottom, final int lineY, final float circle, final float step,
+                                   final float[] radii, final int currentIndex, final int lineRgb,
+                                   final int bandTop, final int bandBottom, final int lineY, final float step,
                                    final boolean namesBelow, final int width, final int firstTextX,
                                    final float belowExtra) {
         final int count = names.length;
+        float maxR = 0f;
+        for (final float r : radii) {
+            maxR = Math.max(maxR, r);
+        }
         final float vertAvail = namesBelow
-                ? bandBottom - lineY - circle * 0.5f - belowExtra - 3f
+                ? bandBottom - lineY - maxR - NAME_CLEARANCE_MIN - belowExtra - 3f
                 // 斜排时文字沿 45° 往上走，顶部留一点白边。
-                : lineY - circle * 0.5f - bandTop - Math.max(3f, (bandBottom - bandTop) * 0.03f);
+                : lineY - maxR - NAME_CLEARANCE_MIN - bandTop
+                        - Math.max(3f, (bandBottom - bandTop) * 0.03f);
         if (vertAvail < NAME_FLOOR) {
             return 0f;
         }
@@ -727,8 +755,11 @@ public final class XiamenStripPainter {
             }
         }
         final Font enFont = base.deriveFont(Font.PLAIN, Math.max(1f, size * enScale));
+        // v4：站名与圆环外缘的空隙 —— 随字号在 8–12px 之间取。
+        final float clearance = Math.max(NAME_CLEARANCE_MIN,
+                Math.min(NAME_CLEARANCE_MAX, size * 0.35f));
         final Shape clip = namesBelow
-                ? new Rectangle(Math.max(0, firstTextX), Math.round(lineY + circle * 0.5f) + 1,
+                ? new Rectangle(Math.max(0, firstTextX), Math.round(lineY + maxR) + 1,
                         Math.max(1, width - firstTextX), Math.max(1, bandBottom - lineY))
                 : new Rectangle(Math.max(0, firstTextX), bandTop, Math.max(1, width - firstTextX),
                         Math.max(1, lineY - bandTop));
@@ -754,8 +785,8 @@ public final class XiamenStripPainter {
                 int x = Math.round(xs[i] - textW / 2f);
                 x = Math.max(x, Math.min(Math.round(xs[i]), firstTextX));
                 x = Math.min(x, width - textW - 2);
-                final float baseline = lineY + circle * 0.5f + belowExtra
-                        + g.getFontMetrics().getAscent() + 3f;
+                final float baseline = lineY + radii[i] + belowExtra + clearance
+                        + g.getFontMetrics().getAscent();
                 g.drawString(label, x, baseline);
                 if (en != null && !en.isEmpty()) {
                     g.setFont(enFont);
@@ -768,15 +799,19 @@ public final class XiamenStripPainter {
                 final int textW = g.getFontMetrics(g.getFont()).stringWidth(label);
                 // 45° 下的水平占用 = max(中文宽, 英文宽) x cos45；英文画在第二行，还要再加一个行距的
                 // 斜向投影，否则贴右沿时英文尾部会出画。最后留 3 px 余量（字形右侧还有 bearing）。
-                final int lineStepPx = Math.round(size * enScale * 1.30f);
+                // v4：斜排时英文行贴在中文行下方（更靠近圆环），所以起点还要再让出一个行距。
+                final float enLineStep = size * Math.max(enScale, 0f) * 1.30f;
+                final int lineStepPx = Math.round(enLineStep);
                 final int projected = (int) Math.ceil(Math.max(textW, enWidth(g, enFont, en)) * DIAG)
                         + (en == null ? 0 : (int) Math.ceil(lineStepPx * DIAG)) + 4;
                 int x = xs[i];
                 if (x + projected > width - 6) {
                     x = Math.max(firstTextX, width - 6 - projected);
                 }
-                drawRotatedName(g, label, en, x, lineY - Math.round(circle * 0.5f) - 4,
-                        g.getFont(), enFont, size * EN_RATIO * 1.30f,
+                final int baseY = Math.round(lineY - radii[i] - clearance - size * 0.20f)
+                        - (en == null ? 0 : lineStepPx);
+                drawRotatedName(g, label, en, x, baseY,
+                        g.getFont(), enFont, enLineStep,
                         new Color(0xFF000000 | (isCurrent ? textRgb : TEXT_EN), true));
             }
         }

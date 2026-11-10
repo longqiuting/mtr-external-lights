@@ -298,3 +298,73 @@ head=83 plate=82 name=45 font=SimHei`。
   （牌子按 #4 必须挂在图标正下方）；默认配置（站名在上）没有这个问题。
 - 吊板方向面板的底色固定为**白**（与条带同一块白板）。MTR 原版在吊板上会把白清成透明，
   深色面板透出来、黑字发闷；这里按实拍改成不透明白板。玻璃上的 ARROW 面板同样会变白。
+
+# 线路条带 v4（缩小内容 / 吊板写当前站 / 终点箭头外置 / 作用域修正）— 2026-11-10
+
+用户第二轮实拍验证提的 9 条，逐条对应：
+
+| # | 要求 | 落地 |
+|---|------|------|
+| 1 | 整体太大：只缩<b>内容</b>，背景尺寸不变 | 新增 `CONTENT_RATIO = 0.68`：线宽 / 圆环 / 三角 / 字号 / 换乘牌 / 间距全部按 `contentH = 图高 × 0.68` 算，内容区上下居中；白底仍然 `fillRect(0,0,width,height)` 铺满整张图（面板尺寸、不透灰底这两件事一点没动）。2720×320 下 `band=218 line=19 dot=41 name=31`（v3 是 `320/27/61/45`） |
+| 2 | 门上方那块字应是<b>当前站</b>（中英两行），不是“往 XX” | `XiamenRouteStrip#directionArrow` 改成按 `PlatformRouteDetails.currentStationIndex` 取 `stationDetails[i].stationName`（同一个数据源，不自己拼），`showToString` 不再使用；`XiamenDirectionPanel` 签名简化为 `paint(cjk, en, aspectRatio)` |
+| 3 | 终点三角被圆环盖住 | 三角改到<b>圆环外侧</b>：尖端贴环外缘 +1px、三角整体在环外，并且<b>在所有圆环之后</b>绘制（`paint` 里 `drawTerminalArrow` 挪到站点循环与当前站之后）。`flip` 时镜像到左端。左右边距额外预留 `termArrowLen`，三角不会出画 |
+| 4 | 左侧线路号圆角牌不要了 | `drawBadge` / `badgeX/Y/Side` / `contentX` 全部删除；线路从左边 `sidePad` 开始 |
+| 5 | 换乘图标：两段要留明显空隙；下方箭头改成<b>矩形杆 + 尖三角</b>且杆更长 | 弧段改成上 30°–150°、下 210°–330°（各 120°，两处空隙各 60°，v3 是 25°/40°）；箭头尖 `IX_HEAD_LEN 1.55→1.05`、`IX_HEAD_W 1.85→1.45`；垂尾 = 矩形杆（宽 `0.24×环径`）+ 杆端尖三角（高 `0.24×环径`，按“环底到牌子”的剩余空间自适应），`IX_PLATE_GAP_RATIO 0.02→0.09` 让杆真的变长 |
+| 6 | 全高 / 半高玻璃上都不要小黑箭头 | `XiamenDirectionPanel` 删掉左右方向箭头（`drawArrow` 连同 `BasicStroke`/`Path2D` 依赖一起删除），文字直接在整幅宽度里居中 |
+| 7 | <b>作用域 bug</b>：改动串到了 MTR 原版屏蔽门 | 见下面 7.5，三处配合：渲染器覆盖方法压栈 / 出栈 + `supplyAsync` 把标记带进工作线程 + 缓存键加后缀 |
+| 8 | 站名离圆环太近（要 8–12px，中英两行都要） | `drawNames` 收 `radii[]`（每个站标记的<b>可见</b>外缘半径：换乘环 / 当前站环都按实际尺寸算，含描边半宽），空隙 `clearance = clamp(字号 × 0.35, 8, 12)`；45° 斜排时英文行更靠近环，所以中文行起点再让出一个行距；正排（namesBelow）同样加 clearance |
+| 9 | 终点站圆环不要放大 | 删掉 `TERMINAL_SCALE`（1.6×），终点与普通站完全同尺寸（`termRing == dot`），只多一个三角箭头 |
+
+## 7.5 第 7 条：怎么做到“只作用于我们的方块”
+
+MTR 的线路图纹理是**全局**按 `platformId + 参数` 缓存的，`RouteMapGenerator.generateRouteMap`
+又是静态方法 —— v3 直接接管它，于是**任何** MTR 原版屏蔽门（PSD 吊板 / APG 玻璃）都变成了厦门样式。
+
+v4 把“这次画的是不是我们的方块”做成一条显式的线程标记 `XiamenRouteScope`：
+
+```
+渲染线程   RenderRouteBase#render (final，改不了)
+            ├─ getRenderType(...)        ← 我们的子类覆盖：XiamenRouteScope.push(true)
+            ├─ DATA_CACHE.getRouteMap()  → ClientCache#getResource
+            │                              └─ CompletableFuture.supplyAsync(supplier) ← 在这里读标记并包一层
+            ├─ getDirectionArrow(...)
+            └─ renderAdditional(...)     ← 我们的子类覆盖：XiamenRouteScope.pop()
+线程池      包装体: push(true) → generateRouteMap / generateDirectionArrow → pop()
+```
+
+代码位置：
+
+- `xiamen/XiamenRouteScope.java` —— ThreadLocal 栈（`push/pop/active/cacheKeySuffix`），注释里带 javap 偏移表。
+- `xiamen/XiamenPsdTopRenderer.java` / `xiamen/XiamenApgGlassRenderer.java` —— 继承 MTR 的
+  `RenderPSDTop` / `RenderAPGGlass`，只覆盖 `getRenderType`（压栈）与 `renderAdditional`（`finally` 出栈），
+  画法一行没改；`XiamenClient` 注册的就是这两个子类（MTR 自己注册的实例不经过它们 → 标记永远为 0）。
+- `mixin/mtr/RouteAsyncScopeMixin.java` —— `ClientCache#getResource` 里
+  `CompletableFuture.supplyAsync` 的 `@Redirect`：在**渲染线程**上读一次标记，需要时把 supplier 包成
+  “工作线程上先 push、跑完 pop”。**这条是必需的** —— MTR 的位图是在 `ForkJoinPool` 上画的，
+  没有它 ThreadLocal 传不过去（javap：`getResource` 里 `177: supplyAsync` / `190: thenAccept`）。
+- `mixin/mtr/RouteMapCacheKeyMixin.java` —— `ClientCache#getRouteMap / #getDirectionArrow` 里
+  `String.format` 的 `@Redirect`：我们的那张图 key 加 `_lte` 后缀，避免同一站台上“我们的吊板”和
+  “MTR 原版吊板”抢同一个缓存条目。MTR 的 key 与以前完全一致。
+- `mixin/mtr/RouteMapArtMixin.java` —— 注入点没变，但三个入口
+  （`XiamenRouteStrip#paint / #directionArrow / #colorStrip`）第一行都检查 `XiamenRouteScope.active()`，
+  不成立直接返回 `null`（不取消注入 → MTR 画自己那张）。
+
+顺序依据（javap `mtr.render.RenderRouteBase`，3.6.4.2 / 1.20.1）：`172 getRenderType`（invokevirtual）
+→ `482 getRouteMap` → `561 renderAdditional`（invokevirtual），而且 172 与 561 之间**没有任何提前
+return**（platformId == 0 / shouldNotRender 的早退都在 172 之前），所以栈必然配平；MTR 原版屏蔽门
+既不会进 push 也不会被接管，**图与改动前完全一致**。
+
+## 7.6 离线预览（v4）
+
+`D:\MC-MTR-JS\temp\strip-preview\00-all.png` + `01..09-*.png` + `10..13-direction-*.png`
+（渲染器 `D:\MC-MTR-JS\temp\strip-preview2\src\dev\js\mtrheadlight\xiamen\{StripPreview,XiamenStripPainter,XiamenDirectionPanel}.java`，
+`javac` 只编这三个纯 AWT 类）。
+
+实测：`band=218 line=19 dot=41 current=54 termRing=41 termArrow=40 head=57 plate=43 name=31 font=SimHei`。
+
+## 7.7 仍未做 / 已知边界
+
+- 站名正排（`routeStripNamesBelow = true`）+ 末站是换乘站时，站名会被牌子挤到最下面一行（牌子按设计必须
+  挂在图标正下方）；默认配置（45° 斜排在上方）没有这个问题。
+- 第 7 条的“原版门不变”是**静态论证**（字节码顺序 + 渲染器实例隔离）；本轮按要求没有启动游戏，
+  实机复核请在游戏里对比同一站台上 MTR 原版吊板 / 本站吊板各一块。

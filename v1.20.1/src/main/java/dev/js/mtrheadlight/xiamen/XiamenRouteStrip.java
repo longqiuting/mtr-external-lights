@@ -69,6 +69,10 @@ public final class XiamenRouteStrip {
     public static NativeImage paint(final long platformId, final boolean vertical, final boolean flip,
                                     final float aspectRatio) {
         try {
+            // ★ 作用域闸门：只有“正在渲染本模组的吊板 / 玻璃”时才接管，MTR 原版屏蔽门一律走它自己那张。
+            if (!XiamenRouteScope.active()) {
+                return null;
+            }
             final HeadlightConfig cfg = MtrHeadlightClient.config();
             if (cfg == null || !cfg.xiamenRouteStrip || vertical || !(aspectRatio > 0.05f)) {
                 return null;
@@ -272,6 +276,10 @@ public final class XiamenRouteStrip {
      */
     public static NativeImage colorStrip(final long platformId) {
         try {
+            // 同上：MTR 原版屏蔽门的色带一点都不改。
+            if (!XiamenRouteScope.active()) {
+                return null;
+            }
             final HeadlightConfig cfg = MtrHeadlightClient.config();
             if (cfg == null || cfg.lineColors == null || cfg.lineColors.isEmpty()) {
                 return null;
@@ -311,19 +319,23 @@ public final class XiamenRouteStrip {
 
     /**
      * 吊板 / 玻璃上那块“方向面板”（{@code RenderType.ARROW}，以及站名为空时的 {@code STATION_NAME}）
-     * 的替代品：<b>去掉站台号码</b>，目的地中英文<b>两行水平居中</b>。
+     * 的替代品：<b>写当前站名</b>（中英文两行、水平居中），并且<b>不画任何方向小箭头</b>。
      *
      * <p>MTR 自己那张是 {@code RouteMapGenerator#generateDirectionArrow}：左边一个线路色圆 +
-     * 圆内站台号，目的地从圆的右边左对齐。实拍吊板既没有站台号、文字也是居中的，所以整块重画
-     * （{@link XiamenDirectionPanel}）；目的地文本仍走 MTR 的
-     * {@code ClientCache#getFormattedRouteDestination}，不自己猜。</p>
+     * 圆内站台号，目的地从圆的右边左对齐，两侧还有小黑箭头。实拍吊板三者都没有（v4 用户纠正：
+     * 这块位置写的是<b>当前站</b>，不是“往 XX”），所以整块重画（{@link XiamenDirectionPanel}）。
+     * 站名仍按 {@code PlatformRouteDetails} 的 {@code currentStationIndex} 索引
+     * {@code stationDetails}，不自己拼字符串。</p>
      *
-     * <p>返回 {@code null}（没有线路数据 / 数据没同步 / 配置关掉 / 任何异常）表示“这块不接管”，
-     * 调用方随即让 MTR 画它自己那张。</p>
+     * <p>返回 {@code null}（不是我们的方块 / 没有线路数据 / 数据没同步 / 配置关掉 / 任何异常）
+     * 表示“这块不接管”，调用方随即让 MTR 画它自己那张。</p>
      */
     public static NativeImage directionArrow(final long platformId, final boolean hasLeft, final boolean hasRight,
                                              final boolean showToString, final float aspectRatio) {
         try {
+            if (!XiamenRouteScope.active()) {
+                return null;
+            }
             final HeadlightConfig cfg = MtrHeadlightClient.config();
             if (cfg == null || !cfg.xiamenRouteStrip || !(aspectRatio > 0.05f)) {
                 return null;
@@ -336,38 +348,36 @@ public final class XiamenRouteStrip {
             final StringBuilder cjk = new StringBuilder();
             final StringBuilder en = new StringBuilder();
             for (final ClientCache.PlatformRouteDetails details : all) {
-                if (details == null || details.circularState != Route.CircularState.NONE) {
+                if (details == null || details.stationDetails == null || details.stationDetails.isEmpty()) {
                     continue;
                 }
-                final Route route = XiamenRouteStyle.findRoute(platformId, details.routeName);
-                if (route == null) {
+                final int index = Math.max(0, Math.min(details.stationDetails.size() - 1,
+                        details.currentStationIndex));
+                final ClientCache.PlatformRouteDetails.StationDetails station = details.stationDetails.get(index);
+                final String rawName = station == null ? "" : station.stationName;
+                if (rawName == null || rawName.trim().isEmpty()) {
                     continue;
                 }
-                final String destination = ClientData.DATA_CACHE.getFormattedRouteDestination(
-                        route, details.currentStationIndex, "");
-                if (destination == null || destination.trim().isEmpty()) {
-                    continue;
-                }
-                final String dCjk = XiamenStripPainter.cjkPart(destination);
-                final String dEn = XiamenStripPainter.enPart(destination);
-                if (!dCjk.isEmpty()) {
+                final String cjkName = XiamenStripPainter.cjkPart(rawName);
+                final String enName = XiamenStripPainter.enPart(rawName);
+                if (!cjkName.isEmpty() && cjk.indexOf(cjkName) < 0) {
                     if (cjk.length() > 0) {
                         cjk.append('／');
                     }
-                    cjk.append(dCjk);
+                    cjk.append(cjkName);
                 }
-                if (!dEn.isEmpty()) {
+                if (!enName.isEmpty() && en.indexOf(enName) < 0) {
                     if (en.length() > 0) {
                         en.append(" / ");
                     }
-                    en.append(dEn);
+                    en.append(enName);
                 }
             }
             if (cjk.length() == 0 && en.length() == 0) {
                 return null;
             }
             final java.awt.image.BufferedImage image = XiamenDirectionPanel.paint(
-                    cjk.toString(), en.toString(), hasLeft, hasRight, showToString, aspectRatio);
+                    cjk.toString(), en.toString(), aspectRatio);
             if (image == null) {
                 return null;
             }

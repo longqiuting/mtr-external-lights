@@ -1,27 +1,32 @@
 // 吊板/玻璃上那块“方向面板”的纯 AWT 绘制（不引用任何 MC / MTR 类型，可离线预览）。
 package dev.js.mtrheadlight.xiamen;
 
-import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
-import java.awt.geom.Path2D;
 import java.awt.image.BufferedImage;
 
 /**
- * 吊板（{@code RenderPSDTop}）上方、门/玻璃那一格画的方向面板。
+ * 吊板（{@code RenderPSDTop}）/ 半高玻璃（{@code RenderAPGGlass}）上、门/玻璃那一格画的面板。
  *
  * <h2>为什么不沿用 MTR 那张</h2>
  * <p>MTR 这块面板走 {@code RenderRouteBase#render} 的 {@code RenderType.STATION_NAME} /
  * {@code ARROW} 分支 → {@code RouteMapGenerator#generateDirectionArrow}：左侧一个线路色圆，
- * 圆里写 <b>站台号</b>（{@code Platform#name}），目的地在圆的右边<b>左对齐</b>。实拍吊板既没有
- * 站台号、文字也是居中的，所以这里整块重画：</p>
+ * 圆里写 <b>站台号</b>，目的地在圆的右边<b>左对齐</b>；两侧还各有一个<b>小黑箭头</b>。</p>
+ *
+ * <h2>v4 版式（用户实拍纠正）</h2>
  * <pre>
- *   [◀]      往 集美软件园北        [▶]
- *            Jimei Software Park North
+ *        集美软件园北                 ← 当前站中文（v4：不再写“往 XX”）
+ *     Jimei Software Park
  * </pre>
+ * <ul>
+ *   <li><b>写当前站名</b>，中英文两行，整块水平 / 垂直居中；</li>
+ *   <li><b>没有任何方向小箭头</b>（v4：全高吊板 / 半高玻璃上 MTR 原版那种小黑箭头都不要）；</li>
+ *   <li>没有站台号圆。</li>
+ * </ul>
+ *
  * <p>尺寸以图片高度 h 为基准，宽度 = h × 面板宽高比，最终由 MTR 拉伸到面板面。</p>
  */
 public final class XiamenDirectionPanel {
@@ -34,10 +39,6 @@ public final class XiamenDirectionPanel {
 
     /** 左右内边距 / 高度。 */
     public static final float PAD_RATIO = 0.055f;
-
-    /** 方向箭头：高 / 高度，长 / 高度。 */
-    public static final float ARROW_H_RATIO = 0.34f;
-    public static final float ARROW_L_RATIO = 0.20f;
 
     /** 中文行字号上限 / 高度。 */
     public static final float CJK_RATIO = 0.46f;
@@ -58,18 +59,13 @@ public final class XiamenDirectionPanel {
     }
 
     /**
-     * 画一块方向面板。
+     * 画一块面板（当前站名 + 英文站名两行，居中，没有方向箭头）。
      *
-     * @param cjk        目的地中文（{@code 集美软件园北}，可空）
-     * @param en         目的地英文（{@code Jimei Software Park North}，可空）
-     * @param hasLeft    左侧要不要画箭头
-     * @param hasRight   右侧要不要画箭头
-     * @param showToString 文字前面加 “往”
+     * @param cjk         中文站名（{@code 集美软件园}，可空）
+     * @param en          英文站名（{@code Jimei Software Park}，可空）
      * @param aspectRatio 面板 宽/高
      */
-    public static BufferedImage paint(final String cjk, final String en, final boolean hasLeft,
-                                      final boolean hasRight, final boolean showToString,
-                                      final float aspectRatio) {
+    public static BufferedImage paint(final String cjk, final String en, final float aspectRatio) {
         if (!(aspectRatio > 0.05f)) {
             return null;
         }
@@ -95,29 +91,16 @@ public final class XiamenDirectionPanel {
             g.fillRect(0, 0, width, height);
 
             final int pad = Math.max(2, Math.round(height * PAD_RATIO));
-            final int arrowH = Math.max(6, Math.round(height * ARROW_H_RATIO));
-            final int arrowL = Math.max(4, Math.round(height * ARROW_L_RATIO));
 
-            // ---- 左右方向箭头 ----
-            final int textRgb = TEXT_DARK;
-            if (hasLeft) {
-                drawArrow(g, pad, height / 2, arrowL, arrowH, true, textRgb);
-            }
-            if (hasRight) {
-                drawArrow(g, width - pad, height / 2, arrowL, arrowH, false, textRgb);
-            }
-
-            // ---- 文字：中文一行 + 英文一行，整块水平 / 垂直居中 ----
-            final String cn = cjk == null ? "" : cjk.trim();
-            final String line = showToString && !cn.isEmpty() && !cn.startsWith("往") ? "往" + cn : cn;
+            // ---- 文字：当前站中文一行 + 英文一行，整块水平 / 垂直居中 ----
+            final String line = cjk == null ? "" : cjk.trim();
             final String enText = en == null ? "" : en.trim();
             if (line.isEmpty() && enText.isEmpty()) {
                 return image;
             }
 
-            int left = hasLeft ? pad + arrowL + pad / 2 : pad;
-            int right = hasRight ? width - pad - arrowL - pad / 2 : width - pad;
-            int avail = Math.max(8, right - left);
+            final int left = pad;
+            final int avail = Math.max(8, width - pad * 2);
 
             float cjkSize = Math.max(7f, height * CJK_RATIO);
             final Font ref = XiamenStripPainter.font().deriveFont(Font.BOLD, 100f);
@@ -139,18 +122,20 @@ public final class XiamenDirectionPanel {
             final FontMetrics enFm = g.getFontMetrics(enFont);
             final int cjkW = line.isEmpty() ? 0 : cjkFm.stringWidth(line);
             final int enW = enText.isEmpty() ? 0 : enFm.stringWidth(enText);
-            final int totalH = cjkFm.getHeight() + (enText.isEmpty() ? 0 : enFm.getHeight());
+            final int totalH = (line.isEmpty() ? 0 : cjkFm.getHeight())
+                    + (enText.isEmpty() ? 0 : enFm.getHeight());
             final int blockTop = (height - totalH) / 2;
 
             g.setColor(new Color(TEXT_DARK));
+            int y = blockTop;
             if (!line.isEmpty()) {
                 g.setFont(cjkFont);
-                g.drawString(line, left + (avail - cjkW) / 2f, blockTop + cjkFm.getAscent());
+                g.drawString(line, left + (avail - cjkW) / 2f, y + cjkFm.getAscent());
+                y += cjkFm.getHeight();
             }
             if (!enText.isEmpty()) {
                 g.setFont(enFont);
-                g.drawString(enText, left + (avail - enW) / 2f,
-                        blockTop + cjkFm.getHeight() + enFm.getAscent());
+                g.drawString(enText, left + (avail - enW) / 2f, y + enFm.getAscent());
             }
 
             lastWidth = width;
@@ -161,35 +146,5 @@ public final class XiamenDirectionPanel {
             g.dispose();
         }
         return image;
-    }
-
-    /** 实心方向箭头（尖端朝外）。 */
-    private static void drawArrow(final Graphics2D g, final int x, final int cy, final int len, final int h,
-                                  final boolean left, final int rgb) {
-        final int half = h / 2;
-        final int head = Math.max(4, Math.round(len * 0.62f));
-        final int shaft = Math.max(2, Math.round(h * 0.34f));
-        final Path2D.Float path = new Path2D.Float();
-        if (left) {
-            path.moveTo(x, cy);
-            path.lineTo(x + head, cy - half);
-            path.lineTo(x + head, cy - shaft / 2f);
-            path.lineTo(x + len, cy - shaft / 2f);
-            path.lineTo(x + len, cy + shaft / 2f);
-            path.lineTo(x + head, cy + shaft / 2f);
-            path.lineTo(x + head, cy + half);
-        } else {
-            path.moveTo(x, cy);
-            path.lineTo(x - head, cy - half);
-            path.lineTo(x - head, cy - shaft / 2f);
-            path.lineTo(x - len, cy - shaft / 2f);
-            path.lineTo(x - len, cy + shaft / 2f);
-            path.lineTo(x - head, cy + shaft / 2f);
-            path.lineTo(x - head, cy + half);
-        }
-        path.closePath();
-        g.setColor(new Color(rgb));
-        g.fill(path);
-        g.setStroke(new BasicStroke(1f));
     }
 }
