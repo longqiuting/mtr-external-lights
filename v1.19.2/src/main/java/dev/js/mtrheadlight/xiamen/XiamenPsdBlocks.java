@@ -18,6 +18,7 @@ import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.Item;
+import net.minecraft.item.ItemPlacementContext;
 import net.minecraft.item.Items;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
@@ -86,6 +87,40 @@ public final class XiamenPsdBlocks {
         XiamenLine line();
     }
 
+    /**
+     * 把 MTR 屏蔽门的「临时态」关掉 —— 这是「门放下去就全透明」的根因所在。
+     *
+     * <p>MTR 3.2.x（1.18.2 / 1.19.2 / 1.19.4）的 {@code BlockPSDAPGDoorBase} 有一个
+     * {@code TEMP = BooleanProperty.of("temp")} 属性并把它 add 进了 {@code appendProperties}
+     * （javap 依据：{@code appendProperties} 里 add 了 END/FACING/HALF/SIDE/UNLOCKED/TEMP 六个）。
+     * {@code BooleanProperty} 的候选是 {@code ImmutableSet.of(true, false)}，
+     * {@code StateManager#getDefaultState()} 取 {@code states.get(0)}，所以<b>默认 TEMP=true</b>。
+     * 而 {@code mtr.render.RenderPSDAPGDoor#render} 的头几行是：
+     * <pre>
+     *   0: getWorld()  … ifnull → return
+     *  18: getstatic BlockPSDAPGDoorBase.TEMP
+     *  25: IBlock.getStatePropertySafe(world, pos, TEMP)
+     *  34: ifeq 38            // TEMP == false 才继续
+     *  37: return             // TEMP == true → 直接不画
+     * </pre>
+     * 我们的 blockstate 是「只给粒子、无几何」的 {@code *_particle_only}，于是放下第一帧：
+     * 模型空转 + BER 早退 = 整扇门全透明；列车开过一次门（{@code setOpen} 会把 TEMP 写成 false）
+     * 或刷子动一下（状态刷新）之后才恢复。
+     *
+     * <p>修法就是让<b>默认态</b>直接是 TEMP=false，BER 从第一帧起就出画面。
+     *
+     * <p>为什么要 {@code contains} 判一下：MTR 3.6.x（1.20.1）里 {@code TEMP} 字段还在，
+     * 但 {@code appendProperties} <b>没有</b>注册它（javap：只 add 了 END/FACING/HALF/SIDE/UNLOCKED
+     * 五个），{@code RenderPSDAPGDoor} 也不再读它。对不含该属性的 state 调
+     * {@code with(TEMP, ...)} 会抛 {@code IllegalArgumentException}，所以这里「有就改、没有就跳过」，
+     * 四个版本可以共用同一份源码。
+     */
+    private static BlockState withoutTemp(final BlockState state) {
+        return state.contains(BlockPSDAPGDoorBase.TEMP)
+                ? state.with(BlockPSDAPGDoorBase.TEMP, false)
+                : state;
+    }
+
     /** 门扇（y+0 / y+1 两段，左右两扇对开）。 */
     public static final class Door extends BlockPSDAPGDoorBase implements LineAware {
 
@@ -93,11 +128,25 @@ public final class XiamenPsdBlocks {
 
         public Door(final XiamenLine line) {
             this.line = line;
+            // 默认态就是 TEMP=false：放下的第一帧 RenderPSDAPGDoor 就出画面，不再「全透明」。
+            setDefaultState(withoutTemp(getDefaultState()));
         }
 
         @Override
         public XiamenLine line() {
             return this.line;
+        }
+
+        /**
+         * 放置状态再兜一层。MTR 的 {@code BlockDirectionalDoubleBlockBase#getPlacementState}
+         * 是用 {@code getAdditionalState(pos, facing)} 搭的，而它（javap）
+         * {@code invokevirtual getDefaultState()} —— 所以上面改了默认态其实就够；
+         * 这里显式再改一次，防止哪天默认态被别处（{@code getAdditionalState} 重写）绕开。
+         */
+        @Override
+        public BlockState getPlacementState(final ItemPlacementContext context) {
+            final BlockState state = super.getPlacementState(context);
+            return state == null ? null : withoutTemp(state);
         }
 
         @Override
@@ -333,11 +382,19 @@ public final class XiamenPsdBlocks {
 
         public ApgDoor(final XiamenLine line) {
             this.line = line;
+            // 同 Door：APG 门扇也吃 RenderPSDAPGDoor 的 TEMP 早退，默认态先关掉。
+            setDefaultState(withoutTemp(getDefaultState()));
         }
 
         @Override
         public XiamenLine line() {
             return this.line;
+        }
+
+        @Override
+        public BlockState getPlacementState(final ItemPlacementContext context) {
+            final BlockState state = super.getPlacementState(context);
+            return state == null ? null : withoutTemp(state);
         }
 
         @Override
