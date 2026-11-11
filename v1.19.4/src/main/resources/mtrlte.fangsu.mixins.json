@@ -1,0 +1,15 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "dev.js.mtrheadlight.mixin.fangsu",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "lte.refmap.json",
+  "plugin": "dev.js.mtrheadlight.mixin.FangsuMixinPlugin",
+  "priority": 1500,
+  "client": [
+    "FangsuTrafficLightRenderMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

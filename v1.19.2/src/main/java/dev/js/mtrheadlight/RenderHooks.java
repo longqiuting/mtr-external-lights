@@ -14,6 +14,14 @@ public final class RenderHooks {
 
     public static void init() {
 
+        // 方速（fangsu）启动日志：只在装了方速时打两行，说明交通灯联动是「右键切档 + 每帧写 lightState」
+        // 两条一起上（方速的 mtr 档本身不驱动灯珠）。不装方速时什么都不做。
+        try {
+            FangsuCompat.announce();
+        } catch (Throwable t) {
+            // 诊断日志绝不能影响启动。
+        }
+
         // 自注册的水雾粒子 mtrlte:spray。必须在任何粒子生成之前注册（工厂注册是「先到先得」，
         // 而且 ParticleManager 建好之后再注册也要走 Fabric 的直连路径）—— 放在这里是因为
         // RenderHooks.init() 是 1.20.1 自己的客户端入口，不牵动 common / fabric.mod.json。

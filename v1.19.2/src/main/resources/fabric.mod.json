@@ -18,6 +18,7 @@
   "mixins": [
     "mtrlte.ante.mixins.json",
     "mtrlte.collision.mixins.json",
+    "mtrlte.fangsu.mixins.json",
     "mtrlte.nte.mixins.json",
     "mtrlte.rain.mixins.json",
     "mtrlte.mtr.mixins.json",
@@ -50,5 +51,10 @@
   },
   "recommends": {
     "lambdynlights": ">=2.2.0"
+  },
+  "contact": {
+    "homepage": "https://github.com/longqiuting/mtr-external-lights",
+    "sources": "https://github.com/longqiuting/mtr-external-lights",
+    "issues": "https://github.com/longqiuting/mtr-external-lights/issues"
   }
 }

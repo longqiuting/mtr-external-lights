@@ -55,5 +55,10 @@
   "recommends": {
     "lambdynlights": ">=4.4.0",
     "lambdynlights_api": ">=4.4.0"
+  },
+  "contact": {
+    "homepage": "https://github.com/longqiuting/mtr-external-lights",
+    "sources": "https://github.com/longqiuting/mtr-external-lights",
+    "issues": "https://github.com/longqiuting/mtr-external-lights/issues"
   }
 }
