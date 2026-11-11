@@ -7,6 +7,7 @@ import net.fabricmc.fabric.api.blockrenderlayer.v1.BlockRenderLayerMap;
 import net.fabricmc.fabric.api.client.rendering.v1.BlockEntityRendererRegistry;
 import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.block.entity.BlockEntityRenderer;
+import net.minecraft.client.render.block.entity.BlockEntityRendererFactory;
 
 /**
  * 厦门物件的客户端部分：挂渲染层 + 注册两个方块实体的渲染器。
@@ -41,7 +42,13 @@ public final class XiamenClient implements ClientModInitializer {
     public void onInitializeClient() {
         // 1) 门扇渲染器 —— 最先注册，绝不因为别的东西抛异常而被跳过。
         try {
-            BlockEntityRendererRegistry.register(XiamenObjects.psdDoorEntityType(), RenderPsdDoor::new);
+            // RenderPsdDoor 继承的是 MTR 的 RenderPSDAPGDoor（= BlockEntityRenderer<TileEntityPSDAPGDoorBase>），
+            // 而方块实体的泛型参数是我们自己的子类；Fabric 的 register 要求两者相同，所以做一次不检查的转型
+            // （和下面 RenderPSDTop / RenderAPGGlass 两处同一个道理：渲染器只按 MTR 的基类取数据，运行期安全）。
+            @SuppressWarnings({"unchecked", "rawtypes"})
+            final BlockEntityRendererFactory<XiamenPsdBlocks.TileEntityXiamenPSDDoor> doorRendererFactory =
+                    (BlockEntityRendererFactory) RenderPsdDoor::new;
+            BlockEntityRendererRegistry.register(XiamenObjects.psdDoorEntityType(), doorRendererFactory);
             LteLog.LOGGER.info("[lte] xiamen door renderer registered: {}", RenderPsdDoor.class.getName());
         } catch (Throwable t) {
             LteLog.LOGGER.error("[lte] could not register the xiamen door renderer", t);
@@ -58,7 +65,10 @@ public final class XiamenClient implements ClientModInitializer {
 
         // 3) 半高 APG 门扇渲染器 —— 同样是 MTR 的 RenderPSDAPGDoor，只是 type = 2。
         try {
-            BlockEntityRendererRegistry.register(XiamenObjects.apgDoorEntityType(), RenderPsdApgDoor::new);
+            @SuppressWarnings({"unchecked", "rawtypes"})
+            final BlockEntityRendererFactory<XiamenPsdBlocks.TileEntityXiamenAPGDoor> apgDoorRendererFactory =
+                    (BlockEntityRendererFactory) RenderPsdApgDoor::new;
+            BlockEntityRendererRegistry.register(XiamenObjects.apgDoorEntityType(), apgDoorRendererFactory);
             LteLog.LOGGER.info("[lte] xiamen apg door renderer registered: {}", RenderPsdApgDoor.class.getName());
         } catch (Throwable t) {
             LteLog.LOGGER.error("[lte] could not register the xiamen apg door renderer", t);
@@ -81,13 +91,17 @@ public final class XiamenClient implements ClientModInitializer {
         }
 
         // 5) 方块渲染层（照 MTR 的 MTRClient：PSD_DOOR / APG_GLASS / PSD_TOP 全部是 cutout）。
-        put(XiamenObjects.psdDoor(), "psd door");
-        put(XiamenObjects.psdGlass(), "psd glass");
-        put(XiamenObjects.psdEnd(), "psd end");
-        put(XiamenObjects.psdTop(), "psd top");
-        put(XiamenObjects.apgDoor(), "apg door");
-        put(XiamenObjects.apgGlass(), "apg glass");
-        put(XiamenObjects.apgEnd(), "apg end");
+        //    三条线路各 7 个方块，逐个挂 —— 失败只跳过它自己。
+        for (XiamenLine line : XiamenLine.values()) {
+            final XiamenObjects.LineSet set = XiamenObjects.set(line);
+            put(set.door, line + " psd door");
+            put(set.glass, line + " psd glass");
+            put(set.end, line + " psd end");
+            put(set.top, line + " psd top");
+            put(set.apgDoor, line + " apg door");
+            put(set.apgGlass, line + " apg glass");
+            put(set.apgEnd, line + " apg end");
+        }
         put(XiamenObjects.logo(), "logo");
     }
 

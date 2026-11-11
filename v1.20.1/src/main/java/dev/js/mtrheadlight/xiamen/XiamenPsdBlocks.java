@@ -73,8 +73,32 @@ public final class XiamenPsdBlocks {
         return item == null ? Items.AIR : item;
     }
 
+    /**
+     * 「这个方块属于哪条线路」—— 7 个方块类都实现它。
+     *
+     * <p>渲染器拿不到 BER 的注册信息（一个 {@code BlockEntityType} 覆盖三条线路的门），所以
+     * 贴图变体只能从<b>方块实例</b>反查：{@code entity.getCachedState().getBlock() instanceof LineAware}。
+     * 这样三项成本全为零：不做 map 查找、不额外分配、多条线路共用一个方块类。
+     */
+    public interface LineAware {
+
+        /** 本方块所属线路。 */
+        XiamenLine line();
+    }
+
     /** 门扇（y+0 / y+1 两段，左右两扇对开）。 */
-    public static final class Door extends BlockPSDAPGDoorBase {
+    public static final class Door extends BlockPSDAPGDoorBase implements LineAware {
+
+        private final XiamenLine line;
+
+        public Door(final XiamenLine line) {
+            this.line = line;
+        }
+
+        @Override
+        public XiamenLine line() {
+            return this.line;
+        }
 
         @Override
         public BlockEntityMapper createBlockEntity(BlockPos pos, BlockState state) {
@@ -83,7 +107,7 @@ public final class XiamenPsdBlocks {
 
         @Override
         public Item asItem() {
-            return itemOrAir(XiamenObjects.psdDoorItem());
+            return itemOrAir(XiamenObjects.set(this.line).doorItem);
         }
     }
 
@@ -96,20 +120,42 @@ public final class XiamenPsdBlocks {
     }
 
     /** 玻璃板（一条链里按 side=left/middle/right/single 自动切换模型）。 */
-    public static final class Glass extends BlockPSDAPGGlassBase {
+    public static final class Glass extends BlockPSDAPGGlassBase implements LineAware {
+
+        private final XiamenLine line;
+
+        public Glass(final XiamenLine line) {
+            this.line = line;
+        }
+
+        @Override
+        public XiamenLine line() {
+            return this.line;
+        }
 
         @Override
         public Item asItem() {
-            return itemOrAir(XiamenObjects.psdGlassItem());
+            return itemOrAir(XiamenObjects.set(this.line).glassItem);
         }
     }
 
     /** 端部收口（{@code touching_left} / {@code touching_right}）。 */
-    public static final class GlassEnd extends BlockPSDAPGGlassEndBase {
+    public static final class GlassEnd extends BlockPSDAPGGlassEndBase implements LineAware {
+
+        private final XiamenLine line;
+
+        public GlassEnd(final XiamenLine line) {
+            this.line = line;
+        }
+
+        @Override
+        public XiamenLine line() {
+            return this.line;
+        }
 
         @Override
         public Item asItem() {
-            return itemOrAir(XiamenObjects.psdEndItem());
+            return itemOrAir(XiamenObjects.set(this.line).endItem);
         }
     }
 
@@ -119,7 +165,18 @@ public final class XiamenPsdBlocks {
      * {@code getActualState} 会把方块换回 MTR 自己的 {@code Blocks.PSD_TOP}）、
      * {@code onUse}（MTR 的 {@code setState} 用 {@code instanceof BlockPSDDoor} 判下层方块）。
      */
-    public static final class Top extends BlockPSDTop {
+    public static final class Top extends BlockPSDTop implements LineAware {
+
+        private final XiamenLine line;
+
+        public Top(final XiamenLine line) {
+            this.line = line;
+        }
+
+        @Override
+        public XiamenLine line() {
+            return this.line;
+        }
 
         @Override
         public BlockEntityMapper createBlockEntity(BlockPos pos, BlockState state) {
@@ -129,7 +186,7 @@ public final class XiamenPsdBlocks {
         /** MTR 里吊板中键选取给玻璃物品。 */
         @Override
         public Item asItem() {
-            return itemOrAir(XiamenObjects.psdGlassItem());
+            return itemOrAir(XiamenObjects.set(this.line).glassItem);
         }
 
         @Override
@@ -223,7 +280,7 @@ public final class XiamenPsdBlocks {
             BlockState oldState = world.getBlockState(pos);
             BlockState base = oldState.getBlock() instanceof Top
                     ? oldState
-                    : XiamenObjects.psdTop().getDefaultState();
+                    : XiamenObjects.set(XiamenObjects.lineOf(blockBelow)).top.getDefaultState();
             BlockState newState = base.with(AIR_LEFT, airLeft).with(AIR_RIGHT, airRight);
             if (facing != null) {
                 newState = newState.with(FACING, facing);
@@ -270,7 +327,18 @@ public final class XiamenPsdBlocks {
      * 高度（{@code 9/16} 而不是整格）。列车开门的判据仍然是继承链上的
      * {@code BlockPSDAPGDoorBase}，一条都没变。
      */
-    public static final class ApgDoor extends BlockAPGDoor {
+    public static final class ApgDoor extends BlockAPGDoor implements LineAware {
+
+        private final XiamenLine line;
+
+        public ApgDoor(final XiamenLine line) {
+            this.line = line;
+        }
+
+        @Override
+        public XiamenLine line() {
+            return this.line;
+        }
 
         @Override
         public BlockEntityMapper createBlockEntity(BlockPos pos, BlockState state) {
@@ -279,7 +347,7 @@ public final class XiamenPsdBlocks {
 
         @Override
         public Item asItem() {
-            return itemOrAir(XiamenObjects.apgDoorItem());
+            return itemOrAir(XiamenObjects.set(this.line).apgDoorItem);
         }
     }
 
@@ -312,7 +380,18 @@ public final class XiamenPsdBlocks {
      * 线路图自然一格都没有。顺带一提 {@code BlockPSDAPGBase#isAPG()} 是用
      * {@code instanceof BlockAPGGlass} 判的，继承基类还会让上段的选中框高度错成整格。
      */
-    public static final class ApgGlass extends BlockAPGGlass {
+    public static final class ApgGlass extends BlockAPGGlass implements LineAware {
+
+        private final XiamenLine line;
+
+        public ApgGlass(final XiamenLine line) {
+            this.line = line;
+        }
+
+        @Override
+        public XiamenLine line() {
+            return this.line;
+        }
 
         @Override
         public BlockEntityMapper createBlockEntity(BlockPos pos, BlockState state) {
@@ -321,7 +400,7 @@ public final class XiamenPsdBlocks {
 
         @Override
         public Item asItem() {
-            return itemOrAir(XiamenObjects.apgGlassItem());
+            return itemOrAir(XiamenObjects.set(this.line).apgGlassItem);
         }
     }
 
@@ -342,11 +421,22 @@ public final class XiamenPsdBlocks {
      * <p>父类是 MTR 的 {@code BlockAPGGlassEnd}（{@code BlockPSDAPGGlassEndBase} 的薄壳 + 自己的
      * asItem），同样是为了让 {@code isAPG()} 为 {@code true}（端部选中框高度）。
      */
-    public static final class ApgEnd extends BlockAPGGlassEnd {
+    public static final class ApgEnd extends BlockAPGGlassEnd implements LineAware {
+
+        private final XiamenLine line;
+
+        public ApgEnd(final XiamenLine line) {
+            this.line = line;
+        }
+
+        @Override
+        public XiamenLine line() {
+            return this.line;
+        }
 
         @Override
         public Item asItem() {
-            return itemOrAir(XiamenObjects.apgEndItem());
+            return itemOrAir(XiamenObjects.set(this.line).apgEndItem);
         }
     }
 }

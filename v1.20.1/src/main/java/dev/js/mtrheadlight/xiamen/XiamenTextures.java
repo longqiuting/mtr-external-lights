@@ -66,6 +66,15 @@ public final class XiamenTextures {
      */
     private static final ThreadLocal<String> ACTIVE_LIGHT_COLOR = new ThreadLocal<>();
 
+    /**
+     * 「当前正在画的这条线路，贴图文件名要加什么后缀」——{@code null} / {@code ""} = 不加（1 号线）。
+     *
+     * <p>第二条 ThreadLocal 通道，和 {@link #ACTIVE_NAMESPACE} 同一套生命周期。三条线路的门共用
+     * 同一个 {@code BlockEntityType} 与同一个渲染器实例，渲染器在每帧一开始按<b>方块实例</b>
+     * 反查线路（{@link XiamenObjects#textureVariantOf}），再从这个通道传给 {@code String.format} 的拦截点。
+     */
+    private static final ThreadLocal<String> ACTIVE_VARIANT = new ThreadLocal<>();
+
     private XiamenTextures() {
     }
 
@@ -85,6 +94,16 @@ public final class XiamenTextures {
      * 就是 MTR 原版那张橙色图，不必再放一份 {@code _orange} 变体。
      */
     public static void withNamespace(final String namespace, final String doorLightColor, final Runnable body) {
+        withVariant(namespace, null, doorLightColor, body);
+    }
+
+    /**
+     * 完整形态：在 {@code body} 执行期间把「命名空间 + 贴图变体 + 门灯颜色」一起设好。
+     *
+     * @param variant 贴图文件名后缀（{@code "_l2"} / {@code "_l3"}；{@code null} = 不加）
+     */
+    public static void withVariant(final String namespace, final String variant, final String doorLightColor,
+                                   final Runnable body) {
         if (body == null) {
             return;
         }
@@ -94,9 +113,13 @@ public final class XiamenTextures {
         }
         final String previous = ACTIVE_NAMESPACE.get();
         final String previousColor = ACTIVE_LIGHT_COLOR.get();
+        final String previousVariant = ACTIVE_VARIANT.get();
         ACTIVE_NAMESPACE.set(namespace);
         if (doorLightColor != null) {
             ACTIVE_LIGHT_COLOR.set(doorLightColor);
+        }
+        if (variant != null && !variant.isEmpty()) {
+            ACTIVE_VARIANT.set(variant);
         }
         try {
             body.run();
@@ -111,7 +134,19 @@ public final class XiamenTextures {
             } else {
                 ACTIVE_LIGHT_COLOR.set(previousColor);
             }
+            if (previousVariant == null) {
+                ACTIVE_VARIANT.remove();
+            } else {
+                ACTIVE_VARIANT.set(previousVariant);
+            }
         }
+    }
+
+    /**
+     * 渲染器用的快捷入口：{@code namespace = mtrlte}，变体「{@code null} = 1 号线」。
+     */
+    public static void withVariant(final String variant, final String doorLightColor, final Runnable body) {
+        withVariant(MOD_NAMESPACE, variant, doorLightColor, body);
     }
 
     /**
@@ -124,7 +159,7 @@ public final class XiamenTextures {
             return formatted;
         }
         try {
-            return resolve(namespace, formatted, ACTIVE_LIGHT_COLOR.get());
+            return resolve(namespace, formatted, ACTIVE_VARIANT.get(), ACTIVE_LIGHT_COLOR.get());
         } catch (Throwable t) {
             // 渲染线程上任何异常都不能抛出去。
             return formatted;
@@ -154,6 +189,22 @@ public final class XiamenTextures {
 
     /** 完整形态：带上门灯颜色（{@code null} / {@code orange} = 基础贴图）。 */
     public static String resolve(final String namespace, final String raw, final String doorLightColor) {
+        return resolve(namespace, raw, null, doorLightColor);
+    }
+
+    /**
+     * 最终形态：{@code namespace} + 线路变体（{@code _l2} / {@code _l3}）+ 门灯颜色。
+     *
+     * <p>查找顺序是一条<b>三级降级链</b>，任何一级都不存在就往下走，所以少拷一张图只会「退化成
+     * 1 号线那张」，不会变成紫黑格：
+     * <ol>
+     *   <li>{@code mtrlte:...psd_door_top_left_1_l2.png}（本线路专用）；</li>
+     *   <li>{@code mtrlte:...psd_door_top_left_1.png}（模组自带的基础图 = 1 号线）；</li>
+     *   <li>{@code mtr:...psd_door_top_left_1.png}（当前资源包，即改造前的行为）。</li>
+     * </ol>
+     */
+    public static String resolve(final String namespace, final String raw, final String variant,
+                                 final String doorLightColor) {
         if (!useModTextures || raw == null) {
             return raw;
         }
@@ -164,47 +215,65 @@ public final class XiamenTextures {
         // 缓存作废必须发生在查表之外（映射函数里不许改这张表）。
         resetIfResourceManagerChanged();
         final String tint = doorLightColor == null ? "" : doorLightColor;
-        final String key = namespace + '|' + tint + '|' + raw;
+        final String suffix = variant == null ? "" : variant;
+        final String key = namespace + '|' + suffix + '|' + tint + '|' + raw;
         final String cached = RESOLVED.get(key);
         if (cached != null) {
             return cached;
         }
-        final String resolved = remap(namespace, raw, tint);
+        final String resolved = remap(namespace, raw, suffix, tint);
         RESOLVED.put(key, resolved);
         return resolved;
     }
 
     /**
-     * {@code mtr:path} → {@code mtrlte:path}（门灯还先试同色的变体），不存在就退回原样。
+     * {@code mtr:path} → {@code mtrlte:path_variant} → {@code mtrlte:path}，都不存在就退回原样。
      *
      * <p>门灯变体的命名：{@code light_on.png} → {@code light_on_green.png}、
-     * {@code apg_door_light_off.png} → {@code apg_door_light_off_green.png}。
-     * 三门色（orange/green/blue）的图都在 {@code assets/mtrlte/textures/block/} 里，
-     * 橙色就是 MTR 原版那一份，所以 {@code orange} 直接走基础贴图。
+     * {@code apg_door_light_off.png} → {@code apg_door_light_off_green.png}；
+     * 线路变体加在<b>最后</b>（{@code light_on_l2.png}）。三门色（orange/green/blue）的图都在
+     * {@code assets/mtrlte/textures/block/} 里，橙色就是 MTR 原版那一份，所以 {@code orange}
+     * 直接走基础贴图；<b>1/2/3 号线的门灯都是橙色</b>，所以线路变体在门灯上基本打不中，会落到基础图。
      */
-    private static String remap(final String namespace, final String raw, final String lightColor) {
+    private static String remap(final String namespace, final String raw, final String variant,
+                                final String lightColor) {
         final String path = raw.substring(PACK_NAMESPACE.length() + 1);
-        if (lightColor != null && !lightColor.isEmpty() && !"orange".equals(lightColor) && isDoorLight(path)) {
-            final String variantPath = path.endsWith(".png")
-                    ? path.substring(0, path.length() - 4) + '_' + lightColor + ".png"
-                    : path + '_' + lightColor + ".png";
-            final String variant = namespace + ':' + variantPath;
-            if (exists(variant)) {
-                return variant;
+        final boolean hasVariant = variant != null && !variant.isEmpty();
+        final boolean colored = lightColor != null && !lightColor.isEmpty() && !"orange".equals(lightColor)
+                && isDoorLight(path);
+
+        // 候选顺序：线路 + 颜色 → 颜色 → 线路 → 基础图。
+        final java.util.List<String> tries = new java.util.ArrayList<>(4);
+        if (colored) {
+            if (hasVariant) {
+                tries.add(insertBeforeExtension(path, variant + '_' + lightColor));
             }
-            if (REPORTED_MISSING.add(raw + '@' + lightColor)) {
-                LteLog.LOGGER.info("[lte] door light {} is not in {} -> using {}",
-                        variantPath, namespace, path);
+            tries.add(insertBeforeExtension(path, '_' + lightColor));
+        }
+        if (hasVariant) {
+            tries.add(insertBeforeExtension(path, variant));
+        }
+        tries.add(path);
+
+        for (final String candidatePath : tries) {
+            final String candidate = namespace + ':' + candidatePath;
+            if (exists(candidate)) {
+                return candidate;
             }
         }
-        final String candidate = namespace + ':' + path;
-        if (exists(candidate)) {
-            return candidate;
-        }
-        if (REPORTED_MISSING.add(raw)) {
-            LteLog.LOGGER.info("[lte] texture {} is not in {} -> keeping the resource-pack id", raw, namespace);
+        if (REPORTED_MISSING.add(raw + '#' + (hasVariant ? variant : "") + '@'
+                + (colored ? lightColor : ""))) {
+            LteLog.LOGGER.info("[lte] texture {} is not in {}{} -> keeping the resource-pack id",
+                    raw, namespace, hasVariant ? " as " + tries.get(0) : "");
         }
         return raw;
+    }
+
+    /** {@code a/b.png} + {@code _l2} → {@code a/b_l2.png}。 */
+    private static String insertBeforeExtension(final String path, final String suffix) {
+        return path.endsWith(".png")
+                ? path.substring(0, path.length() - 4) + suffix + ".png"
+                : path + suffix + ".png";
     }
 
     /** 门灯贴图：{@code light_on/off.png} 与 {@code apg_door_light_on/off.png}。 */

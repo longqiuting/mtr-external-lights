@@ -26,6 +26,8 @@ public final class HostProbe {
     private static final String MTR_ROUTE_MAP = "mtr.client.RouteMapGenerator";
     /** MTR 的站台 / 侧线基类（{@code isCloseToSavedRail} 是「到站数据范围」的注入目标）。 */
     private static final String MTR_SAVED_RAIL = "mtr.data.SavedRailBase";
+    /** MTR 的站台方块（{@code getActualState} 的门型判定是「屏蔽门切站台模型」的注入目标）。 */
+    private static final String MTR_BLOCK_PLATFORM = "mtr.block.BlockPlatform";
 
     private static final boolean ANTE = present(ANTE_CHUNK);
     private static final boolean NTE = present(NTE_CHUNK);
@@ -35,6 +37,7 @@ public final class HostProbe {
     private static final boolean MTR_PSD_DOOR = present(MTR_PSD_DOOR_RENDERER);
     private static final boolean MTR_ROUTE_MAP_PRESENT = present(MTR_ROUTE_MAP);
     private static final boolean MTR_SAVED_RAIL_BASE = present(MTR_SAVED_RAIL);
+    private static final boolean MTR_PLATFORM_BLOCK = present(MTR_BLOCK_PLATFORM);
 
     private HostProbe() {
     }
@@ -94,6 +97,16 @@ public final class HostProbe {
      */
     public static boolean mtrSavedRail() {
         return MTR_SAVED_RAIL_BASE;
+    }
+
+    /**
+     * {@code mtr.block.BlockPlatform} 是否存在 —— 站台门型识别（{@code getActualState}）的注入目标。
+     *
+     * <p>用<b>方块</b>类而不是客户端类探测：站台的 blockstate 在服务端也会算（门型决定服务端
+     * 存下来的 state，再同步给客户端），所以 dedicated server 上这条注入必须生效。
+     */
+    public static boolean mtrBlockPlatform() {
+        return MTR_PLATFORM_BLOCK;
     }
 
     private static boolean present(final String className) {
