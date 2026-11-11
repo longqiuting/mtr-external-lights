@@ -368,3 +368,59 @@ return**（platformId == 0 / shouldNotRender 的早退都在 172 之前），所
   挂在图标正下方）；默认配置（45° 斜排在上方）没有这个问题。
 - 第 7 条的“原版门不变”是**静态论证**（字节码顺序 + 渲染器实例隔离）；本轮按要求没有启动游戏，
   实机复核请在游戏里对比同一站台上 MTR 原版吊板 / 本站吊板各一块。
+
+---
+
+# 线路条带 v5（缩站名 / 放大换乘牌 / 上下放宽 + 超长缩字 / 实拍终点箭头）— 2026-11-11
+
+只动两个纯 AWT 类：`XiamenStripPainter`（吊板条带）、`XiamenDirectionPanel`（吊板 / 玻璃上的当前站名面板）。
+构建：`gradle -p v1.20.1 clean build` → `BUILD SUCCESSFUL`，`lte-1.0.28.jar` 已同步到桌面与实例 `mods/`。
+
+## 5.1 四条改动
+
+| # | 用户诉求 | 落地 | 2720×320 实测（v4 → v5） |
+|---|---|---|---|
+| 1 | 吊板上的当前站名太大，两行都缩 15–20%，英文再小一档 | `XiamenDirectionPanel`：`CJK_RATIO 0.46 → 0.385`、`EN_RATIO 0.42 → 0.41`；另外**英文行自己再按宽度收一次**（v4 只缩中文，长站名时英文直接顶出面板两边），两行总高也夹在面板高度内 | 256 px 高面板：中文 **118 → 99 px**（−16%），英文 **49 → 40 px**（−18%） |
+| 2 | 换乘站标牌的圆角矩形稍大，文字随之略增 | `IX_PLATE_H_RATIO 0.135 → 0.165`、`IX_PLATE_PAD_RATIO 0.22 → 0.26`，新增 `IX_PLATE_TEXT_RATIO 0.47`（v4 是 0.46）；牌子上沿仍挂在环下，下沿允许借用内容区下方多出来的白边（最多一半），否则牌高会被内容区底边夹回去 | 牌高 **28 → 32 px**（+14%），牌宽 **43 → 55 px**（+28%），左右内边距 **6 → 8 px**，牌子文字 13 → **15 px** |
+| 3 | 吊板上下边界放宽 + 超长自动缩字 | `CONTENT_RATIO 0.68 → 0.60`（内容区仍居中，线 / 环 / 牌子继续按内容区算）；**站名字号改成按图片高度算**（`NAME_MAX_RATIO 0.095`，v4 等于内容区的 14%），可用上界抬到图片顶部 `NAME_AREA_TOP_RATIO = 0.035`；站名**逐站**按 45° 真实投影（字宽和字高都要乘 cos45，v4 只算了字宽）反解字号，下限 `NAME_MIN_SCALE = 0.45`（且 ≥ `NAME_FLOOR` 7.5 px），再放不下才裁字加 “…” | `band 218 → 192`、`line 19 → 16`、`dot 41 → 36`、`current 54 → 47`、换乘环 **57 → 50**；站名基准 **31 → 30 px**（内容缩小但站名不缩，多出来的白边给了站名）；长站名自动缩到 **13.5 px** |
+| 4 | 终点箭头改成实拍样式 | `drawTerminalArrow` 重写：颜色 = **主线原色**；**箭杆就是线路本身**（三角底边在线路那一侧），**箭尖顶住终点圆环外缘**（`tip = cx ∓ (环外缘半径 + 1)`）；头部是**宽三角**：`TERM_ARROW_LEN 1.20`（长）、`TERM_ARROW_HALF 1.10`（半宽）= 总宽 **2.2×线宽**。圆环仍是和普通站同尺寸的空心环。不再为箭头预留环外空间，两端站距回到对称 | 箭头 长 **19 px**、宽 **36 px**（2.25×16），v4 是 40×36 的细长三角（2.1×1.9×线宽）且画在环外、右端还要额外预留 40 px 边距 |
+
+## 5.2 站名逐站缩字（参考 LCD）
+
+1. **基准字号**（全线统一）：`min(图片高 × 0.095, 站距 × 0.92 / 最长站名宽 × cos45)`，解不出来才隔站画（stride 2/3/4）；
+2. **逐站反解**：`s = min(基准, 可用高 / (字宽 + 字高) × cos45, 可用宽 / 字宽 × cos45)` —— 每站的可用高按**自己**的徽标外缘半径算（换乘环 / 当前站环更大，让位更多）；
+3. **英文行**：先按 `s × 0.46`，再按“剩下的长度”自己收（宁可小也不裁字，v4 是直接画出去被面板切掉半句）；
+4. **兜底**：低于 `0.45 × 基准` 就停，仍放不下才裁字加 “…” —— 面板边界上还有一圈 clip 兜着，**任何站名都出不去**。
+
+## 5.3 离线预览（v5）
+
+`D:\MC-MTR-JS\temp\strip-preview\` 下：`00-all.png`、`01..09-*.png`、`10..13-direction-*.png`
++ **新增 `14-strip-long-names.png`（超长站名用例）**、**`15-direction-narrow-long-en.png`（窄面板 + 最长站名 + 最长英文）**。
+渲染器：`D:\MC-MTR-JS\temp\strip-preview2\src\dev\js\mtrheadlight\xiamen\{StripPreview,XiamenStripPainter,XiamenDirectionPanel}.java`（只编这三个纯 AWT 类）。
+
+实测汇总（2720×320 纹理）：
+`band=192 line=16 dot=36 cur=47 termRing=36 termArrow=19 head=50 plate=55x32 name=30 font=SimHei`。
+
+逐用例（`shrunk` = 有几位站名被单独缩小，`clipped` = 有几个真被裁字）：
+
+```
+01-line4-red-12st      plate=47x32 name=30 shrunk=0 clipped=0
+02-line1-green-24st    plate=55x32 name=29 shrunk=0 clipped=0
+03-names-below         plate=47x32 name=30 shrunk=1 clipped=0
+04-flip-left           plate=55x32 name=30 shrunk=0 clipped=0
+05-line-light-yellow   plate=55x32 name=30 shrunk=1 clipped=0
+06-current-is-interchange plate=55x32 name=30 shrunk=0 clipped=0
+07-dense-3-interchanges   plate=55x32 name=29 shrunk=0 clipped=0
+08-no-interchange      plate=55x32 name=30 shrunk=0 clipped=0
+09-flip-terminal-is-interchange plate=47x32 name=30 shrunk=0 clipped=0
+14-strip-long-names    plate=55x32 name=30 shrunk=5 clipped=1   ← 13 个字的假站名，缩到下限才裁
+```
+
+> `14` 里 9 条站名有 5 条触发逐站缩字，只有那条 13 字的“厦门高崎国际机场T4航站楼”缩到 0.45 仍放不下，
+> 按 LCD 的做法裁字加 “…”（真实站名 ≤8 字，实测 `01/02` 这类正线上 `shrunk=0 clipped=0`，一条都不裁）。
+
+## 5.4 已知边界（没变）
+
+- 站名正排（`routeStripNamesBelow = true`）+ 末站是换乘站：牌子挂在线图正下方，和站名同一侧，
+  末站那块会显得挤（v4 起就这样，默认 45° 斜排没有这个问题）。
+- 本轮按要求**没有启动游戏**，实机复核请在吊板 / 半高玻璃上看同一站台。

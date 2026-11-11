@@ -146,9 +146,14 @@ public final class XiamenPsdBlocks {
         @Override
         public ActionResult onUse(BlockState state, World world, BlockPos pos, PlayerEntity player,
                                  Hand hand, BlockHitResult hit) {
-            // 注意：这里必须是 **MTR 的刷子**（mtr:brush，mtr.Items.BRUSH），不是原版
-            // minecraft:brush。MTR 的 BlockPSDTop.use 也是用 checkHoldingItem(..., mtr.Items.BRUSH.get(),
-            // Items.BARRIER)；之前写成原版 Items.BRUSH，刷子右键永远进不来，箭头方向自然切不了。
+            // 两个物品，语义和 MTR 的 BlockPSDTop#use 完全一致（javap 依据：
+            //   getstatic mtr/Items.BRUSH … / getstatic net/minecraft/class_1802.field_8868
+            //   后者在 1.20.1 里就是 Items.SHEARS）：
+            //   - **MTR 的刷子**（mtr:brush，mtr.Items.BRUSH，不是原版 minecraft:brush）
+            //     → cycle ARROW_DIRECTION，并沿 facing 左右各传播一格；
+            //   - **原版剪刀 Items.SHEARS** → 切换 PERSISTENT：
+            //     NONE → 按下方方块给 ARROW(门扇)/ROUTE(玻璃)/BLANK(端部)，
+            //     再剪一次 → NONE。之前这里误写成 Items.BARRIER，所以剪刀右键什么都切不了。
             final net.minecraft.item.Item brush = mtr.Items.BRUSH.get();
             return IBlock.checkHoldingItem(world, player, item -> {
                 Direction facing = IBlock.getStatePropertySafe(state, FACING);
@@ -164,7 +169,7 @@ public final class XiamenPsdBlocks {
                     this.propagate(world, pos, facing.rotateYCounterclockwise(),
                             offsetPos -> this.setState(world, offsetPos, shouldBePersistent), 1);
                 }
-            }, null, brush, Items.BARRIER);
+            }, null, brush, Items.SHEARS);
         }
 
         /** MTR {@code setState} 的等价物，判据换成 MTR 的三个基类。 */

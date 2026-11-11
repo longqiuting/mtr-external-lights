@@ -16,15 +16,17 @@ import java.awt.image.BufferedImage;
  * {@code ARROW} 分支 → {@code RouteMapGenerator#generateDirectionArrow}：左侧一个线路色圆，
  * 圆里写 <b>站台号</b>，目的地在圆的右边<b>左对齐</b>；两侧还各有一个<b>小黑箭头</b>。</p>
  *
- * <h2>v4 版式（用户实拍纠正）</h2>
+ * <h2>v5 版式（2026-11-11 用户实拍微调）</h2>
  * <pre>
- *        集美软件园北                 ← 当前站中文（v4：不再写“往 XX”）
- *     Jimei Software Park
+ *        集美软件园北                 ← 当前站中文（v5：0.46 → 0.385×高度，缩 16%）
+ *     Jimei Software Park             ← 英文（v5：中文的 0.40，比 v4 再小一档）
  * </pre>
  * <ul>
  *   <li><b>写当前站名</b>，中英文两行，整块水平 / 垂直居中；</li>
- *   <li><b>没有任何方向小箭头</b>（v4：全高吊板 / 半高玻璃上 MTR 原版那种小黑箭头都不要）；</li>
- *   <li>没有站台号圆。</li>
+ *   <li><b>没有任何方向小箭头</b>（全高吊板 / 半高玻璃上 MTR 原版那种小黑箭头都不要）；</li>
+ *   <li>没有站台号圆；</li>
+ *   <li>v5：<b>英文行自己再按宽度收一次</b>（v4 只缩中文，长站名时英文会顶出面板两边），
+ *       两行的总高也会被夹在面板高度内 —— 最长站名 + 最长英文也出不去。</li>
  * </ul>
  *
  * <p>尺寸以图片高度 h 为基准，宽度 = h × 面板宽高比，最终由 MTR 拉伸到面板面。</p>
@@ -40,11 +42,21 @@ public final class XiamenDirectionPanel {
     /** 左右内边距 / 高度。 */
     public static final float PAD_RATIO = 0.055f;
 
-    /** 中文行字号上限 / 高度。 */
-    public static final float CJK_RATIO = 0.46f;
+    /**
+     * 中文行字号上限 / 高度：<b>0.385</b>（v5）。
+     *
+     * <p>v4 是 0.46 —— 用户反馈“吊板上的站名太大”，v5 缩 16%，两行都跟着小一档，
+     * 站名上下也自然多出留白（吊板玻璃边框不会贴着字）。</p>
+     */
+    public static final float CJK_RATIO = 0.385f;
 
-    /** 英文行 / 中文行。 */
-    public static final float EN_RATIO = 0.42f;
+    /**
+     * 英文行 / 中文行：<b>0.41</b>（v5）。
+     *
+     * <p>v4 是 0.42；v5 中文本身缩了 16%，英文再比中文小一档 —— 实拍里英文就是明显小一号的第二行。
+     * 合下来英文行 0.41×0.385 ≈ 0.158×高度（v4 是 0.193，-18%）。</p>
+     */
+    public static final float EN_RATIO = 0.41f;
 
     /** 深色文字（与条带一致）。 */
     public static final int TEXT_DARK = 0x1A1A1A;
@@ -102,28 +114,49 @@ public final class XiamenDirectionPanel {
             final int left = pad;
             final int avail = Math.max(8, width - pad * 2);
 
-            float cjkSize = Math.max(7f, height * CJK_RATIO);
             final Font ref = XiamenStripPainter.font().deriveFont(Font.BOLD, 100f);
-            if (!line.isEmpty()) {
-                final int w100 = g.getFontMetrics(ref).stringWidth(line);
-                if (w100 > 0) {
-                    cjkSize = Math.min(cjkSize, 100.0f * avail / w100);
-                }
-            } else {
-                final int w100 = g.getFontMetrics(ref).stringWidth(enText);
-                cjkSize = Math.min(cjkSize, 100.0f * avail / Math.max(1, w100) * EN_RATIO);
+            final int cjkW100 = line.isEmpty() ? 0 : g.getFontMetrics(ref).stringWidth(line);
+            final int enW100 = enText.isEmpty() ? 0 : g.getFontMetrics(ref).stringWidth(enText);
+
+            // v5：中文 0.385×高度（v4 是 0.46，-16%）；英文 0.40×中文（v4 是 0.42，再小一档）。
+            float cjkSize = Math.max(7f, height * CJK_RATIO);
+            if (cjkW100 > 0) {
+                cjkSize = Math.min(cjkSize, 100.0f * avail / cjkW100);
+            }
+            float enSize = cjkSize * EN_RATIO;
+            if (enW100 > 0) {
+                // v5：英文行自己也按宽度收一次 —— v4 只缩中文，长站名（Xiamen North Railway Station）
+                // 的英文会直接顶出面板左右两边。
+                enSize = Math.min(enSize, 100.0f * avail / enW100);
+            }
+            if (line.isEmpty()) {
+                // 只有英文时，以英文为准（中文那一档不参与）。
+                cjkSize = Math.max(7f, enSize / EN_RATIO);
             }
             cjkSize = Math.max(7f, cjkSize);
-            final float enSize = Math.max(6f, cjkSize * EN_RATIO);
+            enSize = Math.max(5f, enSize);
 
-            final Font cjkFont = ref.deriveFont(cjkSize);
-            final Font enFont = ref.deriveFont(Font.PLAIN, enSize);
-            final FontMetrics cjkFm = g.getFontMetrics(cjkFont);
-            final FontMetrics enFm = g.getFontMetrics(enFont);
+            Font cjkFont = ref.deriveFont(cjkSize);
+            Font enFont = ref.deriveFont(Font.PLAIN, enSize);
+            FontMetrics cjkFm = g.getFontMetrics(cjkFont);
+            FontMetrics enFm = g.getFontMetrics(enFont);
+            int totalH = (line.isEmpty() ? 0 : cjkFm.getHeight())
+                    + (enText.isEmpty() ? 0 : enFm.getHeight());
+            // v5：两行加起来也必须塞进面板高度（v4 只管宽度，窄面板上会顶到上下边框）。
+            final int availH = Math.max(8, height - pad * 2);
+            if (totalH > availH) {
+                final float k = (float) availH / (float) totalH;
+                cjkSize = Math.max(6f, cjkSize * k);
+                enSize = Math.max(5f, enSize * k);
+                cjkFont = ref.deriveFont(cjkSize);
+                enFont = ref.deriveFont(Font.PLAIN, enSize);
+                cjkFm = g.getFontMetrics(cjkFont);
+                enFm = g.getFontMetrics(enFont);
+                totalH = (line.isEmpty() ? 0 : cjkFm.getHeight())
+                        + (enText.isEmpty() ? 0 : enFm.getHeight());
+            }
             final int cjkW = line.isEmpty() ? 0 : cjkFm.stringWidth(line);
             final int enW = enText.isEmpty() ? 0 : enFm.stringWidth(enText);
-            final int totalH = (line.isEmpty() ? 0 : cjkFm.getHeight())
-                    + (enText.isEmpty() ? 0 : enFm.getHeight());
             final int blockTop = (height - totalH) / 2;
 
             g.setColor(new Color(TEXT_DARK));
