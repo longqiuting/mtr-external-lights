@@ -24,16 +24,24 @@ import java.util.Set;
  * 厦门实拍样式的线路条带，<b>纯 Java2D</b>（这个类刻意不 import 任何 {@code net.minecraft} /
  * {@code mtr} 类型，所以能用 {@code javac} 单独编译，直接吐出 PNG 看版式，不用开游戏）。
  *
- * <h2>v5 版式（2026-11-11 第三轮实拍微调）</h2>
+ * <h2>v5.1 版式（2026-11-11 第四轮实机微调）</h2>
  * <pre>
+ *   绘制顺序（从底到顶，v5.1 明确固定）：
+ *     1. 白底条带（fillRect 铺满整张图）
+ *     2. 线路主线
+ *     3. 所有站点圆环（普通 / 当前 / 换乘，当前站最后）
+ *     4. 站名文字（45° 斜排 / 正排）
+ *     5. <b>终点箭头</b>（箭杆 + 宽三角）—— 整张图的最后一笔，箭尖永远在最上层
+ *
  *   白底              铺满整张图（= 面板尺寸不变，不会透出灰板）
+ *   左右内边距        PAD_X = 宽度 x 3%（最小 24px）：首站 / 末站 / 箭头 / 主线 / 站名都不贴边
  *   内容区            只占高度的 <b>60%</b>（居中）：线宽 / 圆环 / 线路牌都按内容区缩，
  *                     上下留白比 v4 再大一档 —— 多出来的白边<b>让给站名</b>
- *   主线              内容区高度的 8.5%
+ *   主线              内容区高度的 8.5%；从 PAD_X 起、到 宽 - PAD_X 止（终点那头停在箭头底边）
  *   普通站            白心空心环，环宽 15%
  *   终点站            和普通站<b>完全同尺寸</b>的环 + <b>线路同色的实心箭头</b>：
- *                     箭杆就是线路本身、从线路那侧伸过来，<b>宽三角</b>箭尖顶住环外缘
- *                     （宽 2.2×线宽、长 1.2×线宽，v5 起不再是细长三角、不飘在环外）
+ *                     箭杆就是线路本身（主线停在箭头底边），<b>宽三角</b>箭尖顶住环外缘并压进环 2px
+ *                     （宽 2.3×线宽、长 1.9×线宽），且是<b>最后画的</b> → 箭尖不会被任何东西盖住
  *   当前站            1.3× 空心环 + 一圈细内环
  *   换乘站            追逐箭头环（上半 = 当前线路色、下半 = 换乘线路色，两段之间留空隙）；
  *                     下方「矩形杆 + 尖三角」+ 圆角矩形线路牌（v5：牌高 +14%、左右内边距 +18%）
@@ -84,14 +92,34 @@ public final class XiamenStripPainter {
     public static final float INNER_RATIO = 0.58f;
 
     /**
-     * 终点箭头（v5，实拍照着来）：<b>长 / 宽（× 线宽）</b>。
+     * 终点箭头（v5.1，实拍照着来）：<b>长 / 宽（× 线宽）</b>。
      *
-     * <p>实拍里箭尖顶住终点圆环、箭杆就是线路本身，头部是一个<b>宽三角</b>：
-     * 全长 ≈ 1.2×线宽、总宽 ≈ 2.2×线宽（{@link #TERM_ARROW_HALF} = 1.1×线宽 即半宽）。
-     * v4 是 2.1×1.9 的细长三角，还画在环外，看着像一根飘着的刺。</p>
+     * <p>实拍里箭尖顶住终点圆环、<b>箭杆就是线路本身</b>，头部是一个<b>宽三角</b>：
+     * 全长 ≈ 1.9×线宽、总宽 ≈ 2.3×线宽（{@link #TERM_ARROW_HALF} = 1.15×线宽 即半宽）。</p>
+     *
+     * <p>v5.1 的两处修正（实机截图暴露的问题）：</p>
+     * <ul>
+     *   <li><b>主线必须停在箭头的底边</b>（v5 主线一直画到站点中心 = 箭尖那一带），
+     *       否则主线和箭头同色、粗细又大于箭尖附近，箭尖整个被“埋在”主线里 ——
+     *       看上去就是一个粗矩形 + 上下两根刺，不是箭头；</li>
+     *   <li><b>箭头是整张图最后画的一笔</b>，箭尖还要往环里压 {@link #TERM_ARROW_TIP_OVERLAP}px，
+     *       这样箭尖 100% 露在最上层、又不会和圆环之间留白缝。</li>
+     * </ul>
      */
-    public static final float TERM_ARROW_LEN = 1.20f;
-    public static final float TERM_ARROW_HALF = 1.10f;
+    public static final float TERM_ARROW_LEN = 1.90f;
+    public static final float TERM_ARROW_HALF = 1.15f;
+
+    /** 箭尖往终点圆环里压的像素数（消掉描边抗锯齿留下的白缝；箭头最后画，压住也不算被覆盖）。 */
+    public static final int TERM_ARROW_TIP_OVERLAP = 2;
+
+    /**
+     * 线路图左右内边距（v5.1）：<b>宽度 × 3%，且不小于 {@link #PAD_X_MIN}px</b>。
+     *
+     * <p>v5 之前首站 / 末站直接顶到图片左右边缘（实机上就是“贴边”）。现在首站圆心、末站圆心、
+     * 终点箭头、主线两端、站名可用的横向范围全部按 PAD_X 内缩。</p>
+     */
+    public static final float PAD_X_RATIO = 0.03f;
+    public static final int PAD_X_MIN = 24;
 
     // ---- 换乘标记（追逐箭头环 + 「矩形杆 + 尖三角」+ 正下方居中的线路牌）----
 
@@ -330,26 +358,28 @@ public final class XiamenStripPainter {
             // 45° 站名在线上方 → 线压到内容区下部；正排站名在下方 → 线抬高。
             final int lineY = bandTop + Math.round(bandH * (namesBelow ? 0.30f : 0.64f));
 
-            // ---- 站点几何（v4：左侧不再画线路号码牌，线路从最左边开始）----
-            final int sidePad = Math.max(3, Math.round(bandH * 0.045f));
-            // v5：终点箭头改成“箭杆在线路上、箭尖顶住圆环”，不再画在环外 ——
-            // 于是两端不需要再额外预留箭头长度，站距更均匀，箭头也不会飘出画面。
+            // ---- 站点几何（v5.1：左右各留 PAD_X 内边距，首/末站不再贴边）----
+            final int padX = Math.max(PAD_X_MIN, Math.round(width * PAD_X_RATIO));
+            // 极端窄图兜底：左右内边距加起来不能超过宽度的 2/3，否则站距被挤成 0。
+            final int padLeft = Math.min(padX, Math.max(2, width / 3));
+            final int padRight = padLeft;
+            final int rightEdge = Math.max(padLeft + 2, width - padRight);
+            // v5.1：终点箭头改成“箭杆（= 主线）停在箭头底边 + 宽三角顶住圆环”——
+            // 主线不再画到站点中心，否则箭尖被同色的主线埋掉（实机截图里就是这个现象）。
             final int termArrowLen = Math.max(4, Math.round(lineW * TERM_ARROW_LEN));
             final int termArrowHalf = Math.max(3, Math.round(lineW * TERM_ARROW_HALF));
-            final int padLeft = sidePad;
-            final int padRight = sidePad;
-            final float stepGuess = (float) Math.max(1, width - padLeft - padRight) / (count - 1);
+            final float stepGuess = (float) Math.max(1, rightEdge - padLeft) / (count - 1);
             final float circle = Math.max(bandH * 0.09f,
                     Math.min(bandH * CIRCLE_RATIO, stepGuess * 0.62f));
             final int radius = Math.round(circle / 2f);
             final int xFirst = padLeft + radius;
-            final int xLast = Math.max(xFirst + 1, width - padRight - radius);
+            final int xLast = Math.max(xFirst + 1, rightEdge - radius);
             final float step = (float) (xLast - xFirst) / (count - 1);
             final int[] xs = new int[count];
             for (int i = 0; i < count; i++) {
                 xs[i] = Math.round(xFirst + step * i);
             }
-            final int contentX = Math.max(2, sidePad);
+            final int contentX = padLeft;
 
             // ---- 每个站标记的“可见外缘半径”：站名让位 / 终点三角都按它算 ----
             final int ixRingD = Math.max(14, Math.round(bandH * IX_RING_RATIO));
@@ -368,9 +398,22 @@ public final class XiamenStripPainter {
                 maxVisR = Math.max(maxVisR, r);
             }
 
-            // ---- 主线 ----
+            // ---- 终点箭头几何（先算出来，主线要停在箭头的底边上）----
+            final int terminalIndex = flip ? 0 : count - 1;
+            final int termX = xs[terminalIndex];
+            // 箭尖顶住终点圆环的**外缘**（visR 已含描边），再往环里压 TERM_ARROW_TIP_OVERLAP px：
+            // 既没有白缝，又因为箭头是最后画的一笔 —— 压住的部分也在最上层。
+            final int tipInset = Math.max(0, Math.round(visR[terminalIndex]) - TERM_ARROW_TIP_OVERLAP);
+            final int tipX = flip ? termX + tipInset : termX - tipInset;
+            final int headBaseX = flip ? tipX + termArrowLen : tipX - termArrowLen;
+
+            // ---- 主线（v5.1：从 PAD_X 起、到 宽 - PAD_X 止；终点那头停在箭头底边）----
+            // 非终点端：正好落在 PAD_X / 宽 - PAD_X（圆环外再多出半个直径，视觉上贴着留白边）。
+            // 终点端：停在 headBaseX，把“箭尖 → 底边”这段让给三角，箭尖才不会被同色主线埋掉。
+            final int lineFrom = flip ? headBaseX : padLeft;
+            final int lineTo = flip ? rightEdge : headBaseX;
             g.setColor(new Color(lineRgb));
-            g.fillRect(xFirst, lineY - lineW / 2, Math.max(1, xLast - xFirst), lineW);
+            g.fillRect(lineFrom, lineY - lineW / 2, Math.max(1, lineTo - lineFrom), lineW);
 
             // ---- 站点标记（只画环；终点箭头放到最后，保证不被圆环盖住）----
             // v5：内容区缩到 60% 后，线路牌可以借用下方多出来的白边（最多借一半），
@@ -412,16 +455,16 @@ public final class XiamenStripPainter {
             }
             lastInterchangeCount = swapDrawn;
 
-            // ---- 终点箭头（v5：实拍样式 —— 与线路同色、箭杆就是线路、箭尖顶住环外缘）----
-            final int terminalIndex = flip ? 0 : count - 1;
-            drawTerminalArrow(g, flip, xs[terminalIndex], lineY, visR[terminalIndex],
-                    termArrowLen, termArrowHalf, lineRgb);
-
             // 正排站名（namesBelow）时要把换乘牌的位置让出来，否则站名会压在牌子上。
             final float belowExtra = namesBelow && plateBottomMax > 0
                     ? Math.max(0f, plateBottomMax - (lineY + maxVisR)) : 0f;
             final float nameSize = drawNames(g, names, namesEn, xs, visR, currentIndex, lineRgb, nameTop,
-                    bandBottom, lineY, step, namesBelow, width, contentX, belowExtra, nameCap);
+                    bandBottom, lineY, step, namesBelow, rightEdge, contentX, belowExtra, nameCap);
+
+            // ---- 终点箭头：**整张图的最后一笔**（v5.1）----
+            // 顺序：白底 → 主线 → 所有圆环 → 站名 → 箭头。箭头画在最后 = 箭尖永远在最上层，
+            // 压在圆环上 1–2px 也是箭头在上，不会被任何东西盖住。
+            drawTerminalArrow(g, tipX, headBaseX, lineY, termArrowHalf, lineRgb);
 
             lastBandH = bandH;
             lastLineW = lineW;
@@ -437,34 +480,26 @@ public final class XiamenStripPainter {
     }
 
     /**
-     * 终点箭头（v5，实拍样式）：<b>一个与线路同色的实心宽三角</b>。
+     * 终点箭头（v5.1，实拍样式）：<b>与线路同色的实心宽三角</b>，三角形的底边接主线、箭尖顶住终点圆环。
      *
-     * <p>几何关系（照实拍照片）：</p>
      * <ul>
-     *   <li><b>箭尖顶住终点圆环的外缘</b>（{@code ringR} 已经是含描边的可见外缘半径，只 +1px 免得描边压住）；</li>
-     *   <li><b>箭杆就是线路本身</b>：三角的底边朝线路那一侧，所以看上去是“箭头从线路那侧伸过来顶住圆环”，
-     *       而不是 v4 那种单独飘在环外的尖刺；</li>
-     *   <li>头部是<b>宽三角</b>：总宽 2.2×线宽、长 1.2×线宽（{@link #TERM_ARROW_HALF} / {@link #TERM_ARROW_LEN}）。</li>
+     *   <li><b>箭杆 = 主线本身</b>：调用方让主线停在 {@code baseX}，所以这条三角就是“箭头”那一段，
+     *       不会和主线重叠成一根粗矩形（v5 的箭尖就是被同色主线埋掉的）；</li>
+     *   <li>{@code tipX} 由调用方算好：顶在圆环外缘、并往环里压 {@link #TERM_ARROW_TIP_OVERLAP}px，
+     *       且这一步是整张图<b>最后</b>画的 —— 重叠处也是箭头在上、箭尖 100% 露出；</li>
+     *   <li>宽三角：总宽 2.3×线宽、长 1.9×线宽（{@link #TERM_ARROW_HALF} / {@link #TERM_ARROW_LEN}）。</li>
      * </ul>
      *
-     * <p>颜色由调用方传 {@code lineRgb}（= 主线原色），所以箭头和线路、圆环天然同色。</p>
+     * @param tipX    箭尖 x（flip 时在圆环右边、否则在左边）
+     * @param baseX   三角形底边 x（靠主线那一侧，主线正好画到这里）
      */
-    private static void drawTerminalArrow(final Graphics2D g, final boolean flip, final int cx, final int lineY,
-                                          final float ringR, final int len, final int half, final int rgb) {
-        if (ringR <= 0f || len <= 0) {
+    private static void drawTerminalArrow(final Graphics2D g, final int tipX, final int baseX, final int lineY,
+                                          final int half, final int rgb) {
+        if (half <= 0 || tipX == baseX) {
             return;
         }
-        final int r = Math.round(ringR);
         g.setColor(new Color(rgb));
-        if (flip) {
-            // 终点在左端，线路在右边：箭尖贴在环的右外缘、朝左，底边（箭杆）向右伸进线路里。
-            final int tip = cx + r + 1;
-            g.fillPolygon(new int[]{tip, tip + len, tip + len}, new int[]{lineY, lineY - half, lineY + half}, 3);
-        } else {
-            // 终点在右端，线路在左边：箭尖贴在环的左外缘、朝右，底边（箭杆）向左伸进线路里。
-            final int tip = cx - r - 1;
-            g.fillPolygon(new int[]{tip, tip - len, tip - len}, new int[]{lineY, lineY - half, lineY + half}, 3);
-        }
+        g.fillPolygon(new int[]{tipX, baseX, baseX}, new int[]{lineY, lineY - half, lineY + half}, 3);
     }
 
     /**
@@ -757,7 +792,7 @@ public final class XiamenStripPainter {
     private static float drawNames(final Graphics2D g, final String[] names, final String[] ens, final int[] xs,
                                    final float[] radii, final int currentIndex, final int lineRgb,
                                    final int nameTop, final int bandBottom, final int lineY, final float step,
-                                   final boolean namesBelow, final int width, final int firstTextX,
+                                   final boolean namesBelow, final int rightEdge, final int firstTextX,
                                    final float belowExtra, final int nameCap) {
         final int count = names.length;
         float maxR = 0f;
@@ -827,8 +862,8 @@ public final class XiamenStripPainter {
 
         final Shape clip = namesBelow
                 ? new Rectangle(Math.max(0, firstTextX), Math.round(lineY + maxR) + 1,
-                        Math.max(1, width - firstTextX), Math.max(1, bandBottom - lineY))
-                : new Rectangle(Math.max(0, firstTextX), nameTop, Math.max(1, width - firstTextX),
+                        Math.max(1, rightEdge - firstTextX), Math.max(1, bandBottom - lineY))
+                : new Rectangle(Math.max(0, firstTextX), nameTop, Math.max(1, rightEdge - firstTextX),
                         Math.max(1, lineY - nameTop));
 
         int shrunk = 0;
@@ -854,7 +889,7 @@ public final class XiamenStripPainter {
             final float availV = namesBelow
                     ? bandBottom - lineY - radii[i] - belowExtra - clr0 - 2f
                     : lineY - radii[i] - clr0 - size * 0.20f - enStep0 - nameTop;
-            final float availH = width - 6f - firstTextX;
+            final float availH = rightEdge - 6f - firstTextX;
             final double needV = namesBelow
                     ? (asc100 + desc100 + 130.0 * enScale) * boost
                     : DIAG * (wCjk + asc100) * boost;
@@ -872,8 +907,8 @@ public final class XiamenStripPainter {
             // “文字方向”上的可用长度：垂直投影和水平投影取小的那个。
             final float runAvailV = namesBelow ? Float.MAX_VALUE
                     : (lineY - radii[i] - clr - s * 0.20f - nameTop) / (float) DIAG;
-            final float runAvailH = namesBelow ? (width - 6f - firstTextX)
-                    : (width - 6f - firstTextX) / (float) DIAG;
+            final float runAvailH = namesBelow ? (rightEdge - 6f - firstTextX)
+                    : (rightEdge - 6f - firstTextX) / (float) DIAG;
             final float runAll = Math.min(runAvailV, runAvailH);
 
             // 英文行：先按中文缩小，再按“剩下的长度”自己收 —— 宁可小也不裁字
@@ -925,7 +960,7 @@ public final class XiamenStripPainter {
                 final int textW = g.getFontMetrics(cjkFont).stringWidth(label);
                 int x = Math.round(xs[i] - textW / 2f);
                 x = Math.max(x, Math.min(Math.round(xs[i]), firstTextX));
-                x = Math.min(x, width - textW - 2);
+                x = Math.min(x, rightEdge - textW - 2);
                 final float baseline = lineY + radii[i] + belowExtra + clr
                         + g.getFontMetrics().getAscent();
                 g.drawString(label, x, baseline);
@@ -933,7 +968,7 @@ public final class XiamenStripPainter {
                     g.setFont(enFont);
                     g.setColor(enColor);
                     final int enW = g.getFontMetrics(enFont).stringWidth(en);
-                    g.drawString(en, Math.min(width - enW - 2, Math.max(firstTextX, xs[i] - enW / 2f)),
+                    g.drawString(en, Math.min(rightEdge - enW - 2, Math.max(firstTextX, xs[i] - enW / 2f)),
                             baseline + enOffset);
                 }
             } else {
@@ -944,8 +979,8 @@ public final class XiamenStripPainter {
                 final int projected = (int) Math.ceil(Math.max(textW, enW) * DIAG)
                         + (en == null ? 0 : (int) Math.ceil(enOffset * DIAG)) + 4;
                 int x = xs[i];
-                if (x + projected > width - 6) {
-                    x = Math.max(firstTextX, width - 6 - projected);
+                if (x + projected > rightEdge - 6) {
+                    x = Math.max(firstTextX, rightEdge - 6 - projected);
                 }
                 final int baseY = Math.round(lineY - radii[i] - clr - s * 0.20f) - Math.round(enOffset);
                 drawRotatedName(g, label, en, x, baseY, cjkFont, enFont, enStep, enColor);
