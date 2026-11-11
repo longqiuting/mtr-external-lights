@@ -12,6 +12,7 @@
     "TrainClientRegistryMixin",
     "RenderSignalBaseMixin",
     "RenderPIDSStationMixin",
+    "RenderPidsTianjinStationMixin",
     "RenderPsdDoorTextureMixin",
     "RouteMapArtMixin",
     "RouteMapCacheKeyMixin",

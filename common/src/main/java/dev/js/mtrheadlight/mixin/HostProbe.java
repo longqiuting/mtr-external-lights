@@ -20,6 +20,8 @@ public final class HostProbe {
     private static final String MTR_TRAIN_SERVER = "mtr.data.TrainServer";
     /** MTR 的 PIDS / 到站投影机渲染器（{@code getSchedules} 是「站外投影机」的注入目标）。 */
     private static final String MTR_PIDS_RENDERER = "mtr.render.RenderPIDS";
+    /** 天津地铁自带的 PIDS 渲染器（它自己抄了一份 {@code getSchedules}，不吃 MTR 的那条 mixin）。 */
+    private static final String TJ_PIDS_RENDERER = "ziyue.tjmetro.render.RenderPIDSTianjin";
     /** MTR 的屏蔽门门扇渲染器（贴图 id 命名空间切换的注入目标）。 */
     private static final String MTR_PSD_DOOR_RENDERER = "mtr.render.RenderPSDAPGDoor";
     /** MTR 的线路图位图生成器（线路条带重绘的注入目标）。 */
@@ -34,6 +36,7 @@ public final class HostProbe {
     private static final boolean MTR = present(MTR_REGISTRY);
     private static final boolean MTR_SERVER = present(MTR_TRAIN_SERVER);
     private static final boolean MTR_PIDS = present(MTR_PIDS_RENDERER);
+    private static final boolean TJ_PIDS = present(TJ_PIDS_RENDERER);
     private static final boolean MTR_PSD_DOOR = present(MTR_PSD_DOOR_RENDERER);
     private static final boolean MTR_ROUTE_MAP_PRESENT = present(MTR_ROUTE_MAP);
     private static final boolean MTR_SAVED_RAIL_BASE = present(MTR_SAVED_RAIL);
@@ -58,6 +61,16 @@ public final class HostProbe {
     /** {@code mtr.render.RenderPIDS} 是否存在（站外投影机顶渲染的注入目标）。 */
     public static boolean mtrPidsRenderer() {
         return MTR_PIDS;
+    }
+
+    /**
+     * 天津地铁的 {@code ziyue.tjmetro.render.RenderPIDSTianjin} 是否存在。
+     *
+     * <p>它自带一份 {@code getSchedules}（javap：0 偏移就是 {@code RailwayData.getStation}），
+     * MTR 那条 mixin 管不到它；没装天津地铁时这条注入整个不应用。
+     */
+    public static boolean tjPidsRenderer() {
+        return TJ_PIDS;
     }
 
     /**

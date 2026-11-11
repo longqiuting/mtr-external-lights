@@ -34,10 +34,18 @@ import java.util.TreeSet;
  * 离得远的节点则顺着 {@code getRailsMap()} 上的同一条轨道走到站台为止。
  *
  * <h2>PIDS 认哪些方块</h2>
- * 不按类名认，按<b>方块实体类型</b>认：{@code mtr.data.IPIDS.TileEntityPIDS}。MTR 的
+ * 不按类名认，按<b>方块实体类型</b>认：{@code mtr.data.IPIDS$TileEntityPIDS}。MTR 的
  * {@code BlockPIDSBaseHorizontal} / {@code BlockPIDSBaseVertical}、天津地铁
  * {@code ziyue.tjmetro.block.BlockPIDSTianjin}、JCM {@code com.jsblock.block.JobanPIDSBase}
- * 的方块实体全部继承它（反编译确认），所以一条 {@code instanceof} 覆盖三家。
+ * 的方块实体全部继承它（javap 核对：{@code TileEntityBlockPIDSTianjin extends
+ * mtr.data.IPIDS$TileEntityPIDS}），所以一条 {@code instanceof} 覆盖三家。
+ *
+ * <h2>一次只绑「这一台屏」</h2>
+ * <p>{@code BindTargets.pidsAt} 只收「数据格 + 同一台屏的另一半（同方块且 HALF 相反）」，
+ * <b>不再扫同方块类的 6 邻居</b>。两块独立 PIDS 挨着摆 / 上下叠时方块类完全相同，旧写法会把
+ * 一整片屏一起写掉 —— 玩家在已绑定的屏旁边新放一块，下一次绑定时新屏也变成同一个站台，
+ * 看起来就是「绑定一次之后，新放的屏自己就被绑到那个站台了」。绑定只写这一台屏，
+ * 新放的屏永远是「没绑过」（{@code platformIds} 空 = MTR 的自动模式）。
  *
  * <h2>写进去的是什么</h2>
  * <p>PIDS 里没有车站名字段，只有 {@code Set<Long> platformIds}（NBT {@code platform_ids}）——
@@ -98,10 +106,12 @@ public final class PidsConnectorItem extends Item {
 
         final BlockPos clicked = context.getBlockPos();
 
-        // 1) 右键 PIDS（任意一半都算）
+        // 1) 右键 PIDS（任意一半都算）—— 一律归一到「数据那一格」，
+        //    这样绑定表、/ltebind 查询、补推 ticker 用的是同一个位置。
         final List<MtrTiles.PidsTile> pids = BindTargets.pidsAt(world, clicked);
         if (!pids.isEmpty()) {
-            return onPidsClicked(world, player, context.getStack(), clicked, pids);
+            return onPidsClicked(world, player, context.getStack(),
+                    BindTargets.dataPos(world, clicked), pids);
         }
 
         // 2) 右键轨道节点（或节点附近）
@@ -199,18 +209,23 @@ public final class PidsConnectorItem extends Item {
             say(player, "message.mtrlte.pids.no_platform", Formatting.RED);
             return ActionResult.SUCCESS;
         }
-        LteLog.LOGGER.info("[lte] bind: pids pos={} -> platforms={}",
-                pidsPos, Collections.singletonList(Long.valueOf(platformId)));
+        LteLog.LOGGER.info("[lte] bind: pids pos={} -> platforms={}", pidsPos,
+                Collections.singletonList(Long.valueOf(platformId)));
         final String platformName = LteMtrLookup.platformName(world, platformId);
         final Station station = LteMtrLookup.stationOfPlatform(world, platformId);
         final ServerWorld serverWorld = world instanceof ServerWorld sw ? sw : null;
 
         int written = 0;
+        final StringBuilder writtenAt = new StringBuilder();
         for (final MtrTiles.PidsTile entry : pids) {
             if (!MtrTiles.pidsBindSingle(entry.tile(), platformId)) {
                 continue;
             }
             written++;
+            if (writtenAt.length() > 0) {
+                writtenAt.append(", ");
+            }
+            writtenAt.append(entry.pos());
             // 双端都写：
             //   服务端 —— pidsBindSingle 走的是 MTR 自己的 setData(...)，内部 markDirty + syncData；
             //   客户端 —— syncData 那条路只把这一格排进「下个 tick 广播给正在跟踪该 chunk 的玩家」的队列
@@ -235,7 +250,7 @@ public final class PidsConnectorItem extends Item {
         for (final MtrTiles.PidsTile entry : pids) {
             verify.addAll(MtrTiles.pidsPlatformIds(entry.tile()));
         }
-        LteLog.LOGGER.info("[lte] bind: pids verify platforms={}", verify);
+        LteLog.LOGGER.info("[lte] bind: pids verify platforms={} tiles=[{}]", verify, writtenAt);
         final boolean persisted = verify.contains(Long.valueOf(platformId));
 
         final String stationName = station == null || station.name == null || station.name.isEmpty()

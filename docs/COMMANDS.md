@@ -88,7 +88,7 @@
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `beamCone` | `true` | 光柱开关（与光带相互独立） |
+| `beamCone` | `false` | 光柱开关（与光带相互独立）。v21 起默认关（实验性）；开：`/mtr_lte cone ...` 或手改 JSON |
 | `beamConeSource` | `MODEL` | `MODEL` = 按车型灯位；`GLOW` = 复用光带几何 |
 | `beamConeAlpha` | `0.30` | 峰值不透明度（0.16 时会被 8 位色舍入成 0，导致完全不可见） |
 | `beamConeVolume` | `false` | `false` = 壳层路径（默认，可见）；`true` = raymarch 体积光（实验） |
@@ -146,8 +146,9 @@
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `rainSpray` | `true` | 雨天水雾开关 |
-| `rainSprayMinSpeedKmh` | `50` | 起始车速 |
-| `rainSprayDiagnostics` | — | 诊断行 `spray: trains= spawned= roofSkipped= cap= avgSize=` |
+| `rainSprayMinSpeedKmh` | `50` | 起始车速（低速渐入的上端） |
+| `rainSprayLowSpeedBoost` | `true` | 20–50 km/h 渐入出雾：密度 = `lerp(0.35,1.0,(kmh-20)/(min-20))`；<20 不生成 |
+| `rainSprayDiagnostics` | — | 诊断行 `spray: trains= spawned= roofSkipped= cap= lowBoost= avgSize=`（逐车 `spray-diag: ... low=`） |
 | `rainHush` | — | 列车挡雨（车内不画雨） |
 | `rainHushSplash` | — | 挡雨时是否仍显示雨点溅射 |
 | `rainHushDiagnostics` | — | 诊断 |

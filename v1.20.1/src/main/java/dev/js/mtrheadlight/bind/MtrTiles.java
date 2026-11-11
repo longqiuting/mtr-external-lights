@@ -76,7 +76,25 @@ public final class MtrTiles {
     }
 
     public static boolean isPids(final Object tile) {
-        return tile != null && hasSupertype(tile.getClass(), PIDS);
+        if (tile == null) {
+            return false;
+        }
+        // 首选 instanceof：MTR 的 {@code IPIDS$TileEntityPIDS} 是三家（MTR / 天津地铁 / JCM）PIDS
+        // 方块实体的共同父类，一条判定全包。
+        //   - 本工程编译期用的是 yarn 名的 MTR（libs/MTR-fabric-1.20.1-3.6.4.2-named.jar），
+        //     父类链通向 net.minecraft.block.entity.BlockEntity —— 与我们的 BlockEntity 同一个类；
+        //   - 静态类型是 Object，所以就算某个分支指向了另一个 class_2586，「incompatible types」
+        //     也不会发生（那条坑只在 {@code BlockEntity instanceof TileEntityPIDS} 时才出现）。
+        try {
+            if (tile instanceof mtr.data.IPIDS.TileEntityPIDS) {
+                return true;
+            }
+        } catch (Throwable ignored) {
+            // LinkageError（极端的分支/多个 class_2586）：退到类名链。
+        }
+        // 兜底：按运行时类名沿超类链走。MTR 的类名不参与 remap，天津/JCM 的子类也在这条链上
+        // （ziyue...TileEntityBlockPIDSTianjin <- ziyue... <- mtr.data.IPIDS$TileEntityPIDS）。
+        return hasSupertype(tile.getClass(), PIDS);
     }
 
     /** 运行时类或其任一祖先的二进制名等于 {@code name}。 */
@@ -180,21 +198,34 @@ public final class MtrTiles {
     /** 把 PIDS 的 platformIds 换成 {@code ids}，消息 / 隐藏位 / 翻页原样保留。 */
     public static boolean pidsSetPlatforms(final Object tile, final Collection<Long> ids) {
         if (!isPids(tile)) {
+            LteLog.LOGGER.info("[lte] pids setData: tile={} is not a PIDS -> skip", describe(tile));
             return false;
         }
+        String step = "messages";
         try {
             final String[] messages = pidsMessages(tile);
+            step = "getMaxArrivals";
             final int max = ((Number) method(tile, "getMaxArrivals").invoke(tile)).intValue();
             final boolean[] hideArrival = new boolean[max];
+            step = "getHideArrival";
             final Method hide = method(tile, "getHideArrival", int.class);
             for (int i = 0; i < max; i++) {
                 hideArrival[i] = Boolean.TRUE.equals(hide.invoke(tile, Integer.valueOf(i)));
             }
+            step = "getDisplayPage";
             final int page = ((Number) method(tile, "getDisplayPage").invoke(tile)).intValue();
+            step = "setData";
             method(tile, "setData", String[].class, boolean[].class, Set.class, int.class)
                     .invoke(tile, messages, hideArrival, new HashSet<>(ids), Integer.valueOf(page));
+            LteLog.LOGGER.info("[lte] pids setData: tile={} wrote {} ids={} page={}",
+                    describe(tile), Integer.valueOf(ids.size()), ids, Integer.valueOf(page));
             return true;
         } catch (Throwable t) {
+            // 天津/JCM 的实现会覆写 setData，签名或可见性一旦不同，这里必须把话说出来，
+            // 否则调用方只能统一说成「PIDS 没了」，分不清是哪一环。
+            final Throwable cause = t.getCause() == null ? t : t.getCause();
+            LteLog.LOGGER.info("[lte] pids setData: step={} failed: {}: {}",
+                    step, cause.getClass().getName(), cause.getMessage());
             return false;
         }
     }

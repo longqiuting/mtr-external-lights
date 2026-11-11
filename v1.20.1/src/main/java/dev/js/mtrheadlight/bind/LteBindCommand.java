@@ -102,7 +102,7 @@ public final class LteBindCommand {
         final ServerWorld world = source.getWorld();
         final BlockPos pos = pos(context);
 
-        final PidsLinkStore.Link link = PidsLinkStore.get(world).at(pos);
+        final PidsLinkStore.Link link = PidsLinkStore.get(world).at(BindTargets.dataPos(world, pos));
         if (link == null) {
             source.sendFeedback(() -> Text.translatable("message.mtrlte.bind.pids_none",
                     posText(pos)).formatted(Formatting.GRAY), false);

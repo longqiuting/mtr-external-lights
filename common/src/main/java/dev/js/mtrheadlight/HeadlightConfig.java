@@ -25,7 +25,7 @@ import java.util.Map;
 public final class HeadlightConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     /** Bumped when a default changes in a way an existing file has to be migrated onto. */
-    private static final int CONFIG_VERSION = 20;
+    private static final int CONFIG_VERSION = 21;
 
     /**
      * {@code railChunkBuildPerFrame} 的上限（每帧最多重建几个轨道区块）。
@@ -447,9 +447,17 @@ public final class HeadlightConfig {
      *
      * <p>Independent of {@link #beamGlow} in both directions: turning the sheet off leaves the cone
      * exactly as it was and vice versa. Both are still children of {@link #enabled}, so the master
-     * switch off means neither draws. Default on.
+     * switch off means neither draws.
+     *
+     * <p><b>Default off since config version 21.</b> The cone is still experimental (layout depends
+     * on the model's lamp slots, and the shell path can look wrong on some trains), so a fresh
+     * install starts without it; {@code /mtr_lte cone ...} and the per-siding switch still turn it
+     * on for anyone who wants it. A v20 file that still held the old default {@code true} is
+     * migrated to {@code false} by {@link #migrate()} - {@code true} was the default, so an old
+     * {@code true} cannot be told apart from "never touched" and is treated as untouched. From
+     * version 21 on a hand-set {@code true} stays {@code true}.
      */
-    public boolean beamCone = true;
+    public boolean beamCone = false;
 
     /** {@link #beamConeSource}：光柱用车型灯位（{@link VehicleLights}），默认。 */
     public static final String CONE_SOURCE_MODEL = "MODEL";
@@ -924,6 +932,25 @@ public final class HeadlightConfig {
      * 车才有水雾。设为 0 等于「任何在雨里露天行驶的车都溅水」（停车时速度为 0，仍然不会有）。
      */
     public int rainSprayMinSpeedKmh = 50;
+
+    /**
+     * 低速段（20 km/h 到 {@link #rainSprayMinSpeedKmh}）也出雾，只是更稀 ——
+     * 默认开。
+     *
+     * <p><b>为什么要有它</b>：{@link #rainSprayMinSpeedKmh} 原本是一道硬闸门，车速 49 时一颗粒子都没有、
+     * 51 时按「刚过阈值 25%」的满档抽签，画面上的读法是「水雾在 50 突然出现」。而真实的低速进站车
+     * 一样会把水甩起来，只是少。现在这 20–50 的区间改成<b>渐入</b>：抽签概率乘一个
+     * {@code lerp(0.35, 1.0, (kmh - 20) / (min - 20))} 的系数，20 km/h 处密度是满档的 35%，到
+     * {@code rainSprayMinSpeedKmh} 处并回 100%（曲线连续，50 km/h 上下不会跳）。
+     *
+     * <p><b>不额外花预算</b>：令牌桶、每列车每 tick、全局每 tick 三层上限一个都没放宽，只是把「单次
+     * 抽签是否通过」的概率乘小 —— 所以低车速只是更稀，不会因为多了这段区间就把粒子总量顶上去。
+     * 20 km/h 以下仍然一颗都不生成（停车、溜车不算「行驶」）。
+     *
+     * <p>全局字段，不逐侧线覆盖（{@link #rainSprayMinSpeedKmh} 逐侧线覆盖已经能表达「这条侧线多少才
+     * 开始出雾」，再叠一个开关只会让两条规则打架）。设成 {@code false} 就完全回到旧的硬闸门行为。
+     */
+    public boolean rainSprayLowSpeedBoost = true;
 
     /**
      * 诊断开关：每 5 秒一条 {@code spray: trains=N spawned=M skipped=K}（INFO）。
@@ -2078,6 +2105,17 @@ public final class HeadlightConfig {
         // doorLightByLine). Every one of them starts at the shipped default - the strip follows the
         // route colour, the door light is orange - so nothing is rewritten; the bump exists so the
         // keys show up in an existing config/mtrlte.json and can be edited by hand.
+        if (configVersion < 21) {
+            // Version 21 turns the beam cone off by default (still experimental) and appends
+            // rainSprayLowSpeedBoost. true was the shipped default of beamCone, so an old file
+            // holding true is indistinguishable from "never touched" and is moved onto the new
+            // default - the same rule as the version 5 / 16 steps. A hand-set true only survives
+            // from version 21 on (i.e. once the player sets it back on, later loads keep it).
+            // Per-siding beamCone overrides are left alone: those are always a deliberate choice.
+            if (beamCone) {
+                beamCone = false;
+            }
+        }
         configVersion = CONFIG_VERSION;
         return true;
     }

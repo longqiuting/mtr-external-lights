@@ -27,7 +27,8 @@ import java.util.Set;
  *   <li><b>下雨</b>：{@link RailWeather#raining(ClientWorld)} —— {@code isRaining()} 加雨量渐变
  *       阈值，跳过雨刚起 / 刚停那半秒。雷暴不排除（{@code isRaining()} 对雷雨同样为 true）。</li>
  *   <li><b>速度</b>：{@code Train#getSpeed()} 的绝对值 &gt; 配置的
- *       {@code rainSprayMinSpeedKmh}。MTR 这个字段是 <b>blocks/tick</b>，乘
+ *       {@code rainSprayMinSpeedKmh}（低速渐入开着时闸门落到 {@value #LOW_SPEED_KMH}，见下面的
+ *       {@link #lowFactor}）。MTR 这个字段是 <b>blocks/tick</b>，乘
  *       {@value #KMH_PER_BLOCK_PER_TICK} 得到 km/h —— 这正是 MTR 自己在
  *       {@code mtr.render.RenderDrivingOverlay} 里对同一字段做的换算
  *       （{@code speed * 20.0f} 再 {@code * 3.6d}，javap 已核对），所以我们的阈值和玩家在驾驶台上
@@ -120,6 +121,25 @@ public final class RainSpray {
 
     /** 达到这个速度时水雾"明显"；{@code rainSprayMinSpeedKmh} 到它之间线性插值。 */
     private static final double FULL_INTENSITY_KMH = 120.0D;
+
+    /**
+     * 低速渐入段的起点（km/h）。低于它<b>一颗都不生成</b>；{@code [LOW_SPEED_KMH, minSpeed]}
+     * 之间按 {@link #lowFactor} 的曲线把密度从 {@link #LOW_SPEED_DENSITY_FLOOR} 抬到 1.0。
+     *
+     * <p>为什么是 20：MTR 的城轨/地铁在站内蠕动、进站对位都在 10–25 km/h 之间，20 以上才是
+     * 「真的在走」，那时候裙板卷起的水花才看得见；再往下就是停车溜车，不该有水。
+     */
+    private static final double LOW_SPEED_KMH = 20.0D;
+
+    /**
+     * 低速渐入段最低处的密度乘数：20 km/h 时抽签概率是满档的 35%，到
+     * {@code rainSprayMinSpeedKmh} 处并回 100%。
+     *
+     * <p>这个数只乘在<b>抽签概率</b>上，不碰令牌桶、不碰每列车/全局每 tick 上限 —— 低速段是「更稀」，
+     * 不是「多花预算」。0.35 是肉眼可辨的下限：再低（0.1 量级）在 5–9 tick 的寿命下几乎永远抽不到，
+     * 就又回到「50 才突然出现」的观感。
+     */
+    private static final double LOW_SPEED_DENSITY_FLOOR = 0.35D;
 
     /** 车厢半宽下限（格）。实际值取 {@code max(本值, train.width / 2)}。 */
     private static final double CAR_HALF_WIDTH = 1.30D;
@@ -395,11 +415,17 @@ public final class RainSpray {
                 continue;
             }
             // 速度闸门放最前面：这是最便宜的检查，也让绝大多数停车/慢车在采样轨道之前就被丢掉。
-            if (kmh <= minKmh) {
-                diag.reason = "slow(" + Math.round(kmh) + "<=" + Math.round(minKmh) + ")";
+            // 低速渐入（rainSprayLowSpeedBoost）开着时，闸门落到 LOW_SPEED_KMH，闸门与
+            // minSpeed 之间不再直接丢弃，而是按 lowFactor 把抽签概率调稀（见下面的 lowFactor）。
+            final boolean lowBoost = cfg.rainSprayLowSpeedBoost && minKmh > LOW_SPEED_KMH;
+            final double gateKmh = lowBoost ? LOW_SPEED_KMH : minKmh;
+            if (kmh <= gateKmh) {
+                diag.reason = "slow(" + Math.round(kmh) + "<=" + Math.round(gateKmh) + ")";
                 continue;
             }
             final double intensity = intensity(kmh, minKmh);
+            final double lowFactor = lowFactor(kmh, minKmh, lowBoost);
+            diag.lowFactor = lowFactor;
 
             // 与 LightController 完全相同的方向表达式，保证 TrainPose 缓存命中（同一 progress →
             // 同一 TrainPose 实例），不额外采样 rail.getPosition。
@@ -465,7 +491,7 @@ public final class RainSpray {
                     sawThrottle = true;
                     continue;
                 }
-                if (world.random.nextDouble() > spawnChance(intensity) * chanceScale()) {
+                if (world.random.nextDouble() > spawnChance(intensity) * chanceScale() * lowFactor) {
                     windowSkipped++;
                     sawChance = true;
                     continue;
@@ -749,6 +775,37 @@ public final class RainSpray {
     }
 
     /**
+     * 低速渐入的密度乘数：{@code 1.0} = 不降档。
+     *
+     * <p>曲线：{@code factor = 0.35 + 0.65 * clamp((kmh - 20) / (minKmh - 20), 0, 1)}。
+     *
+     * <pre>
+     *   km/h :  &lt;20   20    25    30    35    40    45    50(min)  60   80  120
+     *   factor:   0   0.35  0.46  0.57  0.68  0.79  0.89   1.00    1.00 1.00 1.00
+     * </pre>
+     *
+     * <p>和 {@link #intensity} 的接点：{@code minKmh} 处两边都是 1.0，所以阈值上下的抽签概率
+     * （{@code spawnChance(0) = 0.25}）连续，不会在 50 km/h 跳一下。{@code minKmh <= 20} 时整段
+     * 退化掉（没有可渐入的区间），返回 1.0；{@code lowBoost = false} 时也返回 1.0，即旧的硬闸门。
+     */
+    private static double lowFactor(final double kmh, final double minKmh, final boolean lowBoost) {
+        if (!lowBoost || !(kmh < minKmh)) {
+            return 1.0D;
+        }
+        final double span = minKmh - LOW_SPEED_KMH;
+        if (span <= 0.0D) {
+            return 1.0D;
+        }
+        double t = (kmh - LOW_SPEED_KMH) / span;
+        if (t < 0.0D) {
+            t = 0.0D;
+        } else if (t > 1.0D) {
+            t = 1.0D;
+        }
+        return LOW_SPEED_DENSITY_FLOOR + (1.0D - LOW_SPEED_DENSITY_FLOOR) * t;
+    }
+
+    /**
      * 水雾初速的速度系数：{@code clamp(kmh / 80, 0.5, 1.5)}。
      *
      * <p>车越快，卷起来的水甩得越急 —— 40 km/h 的车只有 0.5 倍，120 km/h 以上封顶 1.5 倍。
@@ -794,6 +851,9 @@ public final class RainSpray {
      * {@code roofSkipped} 是因为车厢中点不露天（隧道 / 棚顶 / 未加载）被整节跳过的车厢数 ——
      * 后者 &gt;0 而 {@code spawned=0} 就是"在隧道里，本来就不该有水雾"的硬证据。
      * {@code cap} 是令牌桶容量（本窗口的长期配额 = 60/tick × 20 = 1200 个/秒）。
+     * {@code lowBoost=} 是低速渐入的全局状态（{@code off} / {@code on(20-50 0.35..1.00)}）；
+     * 某一列车这一 tick 实际乘到的密度系数看 {@code spray-diag} 的 {@code low=}（1.00 = 满档，
+     * 0.35–1.00 = 正处在 20–50 的渐入段）。
      * {@code density} 是本窗口的配额占用率 {@code spawned/(80×100)}：分子是真正发出去的粒子数，
      * 分母是全局每 tick 上限在 100 tick 窗口里能给出的最多个数 —— 调「密不密」时先看这个数。
      * {@code tint=} 是 {@link SprayParticle} 实际用的顶点色 tint / 寿命 / alpha 区间（直接读那边的
@@ -835,20 +895,22 @@ public final class RainSpray {
             // vanilla 表示已经回退到 minecraft:cloud（原因见启动日志里的 "spray particle type=" 一行）。
             // avgSize= 是本窗口新生粒子的平均起始尺寸（格）：调参后先看它，再看画面。
             MtrHeadlightClient.LOGGER.info(
-                    "[lte] spray: trains={} spawned={} density={} skipped={} roofSkipped={} cap={} avgSize={} {}"
+                    "[lte] spray: trains={} spawned={} density={} skipped={} roofSkipped={} cap={} lowBoost={} avgSize={} {}"
                             + " raining={} weather={} grad={} particles={} sprayType={} culled={} probeAt={}",
                     Integer.valueOf(trains), Integer.valueOf(spawned), density,
                     Integer.valueOf(skipped),
                     Integer.valueOf(roofSkipped), Integer.valueOf((int) TOKEN_CAP),
-                    avgSize, SprayParticle.paramsLabel(),
+                    lowBoostLabel(cfg), avgSize, SprayParticle.paramsLabel(),
                     Boolean.valueOf(raining), Boolean.valueOf(RailWeather.weatherRaining(world)),
                     fmt(RailWeather.rainGradient(world)), mode, SprayType.label(),
                     ParticleCull.culled().isEmpty() ? "none" : ParticleCull.culled(),
                     probeAt == null || tick - probeTick > DIAG_PERIOD_TICKS ? "-" : probeAt);
             for (final Diag d : lines) {
                 MtrHeadlightClient.LOGGER.info(
-                        "spray-diag: id={} speed={} rail={} raining={} sky={} dist={} lat={} halfW={} dy={} vdir={} at={} spawned={} blocked={} reason={} probeAt={}",
-                        d.id, fmt(d.kmh), fmt(d.railKmh), Boolean.valueOf(d.raining),
+                        "spray-diag: id={} speed={} rail={} low={} raining={} sky={} dist={} lat={} halfW={} dy={} vdir={} at={} spawned={} blocked={} reason={} probeAt={}",
+                        d.id, fmt(d.kmh), fmt(d.railKmh),
+                        String.format(java.util.Locale.ROOT, "%.2f", Double.valueOf(d.lowFactor)),
+                        Boolean.valueOf(d.raining),
                         d.sky == null ? "-" : skyName(d.sky),
                         d.dist < 0.0D ? "-" : fmt(d.dist),
                         d.lat == Double.MAX_VALUE ? "-" : fmt(d.lat),
@@ -880,6 +942,26 @@ public final class RainSpray {
         return sky.booleanValue() ? "open" : "roof";
     }
 
+    /**
+     * 诊断用的低速渐入状态：{@code off}，或 {@code on(20-50 0.35..1.00)}（起点 - 全局阈值，密度区间）。
+     *
+     * <p>这里打的是<b>全局</b>阈值；某条侧线覆盖了 {@code rainSprayMinSpeedKmh} 时，那列车的实际
+     * 区间与乘数看 {@code spray-diag} 的 {@code low=} —— 两者对不上就说明覆盖在生效，不是算错了。
+     * 低速段整段退化（阈值 ≤ 20）时同样打 {@code off}：没有可渐入的区间，行为与关闭一致。
+     */
+    private static String lowBoostLabel(final HeadlightConfig cfg) {
+        if (cfg == null || !cfg.rainSprayLowSpeedBoost) {
+            return "off";
+        }
+        final double minKmh = cfg.rainSprayMinSpeedKmh;
+        if (!(minKmh > LOW_SPEED_KMH)) {
+            return "off";
+        }
+        return "on(" + Math.round(LOW_SPEED_KMH) + "-" + Math.round(minKmh) + " "
+                + String.format(java.util.Locale.ROOT, "%.2f..1.00",
+                        Double.valueOf(LOW_SPEED_DENSITY_FLOOR)) + ")";
+    }
+
     /** 坐标格式化：负坐标是合法值，不能走 {@link #fmt} 的 "-" 哨兵。 */
     private static String fmtCoord(final double value) {
         return String.format(java.util.Locale.ROOT, "%.2f", Double.valueOf(value));
@@ -908,6 +990,8 @@ public final class RainSpray {
         int blocked;
         int ticks;
         String reason = "-";
+        /** 本 tick 的密度乘数（低速渐入）：1.00 = 满档，0.35–1.00 = 低速段被调稀。 */
+        double lowFactor = 1.0D;
         /** 最近一个水雾粒子的横向偏移（带符号）与当时的车体半宽、高出轨面的高度。 */
         double lat = Double.MAX_VALUE;
         double halfW = -1.0D;

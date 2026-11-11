@@ -38,6 +38,11 @@ import java.util.Map;
  * </ol>
  *
  * <p>只在客户端渲染线程使用（{@code RenderPIDSStationMixin}），所以不做并发处理。
+ *
+ * <h2>键是 platformId，不是「屏」</h2>
+ * <p>这张表的键是<b>站台 id</b> —— {@code platformId -> 它属于哪个车站} 与屏无关，是全局事实，
+ * 所以在这里缓存不会让「新放的屏读到别的屏的车站」。读的一侧（{@link PidsStationResolver}）
+ * 每帧只问「<b>这一格</b>方块实体的 platformIds 是什么」，再用这里的表把站台翻成车站。
  */
 public final class PidsStationIndex {
 
