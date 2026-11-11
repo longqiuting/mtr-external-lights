@@ -543,7 +543,14 @@ public final class ProtoBeamCone {
             lastLog = now;
             // Covers frames where nothing was drawn: render() never ran, so its own timer never
             // fired. Either way exactly one line per window comes out.
-            ConeVolumeRenderer.logIfDue();
+            //
+            // Reflective on purpose: only the 1.20.1 build has a real depth-cone statistics window
+            // to flush; the 1.18.2/1.19.2 stubs have no such method, and this file lives in common.
+            try {
+                ConeVolumeRenderer.class.getDeclaredMethod("logIfDue").invoke(null);
+            } catch (Throwable ignored) {
+                // No statistics window on this version - nothing to flush.
+            }
             String depth = "n/a";
             try {
                 depth = String.valueOf(client.getFramebuffer().getDepthAttachment());

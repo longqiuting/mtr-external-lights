@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.js.mtrheadlight.mixin.rain",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "lte.refmap.json",
+  "client": [
+    "WorldRendererRainMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

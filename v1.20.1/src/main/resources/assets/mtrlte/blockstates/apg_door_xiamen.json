@@ -1,7 +1,7 @@
 {
-  "variants": {
-    "": {
-      "model": "minecraft:block/air"
-    }
-  }
+	"variants": {
+		"": {
+			"model": "mtrlte:block/apg_door_particle_only"
+		}
+	}
 }

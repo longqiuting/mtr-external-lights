@@ -1,0 +1,10 @@
+{
+	"parent": "mtrlte:block/psd_door_left_base",
+	"textures": {
+		"bottom": "mtrlte:block/transparent",
+		"top": "mtrlte:block/black",
+		"panel": "mtrlte:block/psd_door_top_left_1_l3",
+		"back": "mtrlte:block/psd_door_top_back_1_l3",
+		"particle": "mtrlte:block/psd_door_top_left_1_l3"
+	}
+}

@@ -347,7 +347,10 @@ public final class DebugProbe {
     private static boolean isAir(final ClientWorld world, final double x, final double y,
                                  final double z) {
         try {
-            return world.isAir(net.minecraft.util.math.BlockPos.ofFloored(x, y, z));
+            // BlockPos.ofFloored is 1.19.4+; the three Math.floor calls are the same thing and
+            // keep this file compiling on every supported version.
+            return world.isAir(new net.minecraft.util.math.BlockPos(
+                    (int) Math.floor(x), (int) Math.floor(y), (int) Math.floor(z)));
         } catch (Throwable t) {
             return true;
         }
@@ -524,7 +527,7 @@ public final class DebugProbe {
     /** 聊天栏一行（玩家可能正忙着，所以不用 action bar）。 */
     private static void say(final ClientPlayerEntity player, final String message) {
         try {
-            player.sendMessage(Text.literal(message), false);
+            player.sendMessage(Text.of(message), false);
         } catch (Throwable ignored) {
             // 玩家已下线 / 正在切换维度：探针自己停就行，不必再喊。
         }

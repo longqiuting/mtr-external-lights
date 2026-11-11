@@ -1,0 +1,57 @@
+{
+	"textures": {
+		"side": "mtrlte:block/psd_side_light",
+		"black": "mtrlte:block/black",
+		"panel": "mtrlte:block/apg_door_top_l3"
+	},
+	"elements": [
+		{
+			"from": [
+				1,
+				0,
+				0
+			],
+			"to": [
+				2,
+				8,
+				16
+			],
+			"faces": {
+				"up": {
+					"uv": [
+						16,
+						8,
+						0,
+						8.1
+					],
+					"texture": "#panel",
+					"rotation": 270
+				},
+				"east": {
+					"uv": [
+						0,
+						8,
+						16,
+						16
+					],
+					"texture": "#panel"
+				},
+				"west": {
+					"uv": [
+						16,
+						8,
+						0,
+						16
+					],
+					"texture": "#panel"
+				},
+				"north": {
+					"texture": "#side"
+				},
+				"south": {
+					"texture": "#black"
+				}
+			}
+		}
+	]
+}

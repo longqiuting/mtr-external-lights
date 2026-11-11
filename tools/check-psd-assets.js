@@ -5,9 +5,12 @@ const { execSync } = require('child_process');
 
 const jar = process.argv[2];
 const out = process.argv[3];
+// NOTE: unzip's `*` does not descend into subdirectories, so `"assets/*"` extracted
+// nothing and this checker used to report "0 file refs / OK" no matter what was in
+// the jar. Extract the whole archive instead (release jars are only a couple of MB).
 if (!fs.existsSync(path.join(out, 'assets'))) {
   fs.rmSync(out, { recursive: true, force: true });
-  execSync(`unzip -qo "${jar}" "assets/*" -d "${out}"`, { shell: 'bash' });
+  execSync(`unzip -qo "${jar}" -d "${out}"`, { shell: 'bash' });
 }
 
 const assets = path.join(out, 'assets');
@@ -31,7 +34,11 @@ function splitId(id, defaultNs) {
   return i < 0 ? [defaultNs, id] : [id.slice(0, i), id.slice(i + 1)];
 }
 
+// namespaces that are provided by the MTR/NTE jars at runtime, not by this jar
+const EXTERNAL = new Set(['mtr', 'mtrsteamloco', 'nte', 'lambdynlights']);
+
 function checkModelFile(ns, p, from) {
+  if (EXTERNAL.has(ns)) return;
   const key = ns + ':' + p;
   if (seen.has(key)) return;
   seen.add(key);
@@ -44,12 +51,15 @@ function checkModelFile(ns, p, from) {
   }
   const json = JSON.parse(fs.readFileSync(file, 'utf8'));
   if (json.parent) {
-    const [pns, pp] = splitId(json.parent, ns);
+    // an unqualified parent is always vanilla (`block/block`, `item/generated`),
+    // never a model of the declaring namespace
+    const [pns, pp] = splitId(json.parent, 'minecraft');
     checkModelFile(pns, pp, key);
   }
   for (const [k, v] of Object.entries(json.textures || {})) {
     if (typeof v !== 'string' || v.startsWith('#')) continue;
-    const [tns, tp] = splitId(v, ns);
+    const [tns, tp] = splitId(v, 'minecraft');
+    if (EXTERNAL.has(tns)) continue;
     if (!fs.existsSync(texturePath(tns, tp))) {
       problems.push(`missing TEXTURE ${tns}:${tp} (in model ${key}, key #${k})`);
     }

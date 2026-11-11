@@ -1,8 +1,7 @@
 package dev.js.mtrheadlight;
 
-import com.mojang.blaze3d.systems.RenderSystem;
-import static net.minecraft.client.gui.DrawableHelper.*;
 import net.minecraft.client.util.math.MatrixStack;
+import dev.js.mtrheadlight.clientgui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.text.OrderedText;
@@ -50,49 +49,32 @@ final class ResetConfirmScreen extends Screen {
     protected void init() {
         final int y = this.height / 2 + 16;
         final int left = this.width / 2 - (BTN_W * 2 + GAP) / 2;
-        addButton(left, y, BTN_W, BTN_H, ParameterScreen.tr("btn.resetConfirm"), button -> {
+        this.addDrawableChild(ButtonWidget.builder(ParameterScreen.tr("btn.resetConfirm"), button -> {
             this.onConfirm.run();
             close();
-        });
-        addButton(left + BTN_W + GAP, y, BTN_W, BTN_H, ParameterScreen.tr("btn.resetAbort"),
-                button -> close());
+        }).dimensions(left, y, BTN_W, BTN_H).build());
+        this.addDrawableChild(ButtonWidget.builder(ParameterScreen.tr("btn.resetAbort"), button -> close())
+                .dimensions(left + BTN_W + GAP, y, BTN_W, BTN_H).build());
     }
 
     @Override
     public void render(final MatrixStack matrices, final int mouseX, final int mouseY, final float delta) {
-        RenderSystem.setShaderTexture(0, OPTIONS_BACKGROUND);
-        RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
-        drawTexture(matrices, 0, 0, 0.0F, 0.0F, this.width, this.height, 32, 32);
-        fillGradient(matrices, 0, 0, this.width, this.height, 0xC0101010, 0xD0101010);
+        final DrawContext context = new DrawContext(matrices);
+        context.drawTexture(OPTIONS_BACKGROUND, 0, 0, 0, 0, this.width, this.height, 32, 32);
+        context.fillGradient(0, 0, this.width, this.height, 0xC0101010, 0xD0101010);
         super.render(matrices, mouseX, mouseY, delta);
 
-        drawCentered(matrices, this.title, this.width / 2, this.height / 2 - 44, 0xFFFFFF);
+        context.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2,
+                this.height / 2 - 44, 0xFFFFFF);
 
         // Wrapped from the real font, so a longer translation cannot run off the window.
         final List<OrderedText> lines = this.textRenderer.wrapLines(this.message,
                 Math.max(120, Math.min(this.width - 60, 340)));
         int y = this.height / 2 - 22;
         for (final OrderedText line : lines) {
-            drawCentered(matrices, line, this.width / 2, y, 0xE0E0E0);
+            context.drawCenteredTextWithShadow(this.textRenderer, line, this.width / 2, y, 0xE0E0E0);
             y += 12;
         }
-    }
-
-    /** Centred already-wrapped text; the MatrixStack API has no Text variant to reuse. */
-    private void drawCentered(final MatrixStack matrices, final OrderedText text, final int cx,
-                              final int y, final int color) {
-        this.textRenderer.drawWithShadow(matrices, text,
-                (float) (cx - this.textRenderer.getWidth(text) / 2), (float) y, color);
-    }
-
-    private void drawCentered(final MatrixStack matrices, final Text text, final int cx,
-                              final int y, final int color) {
-        this.drawCentered(matrices, text.asOrderedText(), cx, y, color);
-    }
-
-    private ButtonWidget addButton(final int x, final int y, final int w, final int h,
-                                   final Text label, final ButtonWidget.PressAction action) {
-        return this.addDrawableChild(ButtonWidget.builder(label, action).dimensions(x, y, w, h).build());
     }
 
     @Override

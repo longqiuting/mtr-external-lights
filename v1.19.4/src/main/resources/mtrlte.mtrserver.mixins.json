@@ -1,0 +1,16 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "dev.js.mtrheadlight.mixin.mtrserver",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "lte.refmap.json",
+  "plugin": "dev.js.mtrheadlight.mixin.mtrserver.MtrServerMixinPlugin",
+  "mixins": [
+    "TrainSimulateCaptureMixin",
+    "RailwayDataCaptureMixin",
+    "PidsScheduleScopeMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

@@ -1,8 +1,7 @@
 package dev.js.mtrheadlight;
 
-import com.mojang.blaze3d.systems.RenderSystem;
-import static net.minecraft.client.gui.DrawableHelper.*;
 import net.minecraft.client.util.math.MatrixStack;
+import dev.js.mtrheadlight.clientgui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
@@ -222,17 +221,9 @@ public final class ColorPickerScreen extends Screen {
     }
 
     /** Centre a text; the 1.18/1.19 build gets the {@code MatrixStack} body from the generator. */
-    private void drawCentered(final MatrixStack matrices, final Text text, final int cx,
+    private void drawCentered(final DrawContext context, final Text text, final int cx,
                               final int y, final int color) {
-        drawCenteredText(matrices, text, cx, y, color);
-    }
-
-    /** 1.19 / 1.18 draw text from a String here, so the centring is done by hand. */
-    private void drawCenteredText(final MatrixStack matrices, final Text text, final int x,
-                                  final int y, final int color) {
-        final String s = text.getString();
-        this.textRenderer.drawWithShadow(matrices, s,
-                (float) (x - this.textRenderer.getWidth(s) / 2), (float) y, color);
+        context.drawCenteredTextWithShadow(this.textRenderer, text, cx, y, color);
     }
 
     /** Perceived brightness, so the hex text stays readable on top of its own colour. */
@@ -242,23 +233,22 @@ public final class ColorPickerScreen extends Screen {
 
     @Override
     public void render(final MatrixStack matrices, final int mouseX, final int mouseY, final float delta) {
-        RenderSystem.setShaderTexture(0, OPTIONS_BACKGROUND);
-        RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
-        drawTexture(matrices, 0, 0, 0.0F, 0.0F, this.width, this.height, 32, 32);
-        fillGradient(matrices, 0, 0, this.width, this.height, 0xC0101010, 0xD0101010);
+        final DrawContext context = new DrawContext(matrices);
+        context.drawTexture(OPTIONS_BACKGROUND, 0, 0, 0, 0, this.width, this.height, 32, 32);
+        context.fillGradient(0, 0, this.width, this.height, 0xC0101010, 0xD0101010);
         super.render(matrices, mouseX, mouseY, delta);
 
-        drawCentered(matrices, this.title, this.width / 2, 20, 0xFFFFFF);
-        drawCentered(matrices, ParameterScreen.tr("color.hint"), this.width / 2, 34, 0xB0B0B0);
+        drawCentered(context, this.title, this.width / 2, 20, 0xFFFFFF);
+        drawCentered(context, ParameterScreen.tr("color.hint"), this.width / 2, 34, 0xB0B0B0);
 
         final int rgb = this.selected & 0xFFFFFF;
 
         // ---- preview bar: the colour being edited, with the hex it will be stored as ----
-        fill(matrices, this.gridX - 1, this.previewY - 1, this.gridX + this.gridW + 1,
+        context.fill(this.gridX - 1, this.previewY - 1, this.gridX + this.gridW + 1,
                 this.previewY + PREVIEW_H + 1, FRAME);
-        fill(matrices, this.gridX, this.previewY, this.gridX + this.gridW, this.previewY + PREVIEW_H,
+        context.fill(this.gridX, this.previewY, this.gridX + this.gridW, this.previewY + PREVIEW_H,
                 0xFF000000 | rgb);
-        drawCentered(matrices, Text.literal(HeadlightConfig.formatColor(rgb)),
+        drawCentered(context, Text.literal(HeadlightConfig.formatColor(rgb)),
                 this.gridX + this.gridW / 2, this.previewY + 2,
                 luminance(rgb) > 140 ? 0xFF101010 : 0xFFFFFFFF);
 
@@ -267,11 +257,11 @@ public final class ColorPickerScreen extends Screen {
         final int py = this.gridY - PAD;
         final int pr = this.gridX + this.gridW + PAD;
         final int pb = this.gridY + this.gridH + PAD;
-        fill(matrices, px, py, pr, pb, 0xC0101010);
-        fill(matrices, px, py, pr, py + 1, 0xFF5A5A5A);
-        fill(matrices, px, pb - 1, pr, pb, 0xFF5A5A5A);
-        fill(matrices, px, py, px + 1, pb, 0xFF5A5A5A);
-        fill(matrices, pr - 1, py, pr, pb, 0xFF5A5A5A);
+        context.fill(px, py, pr, pb, 0xC0101010);
+        context.fill(px, py, pr, py + 1, 0xFF5A5A5A);
+        context.fill(px, pb - 1, pr, pb, 0xFF5A5A5A);
+        context.fill(px, py, px + 1, pb, 0xFF5A5A5A);
+        context.fill(pr - 1, py, pr, pb, 0xFF5A5A5A);
 
         // ---- swatches: black base frame (2px), then white/grey/idle ring, then the colour ----
         for (int i = 0; i < PALETTE.length; i++) {
@@ -282,16 +272,16 @@ public final class ColorPickerScreen extends Screen {
             final boolean hovered = mouseX >= x && mouseX < x + this.cell
                     && mouseY >= y && mouseY < y + this.cell;
             final int ring = isSelected ? FRAME_SELECTED : (hovered ? FRAME_HOVER : FRAME_IDLE);
-            fill(matrices, x - 2, y - 2, x + this.cell + 2, y + this.cell + 2, FRAME);
-            fill(matrices, x - 1, y - 1, x + this.cell + 1, y + this.cell + 1, ring);
-            fill(matrices, x, y, x + this.cell, y + this.cell, 0xFF000000 | swatch);
+            context.fill(x - 2, y - 2, x + this.cell + 2, y + this.cell + 2, FRAME);
+            context.fill(x - 1, y - 1, x + this.cell + 1, y + this.cell + 1, ring);
+            context.fill(x, y, x + this.cell, y + this.cell, 0xFF000000 | swatch);
         }
 
         // ---- hex row label + validation message ----
-        this.textRenderer.drawWithShadow(matrices, ParameterScreen.tr("color.hex").getString(),
-                (float) this.gridX, (float) (this.hexY + (HEX_H - 8) / 2), 0xFFFFFF);
+        context.drawTextWithShadow(this.textRenderer, ParameterScreen.tr("color.hex"),
+                this.gridX, this.hexY + (HEX_H - 8) / 2, 0xFFFFFF);
         if (this.hexInvalid) {
-            drawCentered(matrices, ParameterScreen.tr("color.hexInvalid"),
+            drawCentered(context, ParameterScreen.tr("color.hexInvalid"),
                     this.gridX + this.gridW / 2, this.hexY + HEX_H + 2, 0xFF5555);
         }
     }

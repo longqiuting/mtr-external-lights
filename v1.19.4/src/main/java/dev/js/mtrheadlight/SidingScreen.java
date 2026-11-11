@@ -1,11 +1,10 @@
 package dev.js.mtrheadlight;
 
+import net.minecraft.client.util.math.MatrixStack;
 import mtr.client.ClientData;
 import mtr.data.Depot;
 import mtr.data.Siding;
-import com.mojang.blaze3d.systems.RenderSystem;
-import static net.minecraft.client.gui.DrawableHelper.*;
-import net.minecraft.client.util.math.MatrixStack;
+import dev.js.mtrheadlight.clientgui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.ClickableWidget;
@@ -25,7 +24,7 @@ import java.util.Map;
 
 /**
  * The siding list of the "按侧线配置" screen: one row per siding, its current light state on the
- * right, and the whole row opens {@link SidingDetailScreen}.
+ * right, and the whole row opens {@link CategoryScreen}.
  *
  * <p>A train carries the siding it came from ({@code Train.sidingId}), so this is a direct map from
  * the player's choice to the light filter, with no guessing about depots or route names.
@@ -91,8 +90,8 @@ public final class SidingScreen extends Screen {
     /** Width of the "地图选择" / "Map" button that opens {@link SidingMapScreen}. */
     private static final int MAP_BTN_W = 88;
     /**
-     * Search box and group toggle share one line only when the column is at least this wide: the
-     * old 336 plus the map button and its gap.
+     * Search box and group toggle share one line only when the column is at least this wide:
+     * the old 336 plus the map button and its gap.
      */
     private static final int ONE_ROW_MIN = 336 + MAP_BTN_W + GAP;
     /** Least vertical room (header + one row) that still justifies drawing the search row. */
@@ -101,6 +100,8 @@ public final class SidingScreen extends Screen {
     private static final int NEAR_DEPOT = 48;
 
     private final Screen parent;
+    /** 主界面 {@link ConfigScreen}：分区页 / 行页的「返回主界面」直接跳它，不是逐级回退。 */
+    private final Screen root;
 
     /** Every siding of the world, sorted by label - never filtered, so the column width is stable. */
     private List<Siding> all = List.of();
@@ -141,9 +142,10 @@ public final class SidingScreen extends Screen {
     private Text[] rowState = new Text[0];
     private int[] rowColor = new int[0];
 
-    public SidingScreen(final Screen parent) {
+    public SidingScreen(final Screen parent, final Screen root) {
         super(tr("sidings.title"));
         this.parent = parent;
+        this.root = root == null ? parent : root;
     }
 
     private static MutableText tr(final String key, final Object... args) {
@@ -215,13 +217,11 @@ public final class SidingScreen extends Screen {
         final int px;
         final int pz;
         try {
-            // MTR is compiled against intermediary names, so its BlockPos arrives as
-            // net.minecraft.class_2338 and the coordinate getters carry the intermediary names the
-            // MTR bytecode itself calls (method_10263 = getX, method_10260 = getZ). Both ends of
-            // the siding are in its packet, so this is valid on the client.
+            // MTR is compiled against yarn names here (libs/MTR-...-named.jar), so its BlockPos
+            // exposes the normal getters. Both ends of the siding are in its packet.
             final var mid = siding.getMidPos();
-            px = mid.method_10263();
-            pz = mid.method_10260();
+            px = mid.getX();
+            pz = mid.getZ();
         } catch (RuntimeException e) {
             return 0L;
         }
@@ -234,12 +234,12 @@ public final class SidingScreen extends Screen {
             if (depot.corner1 == null || depot.corner2 == null) {
                 continue;
             }
-            // Same story as getMidPos(): AreaBase's corners are a net.minecraft.class_3545 (Pair)
-            // whose accessors only exist under their intermediary names on MTR's classpath.
-            final int x1 = depot.corner1.method_15442();
-            final int z1 = depot.corner1.method_15441();
-            final int x2 = depot.corner2.method_15442();
-            final int z2 = depot.corner2.method_15441();
+            // Same story as getMidPos(): AreaBase's corners are a net.minecraft.util.Pair whose
+            // getters are the normal getLeft() / getRight() now that MTR is compiled against yarn.
+            final int x1 = depot.corner1.getLeft();
+            final int z1 = depot.corner1.getRight();
+            final int x2 = depot.corner2.getLeft();
+            final int z2 = depot.corner2.getRight();
             final int minX = Math.min(x1, x2);
             final int maxX = Math.max(x1, x2);
             final int minZ = Math.min(z1, z2);
@@ -328,12 +328,11 @@ public final class SidingScreen extends Screen {
             }
         }).dimensions(this.left + fieldW + GAP, SEARCH_Y, CLEAR_W, SEARCH_H).build());
 
-        // Group toggle and the map button: side by side on one line when the column is wide enough
-        // for both, otherwise the toggle takes the left half of its own line and the map button the
-        // right half - never a fixed width that clips either label.
+        // Group toggle and the map button: side by side on one line when the column is wide
+        // enough for both, otherwise the toggle takes the left half of its own line and the map
+        // button the right half - never a fixed width that clips either label.
         final int halfW = (this.colW - GAP) / 2;
-        final int gx = this.oneRow
-                ? this.left + this.colW - GROUP_BTN_W - GAP - MAP_BTN_W : this.left;
+        final int gx = this.oneRow ? this.left + this.colW - GROUP_BTN_W - GAP - MAP_BTN_W : this.left;
         final int gy = this.oneRow ? SEARCH_Y : SEARCH_Y + SEARCH_H + 4;
         final int gw = this.oneRow ? GROUP_BTN_W : halfW;
         this.groupButton = this.addDrawableChild(ButtonWidget.builder(groupLabel(), b -> {
@@ -585,28 +584,21 @@ public final class SidingScreen extends Screen {
 
     private void open(final Siding siding) {
         if (this.client != null && siding != null) {
-            this.client.setScreen(new SidingDetailScreen(this, siding));
+            // 先进这条侧线的分区列表，不是直接一屏滑条：back = 本列表，root = 主界面。
+            this.client.setScreen(new CategoryScreen(this, this.root, siding));
         }
     }
 
     /** The same list as a top-down plan; the two views are siblings, neither replaces the other. */
     private void openMap() {
         if (this.client != null) {
-            this.client.setScreen(new SidingMapScreen(this));
+            this.client.setScreen(new SidingMapScreen(this, this.root));
         }
     }
 
     // ---------------------------------------------------------------------------------------------
     // Render
     // ---------------------------------------------------------------------------------------------
-
-    /** 1.19 / 1.18 draw text from a String here, so the centring is done by hand. */
-    private void drawCenteredText(final MatrixStack matrices, final Text text, final int x,
-                                  final int y, final int color) {
-        final String s = text.getString();
-        this.textRenderer.drawWithShadow(matrices, s,
-                (float) (x - this.textRenderer.getWidth(s) / 2), (float) y, color);
-    }
 
     /** Width of a label in the real font ({@code String} overload: same in 1.18/1.19/1.20). */
     private int textWidth(final Text text) {
@@ -631,49 +623,47 @@ public final class SidingScreen extends Screen {
     }
 
     /** Right-aligned text; the 1.18/1.19 generator swaps the body for the MatrixStack API. */
-    private void drawRight(final MatrixStack matrices, final Text text, final int right, final int y,
+    private void drawRight(final DrawContext context, final Text text, final int right, final int y,
                            final int color) {
-        final String s = text.getString();
-        this.textRenderer.drawWithShadow(matrices, s,
-                (float) (right - this.textRenderer.getWidth(s)), (float) y, color);
+        context.drawTextWithShadow(this.textRenderer, text,
+                right - this.textRenderer.getWidth(text.getString()), y, color);
     }
 
     @Override
     public void render(final MatrixStack matrices, final int mouseX, final int mouseY, final float delta) {
-        RenderSystem.setShaderTexture(0, OPTIONS_BACKGROUND);
-        RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
-        drawTexture(matrices, 0, 0, 0.0F, 0.0F, this.width, this.height, 32, 32);
-        fillGradient(matrices, 0, 0, this.width, this.height, 0xC0101010, 0xD0101010);
+        final DrawContext context = new DrawContext(matrices);
+        context.drawTexture(OPTIONS_BACKGROUND, 0, 0, 0, 0, this.width, this.height, 32, 32);
+        context.fillGradient(0, 0, this.width, this.height, 0xC0101010, 0xD0101010);
         super.render(matrices, mouseX, mouseY, delta);
-        drawCenteredText(matrices, this.title, this.width / 2, TITLE_Y, 0xFFFFFF);
+        context.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, TITLE_Y, 0xFFFFFF);
 
         // 34..45: the hint row doubles as the grouping disclaimer, so the guess is never silent.
         final boolean depotMode = this.grouped && this.hasDepots;
         final String hint = this.textRenderer.trimToWidth(
                 tr(depotMode ? "sidings.groupHint" : "sidings.hint").getString(),
                 Math.max(60, this.width - 32));
-        drawCenteredText(matrices, Text.literal(hint),
+        context.drawCenteredTextWithShadow(this.textRenderer, Text.literal(hint),
                 this.width / 2, HINT_Y, 0xB0B0B0);
 
         if (this.all.isEmpty()) {
-            drawCenteredText(matrices, tr("sidings.empty"),
+            context.drawCenteredTextWithShadow(this.textRenderer, tr("sidings.empty"),
                     this.width / 2, LEGACY_LIST_TOP + 34, 0xFFD37F);
-            drawCenteredText(matrices, tr("sidings.emptyHint"),
+            context.drawCenteredTextWithShadow(this.textRenderer, tr("sidings.emptyHint"),
                     this.width / 2, LEGACY_LIST_TOP + 48, 0x909090);
             return;
         }
 
         if (this.entries.isEmpty()) {
-            drawCenteredText(matrices, tr("sidings.noMatch"),
+            context.drawCenteredTextWithShadow(this.textRenderer, tr("sidings.noMatch"),
                     this.width / 2, this.listTop + 18, 0xFFD37F);
-            drawCenteredText(matrices, tr("sidings.noMatchHint"),
+            context.drawCenteredTextWithShadow(this.textRenderer, tr("sidings.noMatchHint"),
                     this.width / 2, this.listTop + 32, 0x909090);
             return;
         }
 
         if (this.pageStarts.isEmpty()) {
             // Window too short for even one row: say so instead of painting over the paging bar.
-            drawCenteredText(matrices, tr("sidings.tooShort"),
+            context.drawCenteredTextWithShadow(this.textRenderer, tr("sidings.tooShort"),
                     this.width / 2, this.listTop + 8, 0xFFD37F);
             return;
         }
@@ -681,14 +671,14 @@ public final class SidingScreen extends Screen {
         for (int i = 0; i < this.visible.size(); i++) {
             final Row row = this.visible.get(i);
             if (row.header != null) {
-                fill(matrices, this.left, this.rowY[i], this.left + this.colW,
+                context.fill(this.left, this.rowY[i], this.left + this.colW,
                         this.rowY[i] + HEADER_H - 1, 0x33FFFFFF);
                 final String title = this.textRenderer.trimToWidth(
                         row.header.getString(), this.colW - 10);
-                this.textRenderer.drawWithShadow(matrices, title,
-                        (float) (this.left + 5), (float) (this.rowY[i] + 3), 0xFFD37F);
+                context.drawTextWithShadow(this.textRenderer, Text.literal(title),
+                        this.left + 5, this.rowY[i] + 3, 0xFFD37F);
             } else if (this.rowState[i] != null) {
-                drawRight(matrices, this.rowState[i], this.statusRight, this.rowY[i] + 6, this.rowColor[i]);
+                drawRight(context, this.rowState[i], this.statusRight, this.rowY[i] + 6, this.rowColor[i]);
             }
         }
     }

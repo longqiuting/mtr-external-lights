@@ -40,7 +40,7 @@ dependencies {
     // 否则 com.mojang.* 这类非混淆类和它的参数类型会解析到 intermediary 那一份。
     compileOnly files("C:/Users/AD/.gradle/caches/fabric-loom/minecraftMaven/net/minecraft/minecraft-merged/1.19.2-net.fabricmc.yarn.1_19_2.1.19.2+build.28-v2/minecraft-merged-1.19.2-net.fabricmc.yarn.1_19_2.1.19.2+build.28-v2.jar")
     compileOnly files("C:/Users/AD/.gradle/caches/fabric-loom/minecraftMaven/net/minecraft/minecraft-merged-intermediary/1.19.2-net.fabricmc.yarn.1_19_2.1.19.2+build.28-v2/minecraft-merged-intermediary-1.19.2-net.fabricmc.yarn.1_19_2.1.19.2+build.28-v2.jar")
-    compileOnly files("../libs/MTR-fabric-1.19.2-3.2.2-hotfix-1.jar")
+    compileOnly files("../libs/MTR-fabric-1.19.2-3.2.2-hotfix-1-named.jar")
     // NTE 0.3.3（Modrinth mtr-nte，ANTE 的前身，未 remap，包名 cn.zbx1425.*）：编译期只为 NTE
     // mixin 提供 MeshBuildingRailChunk；运行期由已安装的 NTE 提供。不能做 remap。
     compileOnly files("../libs/MTR-NTE-fabric-1.19.2-0.3.3.jar")
@@ -60,6 +60,9 @@ processResources {
 tasks.withType(JavaCompile).configureEach {
     it.options.release = 17
     it.options.encoding = "UTF-8"
+    // 天津地铁（ziyue.tjmetro）mixin 的目标类只在运行期存在（有意不做编译期依赖），
+    // 默认这条「soft target 找不到」是 ERROR，会把编译直接判失败。降级它，其余校验照旧。
+    it.options.compilerArgs += ['-AMSG_MIXIN_SOFT_TARGET_NOT_FOUND=disabled']
 }
 
 java {

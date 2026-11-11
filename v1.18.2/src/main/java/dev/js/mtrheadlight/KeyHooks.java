@@ -3,6 +3,7 @@ package dev.js.mtrheadlight;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.option.KeyBinding;
+import net.minecraft.client.util.InputUtil;
 import org.lwjgl.glfw.GLFW;
 
 /**
@@ -13,10 +14,6 @@ import org.lwjgl.glfw.GLFW;
  * and an unbound binding can never fire (GLFW key codes are non-negative, so {@code wasPressed()}
  * stays false). {@code while} rather than {@code if} because {@code wasPressed()} consumes one
  * queued press per call.
- *
- * <p>1.18.2 note: {@code KeyBinding} has no {@code InputUtil.Type} parameter here - the mouse-button
- * overload arrived in 1.19 - hence the three-argument constructor
- * {@code (translationKey, keyCode, category)}. The registration API is the same.
  *
  * <p>Nothing happens while another screen is open - the player is already in a UI, and stacking one
  * screen on top of an inventory or chat prompt is never what the key was meant to do.
@@ -32,8 +29,8 @@ public final class KeyHooks {
     }
 
     public static void init() {
-        openConfig = KeyBindingHelper.registerKeyBinding(
-                new KeyBinding(OPEN_CONFIG_KEY, GLFW.GLFW_KEY_UNKNOWN, CATEGORY_KEY));
+        openConfig = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+                OPEN_CONFIG_KEY, InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_UNKNOWN, CATEGORY_KEY));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (openConfig.wasPressed()) {

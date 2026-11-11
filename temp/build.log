@@ -1,0 +1,23 @@
+D:\MC-MTR-JS\mtr-headlight\common\src\main\java\dev\js\mtrheadlight\mixin\ante\AnteBrightnessMixin.java:28: 警告: Mixin target fabric.cn.zbx1425.mtrsteamloco.render.rail.MeshBuildingRailChunk is public and should be specified in value
+@Mixin(targets = "fabric.cn.zbx1425.mtrsteamloco.render.rail.MeshBuildingRailChunk")
+^
+D:\MC-MTR-JS\mtr-headlight\common\src\main\java\dev\js\mtrheadlight\mixin\ante\AnteInstancedBrightnessMixin.java:23: 警告: Mixin target fabric.cn.zbx1425.mtrsteamloco.render.rail.InstancedRailChunk is public and should be specified in value
+@Mixin(targets = "fabric.cn.zbx1425.mtrsteamloco.render.rail.InstancedRailChunk")
+^
+D:\MC-MTR-JS\mtr-headlight\common\src\main\java\dev\js\mtrheadlight\mixin\ante\AnteRailChunkBuildMixin.java:67: 警告: Mixin target fabric.cn.zbx1425.mtrsteamloco.render.rail.RailRenderDispatcher is public and should be specified in value
+@Mixin(targets = "fabric.cn.zbx1425.mtrsteamloco.render.rail.RailRenderDispatcher", remap = false)
+^
+D:\MC-MTR-JS\mtr-headlight\common\src\main\java\dev\js\mtrheadlight\mixin\nte\NteRailChunkBuildMixin.java:51: 警告: Mixin target cn.zbx1425.mtrsteamloco.render.rail.RailRenderDispatcher is public and should be specified in value
+@Mixin(targets = "cn.zbx1425.mtrsteamloco.render.rail.RailRenderDispatcher", remap = false)
+^
+D:\MC-MTR-JS\mtr-headlight\v1.19.4\src\main\java\dev\js\mtrheadlight\mixin\nte\NteBrightnessMixin.java:36: 警告: Mixin target cn.zbx1425.mtrsteamloco.render.rail.MeshBuildingRailChunk is public and should be specified in value
+@Mixin(targets = "cn.zbx1425.mtrsteamloco.render.rail.MeshBuildingRailChunk")
+^
+D:\MC-MTR-JS\mtr-headlight\v1.19.4\src\main\java\dev\js\mtrheadlight\mixin\nte\NteInstancedBrightnessMixin.java:35: 警告: Mixin target cn.zbx1425.mtrsteamloco.render.rail.InstancedRailChunk is public and should be specified in value
+@Mixin(targets = "cn.zbx1425.mtrsteamloco.render.rail.InstancedRailChunk")
+^
+注: 某些输入文件使用或覆盖了已过时的 API。
+注: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+注: D:\MC-MTR-JS\mtr-headlight\common\src\main\java\dev\js\mtrheadlight\RailRelightScheduler.java使用了未经检查或不安全的操作。
+注: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
+6 个警告

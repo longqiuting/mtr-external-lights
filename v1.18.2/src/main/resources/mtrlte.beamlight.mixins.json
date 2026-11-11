@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.js.mtrheadlight.mixin.beamlight",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "lte.refmap.json",
+  "client": [
+    "BeamLightMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

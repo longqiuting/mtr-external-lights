@@ -1,0 +1,9 @@
+{
+	"parent": "mtrlte:block/psd_glass_middle_base",
+	"textures": {
+		"bottom": "mtrlte:block/transparent",
+		"top": "mtrlte:block/black",
+		"front": "mtrlte:block/psd_glass_top_1_l2",
+		"back": "mtrlte:block/psd_glass_top_back_1_l2"
+	}
+}

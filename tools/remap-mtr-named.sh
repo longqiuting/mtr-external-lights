@@ -13,7 +13,9 @@
 #      hierarchy resolves and member mappings propagate into MTR's own subclasses (otherwise
 #      overrides keep names like `method_9559` and can't be @Override'n).
 #
-# Usage: tools/remap-mtr-named.sh [mtr.jar] [out.jar]
+# Usage: tools/remap-mtr-named.sh [mtr.jar] [out.jar] [mcver]
+#   mcver defaults to 1.20.1 (the original hardcoded target). Pass e.g. 1.19.4 to produce the
+#   1.19.4 named jar the v1.19.4 source set needs for `extends mtr.block.BlockPSDAPGDoorBase`.
 set -euo pipefail
 
 JAVA="${JAVA_HOME:-C:/Program Files/Java/jdk-21.0.10}/bin/java.exe"
@@ -22,6 +24,19 @@ GRADLE_MODS="C:/Users/AD/.gradle/caches/modules-2/files-2.1"
 LOOM="C:/Users/AD/.gradle/caches/fabric-loom"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -W 2>/dev/null || pwd)"
+MCVER="${3:-1.20.1}"
+
+# Per-version Loom artifacts: the yarn build suffix and merged-intermediary path both carry the
+# yarn version, so derive them from the Loom cache rather than hardcoding one MC version.
+case "$MCVER" in
+    1.18.2) YARN="1.18.2+build.4"; YARN_DIR="1_18_2" ;;
+    1.19.2) YARN="1.19.2+build.28"; YARN_DIR="1_19_2" ;;
+    1.19.4) YARN="1.19.4+build.2"; YARN_DIR="1_19_4" ;;
+    1.20.1) YARN="1.20.1+build.10"; YARN_DIR="1_20_1" ;;
+    *) echo "unknown mcver $MCVER" >&2; exit 1 ;;
+esac
+MCJAR="$MCVER-net.fabricmc.yarn.${YARN_DIR}.${YARN}-v2"
+
 SRC="${1:-$ROOT/libs/MTR-fabric-1.20.1-3.6.4.2.jar}"
 OUT="${2:-$ROOT/libs/MTR-fabric-1.20.1-3.6.4.2-named.jar}"
 
@@ -33,8 +48,8 @@ ASM_T="$GRADLE_MODS/org.ow2.asm/asm-tree/9.8/18419ca5b77a2f81097c741e7872e6ab8d2
 ASM_U="$GRADLE_MODS/org.ow2.asm/asm-util/9.8/395f1c1f035258511f27bc9b2583d76e4b143f59/asm-util-9.8.jar"
 MAPIO="$GRADLE_MODS/net.fabricmc/mapping-io/0.7.1/e96e1dda50d631c89f83ad5c2c951c3f2298e7c2/mapping-io-0.7.1.jar"
 SLF4J="$GRADLE_MODS/org.slf4j/slf4j-api/2.0.1/f48d81adce2abf5ad3cfe463df517952749e03bc/slf4j-api-2.0.1.jar"
-MCI="$LOOM/minecraftMaven/net/minecraft/minecraft-merged-intermediary/1.20.1-net.fabricmc.yarn.1_20_1.1.20.1+build.10-v2/minecraft-merged-intermediary-1.20.1-net.fabricmc.yarn.1_20_1.1.20.1+build.10-v2.jar"
-MAP="$LOOM/1.20.1/net.fabricmc.yarn.1_20_1.1.20.1+build.10-v2/mappings.tiny"
+MCI="$LOOM/minecraftMaven/net/minecraft/minecraft-merged-intermediary/$MCJAR/minecraft-merged-intermediary-$MCJAR.jar"
+MAP="$LOOM/$MCVER/net.fabricmc.yarn.${YARN_DIR}.${YARN}-v2/mappings.tiny"
 
 WORK="$ROOT/temp/remap-work"
 rm -rf "$WORK"

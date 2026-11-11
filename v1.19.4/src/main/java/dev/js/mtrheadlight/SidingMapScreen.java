@@ -1,11 +1,10 @@
 package dev.js.mtrheadlight;
 
+import net.minecraft.client.util.math.MatrixStack;
 import mtr.client.ClientData;
 import mtr.data.Depot;
 import mtr.data.Siding;
-import com.mojang.blaze3d.systems.RenderSystem;
-import static net.minecraft.client.gui.DrawableHelper.*;
-import net.minecraft.client.util.math.MatrixStack;
+import dev.js.mtrheadlight.clientgui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.text.MutableText;
@@ -63,7 +62,7 @@ import java.util.List;
  *   <li>Left-drag pans. A press that never moves more than {@link #DRAG_SLOP} pixels is a click,
  *       so panning can never accidentally open a siding.</li>
  *   <li>Click a siding (within {@link #HIT_PX} pixels of its dot, in screen space, so the target
- *       stays the same size at every zoom) -&gt; {@link SidingDetailScreen}. Click a depot rectangle
+ *       stays the same size at every zoom) -&gt; {@link CategoryScreen}. Click a depot rectangle
  *       -&gt; its sidings stay bright and the rest dim; clicking it again or clicking empty space
  *       clears the filter. Depot highlighting uses the <em>drawn</em> rectangle, so what is lit is
  *       exactly what the player sees enclosed.</li>
@@ -118,6 +117,8 @@ public final class SidingMapScreen extends Screen {
     private static final int COL_HOVER = 0xFFFFFFFF;
 
     private final Screen parent;
+    /** 主界面 {@link ConfigScreen}：地图里点开的侧线分区页，其「返回主界面」要跳这一层。 */
+    private final Screen root;
 
     /** Every siding of the world with its coordinates, built once per screen. */
     private final List<Mark> marks = new ArrayList<>();
@@ -159,54 +160,14 @@ public final class SidingMapScreen extends Screen {
     /** Set once so a broken config read cannot print a stack trace 20 times a second. */
     private boolean stateErrorLogged;
 
-    public SidingMapScreen(final Screen parent) {
+    public SidingMapScreen(final Screen parent, final Screen root) {
         super(tr("map.title"));
         this.parent = parent;
+        this.root = root == null ? parent : root;
     }
 
     private static MutableText tr(final String key, final Object... args) {
         return Text.translatable(key, args);
-    }
-
-    /**
-     * Centred text through the MatrixStack API. 1.18 / 1.19 have no {@code Text} overload of
-     * {@code drawCenteredText}, so the centring is done here from the real font width.
-     */
-    private void drawCentered(final MatrixStack matrices, final Text text, final int cx,
-                              final int y, final int color) {
-        final String s = text.getString();
-        this.textRenderer.drawWithShadow(matrices, s,
-                (float) (cx - this.textRenderer.getWidth(s) / 2), (float) y, color);
-    }
-
-    /** Left-aligned text through the MatrixStack API. */
-    private void drawText(final MatrixStack matrices, final Text text, final int x, final int y,
-                          final int color) {
-        this.textRenderer.drawWithShadow(matrices, text.getString(), (float) x, (float) y, color);
-    }
-
-    /**
-     * Rectangle scissor. 1.18.2 has no {@code DrawableHelper.enableScissor}, so the GUI-space
-     * rectangle is converted to framebuffer pixels here - the same arithmetic vanilla uses.
-     */
-    private void scissorOn(final int x1, final int y1, final int x2, final int y2) {
-        if (this.client == null) {
-            return;
-        }
-        final net.minecraft.client.util.Window window = this.client.getWindow();
-        final double scale = window.getScaleFactor();
-        final int scaledH = window.getScaledHeight();
-        RenderSystem.enableScissor((int) (x1 * scale), (int) ((scaledH - y2) * scale),
-                Math.max(0, (int) ((x2 - x1) * scale)), Math.max(0, (int) ((y2 - y1) * scale)));
-    }
-
-    private void scissorOff() {
-        RenderSystem.disableScissor();
-    }
-
-    private ButtonWidget addButton(final int x, final int y, final int w, final int h,
-                                   final Text label, final ButtonWidget.PressAction action) {
-        return this.addDrawableChild(ButtonWidget.builder(label, action).dimensions(x, y, w, h).build());
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -223,11 +184,12 @@ public final class SidingMapScreen extends Screen {
         buildModel();
         refreshStates();
 
-        addButton(MAP_INSET, BAR_Y, RESET_W, BAR_H, tr("btn.mapReset"), b -> resetView());
+        this.addDrawableChild(ButtonWidget.builder(tr("btn.mapReset"), b -> resetView())
+                .dimensions(MAP_INSET, BAR_Y, RESET_W, BAR_H).build());
 
         final int backW = Math.min(BACK_W, Math.max(80, this.width - 32));
-        addButton(this.width / 2 - backW / 2, this.height - FOOTER_H + 4, backW, 20,
-                tr("btn.back"), b -> this.close());
+        this.addDrawableChild(ButtonWidget.builder(tr("btn.back"), b -> this.close())
+                .dimensions(this.width / 2 - backW / 2, this.height - FOOTER_H + 4, backW, 20).build());
     }
 
     /**
@@ -504,7 +466,8 @@ public final class SidingMapScreen extends Screen {
 
     private void open(final Siding siding) {
         if (this.client != null && siding != null) {
-            this.client.setScreen(new SidingDetailScreen(this, siding));
+            // 和列表一致：先进这条侧线的分区列表（back = 地图，root = 主界面）。
+            this.client.setScreen(new CategoryScreen(this, this.root, siding));
         }
     }
 
@@ -599,27 +562,26 @@ public final class SidingMapScreen extends Screen {
 
     @Override
     public void render(final MatrixStack matrices, final int mouseX, final int mouseY, final float delta) {
-        RenderSystem.setShaderTexture(0, OPTIONS_BACKGROUND);
-        RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
-        drawTexture(matrices, 0, 0, 0.0F, 0.0F, this.width, this.height, 32, 32);
-        fillGradient(matrices, 0, 0, this.width, this.height, 0xC0101010, 0xD0101010);
+        final DrawContext context = new DrawContext(matrices);
+        context.drawTexture(OPTIONS_BACKGROUND, 0, 0, 0, 0, this.width, this.height, 32, 32);
+        context.fillGradient(0, 0, this.width, this.height, 0xC0101010, 0xD0101010);
         super.render(matrices, mouseX, mouseY, delta);
 
-        drawCentered(matrices, this.title, this.width / 2, TITLE_Y, 0xFFFFFF);
+        context.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, TITLE_Y, 0xFFFFFF);
         // Top-left toolbar: the current zoom next to the reset button that undoes it.
-        drawText(matrices, tr("map.zoom", Math.round(this.zoom * 100.0D)),
+        context.drawTextWithShadow(this.textRenderer, tr("map.zoom", Math.round(this.zoom * 100.0D)),
                 MAP_INSET + RESET_W + 8, BAR_Y + 5, 0xFFFFFF);
 
         if (this.marks.isEmpty()) {
-            drawCentered(matrices, tr("sidings.empty"),
+            context.drawCenteredTextWithShadow(this.textRenderer, tr("sidings.empty"),
                     this.width / 2, this.mapY + 34, 0xFFD37F);
-            drawCentered(matrices, tr("sidings.emptyHint"),
+            context.drawCenteredTextWithShadow(this.textRenderer, tr("sidings.emptyHint"),
                     this.width / 2, this.mapY + 48, 0x909090);
             return;
         }
 
         if (this.mapW < 40 || this.mapH < MIN_CANVAS) {
-            drawCentered(matrices, tr("map.tooShort"),
+            context.drawCenteredTextWithShadow(this.textRenderer, tr("map.tooShort"),
                     this.width / 2, this.mapY + 16, 0xFFD37F);
             return;
         }
@@ -631,41 +593,41 @@ public final class SidingMapScreen extends Screen {
         final String hint = this.textRenderer.trimToWidth(
                 tr(this.hoveredDepot >= 0 ? "map.hintDepot" : "map.hint").getString(),
                 Math.max(60, this.width - 32));
-        drawCentered(matrices, Text.literal(hint),
+        context.drawCenteredTextWithShadow(this.textRenderer, Text.literal(hint),
                 this.width / 2, this.mapY - 14, 0xB0B0B0);
 
-        drawPlan(matrices);
-        drawCorners(matrices);
-        drawTooltip(matrices, mouseX, mouseY);
+        drawPlan(context);
+        drawCorners(context);
+        drawTooltip(context, mouseX, mouseY);
     }
 
     /** Panel, grid, depot rectangles, siding lines/dots/ids. Everything is scissored to the canvas. */
-    private void drawPlan(final MatrixStack matrices) {
+    private void drawPlan(final DrawContext context) {
         final int right = this.mapX + this.mapW;
         final int bottom = this.mapY + this.mapH;
 
-        fill(matrices, this.mapX, this.mapY, right, bottom, COL_PANEL);
-        scissorOn(this.mapX, this.mapY, right, bottom);
+        context.fill(this.mapX, this.mapY, right, bottom, COL_PANEL);
+        context.enableScissor(this.mapX, this.mapY, right, bottom);
 
-        drawGrid(matrices);
+        drawGrid(context);
 
         for (int i = 0; i < this.depotBoxes.size(); i++) {
-            drawDepot(matrices, i);
+            drawDepot(context, i);
         }
         for (final Mark mark : this.marks) {
-            drawSiding(matrices, mark);
+            drawSiding(context, mark);
         }
 
-        scissorOff();
+        context.disableScissor();
         // 1px frame on top of the scissor edge so the plan reads as one panel.
-        fill(matrices, this.mapX, this.mapY, right, this.mapY + 1, COL_PANEL_EDGE);
-        fill(matrices, this.mapX, bottom - 1, right, bottom, COL_PANEL_EDGE);
-        fill(matrices, this.mapX, this.mapY, this.mapX + 1, bottom, COL_PANEL_EDGE);
-        fill(matrices, right - 1, this.mapY, right, bottom, COL_PANEL_EDGE);
+        context.fill(this.mapX, this.mapY, right, this.mapY + 1, COL_PANEL_EDGE);
+        context.fill(this.mapX, bottom - 1, right, bottom, COL_PANEL_EDGE);
+        context.fill(this.mapX, this.mapY, this.mapX + 1, bottom, COL_PANEL_EDGE);
+        context.fill(right - 1, this.mapY, right, bottom, COL_PANEL_EDGE);
     }
 
     /** Block grid at a spacing that stays at least {@link #GRID_PX} pixels apart at this zoom. */
-    private void drawGrid(final MatrixStack matrices) {
+    private void drawGrid(final DrawContext context) {
         int step = GRID_STEPS[GRID_STEPS.length - 1];
         for (final int candidate : GRID_STEPS) {
             if (candidate * this.viewScale >= GRID_PX) {
@@ -687,15 +649,15 @@ public final class SidingMapScreen extends Screen {
 
         long wx = (long) Math.floor(wxFrom / step) * step;
         for (int guard = 0; wx <= wxTo && guard < 1024; guard++, wx += step) {
-            fill(matrices, sx((int) wx), top, sx((int) wx) + 1, bottom, COL_GRID);
+            context.fill(sx((int) wx), top, sx((int) wx) + 1, bottom, COL_GRID);
         }
         long wz = (long) Math.floor(wzFrom / step) * step;
         for (int guard = 0; wz <= wzTo && guard < 1024; guard++, wz += step) {
-            fill(matrices, left, sy((int) wz), right, sy((int) wz) + 1, COL_GRID);
+            context.fill(left, sy((int) wz), right, sy((int) wz) + 1, COL_GRID);
         }
     }
 
-    private void drawDepot(final MatrixStack matrices, final int index) {
+    private void drawDepot(final DrawContext context, final int index) {
         final DepotBox box = this.depotBoxes.get(index);
         final int x1 = sx(box.minX);
         final int z1 = sy(box.minZ);
@@ -717,20 +679,20 @@ public final class SidingMapScreen extends Screen {
         final int fill = selected ? COL_DEPOT_SEL_FILL : (hot ? COL_DEPOT_HOT : COL_DEPOT_FILL);
         final int edge = selected ? COL_DEPOT_SEL_EDGE : COL_DEPOT_EDGE;
 
-        fill(matrices, left, top, r, b, fill);
-        fill(matrices, left, top, r, top + 1, edge);
-        fill(matrices, left, b - 1, r, b, edge);
-        fill(matrices, left, top, left + 1, b, edge);
-        fill(matrices, r - 1, top, r, b, edge);
+        context.fill(left, top, r, b, fill);
+        context.fill(left, top, r, top + 1, edge);
+        context.fill(left, b - 1, r, b, edge);
+        context.fill(left, top, left + 1, b, edge);
+        context.fill(r - 1, top, r, b, edge);
 
         if (r - left >= 24 && b - top >= 14) {
             final String name = this.textRenderer.trimToWidth(box.name, r - left - 6);
-            drawText(matrices, Text.literal(name), left + 3, top + 3,
+            context.drawTextWithShadow(this.textRenderer, Text.literal(name), left + 3, top + 3,
                     selected ? 0xFFFFD37F : 0xCCFFFFFF);
         }
     }
 
-    private void drawSiding(final MatrixStack matrices, final Mark mark) {
+    private void drawSiding(final DrawContext context, final Mark mark) {
         final int x = sx(mark.midX);
         final int y = sy(mark.midZ);
         final int ax = sx(mark.ax);
@@ -753,23 +715,23 @@ public final class SidingMapScreen extends Screen {
         final boolean hot = this.hoveredSiding >= 0 && this.marks.get(this.hoveredSiding) == mark;
 
         if (mark.hasLine) {
-            drawSegment(matrices, ax, az, bx, bz,
+            drawSegment(context, ax, az, bx, bz,
                     dim ? 0x3038C6FF : (hot ? 0xFFFFD37F : COL_TRACK));
         }
 
         final int colour = dim ? (mark.stateColor & 0x00FFFFFF) | 0x50000000 : mark.stateColor;
-        fill(matrices, x - 1, y - 1, x + 2, y + 2, colour);
+        context.fill(x - 1, y - 1, x + 2, y + 2, colour);
         if (hot) {
             // A 7px hollow ring: visible over a dense cluster without hiding the neighbours.
-            fill(matrices, x - 3, y - 3, x + 4, y - 2, COL_HOVER);
-            fill(matrices, x - 3, y + 3, x + 4, y + 4, COL_HOVER);
-            fill(matrices, x - 3, y - 2, x - 2, y + 3, COL_HOVER);
-            fill(matrices, x + 3, y - 2, x + 4, y + 3, COL_HOVER);
+            context.fill(x - 3, y - 3, x + 4, y - 2, COL_HOVER);
+            context.fill(x - 3, y + 3, x + 4, y + 4, COL_HOVER);
+            context.fill(x - 3, y - 2, x - 2, y + 3, COL_HOVER);
+            context.fill(x + 3, y - 2, x + 4, y + 3, COL_HOVER);
         }
 
         final String label = this.textRenderer.trimToWidth("#" + mark.siding.id, 48);
         final int labelY = y - 10 < this.mapY + 2 ? y + 4 : y - 10;
-        drawText(matrices, Text.literal(label), x + 4, labelY,
+        context.drawTextWithShadow(this.textRenderer, Text.literal(label), x + 4, labelY,
                 dim ? 0x60808080 : (hot ? 0xFFFFFFFF : 0xC0D8D8D8));
     }
 
@@ -777,14 +739,14 @@ public final class SidingMapScreen extends Screen {
      * A line from (x1,y1) to (x2,y2) drawn with {@code fill} only. Sidings are axis-aligned, so the
      * usual case is a single 2px bar; a diagonal pair is walked in 2px steps instead of being lost.
      */
-    private void drawSegment(final MatrixStack matrices, final int x1, final int y1,
+    private void drawSegment(final DrawContext context, final int x1, final int y1,
                              final int x2, final int y2, final int colour) {
         if (y1 == y2) {
-            fill(matrices, Math.min(x1, x2), y1 - 1, Math.max(x1, x2) + 1, y1 + 1, colour);
+            context.fill(Math.min(x1, x2), y1 - 1, Math.max(x1, x2) + 1, y1 + 1, colour);
             return;
         }
         if (x1 == x2) {
-            fill(matrices, x1 - 1, Math.min(y1, y2), x1 + 1, Math.max(y1, y2) + 1, colour);
+            context.fill(x1 - 1, Math.min(y1, y2), x1 + 1, Math.max(y1, y2) + 1, colour);
             return;
         }
         final int steps = Math.max(1, Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1)) / 2);
@@ -792,34 +754,34 @@ public final class SidingMapScreen extends Screen {
             final float t = (float) i / steps;
             final int x = Math.round(x1 + (x2 - x1) * t);
             final int y = Math.round(y1 + (y2 - y1) * t);
-            fill(matrices, x - 1, y - 1, x + 1, y + 1, colour);
+            context.fill(x - 1, y - 1, x + 1, y + 1, colour);
         }
     }
 
     /** North marker, legend, and the depot-filter notice - painted over the finished plan. */
-    private void drawCorners(final MatrixStack matrices) {
+    private void drawCorners(final DrawContext context) {
         final int right = this.mapX + this.mapW;
         final int bottom = this.mapY + this.mapH;
 
         // North is -Z, which is up on this plan, so the marker is always the same glyph.
-        drawText(matrices, tr("map.north"), right - 24, this.mapY + 5, 0xD0FFFFFF);
-        fill(matrices, right - 15, this.mapY + 9, right - 14, this.mapY + 20, 0x80FFFFFF);
-        fill(matrices, right - 17, this.mapY + 9, right - 12, this.mapY + 10, 0x80FFFFFF);
+        context.drawTextWithShadow(this.textRenderer, tr("map.north"), right - 24, this.mapY + 5, 0xD0FFFFFF);
+        context.fill(right - 15, this.mapY + 9, right - 14, this.mapY + 20, 0x80FFFFFF);
+        context.fill(right - 17, this.mapY + 9, right - 12, this.mapY + 10, 0x80FFFFFF);
 
-        drawText(matrices,
+        context.drawTextWithShadow(this.textRenderer,
                 tr("map.legend"), this.mapX + 4, bottom - 12, 0x90C0C0C0);
 
         if (this.selectedDepot >= 0 && this.selectedDepot < this.depotBoxes.size()) {
             final String name = this.depotBoxes.get(this.selectedDepot).name;
             final String line = this.textRenderer.trimToWidth(
                     tr("map.selectedDepot", name).getString(), this.mapW - 12);
-            drawText(matrices, Text.literal(line),
+            context.drawTextWithShadow(this.textRenderer, Text.literal(line),
                     this.mapX + 4, bottom - 24, 0xFFFFD37F);
         }
     }
 
     /** Hover tooltip: id / name, type - length - cars, and the light state. */
-    private void drawTooltip(final MatrixStack matrices, final int mouseX, final int mouseY) {
+    private void drawTooltip(final DrawContext context, final int mouseX, final int mouseY) {
         final List<Text> lines = new ArrayList<>();
         final List<Integer> colours = new ArrayList<>();
 
@@ -865,13 +827,13 @@ public final class SidingMapScreen extends Screen {
         x = Math.max(4, x);
         y = Math.max(4, y);
 
-        fill(matrices, x - 1, y - 1, x + boxW + 1, y + boxH + 1, 0xC0000000);
-        fill(matrices, x, y, x + boxW, y + boxH, 0xF0101418);
-        fill(matrices, x, y, x + boxW, y + 1, 0xFF3A4450);
+        context.fill(x - 1, y - 1, x + boxW + 1, y + boxH + 1, 0xC0000000);
+        context.fill(x, y, x + boxW, y + boxH, 0xF0101418);
+        context.fill(x, y, x + boxW, y + 1, 0xFF3A4450);
 
         int lineY = y + 3;
         for (int i = 0; i < lines.size(); i++) {
-            drawText(matrices, lines.get(i), x + 6, lineY, colours.get(i));
+            context.drawTextWithShadow(this.textRenderer, lines.get(i), x + 6, lineY, colours.get(i));
             lineY += 11;
         }
     }
@@ -972,10 +934,10 @@ public final class SidingMapScreen extends Screen {
                     return null;
                 }
                 // corner1/corner2 are Pair<Integer,Integer> = (x, z), and either may be the max.
-                final int x1 = depot.corner1.method_15442();
-                final int z1 = depot.corner1.method_15441();
-                final int x2 = depot.corner2.method_15442();
-                final int z2 = depot.corner2.method_15441();
+                final int x1 = depot.corner1.getLeft();
+                final int z1 = depot.corner1.getRight();
+                final int x2 = depot.corner2.getLeft();
+                final int z2 = depot.corner2.getRight();
                 final int minX = Math.min(x1, x2);
                 final int maxX = Math.max(x1, x2);
                 final int minZ = Math.min(z1, z2);

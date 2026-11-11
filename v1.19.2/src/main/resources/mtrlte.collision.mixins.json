@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.js.mtrheadlight.mixin.collision",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "lte.refmap.json",
+  "client": [
+    "MixinEntityMove"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

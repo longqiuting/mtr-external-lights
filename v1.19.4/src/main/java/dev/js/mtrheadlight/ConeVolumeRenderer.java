@@ -24,6 +24,13 @@ final class ConeVolumeRenderer {
         return "unsupported";
     }
 
+    /**
+     * No-op on versions without the depth-aware cone: there is no statistics window to flush.
+     * Present so {@code ProtoBeamCone}'s five-second block still links on this version.
+     */
+    static void logIfDue() {
+    }
+
     static boolean render(final List<ConeVolumeBeam> beams, final MatrixStack stack,
                           final HeadlightConfig cfg) {
         return false;
