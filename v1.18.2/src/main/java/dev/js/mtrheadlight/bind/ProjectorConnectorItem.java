@@ -350,6 +350,54 @@ public final class ProjectorConnectorItem extends Item {
         return cleared;
     }
 
+    // ------------------------------------------------------------------ 解绑（左键 / 方块被拆）
+
+    /**
+     * 客户端判定：这一格是不是 MTR 投影机（左键时要不要拦下来）。
+     *
+     * <p>不拦的话创造模式左键会直接把投影机拆了 —— 玩家想解绑，结果把机器弄没了。
+     */
+    public static boolean isUnbindTarget(final World world, final BlockPos pos) {
+        try {
+            return BindTargets.isProjector(world, pos);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * 左键解绑：删我们那张表里的记录，<b>同时</b>把投影机自己的 {@code platformIds} 清空 ——
+     * 只删表不清屏的话，屏幕上照样在放那个车站的到站，玩家会以为没解掉（和潜行右键解绑走的是同一条路）。
+     *
+     * @return 这一下归不归投影机连接器管
+     */
+    public static boolean unlinkAt(final World world, final ServerPlayerEntity player, final BlockPos clicked) {
+        if (!(world instanceof ServerWorld server)) {
+            return false;
+        }
+        if (!BindTargets.isProjector(world, clicked)) {
+            return false;
+        }
+        final boolean removed = ProjectorLinkStore.get(server).removeInvolving(clicked);
+        final boolean cleared = clearProjector(world, clicked);
+        if (removed || cleared) {
+            say(player, "message.mtrlte.link.unlinked", Formatting.GREEN);
+        } else {
+            say(player, "message.mtrlte.link.none", Formatting.YELLOW);
+        }
+        return true;
+    }
+
+    /**
+     * 方块被拆：删掉这一格的记录，不弹提示。
+     *
+     * <p>投影机只有自己一头（没有「另一端」），所以只按位置删；方块已经没了，MTR 那份
+     * {@code platformIds} 随方块实体一起消失，不需要额外清。
+     */
+    public static void unlinkBroken(final ServerWorld world, final BlockPos pos) {
+        ProjectorLinkStore.get(world).removeInvolving(pos);
+    }
+
     // ------------------------------------------------------------------ 杂项
 
     private static void clearPending(final NbtCompound nbt) {
@@ -392,6 +440,7 @@ public final class ProjectorConnectorItem extends Item {
         } else {
             tooltip.add(new TranslatableText("tooltip.mtrlte.projector.hint").formatted(Formatting.GRAY));
         }
-        tooltip.add(new TranslatableText("tooltip.mtrlte.projector.unbind").formatted(Formatting.DARK_GRAY));
+        tooltip.add(new TranslatableText("tooltip.mtrlte.link.right_click").formatted(Formatting.GRAY));
+        tooltip.add(new TranslatableText("tooltip.mtrlte.link.left_click").formatted(Formatting.DARK_GRAY));
     }
 }

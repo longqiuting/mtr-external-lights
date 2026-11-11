@@ -106,4 +106,33 @@ public final class PidsLinkStore extends PersistentState {
         }
         return false;
     }
+
+    /**
+     * 把「以 {@code pos} 为屏」和「以 {@code pos} 为源节点」的记录都删掉。
+     *
+     * <p>两条路都要：屏被拆时 {@code pos} 是<b>键</b>；节点被拆时 {@code pos} 是记录里的
+     * {@code node}（值）—— 只按键删的话，拆掉节点再原地放回来，这块屏会「自动继承」原来的站台
+     * （现象和第 43 行那段注释里说的旧 bug 一样）。
+     *
+     * <p>只删与 {@code pos} 直接相关的条目，同一张表里其它屏的记录一条不动。
+     *
+     * @return 删掉的记录（键 = 屏的数据格），调用方据此清 MTR 里的 {@code platformIds}
+     */
+    public Map<BlockPos, Link> removeInvolving(final BlockPos pos) {
+        final Map<BlockPos, Link> out = new LinkedHashMap<>();
+        if (pos == null) {
+            return out;
+        }
+        links.entrySet().removeIf(entry -> {
+            if (entry.getKey().equals(pos) || entry.getValue().nodePos().equals(pos)) {
+                out.put(entry.getKey(), entry.getValue());
+                return true;
+            }
+            return false;
+        });
+        if (!out.isEmpty()) {
+            markDirty();
+        }
+        return out;
+    }
 }

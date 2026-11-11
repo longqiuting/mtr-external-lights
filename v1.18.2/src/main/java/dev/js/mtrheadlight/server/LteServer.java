@@ -72,6 +72,13 @@ public final class LteServer implements ModInitializer {
             LteLog.LOGGER.warn("[lte] /ltebind unavailable", t);
         }
 
+        // 左键解绑（AttackBlockCallback，两端都挂）+ 方块被拆时自动解绑（PlayerBlockBreakEvents.AFTER）。
+        try {
+            dev.js.mtrheadlight.bind.BindUnbind.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] connector unbind hooks unavailable", t);
+        }
+
         // 厦门风格物件页签 + 屏蔽门方块（同样是两端都需要的 registry 条目）。
         try {
             dev.js.mtrheadlight.xiamen.XiamenObjects.register();

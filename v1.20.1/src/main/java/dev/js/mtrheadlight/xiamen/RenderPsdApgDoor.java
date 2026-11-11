@@ -26,7 +26,7 @@ import net.minecraft.client.util.math.MatrixStack;
  * 同样实现 {@link IXiamenTextureNamespace}，把 {@code mtr:/apg_door_*} 换成模组自带的
  * {@code mtrlte:/apg_door_*}（含 {@code apg_door_light_on/off}）。缺图自动退回资源包那份。
  *
- * <p>三条线路共用一个 {@code BlockEntityType}（见 {@link XiamenObjects}），所以这里也用 MTR 的
+ * <p>五条线路共用一个 {@code BlockEntityType}（见 {@link XiamenObjects}），所以这里也用 MTR 的
  * 基类作为泛型参数，线路变体（{@code _l2} / {@code _l3}）在渲染时按<b>方块实例</b>取，
  * 通过 {@link XiamenTextures#withVariant} 传给贴图改写点。
  */
@@ -49,7 +49,9 @@ public class RenderPsdApgDoor extends RenderPSDAPGDoor<BlockPSDAPGDoorBase.TileE
     public void render(BlockPSDAPGDoorBase.TileEntityPSDAPGDoorBase entity, float tickDelta, MatrixStack matrices,
                        VertexConsumerProvider vertexConsumers, int light, int overlay) {
         final String variant = XiamenObjects.textureVariantOf(entity.getCachedState().getBlock());
-        XiamenTextures.withVariant(variant, XiamenDoorLights.colorFor(entity.getPos()),
+        // 门灯颜色按「方块属于哪条线路」取（1/2/3 橙、4/6 绿），不再依赖站台数据。
+        XiamenTextures.withVariant(variant,
+                XiamenDoorLights.colorFor(entity.getCachedState().getBlock(), entity.getPos()),
                 () -> this.drawInMtr(entity, tickDelta, matrices, vertexConsumers, light, overlay));
     }
 

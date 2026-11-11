@@ -16,6 +16,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
@@ -141,7 +142,7 @@ public final class PidsConnectorItem extends Item {
 
         if (player.isSneaking()) {
             final boolean removed = PidsLinkStore.get((ServerWorld) world).remove(pidsPos);
-            final boolean cleared = clearPids(pids);
+            final boolean cleared = clearPids(pids, world);
             if (removed || cleared) {
                 say(player, "message.mtrlte.pids.unlinked", Formatting.YELLOW);
             } else {
@@ -278,17 +279,99 @@ public final class PidsConnectorItem extends Item {
     }
 
     /** 解绑：把 platformIds 清空（消息 / 隐藏位 / 翻页仍然保留）。 */
-    private static boolean clearPids(final List<MtrTiles.PidsTile> pids) {
+    private static boolean clearPids(final List<MtrTiles.PidsTile> pids, final World world) {
         boolean cleared = false;
+        final ServerWorld serverWorld = world instanceof ServerWorld sw ? sw : null;
         for (final MtrTiles.PidsTile entry : pids) {
             if (MtrTiles.pidsPlatformIds(entry.tile()).isEmpty()) {
                 continue;
             }
-            if (MtrTiles.pidsSetPlatforms(entry.tile(), Collections.emptyList())) {
-                cleared = true;
+            if (!MtrTiles.pidsSetPlatforms(entry.tile(), Collections.emptyList())) {
+                continue;
+            }
+            cleared = true;
+            // 屏幕显示读的是「客户端自己的方块实体」：只写服务端不清客户端，屏幕会继续放原来的站台。
+            if (serverWorld != null) {
+                MtrTiles.pushToClients(serverWorld, entry.tile(), entry.pos());
+                MtrTiles.markChunkSaved(serverWorld, entry.pos());
             }
         }
         return cleared;
+    }
+
+    // ------------------------------------------------------------------ 解绑（左键 / 方块被拆）
+
+    /**
+     * 客户端判定：这一格是不是 PIDS（任意一半，左键时要不要拦下来）。
+     *
+     * <p>不拦的话创造模式左键会直接把屏拆了 —— 玩家想解绑，结果把屏弄没了。
+     */
+    public static boolean isUnbindTarget(final World world, final BlockPos pos) {
+        try {
+            return !BindTargets.pidsAt(world, pos).isEmpty();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * 左键解绑：删表里的记录，<b>同时</b>把这块屏的 {@code platformIds} 清空。
+     *
+     * <p>只删表不清屏的话，屏幕照样在放原来那个站台的到站（显示读的是方块实体，不是我们的表），
+     * 玩家会以为没解掉。清空 = 回到 MTR 的「自动模式」（就近站台）。
+     *
+     * @return 这一下归不归 PIDS 连接器管
+     */
+    public static boolean unlinkAt(final World world, final ServerPlayerEntity player, final BlockPos clicked) {
+        if (!(world instanceof ServerWorld server)) {
+            return false;
+        }
+        final List<MtrTiles.PidsTile> pids = BindTargets.pidsAt(world, clicked);
+        if (pids.isEmpty()) {
+            return false;
+        }
+        final boolean removed = !PidsLinkStore.get(server)
+                .removeInvolving(BindTargets.dataPos(world, clicked)).isEmpty();
+        final boolean cleared = clearPids(pids, world);
+        if (removed || cleared) {
+            say(player, "message.mtrlte.link.unlinked", Formatting.GREEN);
+        } else {
+            say(player, "message.mtrlte.link.none", Formatting.YELLOW);
+        }
+        return true;
+    }
+
+    /**
+     * 方块被拆：清掉与这一格相关的记录，不弹提示。
+     *
+     * <p>两种拆法都要认：
+     * <ul>
+     *   <li>拆的是<b>屏</b>：记录的键就是它 —— 表要清，MTR 那份随方块实体消失，不用管；</li>
+     *   <li>拆的是<b>节点</b>：记录里的 {@code node} 是它，屏还在 —— 表要清，屏的
+     *       {@code platformIds} 也要清（否则这块屏继续显示一个已经拆掉的节点所属的站台，
+     *       而且原地再放一个节点，这块屏会「自动继承」回来）。</li>
+     * </ul>
+     *
+     * @param brokenLowerHalf 被拆的是双格屏的<b>下半</b>时传 {@code true}：数据格（键）在上面那一格，
+     *                        MTR 拆下半会连带清掉上半，但我们这时已经读不到 HALF 属性了，只能由调用方
+     *                        从「拆之前」的状态告诉这里
+     */
+    public static void unlinkBroken(final ServerWorld world, final BlockPos pos, final boolean brokenLowerHalf) {
+        final PidsLinkStore store = PidsLinkStore.get(world);
+        final Set<BlockPos> affected = new LinkedHashSet<>();
+        affected.addAll(store.removeInvolving(pos).keySet());
+        if (brokenLowerHalf) {
+            // 键在上半：双格屏被拆下半时，记录键是 pos.up()。
+            affected.addAll(store.removeInvolving(pos.up()).keySet());
+        }
+        for (final BlockPos pidsPos : affected) {
+            final List<MtrTiles.PidsTile> pids = BindTargets.pidsAt(world, pidsPos);
+            if (pids.isEmpty()) {
+                // 屏本身被拆了：方块实体已经没了，没有可清的。
+                continue;
+            }
+            clearPids(pids, world);
+        }
     }
 
     // ------------------------------------------------------------------ 杂项
@@ -325,6 +408,7 @@ public final class PidsConnectorItem extends Item {
         } else {
             tooltip.add(Text.translatable("tooltip.mtrlte.pids.hint").formatted(Formatting.GRAY));
         }
-        tooltip.add(Text.translatable("tooltip.mtrlte.pids.unbind").formatted(Formatting.DARK_GRAY));
+        tooltip.add(Text.translatable("tooltip.mtrlte.link.right_click").formatted(Formatting.GRAY));
+        tooltip.add(Text.translatable("tooltip.mtrlte.link.left_click").formatted(Formatting.DARK_GRAY));
     }
 }

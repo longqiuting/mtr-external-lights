@@ -6,8 +6,10 @@ import net.minecraft.text.TranslatableText;
 import mtr.block.BlockNode;
 import mtr.block.BlockSignalLightBase;
 import mtr.block.BlockSignalSemaphoreBase;
+import mtr.block.IBlock;
 import mtr.data.Rail;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.enums.DoubleBlockHalf;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.ItemUsageContext;
@@ -21,6 +23,7 @@ import net.minecraft.util.ActionResult;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
+import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
 
 import java.util.List;
@@ -245,12 +248,20 @@ public final class SignalLinkItem extends Item {
      * 玩家往往点的是轨道下方 / 旁边的地面。MTR 自己的节点工具不做这个兜底，这里做一层。
      */
     private static BlockPos findNode(final World world, final BlockPos clicked, final ItemUsageContext context) {
+        return findNode(world, clicked, context.getHitPos());
+    }
+
+    /**
+     * 同 {@link #findNode(World, BlockPos, ItemUsageContext)}，命中点直接给 ——
+     * 左键那条路（{@code AttackBlockCallback}）没有 {@code ItemUsageContext}，命中点只有方块中心。
+     */
+    private static BlockPos findNode(final World world, final BlockPos clicked, final Vec3d hitPos) {
         if (BlockNode.class.isInstance(world.getBlockState(clicked).getBlock())) {
             return clicked;
         }
-        final double hitX = context.getHitPos().x;
-        final double hitY = context.getHitPos().y;
-        final double hitZ = context.getHitPos().z;
+        final double hitX = hitPos.x;
+        final double hitY = hitPos.y;
+        final double hitZ = hitPos.z;
 
         BlockPos best = null;
         double bestDist = Double.MAX_VALUE;
@@ -315,6 +326,111 @@ public final class SignalLinkItem extends Item {
             }
         }
         return false;
+    }
+
+    // ------------------------------------------------------------------ 解绑（左键 / 方块被拆）
+
+    /**
+     * 客户端判定：左键点这一格时该不该被信号连接器拦下来（这一格是不是「轨道节点或信号灯」）。
+     *
+     * <p><b>只读世界</b>：客户端手里没有服务端那两张表（只有 {@code SignalLinks} 镜像，而且不一定有
+     * 这一维度的数据），所以「拦不拦」只看「点到的东西归不归这个连接器管」；到底有没有绑定，由服务端
+     * 回答（有没有绑定决定的是提示文字，不是拦不拦）。
+     *
+     * <p>为什么要拦：不拦的话创造模式左键会直接把灯拆了 —— 玩家想解绑，结果把灯弄没了。
+     */
+    public static boolean isUnbindTarget(final World world, final BlockPos pos) {
+        try {
+            return targetOf(world, pos) != null;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * 左键解绑：点信号灯 → 解掉它<b>自己</b>的两条记录（→节点、→源灯），以及抄它的灯；
+     * 点轨道节点 → 解掉所有「绑到它」的灯（节点是值那一端，见 {@link SignalLinkStore#removeInvolving}）。
+     *
+     * <p>提示：真的删掉了 = 绿字「已解绑」；一条都没有 = 黄字「这里没有绑定」。
+     *
+     * @return 这一下归不归信号连接器管（{@code false} = 什么也没做，什么都不提示）
+     */
+    public static boolean unlinkAt(final World world, final ServerPlayerEntity player, final BlockPos clicked) {
+        if (!(world instanceof ServerWorld server)) {
+            return false;
+        }
+        final BlockPos target = targetOf(world, clicked);
+        if (target == null) {
+            return false;
+        }
+        if (unlink(server, target)) {
+            say(player, "message.mtrlte.link.unlinked", Formatting.GREEN);
+        } else {
+            say(player, "message.mtrlte.link.none", Formatting.YELLOW);
+        }
+        return true;
+    }
+
+    /**
+     * 方块被拆：清掉这一格上的绑定，<b>不弹提示</b>。
+     *
+     * <p>拆掉的那一格可能是灯（键），也可能是节点（值）—— 两种都由
+     * {@link SignalLinkStore#removeInvolving} 覆盖，且只动与这一格直接相关的条目。
+     *
+     * <p>双格灯（MTR 的 {@code *Semaphore2} / 灯柱那几种）再补一刀：绑定记的是<b>玩家当初右键的那一半</b>，
+     * 拆掉另一半时这一格是空气、{@code HALF} 也读不到了，只能拿「拆之前」的 {@code state} 把另一半
+     * 也清一遍 —— 否则原地重放，那盏灯会「继承」回旧绑定。
+     */
+    public static void unlinkBroken(final ServerWorld world, final BlockPos pos, final BlockState state) {
+        unlink(world, pos);
+        final BlockPos otherHalf = otherHalfOf(pos, state);
+        if (otherHalf != null) {
+            unlink(world, otherHalf);
+        }
+    }
+
+    /** 这一格的上 / 下一格是不是同一盏双格灯的另一半；不是（没有 {@code HALF} 属性）→ {@code null}。 */
+    private static BlockPos otherHalfOf(final BlockPos pos, final BlockState state) {
+        if (state == null) {
+            return null;
+        }
+        try {
+            if (!state.contains(IBlock.HALF)) {
+                return null;
+            }
+            return IBlock.getStatePropertySafe(state, IBlock.HALF) == DoubleBlockHalf.LOWER
+                    ? pos.up() : pos.down();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 这一格归谁：信号灯 → 它自己；轨道节点（或 3 格内接了轨道的节点）→ 那个节点；都不是 → {@code null}。 */
+    private static BlockPos targetOf(final World world, final BlockPos clicked) {
+        try {
+            if (isLamp(world.getBlockState(clicked))) {
+                return clicked;
+            }
+            return findNode(world, clicked, Vec3d.ofCenter(clicked));
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 真删：两张表按「这一格是键、或是值」清，然后逐条广播给客户端。 */
+    private static boolean unlink(final ServerWorld world, final BlockPos pos) {
+        final SignalLinkStore.Removed removed = SignalLinkStore.get(world).removeInvolving(pos);
+        if (!removed.any()) {
+            return false;
+        }
+        final String dim = SignalLinkNet.dimensionOf(world);
+        for (final BlockPos signal : removed.signals) {
+            SignalLinkNet.broadcastRemove(world.getServer(), dim, signal);
+        }
+        for (final BlockPos lamp : removed.lamps) {
+            SignalLinkNet.broadcastLampRemove(world.getServer(), dim, lamp);
+        }
+        return true;
     }
 
     // ------------------------------------------------------------------ 杂项
@@ -417,6 +533,8 @@ public final class SignalLinkItem extends Item {
         } else {
             tooltip.add(new TranslatableText("tooltip.mtrlte.signal_link.hint").formatted(Formatting.GRAY));
         }
+        tooltip.add(new TranslatableText("tooltip.mtrlte.link.right_click").formatted(Formatting.GRAY));
+        tooltip.add(new TranslatableText("tooltip.mtrlte.link.left_click").formatted(Formatting.DARK_GRAY));
         tooltip.add(new TranslatableText("tooltip.mtrlte.signal_link.node_marks").formatted(Formatting.DARK_GRAY));
     }
 }

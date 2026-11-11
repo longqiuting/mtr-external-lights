@@ -69,7 +69,7 @@ public final class XiamenTextures {
     /**
      * 「当前正在画的这条线路，贴图文件名要加什么后缀」——{@code null} / {@code ""} = 不加（1 号线）。
      *
-     * <p>第二条 ThreadLocal 通道，和 {@link #ACTIVE_NAMESPACE} 同一套生命周期。三条线路的门共用
+     * <p>第二条 ThreadLocal 通道，和 {@link #ACTIVE_NAMESPACE} 同一套生命周期。五条线路的门共用
      * 同一个 {@code BlockEntityType} 与同一个渲染器实例，渲染器在每帧一开始按<b>方块实例</b>
      * 反查线路（{@link XiamenObjects#textureVariantOf}），再从这个通道传给 {@code String.format} 的拦截点。
      */
@@ -233,7 +233,10 @@ public final class XiamenTextures {
      * {@code apg_door_light_off.png} → {@code apg_door_light_off_green.png}；
      * 线路变体加在<b>最后</b>（{@code light_on_l2.png}）。三门色（orange/green/blue）的图都在
      * {@code assets/mtrlte/textures/block/} 里，橙色就是 MTR 原版那一份，所以 {@code orange}
-     * 直接走基础贴图；<b>1/2/3 号线的门灯都是橙色</b>，所以线路变体在门灯上基本打不中，会落到基础图。
+     * 直接走基础贴图；<b>1/2/3 号线的门灯是橙色</b>，线路变体在门灯上打不中、落到基础图；
+     * <b>4/6 号线是绿色</b>（{@link XiamenLine#doorLight()}），命中 {@code light_on_green.png} /
+     * {@code apg_door_light_off_green.png} 这一对（on #00C853 / off #00662A，与 MTR 原版那双
+     * 橙色的明暗关系一致 —— 真的会亮/灭，不是同一张图改个名）。
      */
     private static String remap(final String namespace, final String raw, final String variant,
                                 final String lightColor) {

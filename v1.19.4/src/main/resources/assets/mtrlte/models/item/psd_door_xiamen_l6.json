@@ -1,0 +1,6 @@
+{
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "mtrlte:item/amtr_6_psd_door_1"
+  }
+}

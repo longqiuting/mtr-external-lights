@@ -115,8 +115,9 @@ public class RenderPsdDoor extends RenderPSDAPGDoor<BlockPSDAPGDoorBase.TileEnti
             logRequested(world.getBlockState(entity.getPos()), variant);
         }
         // 画之前把「这张门该用哪个命名空间 / 哪个线路变体 / 哪个颜色的门灯」塞进 XiamenTextures，
-        // MTR 内部拼 id 时由 mixin 换掉。三条线路共用一个渲染器实例，变体按方块实例区分。
-        XiamenTextures.withVariant(variant, XiamenDoorLights.colorFor(entity.getPos()),
+        // MTR 内部拼 id 时由 mixin 换掉。五条线路共用一个渲染器实例，变体与门灯颜色都按方块实例区分。
+        XiamenTextures.withVariant(variant,
+                XiamenDoorLights.colorFor(entity.getCachedState().getBlock(), entity.getPos()),
                 () -> this.drawInMtr(entity, tickDelta, matrices, vertexConsumers, light, overlay));
     }
 

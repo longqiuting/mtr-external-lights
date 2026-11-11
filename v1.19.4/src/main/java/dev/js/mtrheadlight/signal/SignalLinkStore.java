@@ -8,7 +8,9 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.PersistentState;
 
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 服务端权威的信号连接表（每个维度一份，落盘在 {@code world/data/mtrlte_signal_links.dat}）。
@@ -161,6 +163,70 @@ public final class SignalLinkStore extends PersistentState {
             return true;
         }
         return false;
+    }
+
+    /**
+     * 一次「解绑 / 方块被拆」涉及到的记录 —— 广播要给客户端逐条发，所以把键都带出来。
+     *
+     * <p>{@link #signals} 里的是要发 {@code REMOVE}（节点绑定没了）的灯，{@link #lamps} 里的是要发
+     * {@code LAMP_REMOVE}（灯 → 灯 没了）的灯。同一盏灯可能两张都在（两条记录都删了）。
+     */
+    public static final class Removed {
+
+        /** 要发 {@code REMOVE} 的灯（节点绑定被删）。 */
+        public final Set<BlockPos> signals = new LinkedHashSet<>();
+
+        /** 要发 {@code LAMP_REMOVE} 的灯（灯 → 源灯 被删）。 */
+        public final Set<BlockPos> lamps = new LinkedHashSet<>();
+
+        public boolean any() {
+            return !signals.isEmpty() || !lamps.isEmpty();
+        }
+
+        public int count() {
+            return signals.size() + lamps.size();
+        }
+    }
+
+    /**
+     * 把「{@code pos} 自己的绑定」和「以 {@code pos} 为另一端的所有绑定」删掉（两张表都清）。
+     *
+     * <h2>为什么必须按「两端」删</h2>
+     * <p>这张表是 {@code 灯 pos → 节点 pos}：拆掉<b>灯</b>时键就是它自己，{@link #remove} 够用；
+     * 但拆掉<b>节点</b>时它是<b>值</b>，键是别人的灯 —— 只按键删就一个都删不掉。留着这条记录，
+     * 玩家在原地再放一个节点，那盏灯会「自动继承」回原来的绑定（拆了再放回来绑定还在）。
+     *
+     * <p>「灯 → 灯」同理：源灯被拆时它是别人 {@code lampLinks} 里的<b>值</b>，不删就是一条永远指向
+     * 空气的记录，重新放下同位置的一盏灯就又「继承」了。
+     *
+     * <p><b>只删与 {@code pos} 直接相关的条目</b>：同一张表里其它灯、其它节点的记录一条都不动
+     * （同车 / 同站 / 相邻灯都不受影响）。
+     *
+     * @return 删掉了什么（调用方据此逐条广播）
+     */
+    public Removed removeInvolving(final BlockPos pos) {
+        final Removed out = new Removed();
+        if (pos == null) {
+            return out;
+        }
+        links.entrySet().removeIf(entry -> {
+            if (entry.getKey().equals(pos) || entry.getValue().equals(pos)) {
+                out.signals.add(entry.getKey());
+                return true;
+            }
+            return false;
+        });
+        lampLinks.entrySet().removeIf(entry -> {
+            if (entry.getKey().equals(pos) || entry.getValue().equals(pos)) {
+                out.lamps.add(entry.getKey());
+                return true;
+            }
+            return false;
+        });
+        if (out.any()) {
+            markDirty();
+        }
+        return out;
     }
 
     /** {@code from} 顺着 lamp 链向上找，途中是否经过 {@code target}。 */

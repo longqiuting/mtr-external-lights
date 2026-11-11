@@ -1,0 +1,6 @@
+{
+	"parent": "mtrlte:block/psd_top_left_persistent_base",
+	"textures": {
+		"particle": "mtrlte:block/psd_top_l6"
+	}
+}

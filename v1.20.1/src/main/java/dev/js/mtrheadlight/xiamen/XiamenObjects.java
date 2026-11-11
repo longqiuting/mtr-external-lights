@@ -26,8 +26,8 @@ import net.minecraft.util.Identifier;
 /**
  * 厦门风格物件：创造模式页签 {@code mtrlte:core}（「厦门风格物件 / Xiamen Style Objects」）以及里面的方块。
  *
- * <h2>三套屏蔽门 = 三条线路 × 七个方块</h2>
- * <p>1 / 2 / 3 号线的屏蔽门<b>几何、属性、方块实体、放置逻辑完全一样</b>，唯一的差别是
+ * <h2>五套屏蔽门 = 五条线路 × 七个方块</h2>
+ * <p>1 / 2 / 3 / 4 / 6 号线的屏蔽门<b>几何、属性、方块实体、放置逻辑完全一样</b>，唯一的差别是
  * 「门扇上段那张线路色贴图」。所以这里<b>每个方块类只写一份</b>
  * （{@link XiamenPsdBlocks.Door} 等），按 {@link XiamenLine} 分别实例化、分别注册，
  * 线路信息挂在方块实例上（{@link XiamenPsdBlocks.LineAware}），渲染器渲染时再按方块反查。
@@ -54,7 +54,7 @@ import net.minecraft.util.Identifier;
  * 进站停稳后自动 {@code setOpen(...)}；吊板也自动吃到 MTR 的线路图 / 站名动态绘制。
  *
  * <h2>为什么方块实体类型只有 4 个</h2>
- * <p>{@code BlockEntityType} 本来就支持「一个类型 + 多个方块」，所以三条线路的门扇共用一个
+ * <p>{@code BlockEntityType} 本来就支持「一个类型 + 多个方块」，所以五条线路的门扇共用一个
  * {@code mtrlte:psd_door_xiamen} 类型（<b>老存档里的方块实体 id 不变</b>，不需要任何数据迁移）。
  * 渲染器因此也只需要注册一次，线路靠方块实例区分。
  */
@@ -76,7 +76,7 @@ public final class XiamenObjects {
     public static final Identifier LOGO_ID = new Identifier(NAMESPACE, "xiamen_logo");
 
     /**
-     * 方块实体的 registry id —— 1 号线时的那 4 个，<b>三条线路共用</b>。
+     * 方块实体的 registry id —— 1 号线时的那 4 个，<b>五条线路共用</b>。
      *
      * <p>如果把 2/3 号线拆成新的 BE 类型，不但多 8 个 id，还会让 1 号线的老存档必须迁移；
      * 而 {@code BlockEntityType} 天生就是「一个类型对多块方块」，共有没有任何副作用。
@@ -269,7 +269,7 @@ public final class XiamenObjects {
         }
         logo = registerLogo(LOGO_ID);
 
-        // 一个 BE 类型对三条线路的同种方块（老存档的 BE id 不变）。
+        // 一个 BE 类型对五条线路的同种方块（老存档的 BE id 不变）。
         psdDoorEntityType = Registry.register(Registries.BLOCK_ENTITY_TYPE, PSD_DOOR_BE_ID,
                 FabricBlockEntityTypeBuilder.create(XiamenPsdBlocks.TileEntityXiamenPSDDoor::new,
                         blocksOf(s -> s.door)).build());
@@ -292,7 +292,7 @@ public final class XiamenObjects {
                         .icon(() -> new ItemStack(TabIcons.core()))
                         .build());
 
-        // 顺序 = 页签里从左到右的顺序：先标志，再 1/2/3 号线各一组（门扇 → 玻璃 → 端头），
+        // 顺序 = 页签里从左到右的顺序：先标志，再 1/2/3/4/6 号线各一组（门扇 → 玻璃 → 端头），
         // 每组后面跟这一条线路的半高 APG（同样是门扇 → 玻璃 → 端头）。
         ItemGroupEvents.modifyEntriesEvent(RegistryKey.of(RegistryKeys.ITEM_GROUP, CORE_TAB_ID))
                 .register(entries -> {
@@ -316,7 +316,7 @@ public final class XiamenObjects {
         }
     }
 
-    /** 三条线路的同种方块（给 BE 类型用）。 */
+    /** 五条线路的同种方块（给 BE 类型用）。 */
     private static Block[] blocksOf(final java.util.function.Function<LineSet, Block> pick) {
         final XiamenLine[] lines = XiamenLine.values();
         final Block[] blocks = new Block[lines.length];

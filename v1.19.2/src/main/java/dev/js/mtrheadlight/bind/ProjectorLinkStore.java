@@ -107,4 +107,16 @@ public final class ProjectorLinkStore extends PersistentState {
         }
         return false;
     }
+
+    /**
+     * 删掉这一格投影机的记录（投影机只有自己一头，没有「另一端」）。
+     *
+     * <p>留着的话，拆掉投影机再原地放一台新的，{@code /ltebind projector} 会报出上一台绑的车站
+     * ——「新投影机自动继承了旧绑定」就是这么来的。
+     *
+     * @return 是否删掉了东西
+     */
+    public boolean removeInvolving(final BlockPos pos) {
+        return remove(pos);
+    }
 }

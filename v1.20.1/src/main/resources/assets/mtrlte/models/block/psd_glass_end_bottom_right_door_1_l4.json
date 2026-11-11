@@ -1,0 +1,10 @@
+{
+	"parent": "mtrlte:block/psd_glass_end_right_door_base",
+	"textures": {
+		"bottom": "mtrlte:block/black",
+		"top": "mtrlte:block/transparent",
+		"front": "mtrlte:block/psd_glass_bottom_1_l4",
+		"back": "mtrlte:block/psd_glass_bottom_back_1_l4",
+		"red": "mtrlte:block/psd_red_bottom"
+	}
+}

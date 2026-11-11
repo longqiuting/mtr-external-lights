@@ -91,7 +91,7 @@ public final class XiamenClient implements ClientModInitializer {
         }
 
         // 5) 方块渲染层（照 MTR 的 MTRClient：PSD_DOOR / APG_GLASS / PSD_TOP 全部是 cutout）。
-        //    三条线路各 7 个方块，逐个挂 —— 失败只跳过它自己。
+        //    五条线路各 7 个方块，逐个挂 —— 失败只跳过它自己。
         for (XiamenLine line : XiamenLine.values()) {
             final XiamenObjects.LineSet set = XiamenObjects.set(line);
             put(set.door, line + " psd door");

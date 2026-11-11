@@ -77,7 +77,7 @@ public final class XiamenPsdBlocks {
     /**
      * 「这个方块属于哪条线路」—— 7 个方块类都实现它。
      *
-     * <p>渲染器拿不到 BER 的注册信息（一个 {@code BlockEntityType} 覆盖三条线路的门），所以
+     * <p>渲染器拿不到 BER 的注册信息（一个 {@code BlockEntityType} 覆盖五条线路的门），所以
      * 贴图变体只能从<b>方块实例</b>反查：{@code entity.getCachedState().getBlock() instanceof LineAware}。
      * 这样三项成本全为零：不做 map 查找、不额外分配、多条线路共用一个方块类。
      */
