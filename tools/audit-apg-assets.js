@@ -77,10 +77,10 @@ const blockIds = [...new Set(ids.filter(i => !i.endsWith('_id') && i !== 'core')
 const bsNames = fs.readdirSync(bsDir).filter(f => f.endsWith('.json')).map(f => f.replace(/\.json$/, ''));
 
 console.log('=== BLOCK ID -> BLOCKSTATE FILE ===');
-for (const b of ['xiamen_psd_door','xiamen_psd_glass','xiamen_psd_end','xiamen_psd_top','xiamen_apg_door','xiamen_apg_glass','xiamen_apg_end','xiamen_logo']) {
+for (const b of ['psd_door_xiamen','psd_glass_xiamen','psd_end_xiamen','psd_top_xiamen','apg_door_xiamen','apg_glass_xiamen','apg_end_xiamen','xiamen_logo']) {
   console.log(`${b.padEnd(20)} blockstate=${bsNames.includes(b) ? 'OK' : '*** MISSING assets/mtrlte/blockstates/' + b + '.json ***'}`);
 }
-const orphans = bsNames.filter(n => !['xiamen_psd_door','xiamen_psd_glass','xiamen_psd_end','xiamen_psd_top','xiamen_apg_door','xiamen_apg_glass','xiamen_apg_end','xiamen_logo'].includes(n));
+const orphans = bsNames.filter(n => !['psd_door_xiamen','psd_glass_xiamen','psd_end_xiamen','psd_top_xiamen','apg_door_xiamen','apg_glass_xiamen','apg_end_xiamen','xiamen_logo'].includes(n));
 if (orphans.length) console.log('orphan blockstate files (no such block):', orphans.join(', '));
 
 console.log('\n=== MODEL -> TEXTURE TABLE ===');

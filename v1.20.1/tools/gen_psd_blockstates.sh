@@ -26,7 +26,7 @@ rot() {
               for p in false true; do
                 [ $first -eq 1 ] || echo ','
                 first=0
-                printf '    "facing=%s,half=%s,side=%s,open=%s,end=%s,unlocked=%s,powered=%s": { "model": "mtrlte:block/xiamen_psd_door_empty" }' \
+                printf '    "facing=%s,half=%s,side=%s,open=%s,end=%s,unlocked=%s,powered=%s": { "model": "mtrlte:block/psd_door_xiamen_empty" }' \
                   "$f" "$h" "$s" "$o" "$e" "$u" "$p"
               done
             done
@@ -38,7 +38,7 @@ rot() {
   echo
   echo '  }'
   echo '}'
-} > xiamen_psd_door.json
+} > psd_door_xiamen.json
 
 # ---------- 玻璃：facing × half × side(LEFT/MIDDLE/RIGHT/SINGLE) ----------
 {
@@ -47,8 +47,8 @@ rot() {
   first=1
   for f in west north east south; do
     for h in lower upper; do
-      model="mtrlte:block/xiamen_psd_glass_bottom"
-      [ "$h" = upper ] && model="mtrlte:block/xiamen_psd_glass_top"
+      model="mtrlte:block/psd_glass_xiamen_bottom"
+      [ "$h" = upper ] && model="mtrlte:block/psd_glass_xiamen_top"
       for s in left middle right single; do
         [ $first -eq 1 ] || echo ','
         first=0
@@ -59,7 +59,7 @@ rot() {
   echo
   echo '  }'
   echo '}'
-} > xiamen_psd_glass.json
+} > psd_glass_xiamen.json
 
 # ---------- 端部：facing × half × touching_left × touching_right ----------
 {
@@ -72,7 +72,7 @@ rot() {
         for r in air door none; do
           [ $first -eq 1 ] || echo ','
           first=0
-          printf '    "facing=%s,half=%s,touching_left=%s,touching_right=%s": { "model": "mtrlte:block/xiamen_psd_end", "y": %s }' \
+          printf '    "facing=%s,half=%s,touching_left=%s,touching_right=%s": { "model": "mtrlte:block/psd_end_xiamen", "y": %s }' \
             "$f" "$h" "$l" "$r" "$(rot $f)"
         done
       done
@@ -81,7 +81,7 @@ rot() {
   echo
   echo '  }'
   echo '}'
-} > xiamen_psd_end.json
+} > psd_end_xiamen.json
 
 # ---------- 吊板：facing ----------
 {
@@ -91,11 +91,11 @@ rot() {
   for f in west north east south; do
     [ $first -eq 1 ] || echo ','
     first=0
-    printf '    "facing=%s": { "model": "mtrlte:block/xiamen_psd_top", "y": %s }' "$f" "$(rot $f)"
+    printf '    "facing=%s": { "model": "mtrlte:block/psd_top_xiamen", "y": %s }' "$f" "$(rot $f)"
   done
   echo
   echo '  }'
   echo '}'
-} > xiamen_psd_top.json
+} > psd_top_xiamen.json
 
-echo "generated:"; wc -l xiamen_psd_door.json xiamen_psd_glass.json xiamen_psd_end.json xiamen_psd_top.json
+echo "generated:"; wc -l psd_door_xiamen.json psd_glass_xiamen.json psd_end_xiamen.json psd_top_xiamen.json

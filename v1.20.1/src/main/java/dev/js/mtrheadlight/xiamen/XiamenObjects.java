@@ -26,13 +26,13 @@ import net.minecraft.util.Identifier;
  * <table border="1">
  *   <caption>每个方块都是 MTR 方块类的子类（见 {@link XiamenPsdBlocks}）</caption>
  *   <tr><th>本模组</th><th>MTR 父类</th><th>格</th></tr>
- *   <tr><td>{@code xiamen_psd_door}</td><td>{@code BlockPSDAPGDoorBase}</td>
+ *   <tr><td>{@code psd_door_xiamen}</td><td>{@code BlockPSDAPGDoorBase}</td>
  *       <td>y+0 下段、y+1 上段（左右两扇对开，有方块实体）</td></tr>
- *   <tr><td>{@code xiamen_psd_glass}</td><td>{@code BlockPSDAPGGlassBase}</td>
+ *   <tr><td>{@code psd_glass_xiamen}</td><td>{@code BlockPSDAPGGlassBase}</td>
  *       <td>y+0 下段、y+1 上段</td></tr>
- *   <tr><td>{@code xiamen_psd_end}</td><td>{@code BlockPSDAPGGlassEndBase}</td>
+ *   <tr><td>{@code psd_end_xiamen}</td><td>{@code BlockPSDAPGGlassEndBase}</td>
  *       <td>y+0 下段、y+1 上段（端头收口）</td></tr>
- *   <tr><td>{@code xiamen_psd_top}</td><td>{@code BlockPSDTop}</td>
+ *   <tr><td>{@code psd_top_xiamen}</td><td>{@code BlockPSDTop}</td>
  *       <td>y+2 吊板（独立方块，<b>没有</b>物品形态，有方块实体）</td></tr>
  * </table>
  *
@@ -46,47 +46,47 @@ import net.minecraft.util.Identifier;
  */
 public final class XiamenObjects {
 
-    /** 门扇：{@code mtrlte:xiamen_psd_door}（y+0 / y+1，左右对开）。 */
-    public static final Identifier PSD_DOOR_ID = new Identifier("mtrlte", "xiamen_psd_door");
+    /** 门扇：{@code mtrlte:psd_door_xiamen}（y+0 / y+1，左右对开）。 */
+    public static final Identifier PSD_DOOR_ID = new Identifier("mtrlte", "psd_door_xiamen");
 
-    /** 玻璃板：{@code mtrlte:xiamen_psd_glass}（y+0 / y+1）。 */
-    public static final Identifier PSD_GLASS_ID = new Identifier("mtrlte", "xiamen_psd_glass");
+    /** 玻璃板：{@code mtrlte:psd_glass_xiamen}（y+0 / y+1）。 */
+    public static final Identifier PSD_GLASS_ID = new Identifier("mtrlte", "psd_glass_xiamen");
 
-    /** 端部收口：{@code mtrlte:xiamen_psd_end}（y+0 / y+1）。 */
-    public static final Identifier PSD_END_ID = new Identifier("mtrlte", "xiamen_psd_end");
+    /** 端部收口：{@code mtrlte:psd_end_xiamen}（y+0 / y+1）。 */
+    public static final Identifier PSD_END_ID = new Identifier("mtrlte", "psd_end_xiamen");
 
-    /** 吊板：{@code mtrlte:xiamen_psd_top}（y+2，无物品形态，随整列一起放 / 拆）。 */
-    public static final Identifier PSD_TOP_ID = new Identifier("mtrlte", "xiamen_psd_top");
+    /** 吊板：{@code mtrlte:psd_top_xiamen}（y+2，无物品形态，随整列一起放 / 拆）。 */
+    public static final Identifier PSD_TOP_ID = new Identifier("mtrlte", "psd_top_xiamen");
 
-    /** 半高 APG 门扇：{@code mtrlte:xiamen_apg_door}（y+0 / y+1，无吊板）。 */
-    public static final Identifier APG_DOOR_ID = new Identifier("mtrlte", "xiamen_apg_door");
+    /** 半高 APG 门扇：{@code mtrlte:apg_door_xiamen}（y+0 / y+1，无吊板）。 */
+    public static final Identifier APG_DOOR_ID = new Identifier("mtrlte", "apg_door_xiamen");
 
-    /** 半高 APG 玻璃：{@code mtrlte:xiamen_apg_glass}。 */
-    public static final Identifier APG_GLASS_ID = new Identifier("mtrlte", "xiamen_apg_glass");
+    /** 半高 APG 玻璃：{@code mtrlte:apg_glass_xiamen}。 */
+    public static final Identifier APG_GLASS_ID = new Identifier("mtrlte", "apg_glass_xiamen");
 
-    /** 半高 APG 端部：{@code mtrlte:xiamen_apg_end}。 */
-    public static final Identifier APG_END_ID = new Identifier("mtrlte", "xiamen_apg_end");
+    /** 半高 APG 端部：{@code mtrlte:apg_end_xiamen}。 */
+    public static final Identifier APG_END_ID = new Identifier("mtrlte", "apg_end_xiamen");
 
     /** 厦门地铁标志方块：{@code mtrlte:xiamen_logo}。 */
     public static final Identifier LOGO_ID = new Identifier("mtrlte", "xiamen_logo");
 
-    /** 门扇的 BlockEntity 类型：{@code mtrlte:xiamen_psd_door}。 */
-    public static final Identifier PSD_DOOR_BE_ID = new Identifier("mtrlte", "xiamen_psd_door");
+    /** 门扇的 BlockEntity 类型：{@code mtrlte:psd_door_xiamen}。 */
+    public static final Identifier PSD_DOOR_BE_ID = new Identifier("mtrlte", "psd_door_xiamen");
 
-    /** 吊板的 BlockEntity 类型：{@code mtrlte:xiamen_psd_top}。 */
-    public static final Identifier PSD_TOP_BE_ID = new Identifier("mtrlte", "xiamen_psd_top");
+    /** 吊板的 BlockEntity 类型：{@code mtrlte:psd_top_xiamen}。 */
+    public static final Identifier PSD_TOP_BE_ID = new Identifier("mtrlte", "psd_top_xiamen");
 
-    /** APG 门扇的 BlockEntity 类型：{@code mtrlte:xiamen_apg_door}。 */
-    public static final Identifier APG_DOOR_BE_ID = new Identifier("mtrlte", "xiamen_apg_door");
+    /** APG 门扇的 BlockEntity 类型：{@code mtrlte:apg_door_xiamen}。 */
+    public static final Identifier APG_DOOR_BE_ID = new Identifier("mtrlte", "apg_door_xiamen");
 
     /**
-     * APG 玻璃的 BlockEntity 类型：{@code mtrlte:xiamen_apg_glass}。
+     * APG 玻璃的 BlockEntity 类型：{@code mtrlte:apg_glass_xiamen}。
      *
      * <p>这个方块实体是<b>线路图的入口</b>：MTR 的 {@code RenderAPGGlass} 从它取
      * {@code getPlatformId(...)}，再拿站台 id 去 {@code ClientData.DATA_CACHE} 里生成
      * 线路图 / 站名 / 色带纹理。没有它，玻璃就是一块死的静态模型。
      */
-    public static final Identifier APG_GLASS_BE_ID = new Identifier("mtrlte", "xiamen_apg_glass");
+    public static final Identifier APG_GLASS_BE_ID = new Identifier("mtrlte", "apg_glass_xiamen");
 
     /** 页签 id：{@code mtrlte:core} —— 名字由 {@code itemGroup.mtrlte.core} 决定。 */
     public static final Identifier CORE_TAB_ID = new Identifier("mtrlte", "core");
@@ -158,17 +158,17 @@ public final class XiamenObjects {
         return psdTopEntityType;
     }
 
-    /** 半高 APG 门扇方块（{@code mtrlte:xiamen_apg_door}）。 */
+    /** 半高 APG 门扇方块（{@code mtrlte:apg_door_xiamen}）。 */
     public static XiamenPsdBlocks.ApgDoor apgDoor() {
         return apgDoor;
     }
 
-    /** 半高 APG 玻璃板（{@code mtrlte:xiamen_apg_glass}）。 */
+    /** 半高 APG 玻璃板（{@code mtrlte:apg_glass_xiamen}）。 */
     public static XiamenPsdBlocks.ApgGlass apgGlass() {
         return apgGlass;
     }
 
-    /** 半高 APG 端部（{@code mtrlte:xiamen_apg_end}）。 */
+    /** 半高 APG 端部（{@code mtrlte:apg_end_xiamen}）。 */
     public static XiamenPsdBlocks.ApgEnd apgEnd() {
         return apgEnd;
     }

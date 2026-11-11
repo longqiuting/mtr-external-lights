@@ -9,14 +9,13 @@
 					"conditions": [
 						{
 							"condition": "minecraft:block_state_property",
-							"block": "mtrlte:xiamen_psd_door",
+							"block": "mtrlte:psd_glass_xiamen",
 							"properties": {
-								"half": "lower",
-								"side": "left"
+								"half": "lower"
 							}
 						}
 					],
-					"name": "mtrlte:xiamen_psd_door"
+					"name": "mtrlte:psd_glass_xiamen"
 				}
 			],
 			"conditions": [

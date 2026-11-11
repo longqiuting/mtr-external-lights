@@ -24,8 +24,10 @@ return path.startsWith("psd_door") || path.startsWith("apg_door");
 `PsdDoorTracker#isPsdFamily` 用更宽的 `path.startsWith("psd_") || path.startsWith("apg_")`。
 **两个函数都不看 namespace**，只看 registry path。
 
-所以能命中的：`mtr:psd_door`、`mtr:psd_door_2`、`mtr:apg_door`、`tianjin:psd_door_tianjin`（TianjinMetro 的方块 id 也是 `psd_door_*` 开头）。
-命不中的：**我们的 `mtrlte:xiamen_psd_door` / `xiamen_apg_door`**（path 是 `xiamen_psd_door`，前缀对不上）。
+所以能命中的：`mtr:psd_door`、`mtr:psd_door_2`、`mtr:apg_door`、`tianjin:psd_door_tianjin`（TianjinMetro 的方块 id 也是 `psd_door_*` 开头）、
+**以及本模组的 `mtrlte:psd_door_xiamen` / `mtrlte:psd_glass_xiamen` / `mtrlte:psd_end_xiamen` / `mtrlte:psd_top_xiamen` /
+`mtrlte:apg_door_xiamen` / `mtrlte:apg_glass_xiamen` / `mtrlte:apg_end_xiamen`**（2026-11-11 已按方案 1 改名，见下）。
+命不中的（历史 id，已不存在）：`xiamen_psd_*` / `xiamen_apg_*`。
 
 ### 石斧判断：原版 `Items.STONE_AXE`，写死 item，没有 tag
 
@@ -59,15 +61,27 @@ public PsdToneSetupScreen(BlockPos pos) {          // 第 132 行
 
 `runKeyOf` 会从该坐标向两侧 flood-fill 找同一串门，再用 `MtrDwellAccess.platformIdAt(x,y,z)` 反查 MTR 站台 id，把「一串门」映射成「一个站台」作为配置身份。**全程只读 blockstate + MTR 的线路数据，不读 BlockEntity，也不做任何 MTR 类型的 instanceof**。
 
-### 我们的门能否被识别：不能，缺的只有「方块路径前缀」
+### 我们的门能否被识别：能（2026-11-11 改名后）
 
-- 继承链没问题：`Door extends BlockPSDAPGDoorBase`、`Glass extends BlockPSDAPGGlassBase`、`Top extends BlockPSDTop`，
-  但 MZYC 根本不看类型，只看 id 字符串。
-- 要接上，三条路：
-  1. 把门/玻璃改成 `mtrlte:psd_door_xiamen` 之类的 id（path 以 `psd_door` / `apg_door` 开头）——会改存档 id，代价最大；
-  2. 我们自己 mixin `SmoothLift#isPsdDoor` / `PsdDoorTracker#isPsdFamily`（`required: false` 的软依赖 mixin，加 `xiamen_` 前缀判断）；
-  3. 给作者提 issue 放宽成 `path.contains("psd_door")`。
-- 顺带：`isPsdFamily` 也用于 PSD 提示音追踪（`PsdDoorTracker` 的 run 扫描），所以**目前我们的门在 MZYC 里整套「屏蔽门提示音」都不生效**，不只是石斧界面。改名或 mixin 之后两件事一起通。
+- 继承链本来就没问题：`Door extends BlockPSDAPGDoorBase`、`Glass extends BlockPSDAPGGlassBase`、`Top extends BlockPSDTop`，
+  但 MZYC 根本不看类型，只看 id 字符串 —— 所以只要 id 前缀对上就通。
+- 已采用方案 1（改名，未发布所以没有旧存档兼容负担）：
+
+  | 旧 id | 新 id |
+  |---|---|
+  | `mtrlte:xiamen_psd_door` | `mtrlte:psd_door_xiamen` |
+  | `mtrlte:xiamen_psd_glass` | `mtrlte:psd_glass_xiamen` |
+  | `mtrlte:xiamen_psd_end` | `mtrlte:psd_end_xiamen` |
+  | `mtrlte:xiamen_psd_top` | `mtrlte:psd_top_xiamen` |
+  | `mtrlte:xiamen_apg_door` | `mtrlte:apg_door_xiamen` |
+  | `mtrlte:xiamen_apg_glass` | `mtrlte:apg_glass_xiamen` |
+  | `mtrlte:xiamen_apg_end` | `mtrlte:apg_end_xiamen` |
+
+  同步改了：`XiamenObjects` 的 7 个方块 id + 4 个 BlockEntity 类型 id、`blockstates/`、`models/item/`、
+  `loot_tables/blocks/` 的文件名，以及 `block.mtrlte.*` 语言键。
+- 被否掉的另外两条路（保留记录）：2. mixin `SmoothLift#isPsdDoor` / `PsdDoorTracker#isPsdFamily`（软依赖 mixin 更脆）；
+  3. 给作者提 issue 放宽成 `path.contains("psd_door")`（不由我们控制）。
+- `isPsdFamily` 也用于 PSD 提示音追踪（`PsdDoorTracker` 的 run 扫描），现在**石斧界面和整套「屏蔽门提示音」一起生效**。
 
 ## B. MTR 吊板的剪刀右键
 
@@ -115,12 +129,12 @@ public PsdToneSetupScreen(BlockPos pos) {          // 第 132 行
 41: invokestatic mtr/block/IBlock.checkHoldingItem
 ```
 
-`PERSISTENT` 属性本来就随 `BlockPSDTop#appendProperties` 继承注册，`assets/mtrlte/blockstates/xiamen_psd_top.json`
+`PERSISTENT` 属性本来就随 `BlockPSDTop#appendProperties` 继承注册，`assets/mtrlte/blockstates/psd_top_xiamen.json`
 也已经有 `persistent: "arrow|route|blank"` 的 16 个变体（与 MTR 自己的 `psd_top.json` 结构一致），模型文件齐全，**不需要补 blockstate**。
 
 ## 产物
 
-`v1.20.1/build/libs/lte-1.0.28.jar`（md5 `dab6ed60f6822bb67dec87efedd81fea`）
-→ 桌面 `lte-1.0.28.jar`、实例 `C:\Users\AD\Desktop\PCL\.minecraft\versions\1.20.1-Fabric 0.19.3\mods\lte-1.0.28.jar`（三份 md5 一致）。
+`v1.20.1/build/libs/lte-1.0.29.jar`（md5 `b33dfce3a164c5b8f32f9d3d69b54ecc`）
+→ 桌面 `lte-1.0.29.jar`、实例 `C:\Users\AD\Desktop\PCL\.minecraft\versions\1.20.1-Fabric 0.19.3\mods\lte-1.0.29.jar`（三份 md5 一致）。
 构建命令：Gradle **8.14**（loom 1.11.8 要求 ≥8.14，仓库 wrapper 仍写 8.8，未改动）：
-`D:/MC-MTR-JS/temp/gradle814/gradle-8.14/bin/gradle -p v1.20.1 build --offline` → BUILD SUCCESSFUL in 29s。
+`D:/MC-MTR-JS/temp/gradle/gradle-8.14/bin/gradle -p v1.20.1 clean build --no-daemon` → BUILD SUCCESSFUL。

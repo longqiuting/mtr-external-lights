@@ -11,7 +11,7 @@
 | 问题 | 确切原因 | 修法 |
 | --- | --- | --- |
 | 玻璃上没有线路图 | `ApgGlass extends BlockPSDAPGGlassBase`——这个基类**根本没有方块实体**，而线路图是 BER `mtr.render.RenderAPGGlass` 用方块实体里的 `getPlatformId()` 现画的。没有 BE → 没有 BER 可以挂 → 只剩静态模型 | 改成 `extends BlockAPGGlass`（MTR 自家 APG 玻璃）、给方块实体（父类 `BlockPSDTop.TileEntityRouteBase`）、把 **MTR 的 `RenderAPGGlass`** 注册到这个 BE 类型上 |
-| 端部是紫黑棋盘 | 方块 id 是 `mtrlte:xiamen_apg_end`，但资源里只有 `assets/mtrlte/blockstates/**xiamen_apg_glass_end**.json`——**blockstate 文件名与方块 id 不匹配** → `BlockModels` 拿不到任何变体 → 回退 missing model（紫黑棋盘）。**不是贴图缺失**：40 个 multipart 引用的 16 张贴图全部存在 | 把文件重命名为 `xiamen_apg_end.json`（内容一字未改，与 MTR 的 `apg_glass_end.json` 逐条等价） |
+| 端部是紫黑棋盘 | 方块 id 是 `mtrlte:apg_end_xiamen`，但资源里只有 `assets/mtrlte/blockstates/**apg_glass_xiamen_end**.json`——**blockstate 文件名与方块 id 不匹配** → `BlockModels` 拿不到任何变体 → 回退 missing model（紫黑棋盘）。**不是贴图缺失**：40 个 multipart 引用的 16 张贴图全部存在 | 把文件重命名为 `apg_end_xiamen.json`（内容一字未改，与 MTR 的 `apg_glass_end.json` 逐条等价） |
 
 ---
 
@@ -184,7 +184,7 @@ BlockEntityRendererRegistry.register(XiamenObjects.apgGlassEntityType(), context
 
 ### 资源侧的连带改动
 
-`ApgGlass` 多了 `propagate_property`（0..3）属性，`assets/mtrlte/blockstates/xiamen_apg_glass.json`
+`ApgGlass` 多了 `propagate_property`（0..3）属性，`assets/mtrlte/blockstates/apg_glass_xiamen.json`
 的 `variants` 从 32 条补成 **128 条**（`facing × side × half × propagate_property`），
 保证任何状态都能精确命中模型（不再依赖「变体键可以只写部分属性」这种隐式行为）。
 
@@ -194,26 +194,26 @@ BlockEntityRendererRegistry.register(XiamenObjects.apgGlassEntityType(), context
 
 ```
 方块 id                      assets/mtrlte/blockstates/
-mtrlte:xiamen_apg_end    →   xiamen_apg_end.json      ← 之前不存在（不存在 = missing model = 紫黑棋盘）
-（孤儿文件）                  xiamen_apg_glass_end.json ← 之前实际存在的那个
+mtrlte:apg_end_xiamen    →   apg_end_xiamen.json      ← 之前不存在（不存在 = missing model = 紫黑棋盘）
+（孤儿文件）                  apg_glass_xiamen_end.json ← 之前实际存在的那个
 ```
 
 证据：
-- `XiamenObjects.APG_END_ID = new Identifier("mtrlte", "xiamen_apg_end")`；
-- 目录里只有 `xiamen_apg_glass_end.json`，没有 `xiamen_apg_end.json`；
+- `XiamenObjects.APG_END_ID = new Identifier("mtrlte", "apg_end_xiamen")`；
+- 目录里只有 `apg_glass_xiamen_end.json`，没有 `apg_end_xiamen.json`；
 - 该文件的 40 条 multipart 条件与 MTR 的 `apg_glass_end.json` **一一对应、零差异**（脚本比对：
   `ours 40 / mtr 40`，`in MTR but not ours: 空`，`in ours but not MTR: 空`），
   引用的 10 个模型、**8 个**纹理 id（`apg_glass_bottom / single_bottom / top / single_top / side_triangle /
   psd_side_light / transparent` + `item/apg_glass`）全部存在。
 
-修法：`git mv` 语义的重命名（不提交）→ `xiamen_apg_glass_end.json` → **`xiamen_apg_end.json`**。
+修法：`git mv` 语义的重命名（不提交）→ `apg_glass_xiamen_end.json` → **`apg_end_xiamen.json`**。
 
 ## 6. APG 全部模型 → 贴图 id 对照表
 
 > 由 `tools/audit-apg-assets.js`（枚举 blockstates → 模型 → 沿 `parent` 链收集 `textures` → 逐个查文件）生成。
 > 结论：**全部存在**，0 个 `MISSING`。
 
-**`xiamen_apg_glass` — 8 个模型**
+**`apg_glass_xiamen` — 8 个模型**
 
 | 模型 | 贴图 id（全部存在） |
 | --- | --- |
@@ -226,7 +226,7 @@ mtrlte:xiamen_apg_end    →   xiamen_apg_end.json      ← 之前不存在（�
 | `apg_glass_top_right` | `mtrlte:item/apg_glass`<br>`mtrlte:block/transparent`<br>`mtrlte:block/apg_glass_top`<br>`mtrlte:block/psd_side_light`<br>`mtrlte:block/apg_side_triangle` |
 | `apg_glass_top_single` | `mtrlte:item/apg_glass`<br>`mtrlte:block/transparent`<br>`mtrlte:block/apg_glass_single_top`<br>`mtrlte:block/psd_side_light`<br>`mtrlte:block/apg_side_triangle` |
 
-**`xiamen_apg_end` — 10 个模型**
+**`apg_end_xiamen` — 10 个模型**
 
 | 模型 | 贴图 id（全部存在） |
 | --- | --- |
@@ -237,7 +237,7 @@ mtrlte:xiamen_apg_end    →   xiamen_apg_end.json      ← 之前不存在（�
 | `apg_glass_top_left` / `_right` | `mtrlte:item/apg_glass`, `mtrlte:block/transparent`, `mtrlte:block/apg_glass_top`, `mtrlte:block/psd_side_light`, `mtrlte:block/apg_side_triangle` |
 | `apg_glass_top_middle` / `_single` | `mtrlte:item/apg_glass`, `mtrlte:block/transparent`, `mtrlte:block/apg_glass_single_top`, `mtrlte:block/psd_side_light`（single 多一个 `apg_side_triangle`） |
 
-**`xiamen_apg_door`**：`{"variants": {"": {"model": "minecraft:block/air"}}}` —— 和 MTR 的 `apg_door.json`
+**`apg_door_xiamen`**：`{"variants": {"": {"model": "minecraft:block/air"}}}` —— 和 MTR 的 `apg_door.json`
 一样是「空气模型」，门扇整个由 BER `RenderPSDAPGDoor(type=2)` 画（贴图 `mtr:textures/block/apg_door_*`），
 blockstate 不参与。
 
@@ -245,16 +245,16 @@ blockstate 不参与。
 
 | 物品 | 模型 | 贴图 |
 | --- | --- | --- |
-| `mtrlte:xiamen_apg_glass` | `item/generated` | `mtrlte:item/apg_glass` ✔ |
-| `mtrlte:xiamen_apg_end` | `item/generated` | `mtrlte:item/apg_glass_end` ✔ |
-| `mtrlte:xiamen_apg_door` | `item/generated` | `mtrlte:item/apg_door` ✔ |
+| `mtrlte:apg_glass_xiamen` | `item/generated` | `mtrlte:item/apg_glass` ✔ |
+| `mtrlte:apg_end_xiamen` | `item/generated` | `mtrlte:item/apg_glass_end` ✔ |
+| `mtrlte:apg_door_xiamen` | `item/generated` | `mtrlte:item/apg_door` ✔ |
 
 ## 7. 验证
 
 - `gradle -p v1.20.1 clean build` → **BUILD SUCCESSFUL**，jar `v1.20.1/build/libs/lte-1.0.24.jar`
   （1,169,340 B，`md5 eb01a32d8af12c235f28f686891710d7`）；
-- jar 内已含 `assets/mtrlte/blockstates/xiamen_apg_end.json`（7931 B）、
-  `assets/mtrlte/blockstates/xiamen_apg_glass.json`（128 变体）、
+- jar 内已含 `assets/mtrlte/blockstates/apg_end_xiamen.json`（7931 B）、
+  `assets/mtrlte/blockstates/apg_glass_xiamen.json`（128 变体）、
   `dev/js/mtrheadlight/xiamen/XiamenPsdBlocks$TileEntityXiamenAPGGlass.class`，
   `XiamenClient.class` 里能查到 `RenderAPGGlass` 常量；
 - `node tools/audit-apg-assets.js`：8 个方块 id 全部有 blockstate、**0 条 `MISSING`**、0 个孤儿 blockstate；

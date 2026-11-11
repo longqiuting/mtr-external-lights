@@ -9,13 +9,13 @@
 					"conditions": [
 						{
 							"condition": "minecraft:block_state_property",
-							"block": "mtrlte:xiamen_psd_glass",
+							"block": "mtrlte:apg_end_xiamen",
 							"properties": {
 								"half": "lower"
 							}
 						}
 					],
-					"name": "mtrlte:xiamen_psd_glass"
+					"name": "mtrlte:apg_end_xiamen"
 				}
 			],
 			"conditions": [

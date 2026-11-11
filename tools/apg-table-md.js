@@ -28,7 +28,7 @@ function gather(id, acc = {}) {
 }
 
 const out = [];
-for (const bs of ['xiamen_apg_glass.json', 'xiamen_apg_end.json']) {
+for (const bs of ['apg_glass_xiamen.json', 'apg_end_xiamen.json']) {
   const j = readJson(path.join(RES, 'mtrlte/blockstates', bs));
   const refs = new Set();
   if (j.variants) for (const v of Object.values(j.variants)) if (v.model) refs.add(v.model);

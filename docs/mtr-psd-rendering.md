@@ -515,7 +515,7 @@ MTR 的门同样如此；真正的不透明门板是「下半段」那张（65% 
 
 ---
 
-## 16. 半高 APG（`xiamen_apg_glass` / `xiamen_apg_end`）
+## 16. 半高 APG（`apg_glass_xiamen` / `apg_end_xiamen`）
 
 半高门是另一条路：玻璃上的线路图来自 **另一个 BER** `mtr.render.RenderAPGGlass`
 （同一套 `RenderRouteBase` / `RouteMapGenerator` 数据，几何 `z=4/16, top=8/16, bottom=4/16, side=8/16`），
