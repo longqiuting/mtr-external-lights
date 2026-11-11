@@ -1,154 +1,142 @@
-# mtr-headlight
+# LTE (LTY's transit expansion)
 
-给 **MTR（Minecraft Transit Railway）3.x** 列车加动态车头/车尾灯光的 Fabric 模组（客户端）。
+**MTR（Minecraft Transit Railway）3.x 的交通拓展模组** — Fabric，支持 **1.18.2 / 1.19.2 / 1.19.4 / 1.20.1**。
 
-- **不放置、不修改任何方块**
-- **不修改 MTR**：不 mixin、不反射，只读 `ClientData.TRAINS` 与 `Train` 的公开成员
-- 光照通过 **LambDynamicLights 4.x 公开 API**（`DynamicLightBehavior` / `LineLightBehavior`）注入
-- 目标：Minecraft **1.20.1**、Fabric
+基于 MTR 的列车/轨道/信号数据，补上 MTR 本身没有的灯光、天气、碰撞与编辑能力。
 
-> 详细调研、证据与多版本成本见 `..\docs\headlight-mod-feasibility.md`。
+- 仓库：<https://github.com/longqiuting/mtr-external-lights>
+- 问题反馈：<https://github.com/longqiuting/mtr-external-lights/issues>
+- 协议：MIT（屏蔽门部分移植自 MTR，同样 MIT）
 
-## 现状
+---
 
-代码已完成并通过离线类型校验（`tools/typecheck`），但**尚未产出 jar**：
-构建机上 `maven.fabricmc.net` 下行被限到 ~432 B/s，Gradle 卡在解析 `fabric-loom` 插件。
-这不是代码问题，换到能访问 fabric maven 的网络执行一次构建即可。
+## 功能
+
+### 车灯与光效
+
+- **光带 / 光柱**：头灯、尾灯光束，按车型灯位自动匹配（内置 95/114 个 MTR 车型的灯位表），左右灯成对、只给头灯
+- **方向取自车身弦**，不是轨道切线 —— 单节车过急弯不会甩方向
+- **自动开关**：按天空光照 + 昼夜判定，隧道/夜晚自动亮，接触网不再导致闪烁；车厂停放 10 秒自动熄灯
+- **动态光源**：通过 LambDynamicLights 照亮周围方块（可选）
+- 光柱默认**关闭**（实验性质），可在面板里打开
+
+### 天气
+
+- 雨天列车卷起的**水雾**：自定义粒子 `mtrlte:spray`，灰白细丝，向后下方跟随尾流；隧道内不生成；20–50 km/h 渐入、50 以上全密度
+
+### 碰撞与伤害
+
+- 列车**外部碰撞**：分段 OBB，弯道不失效，开门时整侧放行
+- **推挤 / 撞飞 / 伤害**分档：`<5` 只推、`5–20` 低速伤害、`20–50` 中速、`50–80` 撞飞、`≥80` 飞行档
+- 撞飞距离随时速指数增长（`5.5 × exp(k(v−50)/50)`，默认 50 km/h≈5.5 格、80≈10 格、120≈22 格）
+- 死亡消息：
+  - 低速：`%1$s 因为被罚了5000HKD而被气似了`
+  - 高速：`%1$s 随着列车的呼啸声消失了`
+- 服务端安装时伤害/撞飞由服务端结算，纯客户端也不会双结算
+
+### 连接器
+
+| 物品 | 右键 | 左键 |
+|---|---|---|
+| 信号连接器 | 节点→灯 / 灯→节点 / 灯→灯 | 解绑 |
+| 投影机连接器 | 投影机 ↔ 车站/站台（支持站外） | 解绑 |
+| PIDS 连接器 | PIDS ↔ 站台（MTR / 天津地铁 / JCM） | 解绑 |
+
+- 手持时高亮视距内的轨道节点
+- 方块被拆时自动解绑（避免原地重放继承旧绑定）
+- 方速信号灯：右键自动切到「同步 MTR 信号」模式并绑定
+
+### 3D 光束编辑器
+
+- `/mtr_lte beam3d` 或「车灯编辑器」物品打开
+- 直接加载资源包里的真实列车模型，左键旋转视角、右键平移、滚轮缩放
+- 选择 / 移动 / 旋转 / 颜色工具，XYZ 轴约束拖拽，六向吸附，Shift 0.5 格步进
+- 支持搜索车型、导入未加载的资源包、1–8 节车厢预览
+- 导出 JSON 到桌面，或写入资源包 `assets/lte/beam3D/<车型id>.json`
+
+### 厦门风格物件
+
+- 全高屏蔽门（PSD）与半高屏蔽门（APG），**1 / 2 / 3 / 4 / 6 号线**各一套
+- 行为完整继承 MTR：列车到站自动开门、刷子切线路指示方向、剪刀切形态、门灯（1/2/3 橙色、4/6 绿色）、站台方块自动切换模型
+- 线路条带按厦门实拍重绘：空心圆环站点、换乘图标（追逐箭头 + 线路牌）、终点三角箭头、45° 站名、颜色跟随线路
+- 厦门地铁 logo 方块
+
+---
+
+## 安装
+
+1. 安装 **Fabric Loader** 与 **Fabric API**
+2. 安装 **MTR 3.x**（对应你的 MC 版本）
+3. 把 `lte-1.0.0+<mc版本>.jar` 放进 `mods/`
+4. 可选：**LambDynamicLights**（动态光源）、**Mod Menu**（配置入口）
+
+多人游戏：服务端也装 LTE 时，碰撞、撞飞、伤害由服务端结算；只装客户端也能正常使用。
+
+---
+
+## 常用指令
+
+主指令 `/mtr_lte`（旧别名 `/externallights`），无参数打开控制面板。
+
+完整清单见 [`docs/COMMANDS.md`](docs/COMMANDS.md)。
+
+```text
+/mtr_lte beam3d [车型id]        3D 光束编辑器
+/mtr_lte headlight auto|always|off
+/mtr_lte rain on|off|status|force [on|off]
+/mtr_lte trains [status|on|off|reload]
+/mtr_lte cone [status|volume on|off|occl on|off|steps N]
+/mtr_lte debug coneSource model|glow
+/mtr_lte debug cone on|off | coneBoost on|off | spray on|off | killself [low|high]
+```
+
+---
 
 ## 构建
 
-```powershell
-$env:JAVA_HOME = "C:\Program Files\Java\jdk-21.0.10"
-cd D:\MC-MTR-JS\mtr-headlight
-.\gradlew build
-# 产物: build\libs\mtr-headlight-0.1.0.jar
+需要 JDK 21 与 Gradle 8.14（工程自带 wrapper 是 8.8，fabric-loom 1.11.8 要求 ≥8.14）。
 
-# 装进实例
-Copy-Item build\libs\mtr-headlight-0.1.0.jar `
-  "C:\Users\AD\Desktop\PCL\.minecraft\versions\1.20.1-Fabric 0.19.3\mods\"
+```bash
+JAVA_HOME="C:/Program Files/Java/jdk-21.0.10" \
+  "/d/MC-MTR-JS/temp/gradle/gradle-8.14/bin/gradle" -p v1.20.1 clean build --no-daemon
 ```
 
-依赖说明：
+产物：`v1.20.1/build/libs/lte-<version>.jar`。版本号自动为 `1.0.<git 提交数>`。
 
-| 依赖 | 来源 | 打包进 jar？ |
-|---|---|---|
-| Minecraft 1.20.1 / Yarn 1.20.1+build.10 | maven.fabricmc.net | 否 |
-| fabric-loader 0.16.9 | maven.fabricmc.net | 否 |
-| fabric-api 0.92.12+1.20.1 | maven.fabricmc.net | 否 |
-| `libs/lambdynamiclights-api-4.4.0+1.20.1.jar` | 从已安装的 LDL 主 jar 的 `META-INF/jars/` 抽出 | 否（`modCompileOnly`，运行时由 LDL 提供） |
-| `libs/MTR-fabric-1.20.1-3.6.4.2.jar` | 实例 mods 目录 | 否（`modCompileOnly`） |
+四个版本各自独立构建：
 
-`build.gradle` 里没有任何 `include(...)`，所以上面的本地 jar **不会**被打进产物；
-`fabric.mod.json` 里对它们的依赖是 `depends`（运行时必须已安装），符合预期。
-
-## 运行时依赖
-
-- Minecraft Transit Railway 3.6.x（`mods/MTR-fabric-1.20.1-3.6.4.2.jar`）
-- LambDynamicLights 4.4.0+（`mods/[Lambd的动态光源] lambdynamiclights-4.4.0+1.20.1.jar`）
-- Fabric API
-
-## 配置
-
-首次启动生成 `config/mtr-headlight.json`：
-
-| 键 | 默认 | 说明 |
-|---|---|---|
-| `enabled` | `true` | 总开关 |
-| `onlyTrains` | `true` | 只对 `TransportMode.TRAIN` 生效 |
-| `headLuminance` | `15` | 车头亮度 0–15 |
-| `headLength` | `11.0` | 车头光束长度（格） |
-| `headOffset` | `0.6` | 光束起点与车头端面的间隙 |
-| `tailLuminance` | `9` | 车尾亮度（同色更暗，**不是红色**） |
-| `tailLength` | `4.0` | 尾灯长度 |
-| `tailOffset` | `0.4` | 尾灯起点间隙 |
-| `heightOffset` | `1.0` | 光段相对轨面高度 |
-| `maxDistance` | `192.0` | 超出距离不注册（带 1.25× 迟滞） |
-| `swapEnds` | `false` | 前后灯装反时置 `true` |
-
-## 界面（`/externallights`、键位、Mod Menu）
-
-控件分三页（行距一致，翻页不跳布局），全部即时生效（改动写在内存里，最迟离开界面时落盘）。
-每页都是**两栏**：有开关的行左栏开关、右栏滑块；只有滑块的行居中显示（宽度 3/5 栏宽，不占满两栏）；
-整块宽度按当前语言下最长标签用 `font.width` 实测自适应（最长标签 + 2 个字宽，下限 160），不再是固定 320/330。
-
-- **基础**：总开关｜渲染距离（16–512 格，步长 8）· 车灯亮度（0–15，居中）· 轨道光照｜光照射程（0–32 格，步长 0.5）·
-  「按侧线配置…」（详情页这里是「恢复为跟随全局」）· 「车灯光束设置 →」
-- **车灯光束**：光束开关｜光束绘制距离（16–384 格）· 车头长度（0–48）· 车尾长度（0–24）·
-  光束宽度（1–8 格）· 「颜色与高度 →」
-- **颜色与高度**：车头颜色 / 车尾颜色（左栏标签 + 右栏色块按钮，点开色块网格）·
-  车头离地高度 · 车尾离地高度 · 「← 车灯光束」
-
-颜色选择是一个独立小屏（`ColorPickerScreen`）：8 列 × 5 行预设色块（暖白 / 红 / 黄绿 / 蓝紫 / 灰），
-顶部是当前颜色的预览条与 `#RRGGBB`，选中项白色描边，底部「完成 / 取消」，取消或 ESC 不写入配置。
-色块按钮本身也画出当前颜色的小方块与十六进制值，配置里的 `beamHeadColor` / `beamTailColor` 仍是 `#RRGGBB` 字符串。
-
-底部是「立即重载光源」和「完成」（详情页是「返回」）。副标题右侧跟着当前页名。
-
-- 未进入存档时「按侧线配置…」置灰不可点，鼠标悬停在该行下方显示“请先进入存档”。
-- 进存档后点进去是侧线列表：`#编号 名称 · 类型 · 长度 · 节数`，右侧显示 `启用 / 自定义 / 已停用`。
-  存档里没有任何侧线时显示空态“请先创建侧线”。
-- 点一条侧线进入**详情页**，是同一套三页控件，但写的是该侧线的覆盖值；未改过的项带“（跟随）”
-  后缀，「恢复为跟随全局」删除该侧线的全部覆盖项。
-
-## 车灯光束（`beam*`）
-
-光带不再是“照亮轨道”，而是**车灯发出的光束**：以车头灯为起点，沿列车三维朝向直线推进
-（偏航不拐弯，俯仰跟随），宽度默认 3 格，最终 y 贴地。详见 `BeamGlow` 与 `DepartureState`。
-
-| 键 | 默认 | 说明 |
-|---|---|---|
-| `beamGlow` | `true` | 光束总开关（与 `railLight` 互不影响） |
-| `beamDistance` | `128.0` | 光束自己的绘制距离（与 `maxDistance` 分开） |
-| `beamHeadLength` | `16.0` | 车头光束长度（格） |
-| `beamTailLength` | `4.0` | 车尾光束长度（格） |
-| `beamWidth` | `3.0` | 宽度（格），两侧 alpha 渐淡到 0 |
-| `beamHeadColor` / `beamTailColor` | `#FFF3D6` / `#FF6A5A` | 颜色（`#RRGGBB`） |
-| `beamHeadHeight` / `beamTailHeight` | `0.15` / `0.10` | 在贴地高度之上的额外离地量 |
-| `beamLift` | `0.07` | 贴地基础上的统一抬升，避免与轨面 z-fighting |
-| `beamAlpha` | `0.55` | 灯口处峰值 alpha（加性混合） |
-
-未发车（停在车厂/车辆段）的列车不发光：`DepartureState` 用 MTR 自己的
-`Train#getIsOnRoute()`（javap 可见，`is_on_route` 随车数据同步到客户端）判断，另外记录
-“这辆车自出现以来是否移动过”作为兜底，两者取或。
-
-## 按侧线配置的存储
-
-稀疏覆盖表，只写改过的字段（Gson 跳过 null）：
-
-| 键 | 默认 | 说明 |
-|---|---|---|
-| `sidingSettings` | `{}` | 键为 `Train.sidingId` 的十进制字符串，值为下列字段的任意子集 |
-| `sidingSettings.<id>.enabled` | 跟随全局 | 该侧线总开关（旧 `mutedSidings` 的替代） |
-| `…maxDistance` / `…headLuminance` / `…headLength` | 跟随全局 | 同全局键 |
-| `…tailLuminance` / `…tailLength` | 跟随全局 | 同全局键 |
-| `…railLight` | 跟随全局 | 该侧线的轨道光照开关 |
-| `…beamGlow` / `…beamDistance` / `…beamHeadLength` / `…beamTailLength` | 跟随全局 | 光束开关/距离/头尾长度 |
-| `…beamWidth` / `…beamHeadColor` / `…beamTailColor` / `…beamHeadHeight` / `…beamTailHeight` | 跟随全局 | 光束宽度/颜色/高度 |
-
-生效路径：`HeadlightConfig#effectiveFor(sidingId)` 把全局值与覆盖合并成一个快照，`LightController`（光束/
-亮度/距离）、`RailRelightScheduler`（该侧线是否需要轨道光照）、`BeamGlow`（车灯光束）都只读这个快照，
-因此“全局关闭、单条侧线打开”也能正常渲染。
-
-`mutedSidings`（旧版“静音侧线”列表）已废弃：加载时一次性迁移成 `sidingSettings[id].enabled=false`
-并清空，之后不再读写；字段保留只是为了让旧 JSON 仍能解析。
-
-## 为什么尾灯不是红色
-
-LambDynamicLights 4.4.0 的动态光是**标量亮度**（`DynamicLightingEngine#getDynamicLightLevel` 返回 `double`，
-`CollectionDynamicLightSource$Entry` 只有 `int luminance`，整个 jar 没有任何 RGB 字段）。
-原版光照引擎同样是每方块 0–15 的单值。因此红尾灯在当前技术栈**无法实现**，
-本模组用「更暗的白光」表达尾灯。
-
-## 离线校验（无需 Gradle）
-
-```powershell
-$env:JAVA_HOME = "C:\Program Files\Java\jdk-21.0.10"
-cd D:\MC-MTR-JS\mtr-headlight
-$gson = "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1\com.google.code.gson\gson\2.10.1\b3add478d4382b78ea20b1671390a858002feb6c\gson-2.10.1.jar"
-& "$env:JAVA_HOME\bin\javac" --release 17 -encoding UTF-8 -d tools/typecheck/out -cp "$gson" `
-    (Get-ChildItem -Recurse -Filter *.java src/main/java,tools/typecheck/stubs,tools/typecheck/src | % FullName)
-& "$env:JAVA_HOME\bin\java" -cp "tools/typecheck/out;$gson" dev.js.mtrheadlight.PoseCheck
+```bash
+for v in v1.18.2 v1.19.2 v1.19.4 v1.20.1; do
+  gradle -p $v clean build --no-daemon
+done
 ```
 
-`tools/typecheck/stubs` 是按 `javap` 签名手写的最小桩，**只用于类型校验**，
-不参与打包，也不能替代 Loom 的 remap 构建。
+---
+
+## 目录结构
+
+```
+common/     跨版本共享逻辑（配置、车灯、几何、雨、碰撞模型…）
+v1.18.2/    版本相关：渲染、BE/BER、界面垫片、资源
+v1.19.2/
+v1.19.4/
+v1.20.1/
+docs/       设计与排障文档（每个功能都有对应报告）
+tools/      构建、发布、校验脚本
+```
+
+---
+
+## 已知限制
+
+- 光柱体积光（raymarch）仍为实验特性，默认关闭，1.19.x/1.18.2 退化为加法壳层
+- 方速信号灯「同步 MTR 信号」档在 1.3.2 为空实现，由本模组补驱动
+- 活塞/爆炸/`/setblock` 移除绑定方块不会触发自动解绑（只会灭灯或空屏，不会崩）
+- CurseForge 上传受网络限制，暂只发布 GitHub / Modrinth
+
+## 致谢
+
+- [Minecraft Transit Railway](https://github.com/jonafanho/Minecraft-Transit-Railway)（MIT）—— 屏蔽门实现移植来源
+- 天津地铁模组（ziyue.tjmetro）—— 屏蔽门继承方式的参考
+- 厦门地铁实拍与素材：厦航在拍车的无名机长
+- 贡献者：天童アリス、596wjr、Bai.
