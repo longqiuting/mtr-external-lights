@@ -2,6 +2,6 @@
 	"parent": "mtrlte:block/psd_glass_end_left_air_base",
 	"textures": {
 		"front": "mtrlte:block/psd_glass_diagonal_top_1_l2",
-		"back": "mtrlte:block/psd_glass_diagonal_top_back_1_l2"
+		"back": "mtrlte:block/psd_glass_diagonal_top_1_l2"
 	}
 }

@@ -1,7 +1,7 @@
 {
 	"parent": "block/block",
 	"textures": {
-		"main": "mtrlte:block/psd_top_l2",
+		"main": "mtrlte:block/psd_top",
 		"light": "mtrlte:block/light_off"
 	},
 	"elements": [

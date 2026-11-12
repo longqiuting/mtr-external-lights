@@ -1,6 +1,6 @@
 {
 	"textures": {
-		"fronttop": "mtrlte:block/apg_glass_single_top_l4",
+		"fronttop": "mtrlte:block/apg_glass_single_top",
 		"sidetop": "mtrlte:block/psd_side_light"
 	},
 	"elements": [

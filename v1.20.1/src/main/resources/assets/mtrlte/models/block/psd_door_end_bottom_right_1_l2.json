@@ -3,8 +3,8 @@
 	"textures": {
 		"bottom": "mtrlte:block/black",
 		"top": "mtrlte:block/transparent",
-		"panel": "mtrlte:block/psd_door_end_bottom_right_1_1_l2",
-		"back": "mtrlte:block/psd_door_bottom_back_1_l2",
-		"particle": "mtrlte:block/psd_door_end_bottom_right_1_1_l2"
+		"panel": "mtrlte:block/psd_door_end_bottom_right_1_1",
+		"back": "mtrlte:block/psd_door_bottom_back_1",
+		"particle": "mtrlte:block/psd_door_end_bottom_right_1_1"
 	}
 }

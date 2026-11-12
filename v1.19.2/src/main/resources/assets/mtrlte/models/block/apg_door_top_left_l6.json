@@ -2,7 +2,7 @@
 	"textures": {
 		"side": "mtrlte:block/psd_side_light",
 		"black": "mtrlte:block/black",
-		"panel": "mtrlte:block/apg_door_top_l6"
+		"panel": "mtrlte:block/apg_door_top"
 	},
 	"elements": [
 		{
