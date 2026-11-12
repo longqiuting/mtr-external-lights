@@ -137,6 +137,9 @@ tools/      构建、发布、校验脚本
 ## 致谢
 
 - [Minecraft Transit Railway](https://github.com/jonafanho/Minecraft-Transit-Railway)（MIT）—— 屏蔽门实现移植来源
-- 天津地铁模组（ziyue.tjmetro）—— 屏蔽门继承方式的参考
-- 厦门地铁实拍与素材：厦航在拍车的无名机长
+- 天津地铁模组（Tianjin Metro – MTR3 Adapted Edition）：ZiYueCommentary (ziyue)、jiangxingyunjian、\_\_Lingxii\_\_ (lingxii) —— PIDS 的屏幕渲染、广告系统与挂杆，以及屏蔽门的继承方式参考其公开行为实现
+- MTR 车站装饰（MSD, MTR Station Decoration Addon）：AIDA64S、Santorsia、Nemo、Zbx1425 —— **墙上扶手与玻璃扶手的模型均基于其修改**（命名空间/几何/碰撞盒）
+- 南滨创意（Nanbin Create Mod，MIT）：Nanbin-Studio、LIEH-SAD —— 闸机音效（`nanbin:crt_ticket`）
+- 真实城市建设（RCC / Reality City Construction，LGPL-3.0）：CodeCat、yaoxiansen —— 站台方块的模型与贴图
+- 厦门地铁实拍与素材：本项目作者
 - 贡献者：天童アリス、596wjr、Bai.

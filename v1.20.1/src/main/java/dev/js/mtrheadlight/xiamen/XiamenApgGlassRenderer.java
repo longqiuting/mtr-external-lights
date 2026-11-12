@@ -27,6 +27,8 @@ public class XiamenApgGlassRenderer extends RenderAPGGlass {
     protected RenderRouteBase.RenderType getRenderType(final BlockView world, final BlockPos pos,
                                                        final BlockState state) {
         XiamenRouteScope.push(true);
+        // v7：同吊板 —— 记下这一格的方向（玻璃的 ARROW_DIRECTION 在 BlockAPGGlass 上）。
+        XiamenRouteScope.arrow(XiamenRouteScope.arrowOf(state));
         return super.getRenderType(world, pos, state);
     }
 

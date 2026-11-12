@@ -1,0 +1,20 @@
+{
+  "crt_ticket": {
+    "category": "block",
+    "sounds": [
+      {
+        "name": "mtrlte:crt_ticket",
+        "pitch": 1.0
+      }
+    ]
+  },
+  "crt_ticket_error": {
+    "category": "block",
+    "sounds": [
+      {
+        "name": "mtrlte:crt_ticket",
+        "pitch": 0.7
+      }
+    ]
+  }
+}

@@ -10,7 +10,18 @@
   "contributors": [
     "天童アリス",
     "596wjr",
-    "Bai."
+    "Bai.",
+    "ZiYueCommentary (ziyue)",
+    "jiangxingyunjian",
+    "__Lingxii__ (lingxii)",
+    "AIDA64S",
+    "Santorsia",
+    "Zbx1425",
+    "Nanbin-Studio",
+    "LIEH-SAD",
+    "CodeCat",
+    "yaoxiansen",
+    "Nemo"
   ],
   "license": "MIT",
   "icon": "icon.png",
@@ -36,7 +47,12 @@
       "dev.js.mtrheadlight.mtr.BuiltInTrainsInit",
       "dev.js.mtrheadlight.VehicleLightsJsonClient",
       "dev.js.mtrheadlight.signal.SignalLinkClient",
-      "dev.js.mtrheadlight.xiamen.XiamenClient"
+      "dev.js.mtrheadlight.xiamen.XiamenClient",
+      "dev.js.mtrheadlight.railing.RailingGlassClient",
+      "dev.js.mtrheadlight.decor.DecorClient",
+      "dev.js.mtrheadlight.xiamen.pids.PidsXiamenClient",
+      "dev.js.mtrheadlight.xiamen.dep.DepOnWallClient",
+      "dev.js.mtrheadlight.security.SecurityClient"
     ],
     "lambdynlights:initializer": [
       "dev.js.mtrheadlight.MtrHeadlightDynamicLights"

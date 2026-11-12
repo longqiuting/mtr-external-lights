@@ -72,6 +72,11 @@ public final class CollisionBootstrap implements ClientModInitializer {
                     if (self == null || !id.equals(self.getUuid())) {
                         return;
                     }
+                    // 手持驾驶钥匙：不接这个冲量。服务端那边同样已经跳过，这里兜的是
+                    // 「被撞飞之后才掏出钥匙」那一瞬 —— 钥匙在手里就不该再被甩出去。
+                    if (DriverKeyBypass.holds(self)) {
+                        return;
+                    }
                     self.setVelocity(x, y, z);
                     self.velocityModified = true;
                     // 被撞飞不是摔下来：清掉落体距离，免得落地多一条「摔死了」盖掉我们的死亡文案。

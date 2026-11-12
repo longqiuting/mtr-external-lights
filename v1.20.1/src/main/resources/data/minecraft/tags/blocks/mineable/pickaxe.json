@@ -1,0 +1,12 @@
+{
+  "replace": false,
+  "values": [
+    "mtrlte:liquid_scanner",
+    "mtrlte:marble_floor",
+    "mtrlte:marble_platform",
+    "mtrlte:station_sign_wall_xiamen",
+    "mtrlte:station_sign_pole_xiamen",
+    "mtrlte:station_sign_wall_jiaomei",
+    "mtrlte:station_sign_pole_jiaomei"
+  ]
+}

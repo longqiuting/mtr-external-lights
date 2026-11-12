@@ -35,6 +35,8 @@ public class XiamenPsdTopRenderer extends RenderPSDTop {
     protected RenderRouteBase.RenderType getRenderType(final BlockView world, final BlockPos pos,
                                                        final BlockState state) {
         XiamenRouteScope.push(true);
+        // v7：把这一格方块的方向一起记下来（条带 / 终点三角的镜像规则由它决定）。
+        XiamenRouteScope.arrow(XiamenRouteScope.arrowOf(state));
         return super.getRenderType(world, pos, state);
     }
 

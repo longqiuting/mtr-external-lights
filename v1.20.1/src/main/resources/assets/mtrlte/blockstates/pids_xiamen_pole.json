@@ -1,0 +1,8 @@
+{
+    "variants": {
+        "facing=north": { "model": "mtrlte:block/pids_xiamen_pole" },
+        "facing=east":  { "model": "mtrlte:block/pids_xiamen_pole", "y":  90 },
+        "facing=south": { "model": "mtrlte:block/pids_xiamen_pole", "y": 180 },
+        "facing=west":  { "model": "mtrlte:block/pids_xiamen_pole", "y": 270 }
+    }
+}

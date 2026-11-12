@@ -16,15 +16,17 @@ import java.awt.image.BufferedImage;
  * {@code ARROW} 分支 → {@code RouteMapGenerator#generateDirectionArrow}：左侧一个线路色圆，
  * 圆里写 <b>站台号</b>，目的地在圆的右边<b>左对齐</b>；两侧还各有一个<b>小黑箭头</b>。</p>
  *
- * <h2>v5 版式（2026-11-11 用户实拍微调）</h2>
+ * <h2>v7 版式（2026-11-12：彻底不画方向小箭头）</h2>
  * <pre>
- *        集美软件园北                 ← 当前站中文（v5：0.46 → 0.385×高度，缩 16%）
- *     Jimei Software Park             ← 英文（v5：中文的 0.40，比 v4 再小一档）
+ *        集美软件园                 ← 当前站中文（0.385×高度）
+ *     Jimei Software Park             ← 英文（中文的 0.41）
  * </pre>
  * <ul>
- *   <li><b>写当前站名</b>，中英文两行，整块水平 / 垂直居中；</li>
- *   <li><b>没有任何方向小箭头</b>（全高吊板 / 半高玻璃上 MTR 原版那种小黑箭头都不要）；</li>
+ *   <li><b>写当前站名</b>，中英文两行，在整幅宽度里水平居中；</li>
  *   <li>没有站台号圆；</li>
+ *   <li><b>没有任何箭头</b>（v7 用户明确要求：“删掉所有黑色小箭头”）：MTR 的
+ *       {@code ARROW_DIRECTION} 四个形态（0/1/2/3）<b>画出来完全一样</b> ——
+ *       {@code hasLeft / hasRight} 仍然照收，但<b>只用于日志</b>，不再画一笔；</li>
  *   <li>v5：<b>英文行自己再按宽度收一次</b>（v4 只缩中文，长站名时英文会顶出面板两边），
  *       两行的总高也会被夹在面板高度内 —— 最长站名 + 最长英文也出不去。</li>
  * </ul>
@@ -66,18 +68,33 @@ public final class XiamenDirectionPanel {
     public static volatile int lastHeight;
     public static volatile int lastCjkSize;
     public static volatile int lastEnSize;
+    /**
+     * MTR 这次<b>要求</b>画的方向（{@code ARROW_DIRECTION} 拆出来的两位）。
+     *
+     * <p>v7 起这两个值<b>只进日志</b>：图上不画任何箭头，四个形态的位图内容完全一致。</p>
+     */
+    public static volatile boolean lastHasLeft;
+    public static volatile boolean lastHasRight;
 
     private XiamenDirectionPanel() {
     }
 
+    /** 不画任何箭头（v7 起四个形态都不画，默认态）。 */
+    public static BufferedImage paint(final String cjk, final String en, final float aspectRatio) {
+        return paint(cjk, en, aspectRatio, false, false);
+    }
+
     /**
-     * 画一块面板（当前站名 + 英文站名两行，居中，没有方向箭头）。
+     * 画一块面板（当前站名 + 英文站名两行，居中；<b>不画任何方向箭头</b>）。
      *
      * @param cjk         中文站名（{@code 集美软件园}，可空）
      * @param en          英文站名（{@code Jimei Software Park}，可空）
      * @param aspectRatio 面板 宽/高
+     * @param hasLeft     MTR {@code ARROW_DIRECTION} 的 bit0（v7 起<b>只记日志</b>，不画）
+     * @param hasRight    MTR {@code ARROW_DIRECTION} 的 bit1（同上；4 = 双向也只是日志）
      */
-    public static BufferedImage paint(final String cjk, final String en, final float aspectRatio) {
+    public static BufferedImage paint(final String cjk, final String en, final float aspectRatio,
+                                      final boolean hasLeft, final boolean hasRight) {
         if (!(aspectRatio > 0.05f)) {
             return null;
         }
@@ -104,10 +121,16 @@ public final class XiamenDirectionPanel {
 
             final int pad = Math.max(2, Math.round(height * PAD_RATIO));
 
+            // ---- v7：不画任何方向箭头（用户指定“删掉所有黑色小箭头”）----
+            // MTR 的 ARROW_DIRECTION（0/1/2/3）仍旧按原样传进来，但图上不再占位置：
+            // 文字区 = 整幅宽度（左右各留 pad），四个形态画出来完全一样。
+
             // ---- 文字：当前站中文一行 + 英文一行，整块水平 / 垂直居中 ----
             final String line = cjk == null ? "" : cjk.trim();
             final String enText = en == null ? "" : en.trim();
             if (line.isEmpty() && enText.isEmpty()) {
+                lastHasLeft = hasLeft;
+                lastHasRight = hasRight;
                 return image;
             }
 
@@ -175,9 +198,12 @@ public final class XiamenDirectionPanel {
             lastHeight = height;
             lastCjkSize = Math.round(cjkSize);
             lastEnSize = Math.round(enSize);
+            lastHasLeft = hasLeft;
+            lastHasRight = hasRight;
         } finally {
             g.dispose();
         }
         return image;
     }
 }
+

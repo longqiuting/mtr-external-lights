@@ -86,6 +86,62 @@ public final class LteServer implements ModInitializer {
             LteLog.LOGGER.warn("[lte] xiamen objects unavailable", t);
         }
 
+        // 墙上扶手（进上面的「厦门风格物件」页签，所以排在其后）。
+        try {
+            dev.js.mtrheadlight.railing.RailingWallBlocks.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] railing wall unavailable", t);
+        }
+
+        // 玻璃扶手：与墙上扶手同一套模型空间约定，同样进「厦门风格物件」页签，排在它后面。
+        try {
+            dev.js.mtrheadlight.railing.RailingGlassBlocks.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] railing glass unavailable", t);
+        }
+
+        // 装饰方块（大理石地板 / 大理石站台）：站台继承 MTR 的 BlockPlatform，同样进「厦门风格物件」页签。
+        try {
+            dev.js.mtrheadlight.decor.DecorBlocks.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] decor blocks unavailable", t);
+        }
+
+        // 厦门 PIDS（地铁 / BRT）：模型与渲染照天津地铁，广告表走资源包。
+        try {
+            dev.js.mtrheadlight.xiamen.pids.PidsXiamenObjects.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] xiamen pids blocks unavailable", t);
+        }
+
+        // 厦门 PIDS 界面通道：客户端改广告序号 / 服务端叫开界面（刷子右键）。
+        try {
+            dev.js.mtrheadlight.xiamen.pids.PidsXiamenNet.registerServer();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] xiamen pids channel unavailable", t);
+        }
+
+        // 挂墙发车倒数器：贴在站台附近的墙上，显示下一班车的发车倒计时（纯客户端读数据）。
+        try {
+            dev.js.mtrheadlight.xiamen.dep.DepOnWallObjects.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] dep on wall block unavailable", t);
+        }
+
+        // 站外标志（厦门 / 角美 × 挂墙 / 杆上）：灯箱牌，同样进「厦门风格物件」页签。
+        try {
+            dev.js.mtrheadlight.xiamen.sign.StationSignObjects.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] station sign blocks unavailable", t);
+        }
+
+        // 安检类方块（液体安检机）：方块 + 物品 + 创造页签条目，排在厦门那一组之后注册。
+        try {
+            dev.js.mtrheadlight.security.SecurityObjects.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] security blocks unavailable", t);
+        }
+
         try {
             ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
                 try {

@@ -1,6 +1,11 @@
 // 「现在画的是不是我们自己的屏蔽门」——线路条带 / 方向面板接管的唯一开关。
 package dev.js.mtrheadlight.xiamen;
 
+import mtr.block.BlockAPGGlass;
+import mtr.block.BlockPSDTop;
+import mtr.block.IBlock;
+import net.minecraft.block.BlockState;
+
 /**
  * <b>作用域</b>：MTR 的线路图纹理是全局按 {@code platformId + 参数} 缓存的，
  * {@code RouteMapGenerator.generateRouteMap} 又是静态方法 —— 所以「换掉线路图」这件事默认会
@@ -45,8 +50,8 @@ package dev.js.mtrheadlight.xiamen;
  */
 public final class XiamenRouteScope {
 
-    /** {当前压栈深度, 其中“我们的方块”的层数}。 */
-    private static final ThreadLocal<int[]> STATE = ThreadLocal.withInitial(() -> new int[2]);
+    /** {当前压栈深度, 其中“我们的方块”的层数, 方块上的 ARROW_DIRECTION 原值 0..3}。 */
+    private static final ThreadLocal<int[]> STATE = ThreadLocal.withInitial(() -> new int[3]);
 
     private XiamenRouteScope() {
     }
@@ -71,7 +76,39 @@ public final class XiamenRouteScope {
         }
         if (state[0] == 0) {
             state[1] = 0;
+            state[2] = 0;
         }
+    }
+
+    /**
+     * 记下<b>这一格方块</b>的 {@code ARROW_DIRECTION}（刷子右键 cycle 的 0/1/2/3）。
+     *
+     * <p>为什么非要自己记一份：MTR 调 {@code getRouteMap} 时只传
+     * {@code flip = (arrowDirection == 2)}（javap {@code RenderRouteBase#render:462-482}：
+     * {@code iload 20; iconst_2; if_icmpne}），也就是<b>只有方向 2 会镜像</b>；
+     * 而刷子的 1 / 3 同样是“列车朝左”，条带却一点不变 —— 终点三角自然也就“没跟着翻”。
+     * 我们自己把方向值带进来，条带 / 站位 / 站名 / 终点三角就都能用<b>同一条</b>镜像规则。</p>
+     */
+    public static void arrow(final int direction) {
+        STATE.get()[2] = direction & 0x3;
+    }
+
+    /** 这一格方块当前的 {@code ARROW_DIRECTION}（0 = 不镜像，1/2/3 = 镜像）。 */
+    public static int arrowDirection() {
+        return STATE.get()[2];
+    }
+
+    /**
+     * 从方块状态里读 {@code ARROW_DIRECTION}（吊板是 {@code BlockPSDTop} 的、玻璃是
+     * {@code BlockAPGGlass} 的，同名不同实例；{@code getStatePropertySafe} 对“不含该属性”的
+     * state 返回默认值 0，所以两块都能安全地问一遍）。
+     */
+    public static int arrowOf(final BlockState state) {
+        if (state == null) {
+            return 0;
+        }
+        return Math.max(IBlock.getStatePropertySafe(state, BlockPSDTop.ARROW_DIRECTION),
+                IBlock.getStatePropertySafe(state, BlockAPGGlass.ARROW_DIRECTION));
     }
 
     /**
@@ -89,8 +126,14 @@ public final class XiamenRouteScope {
         return STATE.get()[0];
     }
 
-    /** 给纹理缓存键用的后缀（我们的图和 MTR 的图必须分开缓存，否则同一个站台会互相顶掉）。 */
+    /**
+     * 给纹理缓存键用的后缀（我们的图和 MTR 的图必须分开缓存，否则同一个站台会互相顶掉）。
+     *
+     * <p>v7 起后缀里带上<b>方向值</b>：MTR 的 key 只含 {@code flip}（方向 2 才 true），
+     * 方向 0 / 1 / 3 会撞成同一个 key —— 那三个形态的图必须各自缓存，否则刷子 cycle 到 1 / 3 时
+     * 会拿到方向 0 的旧图，看上去就是“条带没翻、箭头也没翻”。</p>
+     */
     public static String cacheKeySuffix() {
-        return active() ? "_lte" : "";
+        return active() ? "_lte" + STATE.get()[2] : "";
     }
 }

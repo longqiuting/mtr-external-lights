@@ -103,6 +103,12 @@ public final class XiamenClient implements ClientModInitializer {
             put(set.apgEnd, line + " apg end");
         }
         put(XiamenObjects.logo(), "logo");
+
+        // 6) 站外标志（4 个）：贴图是大片 alpha=0 的灯箱牌，同样必须 cutout。
+        for (dev.js.mtrheadlight.xiamen.sign.StationSignObjects.Entry entry
+                : dev.js.mtrheadlight.xiamen.sign.StationSignObjects.entries()) {
+            put(entry.block(), "station sign " + entry.id());
+        }
     }
 
     private static void put(net.minecraft.block.Block block, String what) {

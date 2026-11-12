@@ -1,0 +1,49 @@
+{
+  "variants": {
+    "facing=north,result=none": {
+      "model": "mtrlte:block/liquid_scanner",
+      "y": 90
+    },
+    "facing=north,result=green": {
+      "model": "mtrlte:block/liquid_scanner_green",
+      "y": 90
+    },
+    "facing=north,result=red": {
+      "model": "mtrlte:block/liquid_scanner_red",
+      "y": 90
+    },
+    "facing=east,result=none": {
+      "model": "mtrlte:block/liquid_scanner",
+      "y": 180
+    },
+    "facing=east,result=green": {
+      "model": "mtrlte:block/liquid_scanner_green",
+      "y": 180
+    },
+    "facing=east,result=red": {
+      "model": "mtrlte:block/liquid_scanner_red",
+      "y": 180
+    },
+    "facing=south,result=none": {
+      "model": "mtrlte:block/liquid_scanner",
+      "y": 270
+    },
+    "facing=south,result=green": {
+      "model": "mtrlte:block/liquid_scanner_green",
+      "y": 270
+    },
+    "facing=south,result=red": {
+      "model": "mtrlte:block/liquid_scanner_red",
+      "y": 270
+    },
+    "facing=west,result=none": {
+      "model": "mtrlte:block/liquid_scanner"
+    },
+    "facing=west,result=green": {
+      "model": "mtrlte:block/liquid_scanner_green"
+    },
+    "facing=west,result=red": {
+      "model": "mtrlte:block/liquid_scanner_red"
+    }
+  }
+}

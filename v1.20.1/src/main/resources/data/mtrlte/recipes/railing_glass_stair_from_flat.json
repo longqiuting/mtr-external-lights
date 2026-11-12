@@ -1,0 +1,8 @@
+{
+	"type": "minecraft:stonecutting",
+	"ingredient": {
+		"item": "mtrlte:railing_glass_flat"
+	},
+	"result": "mtrlte:railing_glass_stair",
+	"count": 1
+}

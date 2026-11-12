@@ -424,3 +424,225 @@ return**（platformId == 0 / shouldNotRender 的早退都在 172 之前），所
 - 站名正排（`routeStripNamesBelow = true`）+ 末站是换乘站：牌子挂在线图正下方，和站名同一侧，
   末站那块会显得挤（v4 起就这样，默认 45° 斜排没有这个问题）。
 - 本轮按要求**没有启动游戏**，实机复核请在吊板 / 半高玻璃上看同一站台。
+
+---
+
+# 线路条带 v6（已过站灰 / 当前站红实心 / 双向箭头 / 幽灵换乘）— 2026-11-12
+
+只改 `v1.20.1`（`v1.18.2 / v1.19.2 / v1.19.4` 一行未动）· 只跑 `compileJava` · 未提交 git · 未启动游戏。
+
+## 6.1 已过站与区段变灰（①）
+
+“已过站” = <b>数据顺序里排在 `currentStationIndex` 之前的站</b>（就是 MTR 自己那张图
+`RouteMapGenerator` 里 `stationIndex < currentIndex ? 0xFFAAAAAA : route.color` 的判据）。
+`XiamenStripPainter.paint` 在展开 flip 的同一个循环里算出 `passed[i]`（`d < current`），所以
+flip 时灰的是“列车已经开过的那一头”，不会镜像错。
+
+| 元素 | 颜色 | 常量 |
+|---|---|---|
+| 已过站圆环 | `#B2B2B2`（固定灰，**不再走“浅色线路加深”那条规则**） | `PASSED_GREY` |
+| 已过的区段 | `#A7A8A8` | `PASSED_SEGMENT_GREY` |
+| 已过站站名（中/英） | `#9E9E9E` | `PASSED_NAME_GREY` |
+| 已过站的换乘标记（环 / 杆 / 牌） | 同上 `#B2B2B2` | 同上 |
+
+画法：主线**整条先铺灰**，再把「当前站 → 终点」这一段用线路色盖回来 —— 于是“进站前那段”是灰的、
+“前方”仍是线路色，两段接缝天然对齐。站名 / 换乘牌按 `passed[i]` 单独取色。
+MTR 原版用的是 `0xFFAAAAAA`；这里按实拍取稍深一档的两级灰，改常量即可。
+
+## 6.2 当前站：固定红，环内实心（②）
+
+用户明确纠正：**当前站不跟线路色，固定红**（`CURRENT_FILL = 0xE60012`，改一处即可整体换色）；
+已过站的灰与线路色无关，同上。
+
+结构（`drawCurrentDot`，从外到内）：白圈（先把主线盖掉）→ 红色空心环（描边仍为直径的 15%）
+→ 一圈白 → 红色实心圆（`CURRENT_FILL_RATIO = 0.62`×直径）。当前站直径仍是普通站的
+`CURRENT_SCALE = 1.30` 倍；站名 / 英文行同样用 `CURRENT_FILL`（`currentNameText()` 已改成直接返回它）。
+
+**当前站同时是换乘站**时：环的位置画这个红色标记，换乘信息继续由下方“换乘线路色矩形杆 + 线路牌”
+承担（`drawInterchange(..., asCurrent = true)`），不会因为变红而丢掉换乘信息。
+
+## 6.3 刷子的“双向箭头”形态（③）
+
+根因不是画错，是**四个形态画出来一模一样**：v4 按“吊板上不要小黑箭头”把
+`XiamenDirectionPanel` 的箭头整段删掉了，而 `hasLeft / hasRight` 仍然照旧传进来 —— 刷子 cycle
+`ARROW_DIRECTION` 时纹理缓存键（`direction_arrow_%s_%s_…`，含这两位）会变，但四张图内容相同。
+
+MTR 的取值（`RenderRouteBase#render`）：`hasLeft = (arrowDirection & 1) > 0`、
+`hasRight = (arrowDirection & 2) > 0`，即 **0 = 无 / 1 = 只左 / 2 = 只右 / 3 = 双向**。
+现在 `XiamenDirectionPanel.paint(cjk, en, aspect, hasLeft, hasRight)` 按这两位在左右各画一个
+实心箭头（`ARROW_RATIO = 0.46`×高、`ARROW_GAP_RATIO = 0.10`×高），文字在“扣掉箭头后的宽度”里居中。
+默认态 `ARROW_DIRECTION = 0` → 与 v5 完全一样（没有箭头），所以“不要小黑箭头”的实机观感不变。
+
+## 6.4 “吊板出现不存在的换乘线路”（④）— 排查结论
+
+**结论：是真的有 bug，而且不止一处；判定逻辑已按 MTR 自己的算法重写。**
+
+MTR 画换乘环的判据（`RouteMapGenerator#generateRouteMap`，CFR 604–631 行 + javap 两处一致）：
+
+```
+stationId = getStationId(route.platformIds.get(i).platformId);   // 站台 → 所属车站
+stationIdToRoutes.get(stationId)                                 // 该站全部线路（key = 线路色）
+  .forEach((color, tuple) -> !currentRouteColors.contains(color)
+                           && !currentRouteNames.contains(tuple.name))
+```
+
+v2–v5 的实现和它有四处偏差，都能造出“这条线根本不经过的线路”：
+
+1. **按站名找车站（主要元凶，已整段删除）**：`interchangeRoutes` 为空时按站名去
+   `ClientData.STATIONS` 找**第一个**同名站，再读它的 `stationIdToRoutes`。同名不同站
+   （不同存档 / 维度的同名站、中文段相同的两条站名）会被当成同一个站 → 冒出一条别的线的颜色。
+   `STATIONS` 是 `HashSet`，命中哪个由哈希决定 —— 这种 bug 会“有时有有时没有”。
+2. **只按颜色排除本线**：`StationDetails#interchangeRoutes` 是 MTR 用“当前线路色”过滤的，
+   多线共台（1 号线 + 4 号线共用一个站台）时会把同台的另一条线画成“换乘”；MTR 自己不会
+   （`currentRouteColors` 里包含它）。现在两边都用「本站台所有线路的颜色 + 名称」排除。
+3. **线路号拼 “号线” 不判类型**：`K3` 这类 `lightRailRouteNumber` 会被拼成“K3号线”——
+   一条现实中不存在的线路名。现在只有**纯数字**才拼 `号线`，否则用线路名。
+4. **索引可能不是同一条线**：`stationDetails[i]` 来自 `route.platformIds` 的逐项 map，
+   若 `findRoute()` 拿到另一个同名 `Route` 实例，第 i 个站台就不是条带上第 i 个站，牌子会挂到
+   别的站上。新代码在取车站时**再比一次站名**，对不上就退回 `stationDetails` 自己的那份数据。
+
+修复后的取数：`route.platformIds[i] → DATA_CACHE.platformIdToStation → DATA_CACHE.stationIdToRoutes`，
+再用「本站台所有线路的颜色/名称」排除，多条时按线路色升序取第一条（与 MTR 的
+`allColors.sort(Integer::compareTo)` 同序，保证每次画都一样）。**每块牌子都来自“这条线第 i 站
+真实所属车站”的数据**，物理上不可能画出一条本站不存在的线路；跨存档 / 维度的同名站已经不可能
+被误认。日志（去重）：
+
+```
+[lte] strip: interchange station=塘边 -> line=2号线 color=#00A0E9
+```
+
+## 6.5 离线预览与自检
+
+`D:\MC-MTR-JS\temp\strip-preview\`（`javac` 只编三个纯 AWT 类，不碰 MC/MTR）：
+
+- 已改的 15 张全部重出，新增 **`16-direction-none` / `17-direction-left` / `18-direction-right` /
+  `19-direction-both`（双向箭头）** 四张；实测 `band=192 line=16 dot=36 cur=47 plate=55x32 name=28`。
+- 逐张核对（目视）：`01` 已过站 7 站灰环灰名 + 灰区段、当前站红实心红名、未到站红环；
+  `04`（flip）灰段在右端、箭头在左端、当前站红；`07` 已过站的换乘牌（4 号线 / 2 号线）
+  环杆牌全灰、未到站的 8 号线仍是品红；`05` 浅黄线路的灰同样与线路色无关；`03` 正排站名同样灰/红。
+- 构建：`gradle -p v1.20.1 compileJava` → 通过（仅既有 4 条警告）。**没有** clean / build / remapJar，
+  没有启动游戏，没有提交 git。
+
+## 6.6 仍未验证 / 已知边界
+
+- ④ 的结论是**读字节码 + 数据流推演**得来的（三个反例都能构造出来），手上没有能复现
+  “幽灵换乘”的存档；实机复核请在**多线共站**与**同名站**的存档里各看一块吊板。
+- 当前站固定红与线路色无关，1 号线（绿）站台上的当前站也是红的 —— 这是本轮用户指定的效果，
+  不是配色错误。
+
+---
+
+# 线路条带 v7（无小黑箭头 / 方向统一镜像 / 当前站只填红实心）— 2026-11-12
+
+只改 `v1.20.1`（`v1.18.2 / v1.19.2 / v1.19.4` 一行未动）· 只跑 `compileJava` · 未提交 git · 未启动游戏。
+
+## 7.1 删掉所有黑色小箭头（①）
+
+`XiamenDirectionPanel` 的方向箭头**整段删除**：`drawArrows` / `drawArrow` 两个方法、以及
+`ARROW_RATIO` / `ARROW_GAP_RATIO` 两个常量一起删掉，文字区回到“整幅宽度减去左右 padding”，
+不再为箭头留位（`insetLeft / insetRight` 一并去掉）。
+
+`hasLeft / hasRight` 仍按 MTR 的 `ARROW_DIRECTION` 原样接收（`RouteMapArtMixin` 的签名不能变），
+但**只写进日志**（`lastHasLeft / lastHasRight`），图上不画。于是刷子的四个形态
+（`0 / 1 / 2 / 3`）出的位图**完全一致** —— 离线预览里四张 PNG 的 md5 相同：
+
+```
+6980e00148143e09ed6335482c41c9c4  16-direction-none.png
+6980e00148143e09ed6335482c41c9c4  17-direction-left.png
+6980e00148143e09ed6335482c41c9c4  18-direction-right.png
+6980e00148143e09ed6335482c41c9c4  19-direction-both.png
+```
+
+## 7.2 终点三角不跟方向翻（②）— 根因
+
+用户的观察是“刷子换方向时条带镜像了，终点三角还停在原来那一端”。查下来**不是三角的几何问题**：
+
+- MTR 调 `getRouteMap` 时传的是 `flip = (arrowDirection == 2)`
+  （`RenderRouteBase#render` 字节码 `462-482`：`iload 20; iconst_2; if_icmpne` → `iconst_1/iconst_0`）；
+- 我们原来把 `generateRouteMap` 收到的这个 `flip` **原样**交给 `XiamenStripPainter.Model.flip`；
+- 于是**方向 1 / 3 时整条图根本不翻**（MTR 的 key 也只有 `flip`，0 / 1 / 3 会撞成同一张缓存图），
+  图上唯一“表达方向”的东西就只剩终点三角 —— 它当然看着“不动”。
+
+修法：**镜像只由方块上的 `ARROW_DIRECTION` 一个值决定**，全图共用这一条规则。
+
+| 环节 | 改动 |
+|---|---|
+| 取值 | `XiamenPsdTopRenderer` / `XiamenApgGlassRenderer` 的 `getRenderType(world, pos, state)` 里 `XiamenRouteScope.arrow(XiamenRouteScope.arrowOf(state))` —— 从方块状态读 `ARROW_DIRECTION`（吊板是 `BlockPSDTop` 的、玻璃是 `BlockAPGGlass` 的，`getStatePropertySafe` 对不含该属性的 state 返回 0） |
+| 传进工作线程 | `RouteAsyncScopeMixin` 在 `supplyAsync` 那一刻把方向值读出来，工作线程里 `push(true) + arrow(dir)`（位图是在线程池上画的） |
+| 缓存键 | `XiamenRouteScope#cacheKeySuffix()` 变成 `"_lte" + dir` —— 0 / 1 / 3 各自一张图，刷子 cycle 不会再拿到旧图（MTR 自己那块仍然是空后缀，行为不变） |
+| 绘制 | `XiamenStripPainter.Model.flip` 改成 `Model.direction`（0 / 1 / 2 / 3），`paint` 里唯一一句 `final boolean flip = model.direction != 0;` —— 站位、站名、换乘杆、主线、**终点三角**全部由 `flip` 推出来 |
+| 调用 | `XiamenRouteStrip#paint`：`model.direction = scope 里的方向 != 0 ? 它 : (MTR 的 flip ? 2 : 0)`（后者只是兜底）；日志加了 `dir={}` |
+
+终点三角的**几何尺寸、覆盖顺序一律没动**（`TERM_ARROW_LEN 1.90 / TERM_ARROW_HALF 1.15 /
+TERM_ARROW_TIP_OVERLAP 2`，仍是整张图最后一笔）。
+
+## 7.3 当前站只填红实心（③）
+
+v6 是“放大 1.30× 的红环 + 一圈白 + 环内红色实心”，实机上被看成“当前站外面多了一圈线路色圆环”。
+v7 起 `drawCurrentDot` 只剩一句 `fillOval`：
+
+- 直径 `curD = circle + 15%描边`（= 普通站圆环的**可见外缘**，和旁边站环一样大，**不放大**）；
+- 颜色固定 `CURRENT_FILL = 0xE60012`（不跟线路色）；
+- 没有外环、没有白缝、没有环内填充那一层；
+- `CURRENT_SCALE` / `CURRENT_FILL_RATIO` 两个常量删除；`visR[]` 里当前站就是 `curD / 2`。
+
+**当前站同时是换乘站**时也是这个实心圆（`drawInterchange(..., asCurrent = true)`，新增参数
+`currentD`）：垂尾起点 / 线路牌上沿都改按“本体下沿”(`bodyR`) 算，杆和牌子仍然接得上。
+
+## 7.4 离线预览与自检
+
+`D:\MC-MTR-JS\temp\strip-preview2\`（`javac` 只编三个纯 AWT 类）：
+
+- 新增 **`20-direction-0` / `21-direction-1` / `22-direction-2` / `23-direction-3`**（同一组数据、
+  同一个当前站）：`0` 终点在右、三角在右端朝右；`1 / 2 / 3` 整条镜像、终点在左、三角在左端朝左。
+  `21 / 22 / 23` 三张 md5 相同（`ef8a8293880910c3c43e191a48cb8135`）—— 方向 1 / 3 现在也翻了。
+- 镜像对称性像素校验（`MirrorEnds`：只看线路带那一横条，把 dir=1 水平镜像后和 dir=0 逐像素比）：
+  终点三角所在的 x 段 **0 像素差**；差异只出现在站环描边的抗锯齿边缘（相邻站环 ~1.9% 像素差，
+  `maxDelta` 来自描边边缘的半透明像素）。
+- 逐张目视：`01` 当前站是一个纯红实心圆（和旁边站环等大）、已过站灰环灰名灰区段；
+  `06` 当前站 + 换乘站 = 红实心圆 + 垂尾 + `1号线` 牌；`09` flip 后终点（换乘站）在左端、三角朝左。
+- 构建：`gradle -p v1.20.1 compileJava` → 通过（仅既有 4 条警告）。**没有** clean / build / remapJar，
+  没有启动游戏，没有提交 git。
+
+## 7.5 仍未验证 / 已知边界
+
+- 方向 1 / 3 现在**也会镜像**，这与 MTR 原版行为不同（原版只有方向 2 镜像）——这是本轮用户
+  要求的“整条线路图跟着刷子翻”，实机复核请把刷子依次 cycle 四档看同一块吊板。
+- 缓存键从 `..._lte` 变成 `..._lte<0..3>`：同一站台的四个方向各一张纹理，第一次切到新方向时
+  会异步生成一帧，可能闪一下原图（MTR 的纹理注册机制如此）。
+- 只改了 `v1.20.1`；另外三个版本仍把 MTR 的 `flip` 直接当镜像用。
+
+# 线路条带 v8.1（换乘图标画序：主带不再横穿追逐箭头 / 「未命名」幽灵换乘过滤）— 2026-11-12
+
+两条实机反馈，都在 `XiamenStripPainter.drawInterchange` / `XiamenRouteStrip.interchanges` 里修。
+
+## 8.1 当前站是换乘站：线路主带横穿追逐箭头环
+
+| 症状 | 原因 | 修法 |
+|---|---|---|
+| 当前站同时是换乘站时，线路色主带从环的左右两侧整个横穿过去，两段弧 / 箭头尖看着被切开一半 | 追逐箭头环的两段弧在 **0° / 180°**（环的左右）各留一个缺口，主线正好从这两个缺口穿过。`drawInterchange` 的 `else` 分支一直铺着一层**环身白底**（`fillOval(white, rOut)`），v8 把当前站换成“环内红色实心圆”后这层白底只存在于非当前站分支 → 当前站的环身是**透明**的，主带直接透出来 | 白底**无条件先画**（两种情况都画），再叠当前站的红实心圆，最后画两段弧 + 箭头尖。环身不透明 → 主带在环边上“断”开，和普通站圆环、非当前站换乘环的表现一致 |
+| 红色实心圆盖住弓形弧（棕色上弧 / 绿色下弧只剩一半） | 画序：红圆必须在箭头**下面** | 固定画序 **白底 →（当前站）红实心圆 → 下弧（换乘色）→ 上弧（当前色）→ 垂尾 → 线路牌**。红底最先、箭头最后，箭头永远压在红圆上 |
+
+`drawCurrentDot`（非换乘的当前站）没动，仍是 v8 的“只在线路色圆环内部填红”。
+
+## 8.2 换乘牌显示「未命名」= 幽灵换乘
+
+- 新增 `XiamenStripPainter.isUnnamed(String)`：空串 / 纯空白 / `未命名` / `無名` / `Unnamed` /
+  `no name` / `null` / `n/a` / `-` / `?` 都算“没有名字”。
+- `XiamenRouteStrip.interchanges`：线路号和中文名**都**是“没有名字”时 → `continue`，不生成
+  `Interchange`（该站退回普通空心环，**不画牌、不画追逐箭头**），并打一行
+  `[lte] strip: skip unnamed interchange at station=<站> (route name="<>" has no line number / real name)`（去重）。
+  名字或线路号任意一个是真的（`1号线` / `K3` / `环线`）就照常画 —— 只挡“两边都空”的那一种。
+- `XiamenStripPainter.dataInterchange` 里同样的判断做兜底：任何来源的 `Interchange` 只要
+  `number` 和 `name` 都是“没有名字”，一律当普通站处理（`drawInterchange` 不画牌就会连箭头一起留空，
+  所以过滤必须发生在**选站**这一层，不能在绘制函数里 return）。
+
+## 8.3 离线预览（`D:\MC-MTR-JS\temp\strip-preview3\`）
+
+`PreviewExtra`：`30` 当前站换乘 / `31` 同一条镜像 / `32` 极窄面板 / `33` 当前站 = 终点 = 换乘
+（终点三角 + 红圆 + 追逐箭头同处一格）/ `34` 换乘色为紫色 / `35` 相邻两个换乘图标 /
+`36` 幽灵换乘（`未命名` + `Unnamed` → `swaps=0`，两站都是普通环）。
+
+- `06-current-is-interchange`：主带在环边断开，两段弧 + 两个箭头尖完整，红圆在箭头下面。
+- 构建：`gradle -p v1.20.1 compileJava` → 通过（仅既有 4 条警告）；没有 clean / build / remapJar，
+  没开机，没提交 git。只改 `v1.20.1`。

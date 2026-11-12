@@ -45,8 +45,11 @@ public abstract class RouteAsyncScopeMixin {
         if (!XiamenRouteScope.active()) {
             return CompletableFuture.supplyAsync(supplier);
         }
+        // v7：方向值也必须带过去 —— 条带的镜像（含终点三角）由它决定，而位图是在这个工作线程上画的。
+        final int arrow = XiamenRouteScope.arrowDirection();
         return CompletableFuture.supplyAsync(() -> {
             XiamenRouteScope.push(true);
+            XiamenRouteScope.arrow(arrow);
             try {
                 return supplier.get();
             } finally {

@@ -408,13 +408,27 @@ public final class CollisionSystem {
      *
      * <p>只处理「脚底已经在车顶平面上或之上」的情形：脚底低于车顶说明玩家在车体内部或车下方
      * （例如从高架下面走过），那是另一半逻辑（侧向推出），不能把人往上一顶。
+     *
+     * <p><b>旁观模式例外</b>：旁观者穿一切（{@code afterMove} 里本来就有这道门，但漏在这里就会
+     * 表现为「旁观模式下飞不进车体、被车顶托住」）。判定放在最前面，比乘车 / 驾驶钥匙更早，
+     * 因为这些分支都只是在讨论「怎么处理这次下落」，而旁观者根本不该被处理。
      */
     public static Vec3d clampMovement(final Entity entity, final Vec3d movement) {
         if (!isLocal(entity) || movement.y >= 0.0D) {
             return movement;
         }
+        // 旁观模式穿一切：原版旁观者不与方块 / 实体碰撞，我们这层「把竖直位移截到车顶」也必须让开。
+        // 否则从车顶上方飞下来时会被车顶平面接住（脚底吸在 roof 上），看起来就像车顶有实体碰撞箱
+        // —— 旁观者本该能直接穿进车体、从车厢里穿出去。
+        if (entity instanceof PlayerEntity spectator && spectator.isSpectator()) {
+            return movement;
+        }
         // 坐在车里：座位自己决定高度，车顶截断只会把人往下按（坐着时脚底就在车顶平面附近）。
         if (isRiding(entity)) {
+            return movement;
+        }
+        // 手持 MTR 驾驶钥匙：车顶截断也不做 —— 否则玩家想走到车门前上车时会被车顶「按」下来。
+        if (DriverKeyBypass.active(entity)) {
             return movement;
         }
         try {
@@ -480,6 +494,19 @@ public final class CollisionSystem {
                 return;
             }
             final ClientWorld world = (ClientWorld) entity.getWorld();
+
+            // 手持 MTR 驾驶钥匙：车体这套几何（推出 / 车顶站立 / 撞击伤害 / 撞击后的流血窗口）
+            // 整套跳过 —— 否则玩家停下车、拿着钥匙走向车门时会被自己刚开的那列车推开，
+            // 或者被车顶「按」在车外上不去。松手后下一 tick 自动恢复，不是永久免伤。
+            // 道床是轨面不是列车，照常结算。
+            if (DriverKeyBypass.active(player)) {
+                roofKey = null;
+                if (cfg.trackbedCollision) {
+                    trackbed(player, cfg, world);
+                }
+                return;
+            }
+
             final double height = cfg.trainCollisionHeightClamped();
             final List<CarHit> cars = cfg.trainCollision ? cars(entity, height) : List.of();
 

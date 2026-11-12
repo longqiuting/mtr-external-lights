@@ -1,0 +1,18 @@
+{
+	"type": "minecraft:crafting_shaped",
+	"pattern": [
+		"IGI"
+	],
+	"key": {
+		"I": {
+			"item": "minecraft:iron_ingot"
+		},
+		"G": {
+			"item": "minecraft:glass_pane"
+		}
+	},
+	"result": {
+		"item": "mtrlte:railing_glass_flat",
+		"count": 6
+	}
+}

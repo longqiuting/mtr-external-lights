@@ -430,6 +430,11 @@ public final class ParameterScreen extends Screen {
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_TAIL_HEIGHT));
                 // 光束编辑：逐车型、逐束的几何 / 颜色 / 长度，入口放在光源分区最底部。
                 this.rows.add(Row.worldAction(tr("btn.beamEditor"), this::openBeamEditor));
+                // 立即重载光源：从「其他」搬到这里 —— 它重载的就是这一页在改的那套光源
+                // （LightController 的缓存）。全局动作，侧线页不生成（侧线页只留可覆盖的行）。
+                if (isGlobal()) {
+                    this.rows.add(Row.action(tr("btn.reload"), LightController::reload));
+                }
                 break;
             case COLLISION:
                 // 车体 / 道床 / 车顶是整车的几何设定，不是按车厢量出来的参数，所以只有全局值。
@@ -490,7 +495,9 @@ public final class ParameterScreen extends Screen {
                 if (isGlobal()) {
                     this.rows.add(Row.toggleWide(ConfigWriteTarget.BUILTIN_TRAINS));
                     this.rows.add(Row.action(tr("btn.reloadTrains"), this::reloadTrains));
-                    this.rows.add(Row.action(tr("btn.reload"), LightController::reload));
+                    // 厦门 PIDS 的三个全局显示开关（本地时间 / 即将进站 / 广告）。
+                    // 从主界面搬到这里：主界面只留「进哪个流程」这一层，具体开关归「全局 → 其他」。
+                    this.rows.add(Row.action(tr("screen.mtrlte.pids_xiamen"), this::openXiamenPids));
                 }
                 break;
         }
@@ -687,6 +694,19 @@ public final class ParameterScreen extends Screen {
             return;
         }
         this.client.setScreen(new BeamVehicleScreen(this, this.root, BeamSession.presetOf(this.siding)));
+    }
+
+    /**
+     * 「厦门 PIDS」：三个全局显示开关（本地时间 / 即将进站 / 广告）。
+     *
+     * <p>退回时回这一页（{@code this}），于是「返回分区」还能继续改别的项；
+     * 开关本身一点就落盘，不进主界面的完成 / 取消快照（它改的是显示偏好）。
+     */
+    private void openXiamenPids() {
+        if (this.client == null) {
+            return;
+        }
+        this.client.setScreen(new dev.js.mtrheadlight.xiamen.pids.PidsXiamenSettingsScreen(this));
     }
 
     /**
