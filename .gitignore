@@ -1,22 +1,19 @@
-# Gradle / build output
+# 构建产物
 build/
 .gradle/
-run/
 out/
+*.class
 
-# Local dependency jars (MTR / ANTE / NTE / LDL / Fabric API ...) — fetched per machine
-libs/
+# 临时脚本 / 探针输出（不随仓库发布）
+temp/
+javac.*.args
+*.log
 
-# Loom cache and mapped jars
-.loom/
-*.mapped.jar
-
-# IDE
+# 编辑器
 .idea/
 *.iml
 .vscode/
 
-# Built mod jars (kept on the desktop, not in the repo)
-dist/
-*.jar
-!gradle/wrapper/gradle-wrapper.jar
+# 本地凭据（绝不入库）
+*.token
+.env
