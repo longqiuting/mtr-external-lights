@@ -52,6 +52,15 @@
 | `/mtr_lte cone steps <N>` | raymarch 步进数（性能 / 质量权衡） |
 | `/mtr_lte cone tail on\|off` | 尾灯是否也画光柱；`off`（默认）= 只给头灯，尾灯位仍用于动态光/光带 |
 
+### 发车倒数器（`mtrlte:dep_on_wall`）
+
+| 指令 | 作用 |
+|---|---|
+| `/mtr_lte dep` | 切下一档读数方向：`normal → mirror → flip → rotate`（下一帧生效，存 `config/mtrlte-dep-orient.json`） |
+| `/mtr_lte dep status` | 当前档位 + 下一档 |
+| `/mtr_lte dep mirror` | 直接点名切换（另认 `normal` / `flip` / `rotate` / `x` / `y` / `180`） |
+| `/mtr_lte dep debug on\|off\|status` | 取证：每块牌子每秒一行 `[lte] dep: … sec= dwell= dwellHalf= remain= phase= lockArrival=` |
+
 ### 调试（不写入配置，退出游戏即失效）
 
 | 指令 | 作用 |
@@ -269,7 +278,33 @@
 
 ---
 
-## 六、诊断速查
+## 六、厦门站内设备（第二阶段一期）
+
+`mtrlte:core` 页签，排在屏蔽门之后。
+
+| 方块 | id | 说明 |
+|---|---|---|
+| 厦门地铁 PIDS | `pids_xiamen_metro` | 蓝底，三行到站（开往/下一班/第三班） |
+| 厦门 BRT PIDS | `pids_xiamen_brt` | 深色底，两行到站 + 线路号 |
+| PIDS 挂杆 | `pids_xiamen_pole` | 只能放在 PIDS（或另一根挂杆）上 |
+| 挂墙发车倒数器 | `dep_on_wall` | 站台头端，停站时绿色倒数、过点红色正计 |
+| 液体安检机 | `liquid_scanner` | 手持药水右键检测；刷子右键配置没收名单 |
+| 大理石地板 | `marble_floor` | 整格 |
+| 大理石站台 | `marble_platform` | 继承 MTR 站台逻辑，放屏蔽门后自动叠箭头 |
+| 墙上扶手 ×11 | `railing_wall_*` | 平直/起段/斜段/收尾/内角/外角 + 镜像 |
+| 玻璃扶手 ×11 | `railing_glass_*` | 同上，半透明 |
+| 站外标志 ×4 | `station_sign_{wall,pole}_{xiamen,jiaomei}` | 厦门 / 角美 × 挂墙 / 杆上，亮度 15 |
+
+**交互速查**
+
+- PIDS：刷子右键 → 站台选择 + 选择广告…；空手右键 → 切下一张广告；仪表板「全局 → 其他 → 厦门 PIDS」有三个全局开关
+- 广告分类：默认只有一张厦门风景；`xiamen_ads` 分类（三张）与整合包里其他 `pids_*_ads.json`（如「南北组」9 张）需在「选择广告…」里勾选
+- 倒数器：`/mtr_lte dep` 可现场调读数方向，`/mtr_lte dep debug on` 打取证日志
+- 安检机：没配过名单时按「有负面效果就没收」，配过之后只按名单
+
+---
+
+## 七、诊断速查
 
 | 现象 | 先看哪一行 |
 |---|---|
@@ -285,6 +320,6 @@
 
 ---
 
-## 七、按键
+## 八、按键
 
 默认按键在「选项 → 控制 → 按键绑定 → LTE」中修改，与 `/mtr_lte` 打开同一个面板。
