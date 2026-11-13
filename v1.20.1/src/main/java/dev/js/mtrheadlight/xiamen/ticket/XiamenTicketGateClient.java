@@ -21,11 +21,11 @@ public final class XiamenTicketGateClient {
     private XiamenTicketGateClient() {
     }
 
-    /** 注册闸机的 BER；由 {@code XiamenClient} 在客户端初始化时调一次。 */
+    /** 注册闸机的 BER（8 个方块共用，本体 + 侧壳都在里面）；由 {@code XiamenClient} 在客户端初始化时调一次。 */
     public static void register() {
         try {
             BlockEntityRendererRegistry.register(XiamenTicketGates.entityType(), XiamenTicketGateRenderer::new);
-            LteLog.LOGGER.info("[lte] ticket gate renderer registered: {} ({} blocks, rawmodels)",
+            LteLog.LOGGER.info("[lte] ticket gate renderer registered: {} ({} gates x 2 blocks, rawmodels)",
                     XiamenTicketGateRenderer.class.getSimpleName(), XiamenTicketGates.gates().size());
         } catch (Throwable t) {
             LteLog.LOGGER.error("[lte] could not register the ticket gate renderer", t);

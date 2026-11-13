@@ -331,22 +331,26 @@ function camera(a, e) {
 
 if (require.main === module) {
   const targets = [
-    { name: 'gate_metro_closed', files: ['ticket_barrier_closed'], views: [[Math.PI, 0.05, 'front'], [0.6, 0.28, 'iso']] },
-    { name: 'gate_metro_open', files: ['ticket_barrier_open'], views: [[0.6, 0.28, 'iso']] },
-    { name: 'gate_brt_closed', files: ['brt_barrier_closed'], views: [[Math.PI, 0.05, 'front'], [0.6, 0.28, 'iso']] },
-    { name: 'gate_brt_open', files: ['brt_barrier_open'], views: [[0.6, 0.28, 'iso']] },
+    { name: 'gate_metro_closed', files: ['ticket_barrier_closed', { name: 'ticket_barrier_side', dx: 0, dy: 0 }], views: [[Math.PI, 0.05, 'front'], [0.6, 0.28, 'iso']] },
+    { name: 'gate_metro_open', files: ['ticket_barrier_open', { name: 'ticket_barrier_side', dx: 0, dy: 0 }], views: [[0.6, 0.28, 'iso']] },
+    { name: 'gate_brt_closed', files: ['brt_barrier_closed', { name: 'brt_barrier_side', dx: 0, dy: 0 }], views: [[Math.PI, 0.05, 'front'], [0.6, 0.28, 'iso']] },
+    { name: 'gate_brt_open', files: ['brt_barrier_open', { name: 'brt_barrier_side', dx: 0, dy: 0 }], views: [[0.6, 0.28, 'iso']] },
     { name: 'balance_machine', files: ['balance_machine_bottom', 'balance_machine_top'], views: [[0, 0.05, 'front'], [0.6, 0.28, 'iso']] },
   ];
 
   for (const target of targets) {
     const quads = [];
     let tex = null;
-    target.files.forEach((f, index) => {
-      const m = mesh(path.join(ROOT, 'rawmodels', f + '.json'));
+    target.files.forEach((entry, index) => {
+      // 字符串 = 单份模型（第二份默认抬高一格，余额查询机的上段就是这么拼的）；
+      // 对象 = 显式偏移（闸机的侧壳和本体同一套局部坐标，dx/dy 都是 0，直接叠上去）。
+      const spec = typeof entry === 'string' ? { name: entry } : entry;
+      const m = mesh(path.join(ROOT, 'rawmodels', spec.name + '.json'));
       tex = m.tex;
-      const dy = index === 0 ? 0 : 16; // 第二份（上段）抬高一格
+      const dy = spec.dy !== undefined ? spec.dy : index === 0 ? 0 : 16;
+      const dx = spec.dx || 0;
       for (const q of m.quads) {
-        quads.push({ ...q, pos: q.pos.map((p) => [p[0], p[1] + dy, p[2]]) });
+        quads.push({ ...q, pos: q.pos.map((p) => [p[0] + dx, p[1] + dy, p[2]]) });
       }
     });
     for (const [rotY, rotX, label] of target.views) {

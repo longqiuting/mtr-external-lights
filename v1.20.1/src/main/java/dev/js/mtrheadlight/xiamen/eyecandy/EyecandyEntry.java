@@ -1,10 +1,11 @@
-// 一个 eyecandy 物件的描述（first.json 里的一条）+ 它对应的方块 id。
+// 一个 eyecandy 物件的描述（描述文件里的一条）+ 它对应的方块 id。
 package dev.js.mtrheadlight.xiamen.eyecandy;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -15,7 +16,19 @@ import dev.js.mtrheadlight.LteLog;
 import net.minecraft.util.Identifier;
 
 /**
- * {@code assets/mtrlte/eyecandies/first.json} 里的一条：中文名 + 模型 + 贴图 + 摆放参数。
+ * 一个 eyecandy 物件的描述：中文名 + 模型 + 贴图 + 摆放参数。
+ *
+ * <p>现在有两份描述文件，格式完全相同（都是素材包 {@code mtrsteamloco} 的那一套字段）：
+ * <table border="1">
+ *   <caption>两套素材</caption>
+ *   <tr><th>{@link Pack}</th><th>描述文件（classpath）</th><th>条数</th><th>进哪个页签</th></tr>
+ *   <tr><td>{@code XIAMEN}（厦门风格物件包）</td><td>{@code assets/mtrlte/eyecandies/first.json}</td>
+ *       <td>26</td><td>{@code mtrlte:core}「厦门风格物件」</td></tr>
+ *   <tr><td>{@code NANPUTUO}（厦门南普陀相关装饰物件）</td><td>{@code assets/mtrlte/eyecandies/nanputuo.json}</td>
+ *       <td>34</td><td>{@code mtrlte:nanputuo_decor}「南普陀装饰物件」</td></tr>
+ * </table>
+ * 两份的 {@code .obj} / {@code .png} 都放在同一个 {@code eyecandies/} 目录里（key、文件名都不冲突），
+ * 所以只有描述文件是分开的 —— 一份描述 = 一个页签。
  *
  * <pre>
  * "key1": {
@@ -27,9 +40,13 @@ import net.minecraft.util.Identifier;
  *   "translation": [0, 0, 0],               // 格
  *   "rotation":    [0, 0, 0],               // 度，XYZ 欧拉
  *   "scale":       [1, 1, 1],
- *   "mirror":      [false, false, false]
+ *   "mirror":      [false, false, false],
+ *   "raise":       2                        // 可选，贴地之后再抬几格（只有桥墩用）
  * }
  * </pre>
+ *
+ * <p>朝向不写在描述里：方块带 {@code ROTATION} 属性（四向），放置时按玩家朝向给默认值，
+ * 在游戏里用刷子右键循环 —— 见 {@link EyecandyBlock}。
  *
  * <h2>命名空间改写</h2>
  * <p>素材是 MTR 的 Steam Loco 扩展（{@code mtrsteamloco}）的，路径 {@code eyecandies/*} 原样保留，
@@ -37,26 +54,42 @@ import net.minecraft.util.Identifier;
  * {@code assets/mtrlte/eyecandies/} 下，所以资源引用不用再跨模组。
  *
  * <p>{@code blockId} = {@code mtrlte:eyecandy_<key 小写>}（{@code key1145} → {@code eyecandy_key1145}，
- * {@code rolling_bottom_turning} → {@code eyecandy_rolling_bottom_turning}）。
+ * {@code sign_stand_1} → {@code eyecandy_sign_stand_1}）。
  */
-public record EyecandyEntry(String key, String displayName, Identifier modelId, Identifier texture,
+public record EyecandyEntry(Pack pack, String key, String displayName, Identifier modelId, Identifier texture,
                             boolean flipV, float[] scale, float[] rotation, float[] translation,
-                            boolean[] mirror, Identifier blockId) {
+                            boolean[] mirror, float raise, Identifier blockId) {
 
-    /** 描述文件在 classpath 上的位置。 */
-    public static final String DESCRIPTOR = "/assets/mtrlte/eyecandies/first.json";
+    /** 两套素材：一份描述文件 = 一个页签。 */
+    public enum Pack {
+        /** 厦门风格物件包（{@code resourcepacks/厦门风格物件包}），进「厦门风格物件」页签。 */
+        XIAMEN("/assets/mtrlte/eyecandies/first.json"),
+        /** 厦门南普陀相关装饰物件（{@code resourcepacks/厦门南普陀相关装饰物件}），自己开一页。 */
+        NANPUTUO("/assets/mtrlte/eyecandies/nanputuo.json");
+
+        private final String descriptor;
+
+        Pack(final String descriptor) {
+            this.descriptor = descriptor;
+        }
+
+        /** 描述文件在 classpath 上的位置。 */
+        public String descriptor() {
+            return this.descriptor;
+        }
+    }
 
     /**
-     * 读描述文件。
+     * 读一份描述文件。
      *
      * <p>顺序 = 文件里的顺序（gson 的 {@link JsonObject} 是 {@code LinkedTreeMap}，插入序稳定），
      * 创造页签按这个顺序排。
      *
      * @return 全部条目；读不到时返回空表（调用方只记一行日志，不抛）
      */
-    public static List<EyecandyEntry> loadAll() {
+    public static List<EyecandyEntry> loadAll(final Pack pack) {
         final List<EyecandyEntry> out = new ArrayList<>();
-        try (InputStream in = EyecandyEntry.class.getResourceAsStream(DESCRIPTOR)) {
+        try (InputStream in = EyecandyEntry.class.getResourceAsStream(pack.descriptor())) {
             if (in == null) {
                 return out;
             }
@@ -65,6 +98,7 @@ public record EyecandyEntry(String key, String displayName, Identifier modelId, 
             for (final var item : root.entrySet()) {
                 final JsonObject json = item.getValue().getAsJsonObject();
                 out.add(new EyecandyEntry(
+                        pack,
                         item.getKey(),
                         string(json, "name", item.getKey()),
                         modelId(string(json, "model", "")),
@@ -74,11 +108,12 @@ public record EyecandyEntry(String key, String displayName, Identifier modelId, 
                         triple(json, "rotation", 0.0F),
                         triple(json, "translation", 0.0F),
                         bools(json, "mirror"),
+                        number(json, "raise", 0.0F),
                         new Identifier(EyecandyBlocks.NAMESPACE,
-                                "eyecandy_" + item.getKey().toLowerCase(java.util.Locale.ROOT))));
+                                "eyecandy_" + item.getKey().toLowerCase(Locale.ROOT))));
             }
         } catch (Throwable t) {
-            LteLog.LOGGER.warn("[lte] eyecandy: could not parse {} ({})", DESCRIPTOR, t.toString());
+            LteLog.LOGGER.warn("[lte] eyecandy: could not parse {} ({})", pack.descriptor(), t.toString());
             out.clear();
         }
         return out;
@@ -107,21 +142,23 @@ public record EyecandyEntry(String key, String displayName, Identifier modelId, 
         return colon < 0 ? raw : raw.substring(colon + 1);
     }
 
-    /** {@code ns:path} → {@code {ns, path}}；没有命名空间时用 {@code fallback}。 */
-    private static String[] splitNamespace(final String raw, final String fallback) {
-        final int colon = raw.indexOf(':');
-        if (colon < 0) {
-            return new String[] {fallback, raw};
-        }
-        return new String[] {raw.substring(0, colon), raw.substring(colon + 1)};
-    }
-
     private static String string(final JsonObject json, final String key, final String fallback) {
         return json.has(key) && !json.get(key).isJsonNull() ? json.get(key).getAsString() : fallback;
     }
 
     private static boolean bool(final JsonObject json, final String key, final boolean fallback) {
         return json.has(key) && !json.get(key).isJsonNull() ? json.get(key).getAsBoolean() : fallback;
+    }
+
+    private static float number(final JsonObject json, final String key, final float fallback) {
+        if (!json.has(key) || json.get(key).isJsonNull()) {
+            return fallback;
+        }
+        try {
+            return json.get(key).getAsFloat();
+        } catch (Throwable t) {
+            return fallback;
+        }
     }
 
     private static float[] triple(final JsonObject json, final String key, final float fallback) {

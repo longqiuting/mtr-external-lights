@@ -5,12 +5,17 @@ import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 
 import dev.js.mtrheadlight.LteLog;
+import dev.js.mtrheadlight.rawmodel.RawMesh;
+import dev.js.mtrheadlight.rawmodel.RawModelJson;
+import dev.js.mtrheadlight.rawmodel.RawModelRenderer;
 import mtr.mappings.BlockEntityRendererMapper;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.HorizontalFacingBlock;
+import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.render.block.entity.BlockEntityRendererFactory;
 import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.RotationAxis;
@@ -109,6 +114,29 @@ public class DepOnRoofRenderer extends BlockEntityRendererMapper<DepOnRoofBlockE
     /** 渲染线程上只报一次错（否则每帧一条，日志会被刷爆）。 */
     private static boolean warned;
 
+    /**
+     * 牌身 + 挂杆（{@code assets/mtrlte/rawmodels/dep_on_roof.json}）。
+     * <p>就是 {@code 素材/挂墙发车倒数器/dep_on_roof.json} 那份 16 个元素的 Blockbench 导出，
+     * 由 {@code tools/gen-dep-rawmodels.js} 原样拷进 jar（只改贴图名）。<b>挂杆那十节</b>
+     * 的 {@code 154 / -87.5 / -73.5 …} 是「拧绳子」的手工角度，原版方块模型一个都存不下，
+     * 所以整份模型改走 {@link RawModelJson}。
+     */
+    private static final Identifier MODEL = RawModelJson.id("dep_on_roof");
+
+    /**
+     * 素材朝向 → 本模组代码朝向的补偿角（度，模型空间，绕方块竖轴，正 = 俯视逆时针）。
+     *
+     * <p>两套约定的符号是反的：Blockbench 导出的元素 rotation、以及原版
+     * {@code BakedQuadFactory#rotateVertex} 用的 {@code Quaternionf.rotationAxis(angle, axis)}
+     * 都是<b>数学正角</b>；而 {@code DepOnRoofBlock#yawedAabb} 与
+     * {@link #applyScreenTransform} 用的是 blockstate 那套<b>俯视顺时针</b>
+     * （{@code x' = x·cos − z·sin}）。素材的牌框 135° 在代码这套里本该是 45°，
+     * 差这 90° 正好就是「碰撞箱 / 数字都对、模型偏 90°」。
+     * <p>数值由 {@code node tools/verify-dep-orient.js} 核对：转完之后牌面法线 = 数字层的
+     * {@link #SCREEN_NORMAL}，牌框包围盒 = {@code DepOnRoofBlock} 的中段碰撞箱。
+     */
+    static final float MODEL_YAW_FIX_DEGREES = 90.0F;
+
     public DepOnRoofRenderer(final BlockEntityRendererFactory.Context context) {
         super(context.getRenderDispatcher());
     }
@@ -117,7 +145,7 @@ public class DepOnRoofRenderer extends BlockEntityRendererMapper<DepOnRoofBlockE
     public void render(final DepOnRoofBlockEntity entity, final float tickDelta, final MatrixStack matrices,
                        final VertexConsumerProvider vertexConsumers, final int light, final int overlay) {
         try {
-            renderSafe(entity, matrices, vertexConsumers);
+            renderSafe(entity, matrices, vertexConsumers, light, overlay);
         } catch (Throwable t) {
             if (!warned) {
                 warned = true;
@@ -127,7 +155,7 @@ public class DepOnRoofRenderer extends BlockEntityRendererMapper<DepOnRoofBlockE
     }
 
     private void renderSafe(final DepOnRoofBlockEntity entity, final MatrixStack matrices,
-                            final VertexConsumerProvider vertexConsumers) {
+                            final VertexConsumerProvider vertexConsumers, final int light, final int overlay) {
         final World world = entity.getWorld();
         if (world == null) {
             return;
@@ -138,6 +166,9 @@ public class DepOnRoofRenderer extends BlockEntityRendererMapper<DepOnRoofBlockE
             return;
         }
         final Direction facing = state.getOrEmpty(HorizontalFacingBlock.FACING).orElse(Direction.NORTH);
+
+        // 牌身 + 挂杆：空屏时同样要画（这两件从来不看读数）。
+        drawModel(matrices, vertexConsumers, facing, light, overlay);
 
         // 数据链路在 DepCountdown（挂墙 / 挂顶共用），这里只把结果显示到屏幕上。
         final DepCountdown.Display display = DepCountdown.display(entity, pos);
@@ -157,6 +188,57 @@ public class DepOnRoofRenderer extends BlockEntityRendererMapper<DepOnRoofBlockE
             } finally {
                 matrices.pop();
             }
+        } finally {
+            matrices.pop();
+        }
+    }
+
+    // ------------------------------------------------------------------ 牌身（rawmodel）
+
+    /**
+     * 画牌身本体（含挂杆）：{@code rawmodels/dep_on_roof.json} 整份。
+     *
+     * <h2>两步旋转</h2>
+     * <ol>
+     *   <li><b>+90°（模型空间，绕方块竖轴）</b>：把素材里那种「数学正角」的朝向
+     *       （Blockbench / 原版元素 rotation 都是 {@code Quaternionf.rotationAxis(angle)}
+     *       的正角，从上往下看是<b>逆时针</b>）拧到本模组这套代码一直在用的
+     *       「俯视顺时针」上（{@code DepOnRoofBlock#yawedAabb} /
+     *       {@link #applyScreenTransform} 里写的都是 {@code x' = x·cos − z·sin}）。
+     *       两套约定差正好 90°：素材的牌框是 135°，折回代码这套就是 45°；
+     *       牌面从「西南」转到「东南」，<b>正好落在数字层和牌框碰撞箱假定的那一面</b>。
+     *       少了这一步，就是用户看到的「碰撞箱和数字都对，模型偏了 90°」。
+     *       工具核对：{@code node tools/verify-dep-orient.js}（牌面 / 牌框 / 挂杆逐项对）。</li>
+     *   <li><b>blockstate 的 {@code y}</b>：和挂墙版同一个表达式，四个朝向都走
+     *       {@link DepOnRoofBlock#blockRotation(Direction)}。</li>
+     * </ol>
+     *
+     * <p>挂杆那十节的三轴旋转由 {@link RawModelJson} 逐顶点算（XYZ 欧拉序、绕各自 origin），
+     * 所以是原作者拧的那根绳子，而不是被吸附到 ±22.5 之后的「另一根杆」。
+     */
+    private static void drawModel(final MatrixStack matrices, final VertexConsumerProvider vertexConsumers,
+                                  final Direction facing, final int light, final int overlay) {
+        final RawMesh mesh = RawModelJson.get(MODEL);
+        if (mesh == null) {
+            return;
+        }
+        final VertexConsumer consumer = vertexConsumers.getBuffer(RawModelRenderer.cutoutLayer(mesh));
+        // 矩阵链（先写的先作用在顶点上）：
+        //   绕方块中心转 blockstate 的 y  →  绕模型 pivot 转 +90°（补偿角）  →  画。
+        // 顺序不能反：补偿角必须绕模型自己的 pivot（Blockbench 里那 16 个元素的 origin），
+        // 绕方块中心会把这块斜吊的牌子整体挪走 0.85/16 格。
+        final double pivotX = DepOnRoofBlock.MODEL_PIVOT_X / 16.0D;
+        final double pivotZ = DepOnRoofBlock.MODEL_PIVOT_Z / 16.0D;
+        matrices.push();
+        try {
+            matrices.translate(0.5D, 0.0D, 0.5D);
+            matrices.multiply(RotationAxis.NEGATIVE_Y.rotationDegrees(DepOnRoofBlock.blockRotation(facing)));
+            matrices.translate(-0.5D, 0.0D, -0.5D);
+            matrices.translate(pivotX, 0.0D, pivotZ);
+            matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(MODEL_YAW_FIX_DEGREES));
+            matrices.translate(-pivotX, 0.0D, -pivotZ);
+            // RawModelRenderer 自己把 0..16 的模型坐标除以 16。
+            RawModelRenderer.render(matrices, consumer, mesh, light, overlay);
         } finally {
             matrices.pop();
         }

@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "mtrlte:block/wall_sign_xiamen"
+    },
+    "facing=east": {
+      "model": "mtrlte:block/wall_sign_xiamen",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "mtrlte:block/wall_sign_xiamen",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "mtrlte:block/wall_sign_xiamen",
+      "y": 270
+    }
+  }
+}

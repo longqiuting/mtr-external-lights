@@ -20,6 +20,21 @@
 - **站外标志 4 个**：厦门地铁 / 角美地铁 × 挂墙 / 杆上，亮度 15，物品栏为 3D 方块模型
 - **大理石地板 + 大理石站台**：站台继承 MTR `BlockPlatform`，屏蔽门放上去自动叠箭头（贴图不再变灰）
 
+### 方速屏蔽门搬运（14 个，不依赖方速）
+
+- 素材来自资源包 `厦门风格物件包` 的 `assets/fangsu/`：**旋转式端门 5 款**（BRT / MTR / DRL / SH 低 / SH 高）
+  + **厦门滑动屏蔽门 2 款**（低 / 高），每款拆成 `..._left` / `..._right` 两个方块
+- 几何 `.obj` / 材质 `.mtl` / 贴图 `.png` / 描述 `.json` 全部随 jar 走
+  （`assets/mtrlte/fangsu_psd/` + `assets/mtrlte/textures/fangsu_psd/`），命名空间 `fangsu:` → `mtrlte:fangsu_psd/`，
+  客户端不用再装方速
+- 方块继承 MTR 的 `BlockPSDAPGDoorBase`，**自动开关门直接吃 MTR 的列车信号**
+  （`Train#scanDoors` → `TrainServer#openDoors` → `setOpen(doorValue*64)`，到点 `scheduleBlockTick` 关门），
+  没有自己扫列车的 tick
+- 门扇动画按组做：端门绕 `doorPos` 转 `doorAngle`（弧度），滑动门沿 x 平移 `step` 格；
+  进度按时间插值（15 tick 走完全程，与帧率无关）
+- 碰撞按描述里的 `shape` 切换（关门挡人、开门变空），刷子右键手动开/关，潜行 + 刷子锁定
+- 物品栏是 3D 图标（按 `o` 组的包围盒生成的方块模型），进「厦门风格物件」页签
+
 ### 线路图（吊板 / 半高玻璃）
 
 - 已过站灰化（圆环/区段/站名三档灰），当前站**固定红实心**且不盖住线路色描边

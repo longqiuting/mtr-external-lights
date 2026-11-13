@@ -16,6 +16,7 @@ const { decodePng, writePng } = require('./preview-rawmodels');
 
 const ROOT = path.resolve(__dirname, '..', 'v1.20.1', 'src', 'main', 'resources', 'assets', 'mtrlte');
 const SRC = path.join(ROOT, 'eyecandies');
+const TEX = path.join(ROOT, 'textures', 'eyecandies');
 const OUT = path.join(ROOT, 'textures', 'item');
 
 // 输出尺寸与超采样倍数（3× 渲染后盒式降采样，边缘才不会毛刺）
@@ -45,12 +46,13 @@ function rotate(p, a) {
   return [x, y, z];
 }
 
-/** OBJ 顶点（格）→ 模型空间 0..16；整体在 y<=0 时抬到贴地（对应 Java 端 RawObjParser.place）。 */
+/** OBJ 顶点（格）→ 模型空间 0..16；整体在 y<=0 时抬到贴地，再抬 raise 格（对应 Java 端 RawObjParser.place）。 */
 function place(verts, entry) {
   const s = entry.scale || [1, 1, 1];
   const a = entry.rotation || [0, 0, 0];
   const t = entry.translation || [0, 0, 0];
   const m = entry.mirror || [false, false, false];
+  const raise = entry.raise || 0;
   const out = verts.map((v) => {
     let p = [v[0] * s[0] * (m[0] ? -1 : 1), v[1] * s[1] * (m[1] ? -1 : 1), v[2] * s[2] * (m[2] ? -1 : 1)];
     p = rotate(p, a);
@@ -62,7 +64,7 @@ function place(verts, entry) {
     minY = Math.min(minY, p[1]);
     maxY = Math.max(maxY, p[1]);
   }
-  const lift = maxY <= 0 ? -minY : 0;
+  const lift = (maxY <= 0 ? -minY : 0) + raise;
   return out.map((p) => [p[0] * 16 + 8, (p[1] + lift) * 16, p[2] * 16 + 8]);
 }
 
@@ -262,7 +264,7 @@ function downsample(buf, big, small) {
 
 function build(key, entry, report) {
   const objFile = path.join(SRC, entry.model.replace(/^.*\//, ''));
-  const pngFile = path.join(SRC, entry.textureId.replace(/^.*\//, ''));
+  const pngFile = path.join(TEX, entry.textureId.replace(/^.*\//, ''));
   const tex = decodePng(pngFile);
   const { verts, uvs, tris } = parseObj(fs.readFileSync(objFile, 'utf8'), entry.flipV !== false);
   const placed = place(verts, entry);
@@ -302,14 +304,18 @@ function build(key, entry, report) {
 }
 
 if (require.main === module) {
-  const first = JSON.parse(fs.readFileSync(path.join(SRC, 'first.json'), 'utf8'));
+  // 两套素材共用 eyecandies/ 目录，只是描述文件不同（见 tools/gen-eyecandy-assets.js）。
+  const DESCRIPTORS = ['first.json', 'nanputuo.json'];
   const only = process.argv.slice(2).map((s) => s.toLowerCase());
   const report = [];
-  for (const [key, entry] of Object.entries(first)) {
-    if (only.length && !only.includes(key.toLowerCase())) continue;
-    build(key, entry, report);
-    const last = report[report.length - 1];
-    console.log(`${key.padEnd(22)} tris=${String(last.tris).padStart(5)} cover=${(last.coverage * 100).toFixed(1)}% tex=${last.tex}`);
+  for (const descriptor of DESCRIPTORS) {
+    const first = JSON.parse(fs.readFileSync(path.join(SRC, descriptor), 'utf8'));
+    for (const [key, entry] of Object.entries(first)) {
+      if (only.length && !only.includes(key.toLowerCase())) continue;
+      build(key, entry, report);
+      const last = report[report.length - 1];
+      console.log(`${key.padEnd(22)} tris=${String(last.tris).padStart(5)} cover=${(last.coverage * 100).toFixed(1)}% tex=${last.tex}`);
+    }
   }
   console.log(`\nwrote ${report.length} icons to ${path.relative(process.cwd(), OUT)}`);
 }

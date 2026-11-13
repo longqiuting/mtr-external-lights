@@ -2,16 +2,23 @@
 package dev.js.mtrheadlight.xiamen.ticket;
 
 import mtr.block.BlockTicketBarrier;
+import mtr.block.IBlock;
 import mtr.data.TicketSystem;
 import mtr.mappings.Utilities;
 import net.minecraft.block.BlockEntityProvider;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.ShapeContext;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.Entity;
+import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.item.ItemStack;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.util.shape.VoxelShape;
+import net.minecraft.util.shape.VoxelShapes;
+import net.minecraft.world.BlockView;
 import net.minecraft.world.World;
 
 /**
@@ -60,7 +67,14 @@ import net.minecraft.world.World;
  * <p>方块本身只剩一份空模型（{@code mtrlte:block/empty}），几何由 {@link XiamenTicketGateRenderer}
  * 在运行时按 {@code assets/mtrlte/rawmodels/*.json}（Blockbench 原样导出）逐元素画 ——
  * 素材里的任意旋转角（{@code -11.5 / 3.25 / 44 …}）和三轴旋转原版模型格式都表达不了。
- * 碰撞 / 轮廓仍然直接用 MTR {@code BlockTicketBarrier} 那一份，<b>没有改</b>。
+ *
+ * <h2>本体 + 侧壳（JCM 式两格闸机）</h2>
+ * <p>新素材的闸机是「两个柜子夹一条通道」：本体这份 JSON 里柜体在本地 {@code x 12..16}、挡杆一路扫到
+ * {@code x -4}，而 {@code *_barrier_side.json} 是<b>同一坐标系</b>里镜像出来的另一个柜体
+ * （本地 {@code x -4..0}）—— 也就是「本体旁边那一格」里的柜子。所以放下本体时会自动在
+ * {@link #sideOf(Direction)} 那一侧放一个 {@link XiamenTicketGateSide}（同向、贴着脸），
+ * 拆一个另一个跟着消失。碰撞：本体的柜体从 MTR 原来的 {@code x 15..16} 放宽到素材实际占的
+ * {@code x 12..16}（不然玩家会走进柜子里），挡杆那面墙沿用 MTR 的 {@code z 7..9}（关门才拦人）。
  */
 public class XiamenTicketGate extends BlockTicketBarrier implements BlockEntityProvider {
 
@@ -70,10 +84,36 @@ public class XiamenTicketGate extends BlockTicketBarrier implements BlockEntityP
     /** 用哪一套原始模型（{@code ticket_barrier} = 厦门地铁，{@code brt_barrier} = 厦门BRT）。 */
     private final String rawModel;
 
+    /** 配套的侧壳方块（{@link XiamenTicketGates#register()} 里回填；为 {@code null} 时只放本体）。 */
+    private XiamenTicketGateSide side;
+
     public XiamenTicketGate(final boolean isEntrance, final String rawModel) {
         super(isEntrance);
         this.entrance = isEntrance;
         this.rawModel = rawModel;
+    }
+
+    /**
+     * 侧壳在本体的哪一侧（同向、紧贴的那一格）。
+     *
+     * <p>素材里侧壳摆在本地 <b>x 为负</b> 的一侧；渲染器把它转给世界的映射是
+     * {@code y = FACING.getOpposite().asRotation()}（原版 {@code "y"} 语义，见
+     * {@link XiamenTicketGateRenderer}），而原版 {@code "y": n} 等价于「绕 Y 顺时针转 n/90 次」，
+     * 本地 {@code -x}（西）跟着转 n/90 次就是 {@code FACING} 的逆时针邻居 —— 四个朝向逐个验算过：
+     * 北→西、东→北、南→东、西→南。正好就是 {@link Direction#rotateYCounterclockwise()}。
+     */
+    public static Direction sideOf(final Direction facing) {
+        return facing.rotateYCounterclockwise();
+    }
+
+    /** 注册期回填配套侧壳（服务端 / 客户端都要有，见 {@link XiamenTicketGates#register()}）。 */
+    public void setSide(final XiamenTicketGateSide side) {
+        this.side = side;
+    }
+
+    /** 配套侧壳（没有回填时 {@code null}）。 */
+    public XiamenTicketGateSide side() {
+        return this.side;
     }
 
     /** 进站闸机？ */
@@ -85,6 +125,38 @@ public class XiamenTicketGate extends BlockTicketBarrier implements BlockEntityP
     public String rawModel() {
         return this.rawModel;
     }
+
+    // ------------------------------------------------------------------ 碰撞 / 框选
+
+    /**
+     * 框选 = 柜体本身（本地 {@code x 12..16}、高 16）：与素材一致，也是 MTR 原本那份轮廓
+     * （MTR：{@code 12,0,0 → 16,15,16}），所以这里只是把高度按素材补到 16。
+     */
+    @Override
+    public VoxelShape getOutlineShape(final BlockState state, final BlockView world, final BlockPos pos,
+                                      final ShapeContext context) {
+        return IBlock.getVoxelShapeByDirection(12.0D, 0.0D, 0.0D, 16.0D, 16.0D, 16.0D, state.get(FACING));
+    }
+
+    /**
+     * 碰撞：**完全照 JCM 的闸机**（`TicketBarrier1#getCollisionShape` 字节码里只有
+     * `IBlock.getVoxelShapeByDirection(12, 0, 0, 16, 16, 16, facing)` 一个盒子），即
+     * 「本地 x 12..16、整格深、高 16」的柜体框；关门时再把挡杆那面墙（z 7..9）并上去，
+     * 开门时只剩柜体框，中间 12/16 的通道可以走人。
+     */
+    @Override
+    public VoxelShape getCollisionShape(final BlockState state, final BlockView world, final BlockPos pos,
+                                        final ShapeContext context) {
+        final Direction facing = state.get(FACING);
+        final VoxelShape frame = IBlock.getVoxelShapeByDirection(12.0D, 0.0D, 0.0D, 16.0D, 16.0D, 16.0D, facing);
+        if (state.get(OPEN).isOpen()) {
+            return frame;
+        }
+        return VoxelShapes.union(frame,
+                IBlock.getVoxelShapeByDirection(0.0D, 0.0D, 7.0D, 16.0D, 16.0D, 9.0D, facing));
+    }
+
+    // ------------------------------------------------------------------ 放置 / 拆除（本体与侧壳互相独立）
 
     /**
      * 方块实体（纯锚点，见 {@link XiamenTicketGateBlockEntity}）。

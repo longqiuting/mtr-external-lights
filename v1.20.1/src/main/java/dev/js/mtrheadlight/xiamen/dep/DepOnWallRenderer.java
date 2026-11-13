@@ -5,6 +5,9 @@ import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 
 import dev.js.mtrheadlight.LteLog;
+import dev.js.mtrheadlight.rawmodel.RawMesh;
+import dev.js.mtrheadlight.rawmodel.RawModelJson;
+import dev.js.mtrheadlight.rawmodel.RawModelRenderer;
 import mtr.mappings.BlockEntityRendererMapper;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.HorizontalFacingBlock;
@@ -23,6 +26,16 @@ import net.minecraft.world.World;
 
 /**
  * 挂墙发车倒数器 {@code mtrlte:dep_on_wall} 的屏幕渲染器。
+ *
+ * <h2>牌身：rawmodels/dep_on_wall.json，BER 直接画</h2>
+ * <p>牌子本体（6 个元素：背板、发光板、左右边柱、上下横梁）不再走原版方块模型
+ * —— 原版 ModelElement 只吃 {@code -45/-22.5/0/22.5/45} 的单轴旋转，凡是 Blockbench
+ * 里写出来的其它角度都会被拒或丢件（挂顶版的挂杆就是这么坏的）。这里改成
+ * {@code models/block/dep_on_wall.json} 留一个空占位、几何由
+ * {@link RawModelJson} 读 {@code rawmodels/dep_on_wall.json}（素材原样，见
+ * {@code tools/gen-dep-rawmodels.js}），渲染时只乘一次绕 Y 的旋转（{@link #drawModel}）。
+ * 于是「模型朝向」和碰撞箱、数字永远是同一个
+ * {@link DepOnWallBlock#blockRotation(Direction)}，也不可能被转成竖直的。
  *
  * <h2>它是「发车倒数器」，不是 PIDS</h2>
  * <p>贴在站台头端的墙上。屏幕上<b>没有站名、没有线路</b>，<b>永远只有一行七段数字</b>，
@@ -170,6 +183,14 @@ public class DepOnWallRenderer extends BlockEntityRendererMapper<DepOnWallBlockE
     /** 渲染线程上只报一次错（否则每帧一条，日志会被刷爆）。 */
     private static boolean warned;
 
+    /**
+     * 牌身本体（{@code assets/mtrlte/rawmodels/dep_on_wall.json}）。
+     * <p>就是 {@code 素材/挂墙发车倒数器/dep_on_wall.json} 那份 Blockbench 导出的 6 个元素，
+     * 由 {@code tools/gen-dep-rawmodels.js} <b>原样</b>拷进 jar（只改贴图名），
+     * 运行时由 {@link RawModelJson} 解析成 {@link RawMesh}。
+     */
+    private static final Identifier MODEL = RawModelJson.id("dep_on_wall");
+
     public DepOnWallRenderer(final BlockEntityRendererFactory.Context context) {
         super(context.getRenderDispatcher());
     }
@@ -178,7 +199,7 @@ public class DepOnWallRenderer extends BlockEntityRendererMapper<DepOnWallBlockE
     public void render(final DepOnWallBlockEntity entity, final float tickDelta, final MatrixStack matrices,
                        final VertexConsumerProvider vertexConsumers, final int light, final int overlay) {
         try {
-            renderSafe(entity, matrices, vertexConsumers);
+            renderSafe(entity, matrices, vertexConsumers, light, overlay);
         } catch (Throwable t) {
             if (!warned) {
                 warned = true;
@@ -188,7 +209,7 @@ public class DepOnWallRenderer extends BlockEntityRendererMapper<DepOnWallBlockE
     }
 
     private void renderSafe(final DepOnWallBlockEntity entity, final MatrixStack matrices,
-                            final VertexConsumerProvider vertexConsumers) {
+                            final VertexConsumerProvider vertexConsumers, final int light, final int overlay) {
         final World world = entity.getWorld();
         if (world == null) {
             return;
@@ -199,6 +220,10 @@ public class DepOnWallRenderer extends BlockEntityRendererMapper<DepOnWallBlockE
             return;
         }
         final Direction facing = state.getOrEmpty(HorizontalFacingBlock.FACING).orElse(Direction.NORTH);
+
+        // 牌身：永远画（空屏时也得看得见那块暗红点阵），在数字之前 —— 两者深度上不重叠
+        // （数字在 11.96/16，模型板面在 12.3/16），但先画模型总是更省事。
+        drawModel(matrices, vertexConsumers, facing, light, overlay);
 
         // 数据链路在 DepCountdown（挂墙 / 挂顶共用），这里只把结果显示到屏幕上。
         final DepCountdown.Display display = DepCountdown.display(entity, pos);
@@ -219,6 +244,54 @@ public class DepOnWallRenderer extends BlockEntityRendererMapper<DepOnWallBlockE
                     matrices.pop();
                 }
             }
+        } finally {
+            matrices.pop();
+        }
+    }
+
+    // ------------------------------------------------------------------ 牌身（rawmodel）
+
+    /**
+     * 画牌身本体：{@code rawmodels/dep_on_wall.json} 的 6 个元素，<b>只绕方块竖轴转一次</b>。
+     *
+     * <h2>为什么模型不再走原版方块模型</h2>
+     * <p>原版 {@code ModelElement.Deserializer}（1.20.1）只接受
+     * {@code -45 / -22.5 / 0 / 22.5 / 45} 的元素旋转，其它角度直接
+     * {@code JsonParseException}，一个元素也只能转一个轴。挂顶版
+     * （{@code dep_on_roof.json}）里就是 {@code 135 / 154 / -87.5 / -73.5 …} 加上
+     * {@code {"x":180,"y":-11.75,"z":180}} 这种三轴旋转，之前靠「整 90° 折进盒子坐标 +
+     * 零头吸附到合法角」才塞得进去 —— 挂杆那十节就是在那一步被改了形状。
+     * 现在牌身和挂顶版一样直接读 Blockbench 的 JSON（{@link RawModelJson}），
+     * 角度一个都不动。
+     *
+     * <h2>朝向：为什么它一定是「水平」的</h2>
+     * <p>模型顶点就是 Blockbench 里的 {@code 0..16}（y 向上、屏幕朝 {@code -Z}），解析期
+     * <b>只做元素自己的旋转</b>（这份素材里全是 0°/单轴 0°，等于没有），这里也<b>只乘一个绕 Y
+     * 的旋转</b>。没有任何 {@code rotateX / rotateZ / scale}，所以「模型立起来/躺下去 90°」
+     * 这类错法在这个渲染路径上写不出来 —— 牌面法线永远水平，和
+     * {@link DepOnWallBlock} 的碰撞箱（同样只按 {@code y} 转）走同一个
+     * {@link DepOnWallBlock#blockRotation(Direction)}。
+     *
+     * <p>角度约定和 blockstate 一字不差：{@code facing=north → y=0, east → 90, south → 180,
+     * west → 270}，原版的 {@code "y": n} 等价于绕方块中心转 {@code -n} 度（右手定则），
+     * 所以这里用 {@code NEGATIVE_Y}。数字层在 {@link #applyScreenTransform} 里用的是同一个
+     * 表达式，两边的朝向不可能再各走各的。
+     */
+    private static void drawModel(final MatrixStack matrices, final VertexConsumerProvider vertexConsumers,
+                                  final Direction facing, final int light, final int overlay) {
+        final RawMesh mesh = RawModelJson.get(MODEL);
+        if (mesh == null) {
+            return;
+        }
+        final VertexConsumer consumer = vertexConsumers.getBuffer(RawModelRenderer.cutoutLayer(mesh));
+        matrices.push();
+        try {
+            // 绕方块中心（x/z = 0.5）转 —— 竖轴上平移多少都不影响结果，所以 y 不用管。
+            matrices.translate(0.5D, 0.0D, 0.5D);
+            matrices.multiply(RotationAxis.NEGATIVE_Y.rotationDegrees(DepOnWallBlock.blockRotation(facing)));
+            matrices.translate(-0.5D, 0.0D, -0.5D);
+            // RawModelRenderer 自己会把 0..16 的模型坐标除以 16，落回本方块 0..1。
+            RawModelRenderer.render(matrices, consumer, mesh, light, overlay);
         } finally {
             matrices.pop();
         }

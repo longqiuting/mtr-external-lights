@@ -5,14 +5,16 @@ import dev.js.mtrheadlight.LteLog;
 import net.fabricmc.fabric.api.client.rendering.v1.BlockEntityRendererRegistry;
 
 /**
- * 26 个 eyecandy 的客户端接线：只注册 {@link EyecandyRenderer}。
+ * 全部 eyecandy（厦门 26 件 + 南普陀 34 件，共 60 个方块）的客户端接线：只注册
+ * {@link EyecandyRenderer}（它们共用一个方块实体类型 {@code mtrlte:eyecandy}）。
  *
  * <h2>为什么没有 {@code BlockRenderLayerMap}</h2>
  * <p>方块模型是 {@code mtrlte:block/empty}（{@code elements: []}），世界里看得见的东西全由 BER 画，
  * 渲染层是渲染器自己取的 {@code RenderLayer.getEntityCutout(texture)}（贴图直绑、不进方块图集）。
  * 给方块挂 {@code putBlock(...cutout)} 对 BER 没有作用，所以这里不挂。
  *
- * <p>由 {@code XiamenClient} 在客户端初始化时调一次。失败只记一行 error、不抛出去
+ * <p>由 {@code XiamenClient} 在客户端初始化时调一次（服务端那段 {@link EyecandyBlocks#register()}
+ * 已经先跑过，方块实体类型在那里建好）。失败只记一行 error、不抛出去
  * （症状是「物件整块透明」，日志里能直接看到）。
  */
 public final class EyecandyClient {

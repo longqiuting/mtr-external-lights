@@ -7,8 +7,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -120,6 +122,9 @@ public final class PidsXiamenAds {
     /** 资源重载后置空，下次渲染重新读 —— 换资源包立刻生效。 */
     private static volatile List<Category> cache;
 
+    /** {@link #allAds()} 的缓存；跟着 {@link #cache} 一起失效。 */
+    private static volatile List<Ad> allAdsCache;
+
     /** 配置里的 {@code _comment_aspectRatio}（默认 1.82，与天津那份一致）。 */
     private static volatile float aspectRatio = 1.82F;
 
@@ -134,6 +139,7 @@ public final class PidsXiamenAds {
     /** 资源重载时调（{@link PidsXiamenClient} 注册的重载监听器）。 */
     public static void invalidate() {
         cache = null;
+        allAdsCache = null;
     }
 
     // ------------------------------------------------------------------ 分类
@@ -201,6 +207,52 @@ public final class PidsXiamenAds {
     /** 默认那一套广告（等价于 {@code adsFor(null)}）。 */
     public static List<Ad> ads() {
         return adsFor(null);
+    }
+
+    /**
+     * 表里<b>所有</b>广告 —— 跨分类拍平、按图片去重，顺序 = 分类顺序 + 分类内顺序。
+     *
+     * <p>给「全局广告覆盖」的列表用（{@link PidsXiamenSettingsScreen} → 选择广告）：
+     * 玩家在那儿要选的是<b>一张具体的图</b>，不关心它挂在哪个分类下。
+     *
+     * <p>结果跟着 {@link #cache} 一起缓存：{@link PidsXiamenSettings#adOverride()} 是<b>每帧、每块屏</b>
+     * 都问一次的（渲染路径），不能每帧现拍一份列表。
+     */
+    public static List<Ad> allAds() {
+        List<Ad> local = allAdsCache;
+        if (local != null) {
+            return local;
+        }
+        final List<Ad> out = new ArrayList<>();
+        final Set<Identifier> seen = new LinkedHashSet<>();
+        for (final Category category : categories()) {
+            for (final Ad ad : category.ads()) {
+                if (ad.image() == null || !seen.add(ad.image())) {
+                    continue;
+                }
+                out.add(ad);
+            }
+        }
+        local = Collections.unmodifiableList(out);
+        allAdsCache = local;
+        return local;
+    }
+
+    /**
+     * 按图片 id 找一张广告（全局覆盖落盘存的就是 {@code Identifier#toString()}）。
+     *
+     * <p>找不到返回 {@code null}：资源包被换掉以后那张图可能已经不在了，调用方要能退回原样。
+     */
+    public static Ad adWithImage(final String image) {
+        if (image == null || image.isEmpty()) {
+            return null;
+        }
+        for (final Ad ad : allAds()) {
+            if (ad.image() != null && ad.image().toString().equals(image)) {
+                return ad;
+            }
+        }
+        return null;
     }
 
     public static int count() {

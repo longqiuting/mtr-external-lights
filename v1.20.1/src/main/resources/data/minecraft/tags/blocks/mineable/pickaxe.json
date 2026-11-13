@@ -11,13 +11,21 @@
     "mtrlte:station_sign_pole_xiamen",
     "mtrlte:station_sign_wall_jiaomei",
     "mtrlte:station_sign_pole_jiaomei",
+    "mtrlte:wall_sign_xiamen",
+    "mtrlte:wall_sign_jiaomei",
+    "mtrlte:wall_sign_lte",
     "mtrlte:ticket_machine_xiamen",
     "mtrlte:balance_machine_xiamen",
     "mtrlte:ticket_gate_xiamen_in",
     "mtrlte:ticket_gate_xiamen_out",
     "mtrlte:ticket_gate_brt_in",
     "mtrlte:ticket_gate_brt_out",
+    "mtrlte:ticket_gate_xiamen_in_side",
+    "mtrlte:ticket_gate_xiamen_out_side",
+    "mtrlte:ticket_gate_brt_in_side",
+    "mtrlte:ticket_gate_brt_out_side",
     "mtrlte:lte_logo",
-    "mtrlte:jiaomei_logo"
+    "mtrlte:jiaomei_logo",
+    "mtrlte:psd_top_xiamen_standalone"
   ]
 }

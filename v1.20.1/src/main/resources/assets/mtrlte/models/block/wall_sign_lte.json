@@ -1,0 +1,8 @@
+{
+  "parent": "mtrlte:block/wall_sign",
+  "textures": {
+    "particle": "mtrlte:block/metal",
+    "frame": "mtrlte:block/metal",
+    "logo": "mtrlte:block/lte_logo"
+  }
+}

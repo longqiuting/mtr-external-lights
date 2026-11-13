@@ -53,21 +53,27 @@ import net.minecraft.world.WorldView;
  *       全是这个角度，牌子正是为了「从斜前方看得最清楚」才这么做的。</li>
  * </ul>
  *
- * <h2>素材转换（为什么 {@code models/block/dep_on_roof.json} 和 Blockbench 那版不完全一样）</h2>
+ * <h2>模型：rawmodels/dep_on_roof.json（素材原样），BER 直接画</h2>
  * <p>原版 1.20.1 的元素旋转<b>只认 {@code -45 / -22.5 / 0 / 22.5 / 45}</b>
- * （{@code ModelElement.Deserializer} 里与 22.5f、45.0f 比较，其它值直接抛
- * {@code JsonParseException}），而 Blockbench 导出的却是 {@code 135 / 154 / -87.5 / 31 …}。
- * 所以转换分两步（脚本见 {@code tools/gen-dep-on-roof-model.js}）：
- * <ol>
- *   <li>把整 90° 的那一份<b>折进盒子的坐标</b>（{@code from / to} 绕同一个 origin 转 90k°，
- *       面按法线重新分配）—— 这一步是<b>精确</b>的，形状和贴图一个像素都不变；</li>
- *   <li>剩下的零头吸附到最近的合法角。牌框那六件（牌子本体 + 四根框料 + 吊杆第一节）
- *       本来就是 135°，折完正好是 {@code -45}，<b>完全不动</b>；只有吊索那十节
- *       （-26 / -11.75 / 7.25 / … 用来拧出绳感的）被吸到 {@code ±22.5 / 0 / 45}，
- *       单件最多偏 11.25°，远看就是「换了个拧法」，几何误差不到 0.02 格。</li>
- * </ol>
- * <p>顺带记一笔：屏幕那块板（元素 2）的角度也是 135° → {@code -45} 精确保留，
- * 所以 {@link DepOnRoofRenderer} 里那套屏幕坐标是<b>按真实几何算的</b>，不受吸附影响。
+ * （{@code ModelElement.Deserializer} 里与 22.5f、45.0f 比较），而 Blockbench 导出的却是
+ * {@code 135 / 154 / -87.5 / -73.5 / -59 …}，还有 {@code {"x":180,"y":-11.75,"z":180}}
+ * 这种三轴同时转。以前的 {@code tools/gen-dep-on-roof-model.js} 只能「把整 90° 折进盒子坐标 +
+ * 零头吸附到最近的合法角」—— 牌框那六件是 135°（折完正好 -45，精确），但<b>挂杆那十节</b>
+ * 是用来拧绳感的手工角度，一吸附就变成了另一根杆子（还有 0.11~0.27/16 格的错位）。
+ *
+ * <p>现在整份模型走 {@code rawmodels/dep_on_roof.json}（由 {@code tools/gen-dep-rawmodels.js}
+ * 从素材原样拷进 jar，只改贴图名），运行时由 {@code RawModelJson} 解析、{@code DepOnRoofRenderer}
+ * 画出来 —— 任意角度、任意多轴都原样，挂杆十节一根不少。
+ * {@code models/block/dep_on_roof.json} 只剩一个空占位（原版那份不再参与渲染）。
+ *
+ * <h2>那 90° 是怎么来的（{@link #MODEL_YAW_DEGREES} 与渲染器的补偿角）</h2>
+ * <p>素材里的 135° 是<b>数学正角</b>（Blockbench / 原版 {@code BakedQuadFactory#rotateVertex}
+ * 用的是 {@code Quaternionf.rotationAxis(+angle)}，俯视逆时针），而本类 {@link #yawedAabb}
+ * 与 {@code DepOnRoofRenderer} 的屏幕坐标用的是 blockstate 那套<b>俯视顺时针</b>。
+ * 两套差 90°：素材的 135° 折回这套就是 45°，牌面从西南拧到东南 ——
+ * 所以渲染器画模型时会先补 {@code MODEL_YAW_FIX_DEGREES = +90°}，让模型和
+ * <b>碰撞箱、数字层认定的那一面重合</b>。少了它，就是玩家看到的
+ * 「碰撞箱和数字都对、模型偏了 90°」。数值核对见 {@code tools/verify-dep-orient.js}。
  *
  * <h2>{@code facing} 的含义（和挂墙版不一样，看这里）</h2>
  * <p>挂墙版的 {@code facing} = 屏幕法线；这一版因为模型自带 45°，

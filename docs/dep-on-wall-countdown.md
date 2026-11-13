@@ -84,7 +84,8 @@ JCM 自己会一路数回 `dwellHalf`、永不变红也不熄；这里只留红�
 
 ## 几何：文字为什么在这个位置
 
-模型（`assets/mtrlte/models/block/dep_on_wall.json`，素材原样）里那块发光板是**元素 2**：
+模型（`assets/mtrlte/rawmodels/dep_on_wall.json`，素材原样；`models/block/…` 只是空占位）
+里那块发光板是**元素 2**：
 
 ```text
 from [2, 4, 12.3]  to [14, 12, 12.3]     零厚度单面，north 面 uv = [3, 0, 6, 2]
@@ -162,6 +163,46 @@ scale(1/128)                                     96 px → 0.75 格，64 px → 
 > 原来的位置会和模型自己的发光板（z = 12.3）z-fighting、斜看时被边柱削掉 —— 就是
 > 「DEP 文字被模型挡住」。数字层再往前推 1.5 px（`TEXT_LAYER_Z`），保证底图后画也盖不住它。
 
+## 牌身：为什么改走 rawmodels（2026-11-13）
+
+牌子的**几何**不再由原版方块模型提供 —— `models/block/dep_on_wall.json` /
+`dep_on_roof.json` 现在只是 `{"elements": []}` 的空占位，真正画的是
+`rawmodels/dep_on_wall.json`（6 个元素）和 `rawmodels/dep_on_roof.json`（16 个元素），
+由 `DepOnWallRenderer#drawModel` / `DepOnRoofRenderer#drawModel` 通过
+`RawModelJson` + `RawModelRenderer` 画出来。
+
+原因（和闸机那次是同一个病）：原版 1.20.1 的 `ModelElement.Deserializer` 只接受
+`-45 / -22.5 / 0 / 22.5 / 45` 的元素旋转、而且一个元素只能转一个轴。挂顶版的素材是
+`135 / 154 / -87.5 / -73.5 / -59 …` 加上 `{"x":180,"y":-11.75,"z":180}` 三轴旋转，
+旧脚本 `tools/gen-dep-on-roof-model.js` 只能「整 90° 折进盒子坐标 + 零头吸附到合法角」：
+牌框六件（135° → -45°）是精确的，**挂杆那十节**却被改成了另一根杆子
+（逐元素偏差 0.08 ~ 0.27/16 格，十节里只有两节恰好合法）。
+
+现在两份模型都由 `tools/gen-dep-rawmodels.js` 从素材**原样**拷进 jar（只改贴图名）：
+
+```text
+node tools/gen-dep-rawmodels.js                  # 素材 → rawmodels/dep_on_{wall,roof}.json
+node tools/verify-rawmodels.js                   # 通用几何自检（绕序 / uv / 刚体 / 0..1）
+node tools/verify-dep-orient.js                  # 本项目专用：模型 ↔ 碰撞箱 ↔ 数字层
+```
+
+`verify-dep-orient.js` 会逐朝向核对：
+
+| 检查 | 挂墙版 | 挂顶版 |
+| --- | --- | --- |
+| 模型包围盒 = `DepOnWallBlock#rotatedBox` 的四份碰撞箱 | 四个朝向全等（1/16 格） | — |
+| 发光板法线 = `facing` | 四个朝向都是（差 0°），且 y 分量为 0（水平） | — |
+| 牌面法线 = 数字层的 `SCREEN_NORMAL` | — | 差 0°（素材 135° + 补偿 90°） |
+| 屏幕正中落在发光板上 | — | 差 0.06/16 格 |
+| 牌框包围盒 = `DepOnRoofBlock#frameBoxes` | — | 完全一致 |
+| 挂杆顶到 y=16、十节都在、9 个非 22.5° 角度保留 | — | 四个朝向都通过 |
+
+> **挂顶版那 90°**：素材的 `135` 是「数学正角」（原版 `BakedQuadFactory#rotateVertex`
+> 用 `Quaternionf.rotationAxis(+angle)`，俯视逆时针），而 `DepOnRoofBlock#yawedAabb` 与
+> `DepOnRoofRenderer` 的屏幕坐标用的是 blockstate 那套「俯视顺时针」。两者相差 90°，
+> 渲染器画模型时补 `MODEL_YAW_FIX_DEGREES = +90°`（绕模型 pivot `(8, 7.15)`）把模型
+> 拧回碰撞箱 / 数字认定的那一面。**碰撞箱和读数一行没改。**
+
 ## 文件
 
 | 路径 | 作用 |
@@ -176,7 +217,9 @@ scale(1/128)                                     96 px → 0.75 格，64 px → 
 | `xiamen/dep/DepOnWallOrient.java` | 读数方向四档 + `/mtr_lte dep` 的落盘状态 |
 | `xiamen/dep/DepOnWallObjects.java` | 方块 / 物品 / 方块实体类型 / 创造页签 |
 | `xiamen/dep/DepOnWallClient.java` | BER 注册 + cutout 渲染层 |
-| `blockstates/` `models/` `textures/block/dep_on_wall.png` `loot_tables/` | 资源 |
+| `blockstates/` `models/block/dep_on_wall.json`（空占位）`rawmodels/dep_on_wall.json`（几何）`textures/block/dep_on_wall.png` `loot_tables/` | 资源 |
+| `tools/gen-dep-rawmodels.js` | 素材 → `rawmodels/dep_on_{wall,roof}.json`（只改贴图名，几何不动） |
+| `tools/verify-dep-orient.js` | 模型 ↔ 碰撞箱 ↔ 数字层朝向的逐项几何核对 |
 
 注册挂在 `LteServer`（`XiamenObjects` 之后）与 `fabric.mod.json` 的 `client` 入口（`PidsXiamenClient` 之后）。
 

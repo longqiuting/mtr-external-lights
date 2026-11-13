@@ -1,4 +1,4 @@
-// LTE 仪表板 →「厦门 PIDS」：三个全局开关（本地时间 / 即将进站 / 广告）。
+// LTE 仪表板 →「厦门 PIDS」：四个全局开关（本地时间 / 即将进站 / 广告 / 全局广告覆盖）。
 package dev.js.mtrheadlight.xiamen.pids;
 
 import net.minecraft.client.gui.DrawContext;
@@ -11,7 +11,7 @@ import net.minecraft.util.Identifier;
 /**
  * 厦门 PIDS 的<b>全局</b>开关页（入口：LTE 仪表板 → 全局配置 → 其他 →「厦门 PIDS」）。
  *
- * <p>三个开关都是「对所有厦门 PIDS 同时生效」的显示选项，值存在
+ * <p>这些开关都是「对所有厦门 PIDS 同时生效」的显示选项，值存在
  * {@link PidsXiamenSettings}（{@code config/lte_xiamen_pids.json}）：
  * <table border="1">
  *   <caption>开关</caption>
@@ -19,7 +19,15 @@ import net.minecraft.util.Identifier;
  *   <tr><td>本地时间</td><td>时钟 / 日期 = 现实时间</td><td>时钟 / 日期 = 世界时间（第 0 天 = 2024-01-01）</td></tr>
  *   <tr><td>即将进站</td><td>到站前一分钟内写「即将进站」</td><td>继续写「X 秒 / X 分钟」</td></tr>
  *   <tr><td>广告</td><td>显示广告图（默认一张静态；勾了多张才轮播）</td><td>只留空白底图</td></tr>
+ *   <tr><td>全局广告</td><td>所有屏都只播选中的那一张（不轮播）</td><td>各屏按自己勾的分类播</td></tr>
  * </table>
+ *
+ * <h2>第四行怎么用</h2>
+ * <p>它是「广告」那一行<b>正下方</b>的一整行按钮（同一列、同一高度，见 {@link #PITCH}）：
+ * 点开 {@link PidsXiamenAdPickScreen}，列表第一行是「不覆盖」，往下是广告表里的每一张。
+ * 选完自动回到本页、按钮文字跟着变。
+ * 排布按「行数 × 行距」整体居中（{@link #init()}），所以行数和文字说明不会撞在一起 ——
+ * 之前踩过的坑就是把新控件硬编码在某个 y 上，结果压在标题 / 说明行上。
  *
  * <p>点一下立刻写内存 + 落盘（这个页面不进「完成 / 取消」的整份回滚：它改的是显示偏好，
  * 不是世界数据）。返回时回调用方（现在是「全局配置 → 其他」那一页）。
@@ -33,6 +41,9 @@ public final class PidsXiamenSettingsScreen extends Screen {
     private static final int PITCH = 25;
     private static final int GAP = 8;
     private static final int MAX_COLUMN = 320;
+
+    /** 四行开关（本地时间 / 即将进站 / 广告 / 全局广告覆盖）。 */
+    private static final int ROWS = 4;
 
     private final Screen parent;
 
@@ -53,10 +64,11 @@ public final class PidsXiamenSettingsScreen extends Screen {
     protected void init() {
         this.colW = Math.min(MAX_COLUMN, this.width - 48);
         this.colX = this.width / 2 - this.colW / 2;
-        // 三行开关 + 一行说明：垂直居中
-        final int rows = 3;
-        final int block = rows * PITCH - (PITCH - ROW_H);
-        this.listTop = Math.max(58, (this.height - block) / 2 - 10);
+        // 四行开关 + 一行说明：按行数整体垂直居中，且不越过底部「返回」。
+        final int block = ROWS * PITCH - (PITCH - ROW_H);
+        final int centered = (this.height - block) / 2 - 10;
+        final int maxTop = this.height - 34 - GAP - block;
+        this.listTop = Math.max(58, Math.min(centered, maxTop));
 
         int y = this.listTop;
         addButton(y, () -> tr(PidsXiamenSettings.localTime() ? "opt.xpids.localTime.on" : "opt.xpids.localTime.off"),
@@ -77,11 +89,38 @@ public final class PidsXiamenSettingsScreen extends Screen {
                     PidsXiamenSettings.setAdvertisements(!PidsXiamenSettings.advertisements());
                     reinit();
                 });
+        y += PITCH;
+        // 「广告」正下方：全局广告覆盖（点开新的一页选图，选完回到这里）。
+        addButton(y, PidsXiamenSettingsScreen::adOverrideLabel, b -> openAdPicker());
 
         // 返回
         final int fy = this.height - 34;
         this.addDrawableChild(ButtonWidget.builder(tr("btn.back"), b -> back())
                 .dimensions(this.colX, fy, this.colW, ROW_H).build());
+    }
+
+    /**
+     * 全局广告那一行的文字：没选 = 「不覆盖」；选了 = 那张广告的标语（没有标语就印图片名）。
+     */
+    private static Text adOverrideLabel() {
+        final String image = PidsXiamenSettings.adOverrideImage();
+        if (image == null) {
+            return tr("opt.xpids.adOverride.none");
+        }
+        final PidsXiamenAds.Ad ad = PidsXiamenSettings.adOverride();
+        if (ad == null) {
+            // 选了但资源包里已经没有这张图：照样把 id 显示出来，玩家才知道要重选。
+            return tr("opt.xpids.adOverride.missing", image);
+        }
+        final Text caption = ad.text() == null || ad.text().getString().isBlank()
+                ? Text.literal(image) : ad.text();
+        return tr("opt.xpids.adOverride.on", caption);
+    }
+
+    private void openAdPicker() {
+        if (this.client != null) {
+            this.client.setScreen(new PidsXiamenAdPickScreen(this));
+        }
     }
 
     /** 一行开关：标签每次 init 时按当前值重取（{@code label} 是个 supplier）。 */

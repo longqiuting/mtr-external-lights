@@ -185,7 +185,9 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         // 到站 / 时钟 / 日期 / 广告：两面共用，一帧只算一次。
         final List<ScheduleEntry> schedules = schedulesFor(entity, pos);
         final long gameTick = (long) MTRClient.getGameTick();
-        final List<PidsXiamenAds.Ad> ads = entity.getAds();
+        // 广告表先问全局覆盖：全局配置 → 其他 →「厦门 PIDS」里选了某一张，就所有屏都只播它
+        // （单张 = 不轮播）；没选则用这块屏自己勾的分类（PidsXiamenBlockEntity#getAds）。
+        final List<PidsXiamenAds.Ad> ads = PidsXiamenSettings.applyAdOverride(entity.getAds());
         final Screen screen = new Screen(kind, schedules, entity.getDisplayPage(),
                 slideOf(client.textRenderer, kind, gameTick, entity.getAdvertisementIndex(), ads),
                 gameTick, formatTime(world), formatIsoDate(world), formatBrtDate(world));

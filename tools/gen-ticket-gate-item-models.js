@@ -9,7 +9,11 @@
 //
 // 用法：node tools/gen-ticket-gate-item-models.js
 // 输入：v1.20.1/src/main/resources/assets/mtrlte/rawmodels/<name>_closed.json
+//       + 同一份素材里的 <name>_side.json（侧壳，和本体同一套局部坐标）
 // 输出：v1.20.1/src/main/resources/assets/mtrlte/models/block/<name>_item.json
+//
+// 侧壳也拼进物品模型：世界里闸机是「本体 + 侧壳」两个方块（见 XiamenTicketGates），
+// 图标只放本体的话会像「半台闸机」，把 x -4..0 那只镜像柜子一起拼进来才是它真正的样子。
 'use strict';
 
 const fs = require('fs');
@@ -22,13 +26,27 @@ const OUT = path.join(ROOT, 'models', 'block');
 /** 0..16 保留 5 位小数，避免 12.000000000000002 这种噪声。 */
 const num = (v) => Math.round(v * 1e5) / 1e5;
 
-/** 原版模型 JSON 的角度**必须是 22.5 的整数倍**（1.20.1 的 ModelElement 反序列化里就写死了
- *  22.5f / 45.0f 两个常量，别的角度直接报 "Expected angle to be a multiple of 22.5"）。
- *  所以物品模型把角度吸附到最近的 22.5° —— 图标 16px，看不出差别。 */
+/** 原版模型 JSON 的角度**只能是 0 / ±22.5 / ±45**（1.20.1 的 ModelElement 反序列化里就写死了
+ *  那几个常量，别的角度直接报 "Expected angle to be a multiple of 22.5"）。
+ *  所以物品模型把角度吸附到最近的 22.5°，并且 |角度| &gt; 45 的先折回来
+ *  （绕轴的 90° 折返；BRT 那只扫描盘有 -90 / -120 / -150 这种）—— 图标只有 16px，看不出差别，
+ *  但角度一超范围，原版模型加载器会整份模型都不认。 */
 const SNAP = 22.5;
 
 function snapAngle(angle) {
-  return Math.round(angle / SNAP) * SNAP;
+  let deg = angle % 360;
+  if (deg > 180) {
+    deg -= 360;
+  }
+  if (deg < -180) {
+    deg += 360;
+  }
+  const sign = deg < 0 ? -1 : 1;
+  let magnitude = Math.abs(deg);
+  while (magnitude > 45) {
+    magnitude = Math.abs(magnitude - 90);
+  }
+  return sign * Math.round(magnitude / SNAP) * SNAP;
 }
 
 /** 三轴旋转 → 单轴（取 |angle| 最大的那个轴），角度再吸到 22.5 的整数倍。 */
@@ -57,7 +75,10 @@ function singleAxis(rotation) {
 
 function convert(rawName, itemName, textureName) {
   const src = JSON.parse(fs.readFileSync(path.join(RAW, rawName + '_closed.json'), 'utf8'));
-  const elements = src.elements.map((element) => {
+  const sidePath = path.join(RAW, rawName + '_side.json');
+  // 侧壳和本体是同一套局部坐标（x -4..0 = 本体西边那一格），直接拼上就会左右各一只柜子。
+  const side = fs.existsSync(sidePath) ? JSON.parse(fs.readFileSync(sidePath, 'utf8')).elements : [];
+  const elements = src.elements.concat(side).map((element) => {
     const elementOut = {
       from: element.from.map(num),
       to: element.to.map(num),
@@ -101,5 +122,5 @@ function convert(rawName, itemName, textureName) {
   );
 }
 
-convert('ticket_barrier', 'ticket_gate_xiamen', 'ticket_barrier');
+convert("ticket_barrier", "ticket_gate_xiamen", "ticket_barrier");
 convert('brt_barrier', 'ticket_gate_brt', 'brt_barrier');

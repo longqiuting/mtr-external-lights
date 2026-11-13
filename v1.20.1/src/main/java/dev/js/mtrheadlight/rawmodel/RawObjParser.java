@@ -4,6 +4,7 @@ package dev.js.mtrheadlight.rawmodel;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -16,7 +17,7 @@ import net.minecraft.util.Identifier;
  * {@code .obj}（Blockbench / 3D 软件导出）→ {@link RawMesh}。
  *
  * <h2>为什么又写一个解析器</h2>
- * <p>厦门风格物件包里的 26 个 eyecandy 素材是 <b>OBJ</b>（不是 Blockbench 的 Minecraft JSON）：
+ * <p>两套 eyecandy 素材（厦门风格物件包 26 件 + 南普陀 34 件）是 <b>OBJ</b>（不是 Blockbench 的 Minecraft JSON）：
  * 它们绕开了「元素盒 + 单轴旋转」那套限制，里面是任意网格（圆柱、倒角盒、整辆共享单车）。
  * 渲染层只认 {@link RawMesh}，所以这里按 {@link RawMesh} 类注释里那套坐标约定把 OBJ 算成四边形，
  * 渲染器一行都不用改 —— 这就是当初把「格式」和「绘制」拆开的用处。
@@ -55,7 +56,7 @@ import net.minecraft.util.Identifier;
  *
  * <h2>UV</h2>
  * <ul>
- *   <li>{@code flipV}（{@code first.json} 里 26 个物件全是 {@code true}）→ {@code v' = 1 - v}：
+ *   <li>{@code flipV}（两份描述里所有物件都是 {@code true}）→ {@code v' = 1 - v}：
  *       OBJ 的 v 轴朝上，Minecraft 的贴图 v 轴朝下；</li>
  *   <li>u / v 一律<b>按 GL_REPEAT 折进 [0,1)</b>：素材里确实有负数与大于 1 的 uv
  *       （{@code barr.obj} 的 {@code u ∈ [-0.875, 2.25]}，那是横向平铺 4 格的石墩贴图）。
@@ -71,6 +72,10 @@ import net.minecraft.util.Identifier;
  * 作为一个方块，挂在地底没有意义（碰撞箱会只剩 0 高），所以这里有一条兜底规则：
  * <b>整个网格都在 {@code y ≤ 0} 时，抬到贴地</b>（平移 {@code -minY}，渲染与碰撞一起抬，不会错位）。
  * 只对有这一特征的模型生效，别的物件（比如沉 2px 的 BRT 屏蔽门）不受影响。
+ *
+ * <p>抬到贴地之后还可以再抬一段固定的格数（描述里的 {@code raise}，默认 0）：桥墩抬 2 格是用户在
+ * 游戏里量出来的位置（贴地时墩顶比轨道低两格），所以 {@code first.json} 的 {@code qiaodun20} 写着
+ * {@code "raise": 2}。这一步放在「贴地」<b>之后</b>，所以 {@code translation} 的 y 分量与它不冲突。
  */
 public final class RawObjParser {
 
@@ -88,6 +93,9 @@ public final class RawObjParser {
 
     /** 加载失败的 id：只警告一次，之后每帧直接跳过。 */
     private static final Set<Identifier> FAILED = ConcurrentHashMap.newKeySet();
+
+    /** 多材质入口的缓存（一个 obj → 若干按材质分开的网格）。 */
+    private static final Map<Identifier, Map<String, RawMesh>> MATERIAL_CACHE = new ConcurrentHashMap<>();
 
     private RawObjParser() {
     }
@@ -109,11 +117,12 @@ public final class RawObjParser {
      * @param rotation  逐轴旋转，度数，XYZ 欧拉序
      * @param translation 逐轴平移，单位：格
      * @param mirror    逐轴镜像（{@code true} = 该轴取反）
+     * @param raise     贴地之后再整体抬高的格数（{@code first.json} 的 {@code raise}，默认 0）
      * @return 网格；读不到 / 解析失败时 {@code null}（并且只警告一次）
      */
     public static RawMesh get(final Identifier id, final Identifier texture, final boolean flipV,
                               final float[] scale, final float[] rotation, final float[] translation,
-                              final boolean[] mirror) {
+                              final boolean[] mirror, final float raise) {
         final RawMesh cached = CACHE.get(id);
         if (cached != null) {
             return cached;
@@ -129,7 +138,7 @@ public final class RawObjParser {
                 return null;
             }
             final RawMesh mesh = parse(new String(in.readAllBytes(), StandardCharsets.UTF_8),
-                    texture, flipV, scale, rotation, translation, mirror);
+                    texture, flipV, scale, rotation, translation, mirror, raise);
             CACHE.put(id, mesh);
             LteLog.LOGGER.info("[lte] obj model: loaded {} ({} quads, texture {})",
                     id, mesh.quadCount(), mesh.texture());
@@ -141,12 +150,12 @@ public final class RawObjParser {
         }
     }
 
-    /** 从 OBJ 文本解析出完整网格（顶点已按 {@code scale/rotation/translation} 摆好）。 */
+    /** 从 OBJ 文本解析出完整网格（顶点已按 {@code scale/rotation/translation/raise} 摆好）。 */
     public static RawMesh parse(final String text, final Identifier texture, final boolean flipV,
                                 final float[] scale, final float[] rotation, final float[] translation,
-                                final boolean[] mirror) {
+                                final boolean[] mirror, final float raise) {
         final Geometry geometry = read(text, true, flipV);
-        final float[][] verts = place(geometry.positions, scale, rotation, translation, mirror);
+        final float[][] verts = place(geometry.positions, scale, rotation, translation, mirror, raise);
         final List<RawMesh.Quad> quads = new ArrayList<>(geometry.faces.size());
         for (final Face face : geometry.faces) {
             emit(face, verts, geometry.texCoords, quads);
@@ -154,16 +163,128 @@ public final class RawObjParser {
         return new RawMesh(texture, quads.toArray(new RawMesh.Quad[0]));
     }
 
+    // ------------------------------------------------------------------ 多材质（.mtl）
+
+    /**
+     * 一次读一整个 OBJ，<b>按 {@code usemtl} 材质拆成若干 {@link RawMesh}</b>，每个材质的贴图
+     * 由同目录的 {@code .mtl}（{@code mtllib} 行 → {@code map_Kd} 行）决定。
+     *
+     * <h2>为什么需要它</h2>
+     * <p>{@link RawMesh} 是「一张贴图 + 一堆四边形」，而方速的屏蔽门素材不是单贴图：
+     * {@code brtduanmen.obj} 的门扇有三套材质（{@code dkg.png} 门体 / {@code ltg.png} 灯带 /
+     * {@code blk.png} 黑框），{@code screendoor/xiamen/door.obj} 更多。单贴图入口
+     * （{@link #get}）只能画出其中一个材质那一层，所以这里按材质拆开、各自绑定自己的贴图，
+     * 渲染时对每份分别 {@code draw}（同一组矩阵，几份几何拼起来才是完整的门）。
+     *
+     * <h2>贴图路径规则</h2>
+     * <p>素材包里的 {@code map_Kd} 只写文件名（相对 OBJ 所在目录），而 Minecraft 的贴图 id 必须带
+     * {@code textures/} 前缀（{@code RenderLayer.getEntityCutout(id)} 直接按
+     * {@code assets/<ns>/<path>} 取文件，不会自动补前缀）。所以：
+     * <pre>  mtrlte:fangsu_psd/duanmen/brtduanmen.obj + map_Kd blk.png
+     *   →  mtrlte:textures/fangsu_psd/duanmen/blk.png</pre>
+     *
+     * @return 材质名 → 网格（按文件里首次出现的顺序，{@code LinkedHashMap}）；读不到返回空表
+     */
+    public static Map<String, RawMesh> materials(final Identifier objId, final boolean flipV,
+                                                 final float[] scale, final float[] rotation,
+                                                 final float[] translation, final boolean[] mirror,
+                                                 final float raise) {
+        final Map<String, RawMesh> cached = MATERIAL_CACHE.get(objId);
+        if (cached != null) {
+            return cached;
+        }
+        final Map<String, RawMesh> result = new LinkedHashMap<>();
+        final String path = "/assets/" + objId.getNamespace() + "/" + objId.getPath();
+        try (InputStream in = RawObjParser.class.getResourceAsStream(path)) {
+            if (in == null) {
+                LteLog.LOGGER.warn("[lte] obj materials: {} is missing from the classpath", path);
+                return result;
+            }
+            final String text = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+            final String dir = directoryOf(objId.getPath());
+            final Map<String, String> maps = mtlTextures(text, objId.getNamespace(), dir);
+            final Geometry geometry = read(text, true, flipV);
+            final float[][] verts = place(geometry.positions, scale, rotation, translation, mirror, raise);
+            final Map<String, List<RawMesh.Quad>> byMaterial = new LinkedHashMap<>();
+            for (final Face face : geometry.faces) {
+                emit(face, verts, geometry.texCoords,
+                        byMaterial.computeIfAbsent(face.material() == null ? "" : face.material(),
+                                key -> new ArrayList<>()));
+            }
+            for (final Map.Entry<String, List<RawMesh.Quad>> entry : byMaterial.entrySet()) {
+                final String png = maps.get(entry.getKey());
+                if (png == null) {
+                    LteLog.LOGGER.warn("[lte] obj materials: {}/{} has no map_Kd in the mtl, skipped",
+                            objId, entry.getKey());
+                    continue;
+                }
+                result.put(entry.getKey(), new RawMesh(
+                        new Identifier(objId.getNamespace(), "textures/" + dir + png),
+                        entry.getValue().toArray(new RawMesh.Quad[0])));
+            }
+            MATERIAL_CACHE.put(objId, result);
+            LteLog.LOGGER.info("[lte] obj materials: loaded {} ({} materials, {} quads)", objId,
+                    result.size(), result.values().stream().mapToInt(RawMesh::quadCount).sum());
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] obj materials: could not load {} ({})", path, t.toString());
+        }
+        return result;
+    }
+
+    /** 一个资源路径的目录部分（带结尾斜杠）；没有目录时返回空串。 */
+    static String directoryOf(final String path) {
+        final int slash = path.lastIndexOf('/');
+        return slash < 0 ? "" : path.substring(0, slash + 1);
+    }
+
+    /**
+     * 读 OBJ 文本里的 {@code mtllib} 指向的 {@code .mtl}（与 OBJ 同目录），
+     * 返回 {@code newmtl → map_Kd}。读不到时返回空表（调用方会把对应材质跳过）。
+     */
+    static Map<String, String> mtlTextures(final String objText, final String namespace, final String dir) {
+        final Map<String, String> maps = new LinkedHashMap<>();
+        String mtlName = null;
+        for (final String rawLine : objText.split("\n")) {
+            final String line = rawLine.strip();
+            if (line.startsWith("mtllib ")) {
+                mtlName = line.substring("mtllib ".length()).strip();
+                break;
+            }
+        }
+        if (mtlName == null || mtlName.isEmpty()) {
+            return maps;
+        }
+        final String path = "/assets/" + namespace + "/" + dir + mtlName;
+        try (InputStream in = RawObjParser.class.getResourceAsStream(path)) {
+            if (in == null) {
+                LteLog.LOGGER.warn("[lte] obj materials: mtl {} is missing from the classpath", path);
+                return maps;
+            }
+            String material = null;
+            for (final String rawLine : new String(in.readAllBytes(), StandardCharsets.UTF_8).split("\n")) {
+                final String line = rawLine.strip();
+                if (line.startsWith("newmtl ")) {
+                    material = line.substring("newmtl ".length()).strip();
+                } else if (line.startsWith("map_Kd ") && material != null) {
+                    maps.put(material, line.substring("map_Kd ".length()).strip());
+                }
+            }
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] obj materials: could not read {} ({})", path, t.toString());
+        }
+        return maps;
+    }
+
     /**
      * 只算包围盒（{@code [minX, minY, minZ, maxX, maxY, maxZ]}，模型空间 0..16）。
      *
      * <p>注册方块时（主线程、两端）只要这个，不需要四边形 —— 于是这里只读 {@code v} 行，
-     * 26 个物件合计 2 万多行，几十毫秒就把 26 个碰撞箱算完了。
+     * 60 个物件合计 4 万多行，几十毫秒就把全部碰撞箱算完了。
      */
     public static double[] bounds(final String text, final float[] scale, final float[] rotation,
-                                  final float[] translation, final boolean[] mirror) {
+                                  final float[] translation, final boolean[] mirror, final float raise) {
         final Geometry geometry = read(text, false, false);
-        final float[][] verts = place(geometry.positions, scale, rotation, translation, mirror);
+        final float[][] verts = place(geometry.positions, scale, rotation, translation, mirror, raise);
         if (verts.length == 0) {
             return new double[6];
         }
@@ -183,10 +304,11 @@ public final class RawObjParser {
     /**
      * OBJ 顶点 → 模型空间顶点：{@code scale → mirror → rotation → translation → 单位换算}。
      *
-     * <p>整体在地面以下的模型（{@code qiaodun20}）在这里抬到贴地，见类注释最后一节。
+     * <p>整体在地面以下的模型（{@code qiaodun20}）在这里抬到贴地，再抬 {@code raise} 格，
+     * 见类注释最后一节。
      */
     public static float[][] place(final List<float[]> positions, final float[] scale, final float[] rotation,
-                                  final float[] translation, final boolean[] mirror) {
+                                  final float[] translation, final boolean[] mirror, final float raise) {
         final float[] s = scale == null ? new float[] {1, 1, 1} : scale;
         final float[] a = rotation == null ? new float[] {0, 0, 0} : rotation;
         final float[] t = translation == null ? new float[] {0, 0, 0} : translation;
@@ -212,8 +334,8 @@ public final class RawObjParser {
             maxY = Math.max(maxY, p[1]);
         }
 
-        // 整个模型挂在 y<=0（素材里 qiaodun20 从放置点往下挂 20 格）：抬到贴地。
-        final float lift = maxY <= 0.0F && minY < Float.MAX_VALUE ? -minY : 0.0F;
+        // 整个模型挂在 y<=0（素材里 qiaodun20 从放置点往下挂 20 格）：抬到贴地，再抬 raise 格。
+        final float lift = (maxY <= 0.0F && minY < Float.MAX_VALUE ? -minY : 0.0F) + raise;
 
         for (final float[] p : out) {
             p[1] += lift;
@@ -222,6 +344,66 @@ public final class RawObjParser {
             p[2] = p[2] * UNITS_PER_BLOCK + HALF_BLOCK;
         }
         return out;
+    }
+
+    // ------------------------------------------------------------------ 占位格
+
+    /** 占位格的分辨率：一格 = 1 模型单位 = 1/16 格（与碰撞盒的最小刻度一致）。 */
+    public static final int FOOTPRINT_SIZE = 16;
+
+    /** 采样步长的目标值（模型单位）：0.4 单位一个样点，1 单位宽的栏杆也漏不掉。 */
+    private static final double FOOTPRINT_SAMPLE = 0.4D;
+
+    /**
+     * 模型在方块内 {@code xz} 平面上的占位格（{@code 16 × 16}，索引 {@code z * 16 + x}，1 = 有几何）。
+     *
+     * <p>用来给「转角栏杆」这类<b>不是一整块</b>的物件拼碰撞箱：把每个三角形按顶点坐标做重心
+     * 采样，落进哪一格就标哪一格 —— 直栏杆于是变成一条线、L 形栏杆变成两条线，取盒子时再
+     * 按行合并（见 {@code EyecandyBlocks.cornerBoxes}）。
+     *
+     * <p>只统计方块内的那部分（{@code 0..16} 单位）：转角模型常常伸到邻居格里（BRT 转角栏杆
+     * 一个模型 4.5 格长），伸出去的部分本来就不该由一个方块的 AABB 去挡。
+     *
+     * @return 长度 {@code 256} 的 0/1 数组；没有几何时全 0
+     */
+    public static int[] footprint(final String text, final float[] scale, final float[] rotation,
+                                  final float[] translation, final boolean[] mirror, final float raise) {
+        final Geometry geometry = read(text, true, false);
+        final float[][] verts = place(geometry.positions, scale, rotation, translation, mirror, raise);
+        final int[] grid = new int[FOOTPRINT_SIZE * FOOTPRINT_SIZE];
+        for (final Face face : geometry.faces) {
+            final int n = face.vertex.length;
+            for (int i = 1; i + 1 < n; i++) {
+                sample(verts[face.vertex[0]], verts[face.vertex[i]], verts[face.vertex[i + 1]], grid);
+            }
+        }
+        return grid;
+    }
+
+    /** 一个三角形在 xz 上的重心采样：步数按最长边自适应（约 {@link #FOOTPRINT_SAMPLE} 单位一采样）。 */
+    private static void sample(final float[] p0, final float[] p1, final float[] p2, final int[] grid) {
+        final double edge = Math.max(Math.max(span(p0, p1), span(p1, p2)), span(p0, p2));
+        final int steps = (int) Math.max(3.0D, Math.min(48.0D, Math.ceil(edge / FOOTPRINT_SAMPLE)));
+        for (int a = 0; a <= steps; a++) {
+            for (int b = 0; a + b <= steps; b++) {
+                final double wa = (double) a / steps;
+                final double wb = (double) b / steps;
+                final double wc = 1.0D - wa - wb;
+                final double x = p0[0] * wa + p1[0] * wb + p2[0] * wc;
+                final double z = p0[2] * wa + p1[2] * wb + p2[2] * wc;
+                if (x < 0.0D || z < 0.0D || x >= FOOTPRINT_SIZE || z >= FOOTPRINT_SIZE) {
+                    continue;
+                }
+                grid[((int) z) * FOOTPRINT_SIZE + (int) x] = 1;
+            }
+        }
+    }
+
+    /** 两点在 xz 平面上的距离。 */
+    private static double span(final float[] a, final float[] b) {
+        final double dx = a[0] - b[0];
+        final double dz = a[2] - b[2];
+        return Math.sqrt(dx * dx + dz * dz);
     }
 
     /** 绕原点按 XYZ 欧拉序（右手定则、角度制）旋转一个点，原地改 —— 与 {@link RawModelJson#rotate} 同一套公式。 */
@@ -263,8 +445,8 @@ public final class RawObjParser {
 
     // ------------------------------------------------------------------ 四边形
 
-    /** 一个面：逐角度的顶点 / uv 索引（已解析成 0 基），以及它所在的 {@code o} / {@code g} 组名。 */
-    private record Face(int[] vertex, int[] texCoord, String group) {
+    /** 一个面：逐角度的顶点 / uv 索引（已解析成 0 基），它所在的 {@code o} / {@code g} 组名，以及 {@code usemtl} 材质名。 */
+    private record Face(int[] vertex, int[] texCoord, String group, String material) {
     }
 
     /** 一个面的三角形 → 一个 {@link RawMesh.Quad}（三角形补一个重复顶点凑成 4 个）。 */
@@ -356,8 +538,9 @@ public final class RawObjParser {
      */
     private static Geometry read(final String text, final boolean withFaces, final boolean flipV) {
         final Geometry g = new Geometry();
-        // uv 的 flipV 在这里统一做（素材包 26 个物件都是 flipV=true），折进 [0,1) 见类注释。
+        // uv 的 flipV 在这里统一做（两份素材的物件都是 flipV=true），折进 [0,1) 见类注释。
         String group = "";
+        String material = "";
         for (final String rawLine : text.split("\n")) {
             final String line = rawLine.strip();
             if (line.isEmpty() || line.charAt(0) == '#') {
@@ -376,16 +559,17 @@ public final class RawObjParser {
                     g.texCoords.add(new float[] {wrap(uv[0]), wrap(flipV ? 1.0F - uv[1] : uv[1])});
                 }
                 case "o", "g" -> group = rest;
+                case "usemtl" -> material = rest;
                 case "f" -> {
                     if (withFaces) {
-                        final Face face = parseFace(rest, g, group);
+                        final Face face = parseFace(rest, g, group, material);
                         if (face != null) {
                             g.faces.add(face);
                         }
                     }
                 }
                 default -> {
-                    // mtllib / usemtl / s / vn / l / p / vp …：不关心（法线现算，贴图由调用方给）
+                    // mtllib / s / vn / l / p / vp …：不关心（法线现算，贴图由调用方给）
                 }
             }
         }
@@ -425,7 +609,8 @@ public final class RawObjParser {
      * <p>四种写法都要吃：{@code v}、{@code v/vt}、{@code v//vn}、{@code v/vt/vn}；
      * 负数索引按 OBJ 规范相对「当前已读到的个数」解析。
      */
-    private static Face parseFace(final String rest, final Geometry g, final String group) {
+    private static Face parseFace(final String rest, final Geometry g, final String group,
+                                 final String material) {
         final String[] corners = rest.split("\\s+");
         final List<Integer> vi = new ArrayList<>(corners.length);
         final List<Integer> ti = new ArrayList<>(corners.length);
@@ -452,7 +637,7 @@ public final class RawObjParser {
         if (vi.size() < 3) {
             return null;
         }
-        return new Face(toArray(vi), toArray(ti), group);
+        return new Face(toArray(vi), toArray(ti), group, material);
     }
 
     /** OBJ 的 1 基 / 负索引 → 0 基；越界返回 -1。 */

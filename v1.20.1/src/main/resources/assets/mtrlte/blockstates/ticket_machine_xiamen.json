@@ -2,19 +2,27 @@
   "variants": {
     "facing=north,half=lower,ui=fangsu": { "model": "mtrlte:block/ticket_machine_xiamen_bottom", "y": 180 },
     "facing=north,half=lower,ui=vanilla": { "model": "mtrlte:block/ticket_machine_xiamen_bottom", "y": 180 },
+    "facing=north,half=lower,ui=eco": { "model": "mtrlte:block/ticket_machine_xiamen_bottom_closed", "y": 180 },
     "facing=north,half=upper,ui=fangsu": { "model": "mtrlte:block/ticket_machine_xiamen_top", "y": 180 },
     "facing=north,half=upper,ui=vanilla": { "model": "mtrlte:block/ticket_machine_xiamen_top", "y": 180 },
+    "facing=north,half=upper,ui=eco": { "model": "mtrlte:block/ticket_machine_xiamen_top_closed", "y": 180 },
     "facing=east,half=lower,ui=fangsu": { "model": "mtrlte:block/ticket_machine_xiamen_bottom", "y": 270 },
     "facing=east,half=lower,ui=vanilla": { "model": "mtrlte:block/ticket_machine_xiamen_bottom", "y": 270 },
+    "facing=east,half=lower,ui=eco": { "model": "mtrlte:block/ticket_machine_xiamen_bottom_closed", "y": 270 },
     "facing=east,half=upper,ui=fangsu": { "model": "mtrlte:block/ticket_machine_xiamen_top", "y": 270 },
     "facing=east,half=upper,ui=vanilla": { "model": "mtrlte:block/ticket_machine_xiamen_top", "y": 270 },
+    "facing=east,half=upper,ui=eco": { "model": "mtrlte:block/ticket_machine_xiamen_top_closed", "y": 270 },
     "facing=south,half=lower,ui=fangsu": { "model": "mtrlte:block/ticket_machine_xiamen_bottom" },
     "facing=south,half=lower,ui=vanilla": { "model": "mtrlte:block/ticket_machine_xiamen_bottom" },
+    "facing=south,half=lower,ui=eco": { "model": "mtrlte:block/ticket_machine_xiamen_bottom_closed" },
     "facing=south,half=upper,ui=fangsu": { "model": "mtrlte:block/ticket_machine_xiamen_top" },
     "facing=south,half=upper,ui=vanilla": { "model": "mtrlte:block/ticket_machine_xiamen_top" },
+    "facing=south,half=upper,ui=eco": { "model": "mtrlte:block/ticket_machine_xiamen_top_closed" },
     "facing=west,half=lower,ui=fangsu": { "model": "mtrlte:block/ticket_machine_xiamen_bottom", "y": 90 },
     "facing=west,half=lower,ui=vanilla": { "model": "mtrlte:block/ticket_machine_xiamen_bottom", "y": 90 },
+    "facing=west,half=lower,ui=eco": { "model": "mtrlte:block/ticket_machine_xiamen_bottom_closed", "y": 90 },
     "facing=west,half=upper,ui=fangsu": { "model": "mtrlte:block/ticket_machine_xiamen_top", "y": 90 },
-    "facing=west,half=upper,ui=vanilla": { "model": "mtrlte:block/ticket_machine_xiamen_top", "y": 90 }
+    "facing=west,half=upper,ui=vanilla": { "model": "mtrlte:block/ticket_machine_xiamen_top", "y": 90 },
+    "facing=west,half=upper,ui=eco": { "model": "mtrlte:block/ticket_machine_xiamen_top_closed", "y": 90 }
   }
 }

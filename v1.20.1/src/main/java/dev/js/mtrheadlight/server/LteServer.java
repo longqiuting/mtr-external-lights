@@ -94,6 +94,14 @@ public final class LteServer implements ModInitializer {
             LteLog.LOGGER.warn("[lte] logo blocks unavailable", t);
         }
 
+        // 贴墙标识（厦门 / 角美 / LTE）：薄灯箱板，进「厦门风格物件」页签。
+        // 必须紧跟在 LogoObjects 之后 —— 页签条目按注册顺序插入，这样三个标识正好排两个 logo 方块后面。
+        try {
+            dev.js.mtrheadlight.xiamen.sign.WallSignObjects.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] wall sign blocks unavailable", t);
+        }
+
         // 墙上扶手（进上面的「厦门风格物件」页签，所以排在其后）。
         try {
             dev.js.mtrheadlight.railing.RailingWallBlocks.register();
@@ -180,12 +188,22 @@ public final class LteServer implements ModInitializer {
             LteLog.LOGGER.warn("[lte] xiamen ticket gates unavailable", t);
         }
 
-        // 厦门风格物件包里的 26 个 eyecandy（.obj 几何，运行时由 BER 画）：方块 + 物品 + 独立页签
-        // mtrlte:xiamen_decor。碰撞箱在注册期从 obj 顶点重推（两端都要，所以排在服务端也跑的这一段里）。
+        // eyecandy（.obj 几何，运行时由 BER 画）：厦门风格物件包 26 件追加进「厦门风格物件」页签，
+        // 南普陀 34 件单开一页 mtrlte:nanputuo_decor。碰撞箱在注册期从 obj 顶点重推（两端都要，
+        // 所以排在服务端也跑的这一段里）。每个方块带四向 rotation，MTR 刷子右键循环。
         try {
             dev.js.mtrheadlight.xiamen.eyecandy.EyecandyBlocks.register();
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] xiamen eyecandy decorations unavailable", t);
+        }
+
+        // 方速（fangsu）屏蔽门搬运版：5 款旋转端门 + 2 款厦门滑动门，各拆左/右共 14 个方块。
+        // 几何 / 材质 / 贴图 / 描述全部随 jar 走（assets/mtrlte/fangsu_psd/ + textures/fangsu_psd/），
+        // 不需要装方速；方块继承 MTR 的 BlockPSDAPGDoorBase，所以列车到站自动开门、发车自动关门。
+        try {
+            dev.js.mtrheadlight.xiamen.fangsu.FangsuPsdBlocks.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] fangsu psd doors unavailable", t);
         }
 
         try {

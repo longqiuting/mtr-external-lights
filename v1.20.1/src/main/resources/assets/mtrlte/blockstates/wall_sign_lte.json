@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "mtrlte:block/wall_sign_lte"
+    },
+    "facing=east": {
+      "model": "mtrlte:block/wall_sign_lte",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "mtrlte:block/wall_sign_lte",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "mtrlte:block/wall_sign_lte",
+      "y": 270
+    }
+  }
+}

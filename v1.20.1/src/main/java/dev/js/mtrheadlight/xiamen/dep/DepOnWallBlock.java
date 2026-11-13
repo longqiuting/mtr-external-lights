@@ -62,6 +62,16 @@ import net.minecraft.world.WorldView;
  * {@code (x, z) → (16 - z, x)} 提前算好四份（{@link #rotatedBox}），
  * 不共用同一个北向形状 —— 否则朝东 / 朝西放下时视觉和碰撞会差 90°。
  *
+ * <h2>牌身：rawmodels/dep_on_wall.json，BER 直接画</h2>
+ * <p>模型（6 个元素：背板、发光板、左右边柱、上下横梁）不再走原版方块模型：
+ * {@code models/block/dep_on_wall.json} 只是一个空占位，几何由
+ * {@link DepOnWallRenderer} 用 {@code RawModelJson} 读 {@code rawmodels/dep_on_wall.json}
+ * （素材原样，见 {@code tools/gen-dep-rawmodels.js}）画出来，只乘一次绕 Y 的旋转 ——
+ * 于是模型朝向、{@link #rotatedBox} 的碰撞箱、数字层永远走同一个
+ * {@link #blockRotation(Direction)}，不可能再出现「碰撞箱对、模型转了 90°」。
+ * 为什么不用原版模型：原版只接受 {@code ±45 / ±22.5 / 0} 的单轴元素旋转，
+ * 挂顶版的挂杆就是被这条规则改写掉的（见 {@code DepOnRoofBlock} 的类注释）。
+ *
  * <h2>亮度</h2>
  * <p>方块本身不发光（{@code luminance} 保持 0）：屏幕的「亮」来自渲染器那层
  * {@code getEntityTranslucentEmissive} 自发光四边形，和厦门 PIDS 一样，不需要给方块打光。
