@@ -10,7 +10,7 @@
   "contributors": [
     "天童アリス",
     "596wjr",
-    "Bai.",
+    "Coconut_",
     "ZiYueCommentary (ziyue)",
     "jiangxingyunjian",
     "__Lingxii__ (lingxii)",
@@ -52,6 +52,8 @@
       "dev.js.mtrheadlight.decor.DecorClient",
       "dev.js.mtrheadlight.xiamen.pids.PidsXiamenClient",
       "dev.js.mtrheadlight.xiamen.dep.DepOnWallClient",
+      "dev.js.mtrheadlight.logo.LogoClient",
+      "dev.js.mtrheadlight.xiamen.machine.XiamenMachinesClient",
       "dev.js.mtrheadlight.security.SecurityClient"
     ],
     "lambdynlights:initializer": [

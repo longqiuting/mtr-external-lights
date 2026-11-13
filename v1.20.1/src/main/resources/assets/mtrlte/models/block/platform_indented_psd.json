@@ -1,0 +1,7 @@
+{
+    "parent": "mtrlte:block/platform_indented",
+    "textures": {
+        "main": "mtrlte:block/marble",
+        "top": "mtr:block/transparent"
+    }
+}

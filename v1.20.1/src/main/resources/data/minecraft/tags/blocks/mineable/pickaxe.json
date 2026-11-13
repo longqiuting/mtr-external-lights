@@ -4,9 +4,20 @@
     "mtrlte:liquid_scanner",
     "mtrlte:marble_floor",
     "mtrlte:marble_platform",
+    "mtrlte:platform",
+    "mtrlte:platform_indented",
+    "mtrlte:platform_type_quartz",
     "mtrlte:station_sign_wall_xiamen",
     "mtrlte:station_sign_pole_xiamen",
     "mtrlte:station_sign_wall_jiaomei",
-    "mtrlte:station_sign_pole_jiaomei"
+    "mtrlte:station_sign_pole_jiaomei",
+    "mtrlte:ticket_machine_xiamen",
+    "mtrlte:balance_machine_xiamen",
+    "mtrlte:ticket_gate_xiamen_in",
+    "mtrlte:ticket_gate_xiamen_out",
+    "mtrlte:ticket_gate_brt_in",
+    "mtrlte:ticket_gate_brt_out",
+    "mtrlte:lte_logo",
+    "mtrlte:jiaomei_logo"
   ]
 }

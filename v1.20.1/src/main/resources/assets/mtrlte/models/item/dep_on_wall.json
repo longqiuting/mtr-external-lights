@@ -1,3 +1,6 @@
 {
-    "parent": "mtrlte:block/dep_on_wall"
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "mtrlte:item/dep_on_wall"
+  }
 }

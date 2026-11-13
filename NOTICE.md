@@ -41,8 +41,16 @@
 - 用途：
   - 大理石站台方块的模型与贴图（`assets/mtrlte/models/block/marble_platform*.json`、
     `textures/block/floor_hangzhou*.png` 等，源自 RCC `tcwm:block/platform*` 系列）
-  - 后续「厦门售票机」阶段计划移植 RCC 的三种站台方块
-    （`platform` / `platform_indented` / `platform_type_quartz`）
+  - 三种站台方块 `mtrlte:platform` / `mtrlte:platform_indented` / `mtrlte:platform_type_quartz`
+    的模型、blockstate 与贴图，逐字移植自 RCC 1.0.3 的
+    `assets/tcwm/blockstates/{platform, platform_indented, platform_type_quartz}.json`、
+    `assets/tcwm/models/block/platform{,_psd,_apg}.json`（内凹 / 石英同构）、
+    `assets/tcwm/textures/block/{platform_cn, marble}.png`，
+    落到 `assets/mtrlte/` 下的同名文件（只把 `tcwm:` 改写成 `mtrlte:`，
+    blockstate 里引用的 `mtr:block/platform_arrow_1..4` 与 `mtr:block/platform_hk_2`、
+    `mtr:block/transparent` 是 MTR 自带的资源，未复制）
+  - 方块类 `decor/RccPlatformBlock.java`、注册类 `decor/RccPlatforms.java` 为本仓库新写（MIT），
+    只做「继承 MTR 的 `BlockPlatform` + 注册 + 独立创造页签 `mtrlte:rcc_platform`」
 - 这些文件属于 LGPL-3.0 衍生作品（我们做了命名空间与路径修改），其余代码仍为 MIT。
 - 许可证全文：`LICENSES/RCC-LGPL-3.0.txt`
 

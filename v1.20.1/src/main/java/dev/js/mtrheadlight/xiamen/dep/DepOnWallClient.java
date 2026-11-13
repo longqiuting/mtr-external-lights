@@ -1,4 +1,4 @@
-// 挂墙发车倒数器的客户端接线：方块实体渲染器 + 渲染层。
+// 发车倒数器的客户端接线：方块实体渲染器 + 渲染层（挂墙 / 挂顶两块）。
 package dev.js.mtrheadlight.xiamen.dep;
 
 import dev.js.mtrheadlight.LteLog;
@@ -8,15 +8,18 @@ import net.fabricmc.fabric.api.client.rendering.v1.BlockEntityRendererRegistry;
 import net.minecraft.client.render.RenderLayer;
 
 /**
- * 挂墙发车倒数器的客户端注册（{@code fabric.mod.json} 的 {@code client} 入口）。
+ * 发车倒数器的客户端注册（{@code fabric.mod.json} 的 {@code client} 入口）。
  *
+ * <p>两块牌子各注册一次，每一步各自 try/catch：
  * <ul>
- *   <li><b>渲染器</b>：{@link DepOnWallRenderer}，绑到 {@code mtrlte:dep_on_wall} 的方块实体类型；</li>
- *   <li><b>渲染层</b>：{@code RenderLayer.getCutout()} —— 与厦门 PIDS / MTR 自己的 PIDS 一致。
- *       {@code dep_on_wall.png} 是 RGBA 的，留白部分 alpha = 0，走 solid 会被画成黑块。</li>
+ *   <li><b>挂墙</b> {@code mtrlte:dep_on_wall} → {@link DepOnWallRenderer}；</li>
+ *   <li><b>挂顶</b> {@code mtrlte:dep_on_roof} → {@link DepOnRoofRenderer}；</li>
+ *   <li><b>渲染层</b>：两块都是 {@code RenderLayer.getCutout()} —— 与厦门 PIDS / MTR 自己的
+ *       PIDS 一致。它们共用同一张 {@code dep_on_wall.png}（RGBA，留白部分 alpha = 0），
+ *       走 solid 会被画成黑块。</li>
  * </ul>
  *
- * <p>每一步各自 try/catch：渲染器注册失败只该「屏上没有字」，不该连累渲染层（反之亦然）。
+ * <p>一个渲染器注册失败只该「那一种牌子屏上没有字」，不该连累另一种，也不该连累渲染层。
  */
 public final class DepOnWallClient implements ClientModInitializer {
 
@@ -31,9 +34,23 @@ public final class DepOnWallClient implements ClientModInitializer {
         }
 
         try {
+            BlockEntityRendererRegistry.register(DepOnRoofObjects.entityType(), DepOnRoofRenderer::new);
+            LteLog.LOGGER.info("[lte] dep on roof renderer registered: {}",
+                    DepOnRoofRenderer.class.getName());
+        } catch (Throwable t) {
+            LteLog.LOGGER.error("[lte] could not register the dep on roof renderer", t);
+        }
+
+        try {
             BlockRenderLayerMap.INSTANCE.putBlock(DepOnWallObjects.block(), RenderLayer.getCutout());
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] could not set the cutout layer for the dep on wall block", t);
+        }
+
+        try {
+            BlockRenderLayerMap.INSTANCE.putBlock(DepOnRoofObjects.block(), RenderLayer.getCutout());
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] could not set the cutout layer for the dep on roof block", t);
         }
     }
 }

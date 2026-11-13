@@ -29,7 +29,7 @@ import net.minecraft.util.math.BlockPos;
  * 本模组其它 MTR 方块保持一致：它把 1.20.1 的 {@code toInitialChunkDataNbt} /
  * {@code readNbt} 名字差异包了一层，{@code writeCompoundTag} 留空即可。
  */
-public class DepOnWallBlockEntity extends BlockEntityMapper {
+public class DepOnWallBlockEntity extends BlockEntityMapper implements DepCountdown.Holder {
 
     /**
      * 这块牌子当前锁定的班次；{@code null} = 还没锁（下一帧重新选）。
@@ -43,12 +43,14 @@ public class DepOnWallBlockEntity extends BlockEntityMapper {
     }
 
     /** 当前锁定的班次（{@code null} = 没有）。 */
-    DepOnWallLock depLock() {
+    @Override
+    public DepOnWallLock depLock() {
         return depLock;
     }
 
     /** 换一把锁；传 {@code null} 就是放锁。 */
-    void setDepLock(final DepOnWallLock lock) {
+    @Override
+    public void setDepLock(final DepOnWallLock lock) {
         this.depLock = lock;
     }
 }

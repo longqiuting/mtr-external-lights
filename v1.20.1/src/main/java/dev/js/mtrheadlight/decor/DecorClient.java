@@ -7,7 +7,16 @@ import net.minecraft.block.Block;
 import net.minecraft.client.render.RenderLayer;
 
 /**
- * 装饰方块 {@code mtrlte:marble_platform} / {@code mtrlte:marble_floor} 的渲染层。
+ * 装饰方块的客户端部分：把站台挂到 cutout 渲染层（否则贴图里的 alpha=0 会画成黑块）。
+ *
+ * <h2>管哪几个方块</h2>
+ * <ul>
+ *   <li>{@code mtrlte:marble_platform} / {@code mtrlte:marble_floor} —— 大理石系列（下面长篇解释的就是它）；</li>
+ *   <li>{@code mtrlte:platform} / {@code mtrlte:platform_indented} / {@code mtrlte:platform_type_quartz}
+ *       —— 从 RCC 移植的三种站台（{@link RccPlatforms}）。它们同样「本体 + 16.1 高的箭头薄片」，
+ *       而且 {@code _psd} 子模型的顶面直接用 {@code mtr:block/transparent}（整张全是 alpha=0），
+ *       所以和下面讲的是同一个坑、同一个解法。</li>
+ * </ul>
  *
  * <h2>为什么必须有这一层（「站台贴图变灰」的真正原因）</h2>
  * <p>本模组的大理石站台 = MTR 的 {@code BlockPlatform} 子类，模型是「大理石本体 + 一块 16×16 的箭头薄片」
@@ -50,6 +59,15 @@ public final class DecorClient implements ClientModInitializer {
             putCutout(DecorBlocks.marbleFloor());
         } catch (Throwable ignored) {
             // Fabric API 版本不对时静默失效：贴图透明处会被画成黑色，方块照常能放。
+        }
+
+        // RCC 三种站台：同样的理由（箭头薄片 + _psd 的 mtr:block/transparent 顶面）。
+        try {
+            for (final Block block : RccPlatforms.all()) {
+                putCutout(block);
+            }
+        } catch (Throwable ignored) {
+            // 同上。
         }
     }
 

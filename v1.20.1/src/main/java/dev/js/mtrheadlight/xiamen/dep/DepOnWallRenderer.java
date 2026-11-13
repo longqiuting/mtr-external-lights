@@ -1,19 +1,10 @@
 // 挂墙发车倒数器的屏幕渲染器：自发光底图 + 一行七段数码管倒计时。
 package dev.js.mtrheadlight.xiamen.dep;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
-
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 
 import dev.js.mtrheadlight.LteLog;
-import mtr.client.ClientData;
-import mtr.data.Platform;
-import mtr.data.RailwayData;
-import mtr.data.ScheduleEntry;
 import mtr.mappings.BlockEntityRendererMapper;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.HorizontalFacingBlock;
@@ -47,6 +38,9 @@ import net.minecraft.world.World;
  * 站务隔着站台就知道该催了。
  *
  * <h2>数值链路：JCM 的 {@code jsblock.render.RenderDepartureTimer}，公式一字不改</h2>
+ * <p>这条链路（以及「锁一条」的修法、单调钳制）现在<b>只有一份实现</b>：
+ * {@link DepCountdown}（挂顶的 {@code dep_on_roof} 共用同一份）。本类只负责把
+ * {@link DepCountdown.Display} 画到自己那块屏上，所以下面这段只是「读数从哪来」的说明。
  * <p><b>不读列车。</b>不碰 {@code ClientData.TRAINS}、不看 {@code elapsedDwellTicks}、
  * 不看 {@code path} —— 「遍历列车找停站进度」那套已经整段删掉，数值只有 JCM 这一条链路
  * （参数、顺序、公式都和字节码逐行对过）：
@@ -173,23 +167,6 @@ public class DepOnWallRenderer extends BlockEntityRendererMapper<DepOnWallBlockE
     public static final Identifier LED_TEXTURE =
             new Identifier(DepOnWallObjects.NAMESPACE, "textures/block/dep_on_wall_led.png");
 
-    /**
-     * 找站台的搜索范围：{@code (搜索半径, 包围盒外扩x/z, 外扩y)} = {@code (5, 3, 3)}，
-     * <b>和 JCM 的 {@code RenderDepartureTimer} 完全一致</b>。
-     */
-    private static final int SEARCH_RADIUS = 5;
-    private static final int SEARCH_MARGIN = 3;
-
-    // 00:00 之后红灯正计时多少秒：判据在 DepOnWallLock#OVERTIME_SECONDS 里（remain > 5 → 放锁），
-    // 渲染器只负责画，不重复定义一份「5」。
-
-    /**
-     * 一帧里算出来的内容：已经格式化好的 {@code mm:ss} + 是不是红灯那一档。
-     * <p>颜色只取决于 {@code overdue}，不按剩余秒数分档 —— 绿就是绿，红就是红。
-     */
-    private record Display(String text, boolean overdue) {
-    }
-
     /** 渲染线程上只报一次错（否则每帧一条，日志会被刷爆）。 */
     private static boolean warned;
 
@@ -223,7 +200,8 @@ public class DepOnWallRenderer extends BlockEntityRendererMapper<DepOnWallBlockE
         }
         final Direction facing = state.getOrEmpty(HorizontalFacingBlock.FACING).orElse(Direction.NORTH);
 
-        final Display display = display(entity);
+        // 数据链路在 DepCountdown（挂墙 / 挂顶共用），这里只把结果显示到屏幕上。
+        final DepCountdown.Display display = DepCountdown.display(entity, pos);
 
         matrices.push();
         try {
@@ -355,10 +333,13 @@ public class DepOnWallRenderer extends BlockEntityRendererMapper<DepOnWallBlockE
     /**
      * 把这一帧的 {@code mm:ss} 画成七段数码管：整串在屏幕<b>正中</b>水平居中、竖直居中，
      * 字高取「塞得进可用宽高」的那个值（位数变了自动缩放，见 {@link DepOnWallLayout}）。
+     *
+     * <p>包级可见：挂顶版 {@link DepOnRoofRenderer} 用的是<b>同一块 96×64 的屏、同一套字形比例</b>，
+     * 只是把矩阵换成它自己那块斜板的坐标系，所以这一段不重复写第二份。
      */
-    private static void drawDigits(final MatrixStack matrices,
-                                   final VertexConsumerProvider vertexConsumers,
-                                   final Display display) {
+    static void drawDigits(final MatrixStack matrices,
+                           final VertexConsumerProvider vertexConsumers,
+                           final DepCountdown.Display display) {
         final float unitWidth = DepOnWallDigits.width(display.text(), 1.0F);
         if (unitWidth <= 0.0F) {
             return;
@@ -389,183 +370,5 @@ public class DepOnWallRenderer extends BlockEntityRendererMapper<DepOnWallBlockE
     public boolean rendersOutsideBoundingBox(final DepOnWallBlockEntity entity) {
         return true;
     }
-
-    // ------------------------------------------------------------------ 数据
-
-    /**
-     * 算出这块牌子这一帧该显示什么；{@code null} = 空屏。
-     *
-     * <h2>数值公式：JCM 原式，一字不改</h2>
-     * <pre>
-     * platformId = RailwayData.getClosePlatformId(PLATFORMS, DATA_CACHE, pos, 5, 3, 3);
-     * if (platformId == 0) return;                                  // 附近没站台 → 空屏
-     * list = sorted(SCHEDULES_FOR_PLATFORM.get(platformId));        // 空 / 缺 = 没数据
-     * sec  = (entry.arrivalMillis - now) / 1000;                     // 先减再 /1000，向零截断
-     * dwellHalf = platform == null ? 0 : platform.getDwellTime() / 2; // 整数除法
-     * remain = abs(dwellHalf - abs(sec));                            // ← 核心公式，两层 abs
-     * </pre>
-     *
-     * <h2>取哪一条：「锁一条」而不是每帧取第 1 条</h2>
-     * <p>JCM 是每帧现取 {@code list.get(0)}。MTR 的这张表是服务端<b>周期性整表推送</b>的，
-     * 每推一次都可能改掉 {@code arrivalMillis}、删掉刚发车的条目、或换掉整个集合 ——
-     * 于是同一块牌子的「第 1 条」会在倒数途中换人，实机看到的就是
-     * <b>绿字数到 2 突然弹回 5 接着数</b>，下一推再弹一次。
-     *
-     * <p>所以「用哪一条」改成方块的<b>持久锁定</b>（{@link DepOnWallLock}，存在
-     * {@link DepOnWallBlockEntity} 上）：
-     * <ol>
-     *   <li>选班：从排序后的列表里取<b>第一条还没走完</b>的（{@link DepOnWallLock#finished}）——
-     *       已经过了「绿 dwellHalf + 红 5 秒」的老条目直接跳过，不会被重新选回来；</li>
-     *   <li>当前锁定的班次<b>一旦开始倒数</b>（{@code sec <= 0} 过），就<b>不换</b>，
-     *       服务端怎么推都只数这一条，直到它自己走完、自动放锁；</li>
-     *   <li>屏幕还空着（车没到站）时没有可见读数，这时才允许换锁 —— 早到的车 / 新插入的班次
-     *       照旧能在到站前抢到位置，而且不会有任何数字跳变。</li>
-     * </ol>
-     * <p>数值本身再走一道单调钳制（绿段只减不增、红段只增不减、开过车不回空屏），
-     * {@code System.currentTimeMillis()} 在同一 tick 里被多次读取或系统对时倒退时，
-     * 读数是「停住」而不是往回跳。正常走时它本来就单调，钳制一个数都不改。
-     *
-     * <p>只有「颜色 / 阶段」是我们的扩展：
-     * <ul>
-     *   <li>{@code |sec| < dwellHalf}（递减段）→ 绿，{@code %02d:%02d}；</li>
-     *   <li>{@code |sec| >= dwellHalf}（递增段，到点还没走）→ 红，正计到
-     *       {@link DepOnWallLock#OVERTIME_SECONDS} 秒就黑屏；</li>
-     *   <li>红灯走完 → 放锁、空屏，等下一班。</li>
-     * </ul>
-     *
-     * <p>{@code /mtr_lte dep debug on} 之后每块牌子每秒打一行 {@code [lte] dep: …}
-     * （{@link DepOnWallDebug}），把这一帧的 {@code entries / firstArrival / sec / dwell /
-     * lockArrival} 原样写出来 —— 再出「2 变 5」能直接看出是哪一环变了。
-     */
-    private static Display display(final DepOnWallBlockEntity entity) {
-        final BlockPos pos = entity.getPos();
-        final long now = System.currentTimeMillis();
-
-        // 取证用的现场（不管走哪个分支都要能打出来）。
-        long platformId = 0L;
-        int entries = 0;
-        ScheduleEntry head = null;
-        Long sec = null;
-        int dwellRaw = 0;
-        int dwellHalf = 0;
-        Integer remain = null;
-        String phase = "blank";
-        Long lockArrival = null;
-        Display result = null;
-
-        try {
-            platformId = RailwayData.getClosePlatformId(
-                    ClientData.PLATFORMS, ClientData.DATA_CACHE, pos,
-                    SEARCH_RADIUS, SEARCH_MARGIN, SEARCH_MARGIN);
-            if (platformId == 0L) {
-                // 附近没站台：牌子旁边什么也没有，把锁也放掉。
-                entity.setDepLock(null);
-            } else {
-                final Platform platform = ClientData.DATA_CACHE.platformIdMap.get(platformId);
-                // 整数除法，dwell 20 → 10。Platform 缺数据时 JCM 用 0，照抄。
-                dwellRaw = platform == null ? 0 : platform.getDwellTime();
-                dwellHalf = dwellRaw / 2;
-
-                final List<ScheduleEntry> list = schedules(platformId);
-                entries = list == null ? 0 : list.size();
-                // 第一条「还没走完」的班次 = 这一帧服务端认为的下一班。
-                head = firstLive(list, dwellHalf, now);
-
-                DepOnWallLock lock = entity.depLock();
-                if (lock != null && (!lock.samePlatform(platformId) || lock.finished(now))) {
-                    // 牌子被挪到了别的站台旁边，或者锁着的那条早就走完了：放锁重选。
-                    lock = null;
-                }
-                if (lock != null && !lock.started() && head != null && !lock.matches(head)) {
-                    // 还没开始倒数（屏幕是空的）→ 换锁不会有可见跳变，跟着新的一条走。
-                    lock = null;
-                }
-                if (lock == null && head != null) {
-                    // 锁定：dwellHalf 一起冻在锁里，之后站台数据被重推也不动基准。
-                    lock = DepOnWallLock.of(platformId, head, dwellHalf);
-                }
-
-                if (lock != null) {
-                    lockArrival = Long.valueOf(lock.arrivalMillis());
-                    sec = Long.valueOf((lock.arrivalMillis() - now) / 1000L);
-                    final DepOnWallLock.Reading reading = lock.tick(now);
-                    if (reading != null) {
-                        remain = Integer.valueOf(reading.remain());
-                        phase = reading.overdue() ? "red" : "green";
-                        result = new Display(format(reading.remain()), reading.overdue());
-                    }
-                    if (lock.done()) {
-                        // 红灯 5 秒数完了：放锁，下一帧重新选班（这条已经被 finished 过滤掉）。
-                        lock = null;
-                    }
-                }
-                entity.setDepLock(lock);
-            }
-        } catch (Throwable t) {
-            // 数据没同步好（刚进服 / 站台被删）不该让整块方块不画。
-            result = null;
-        }
-
-        if (DepOnWallDebug.enabled()) {
-            DepOnWallDebug.log(pos, now, "[lte] dep: pos=(" + pos.getX() + "," + pos.getY() + ","
-                    + pos.getZ() + ") platform=" + platformId
-                    + " entries=" + entries
-                    + " firstArrival=" + (head == null ? "none" : Long.toString(head.arrivalMillis))
-                    + " now=" + now
-                    + " sec=" + (sec == null ? "none" : sec.toString())
-                    + " dwell=" + dwellRaw
-                    + " dwellHalf=" + dwellHalf
-                    + " remain=" + (remain == null ? "none" : remain.toString())
-                    + " phase=" + phase
-                    + " lockArrival=" + (lockArrival == null ? "none" : lockArrival.toString()));
-        }
-        return result;
-    }
-
-    /**
-     * 这一帧的 {@code SCHEDULES_FOR_PLATFORM}（排序后的副本）；平台没有表 = {@code null}。
-     *
-     * <p>表是服务端<b>整表替换</b>推过来的（{@code clearAndAddAll}），所以这里每帧重新拿、
-     * 重新拷一份再排序，绝不缓存 —— 缓存反而会让「换人了」这件事看不见。锁定与否由
-     * {@link DepOnWallLock} 决定，不靠这份列表的稳定性。
-     */
-    private static List<ScheduleEntry> schedules(final long platformId) {
-        final Set<ScheduleEntry> schedules = ClientData.SCHEDULES_FOR_PLATFORM.get(platformId);
-        if (schedules == null) {
-            return null;
-        }
-        final List<ScheduleEntry> list = new ArrayList<>(schedules);
-        // JCM 先拷一份再排序（不改调用方那个集合）。
-        Collections.sort(list);
-        return list;
-    }
-
-    /**
-     * 列表里第一条「还没走完」的班次；没有 = {@code null}（空屏）。
-     *
-     * <p>跳过已经过了显示窗口的条目，是为了让「刚放锁的那条」不会被重新选回来（否则放锁之后
-     * 会立刻再锁定它、再立刻放锁，成了每帧一次的循环）。
-     */
-    private static ScheduleEntry firstLive(final List<ScheduleEntry> list, final int dwellHalf,
-                                           final long now) {
-        if (list == null) {
-            return null;
-        }
-        for (final ScheduleEntry entry : list) {
-            if (!DepOnWallLock.finished(entry.arrivalMillis, dwellHalf, now)) {
-                return entry;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * 秒 → {@code mm:ss}（不足两位补零）。
-     * <p>分钟<b>不</b>折成小时：站台停站最多几分钟，{@code 12:05} 比 {@code 0:12:05} 好读；
-     * 真要超过 99 分钟就让它自然变宽（{@code 120:00}），排版会自己缩。
-     */
-    private static String format(final long seconds) {
-        final long s = Math.max(0L, seconds);
-        return String.format("%02d:%02d", s / 60L, s % 60L);
-    }
 }
+

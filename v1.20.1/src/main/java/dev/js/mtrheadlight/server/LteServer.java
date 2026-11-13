@@ -86,6 +86,14 @@ public final class LteServer implements ModInitializer {
             LteLog.LOGGER.warn("[lte] xiamen objects unavailable", t);
         }
 
+        // 标志方块：LTE logo（进「LTE 工具」页签）+ 角美地铁 logo（进「厦门风格物件」页签）。
+        // 必须排在上面两个页签之后 —— 往还没建的页签里加条目会抛异常。
+        try {
+            dev.js.mtrheadlight.logo.LogoObjects.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] logo blocks unavailable", t);
+        }
+
         // 墙上扶手（进上面的「厦门风格物件」页签，所以排在其后）。
         try {
             dev.js.mtrheadlight.railing.RailingWallBlocks.register();
@@ -105,6 +113,13 @@ public final class LteServer implements ModInitializer {
             dev.js.mtrheadlight.decor.DecorBlocks.register();
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] decor blocks unavailable", t);
+        }
+
+        // RCC 三种站台（平齐 / 内凹 / 石英）：独立页签 mtrlte:rcc_platform，同样继承 BlockPlatform。
+        try {
+            dev.js.mtrheadlight.decor.RccPlatforms.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] rcc platforms unavailable", t);
         }
 
         // 厦门 PIDS（地铁 / BRT）：模型与渲染照天津地铁，广告表走资源包。
@@ -128,6 +143,13 @@ public final class LteServer implements ModInitializer {
             LteLog.LOGGER.warn("[lte] dep on wall block unavailable", t);
         }
 
+        // 挂顶发车倒数器：吊在站台上方的天花板上，读数和挂墙版同一套（排在它后面）。
+        try {
+            dev.js.mtrheadlight.xiamen.dep.DepOnRoofObjects.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] dep on roof block unavailable", t);
+        }
+
         // 站外标志（厦门 / 角美 × 挂墙 / 杆上）：灯箱牌，同样进「厦门风格物件」页签。
         try {
             dev.js.mtrheadlight.xiamen.sign.StationSignObjects.register();
@@ -135,11 +157,27 @@ public final class LteServer implements ModInitializer {
             LteLog.LOGGER.warn("[lte] station sign blocks unavailable", t);
         }
 
+        // 售票机 / 余额查询机（各两格高）：售票机接方速 / 原版两套界面（刷子切），
+        // 余额查询机服务端读记分板 mtr_balance 后用一句文字报余额。同样进「厦门风格物件」页签。
+        try {
+            dev.js.mtrheadlight.xiamen.machine.XiamenMachines.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] xiamen ticket / balance machines unavailable", t);
+        }
+
         // 安检类方块（液体安检机）：方块 + 物品 + 创造页签条目，排在厦门那一组之后注册。
         try {
             dev.js.mtrheadlight.security.SecurityObjects.register();
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] security blocks unavailable", t);
+        }
+
+        // 闸机（厦门地铁 / BRT × 进站 / 出站，共 4 个方块）：继承 MTR 的 BlockTicketBarrier，
+        // 音效换成南滨的 crt_ticket / crt_ticket_error（这次一并注册这两个 SoundEvent）。
+        try {
+            dev.js.mtrheadlight.xiamen.ticket.XiamenTicketGates.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] xiamen ticket gates unavailable", t);
         }
 
         try {

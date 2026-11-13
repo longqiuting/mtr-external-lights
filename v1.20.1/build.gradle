@@ -72,6 +72,11 @@ processResources {
     filesMatching("fabric.mod.json") {
         expand "version": project.version
     }
+    // LGPL / MIT 合规：许可与来源声明要随分发物一起走，不能只躺在仓库里。
+    // 注意：用 -p v1.20.1 单独构建时 rootProject 就是本模块，所以路径写 ../ 而不是 rootProject.file()。
+    from(file("../LICENSE")) { into "META-INF" rename { "LICENSE-mtrlte" } }
+    from(file("../NOTICE.md")) { into "META-INF" rename { "NOTICE-mtrlte.md" } }
+    from(file("../LICENSES")) { into "META-INF/LICENSES" }
 }
 
 tasks.withType(JavaCompile).configureEach {
