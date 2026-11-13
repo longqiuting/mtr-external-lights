@@ -68,11 +68,11 @@ public final class LightFlare {
     private static final Identifier TEXTURE =
             new Identifier("mtrlte", "textures/vehicle/light_flare.png");
     /** Push towards the camera, blocks, so the quad clears the lamp housing. */
-    private static final double MAX_PULL = 0.9D;
+    private static final double MAX_PULL = 2.2D;
     /** Where the pull starts: 5% of the distance, saturating at {@link #MAX_PULL}. */
-    private static final double PULL_FRACTION = 0.05D;
+    private static final double PULL_FRACTION = 0.08D;
     /** Below this facing the lamp is pointing away from the camera - not drawn. */
-    private static final double MIN_FACING = 0.02D;
+    private static final double MIN_FACING = -0.15D;
     /** Distance fade starts at this share of the beam distance. */
     private static final double FADE_FROM = 0.70D;
     private static final Vec3d UP = new Vec3d(0.0D, 1.0D, 0.0D);
@@ -139,11 +139,9 @@ public final class LightFlare {
             if (!eff.enabled || !eff.beamFlare) {
                 continue;
             }
-            // Same gates as the light itself: a parked train does not shine, and AUTO turns the
-            // lamps off in daylight - the flare must never disagree with the block light.
-            if (!DepartureState.departed(train)) {
-                continue;
-            }
+            // 停在站台的车也要有灯晕：只要灯是亮着的（isLit 里已经处理 AUTO/夜间/开关），
+            // 就必须看得见，否则玩家站在站台上只能看到一片黑。
+
             final boolean reversed = DepartureState.reversed(train, train.isReversed()) ^ cfg.swapEnds;
             final TrainPose pose = TrainPose.ofShared(train, reversed);
             if (pose.cars() <= 0) {
