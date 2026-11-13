@@ -168,7 +168,7 @@
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `railLight` | — | 轨道照亮总开关 |
+| `railLight` | **`false`** | **旧方案，默认关闭**：把列车灯烘焙进 ANTE/NTE 的轨道顶点（每顶点 lightmap 注入 + 区块重光照）。打开后**铁轨自己会整条发亮**，所以不再默认开启；想给某条侧线看旧观感用逐侧线的 `railLight`。打开后下面所有 `rail*` / `railRelight*` 才生效 |
 | `railRelightTicks` / `railRelightEveryTicks` | — | 重算周期 |
 | `railRelightRadius` / `railRelightMaxTrains` | — | 半径与列车数上限 |
 | `railLightDelta` / `railRelightBudget` | — | 变化阈值 / 每轮预算 |

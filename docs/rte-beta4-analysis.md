@@ -469,6 +469,99 @@ Loading 61 mods: ... architectury 9.2.14 ... mtr 4.0.5 ... rte 1.0.0-beta.4
 
 ---
 
+## 9. 照亮到底由谁贡献（反编译复核，2026-11-14）
+
+本节是**反编译证据**（`D:/MC-MTR-JS/temp/rte-x/cfr` + jar 常量池扫描 + 官方 intermediary 映射表），
+不是外部观察。目标只有一个：回答"它那些看起来像被车灯照亮的地面/墙，到底是**真方块光照**，还是
+**屏后处理假亮**"，以及我们该保留哪些本地光照机制。
+
+**一句话结论：RTE 一行光照数据都没往世界里写。它的"照亮"= 一次读深度+读场景色的全屏后处理；
+它唯一的世界几何是每盏灯一张加色 billboard（有深度测试）。**
+
+### 9.1 证据一：全模组没有任何"写光照"的调用
+
+| 类 / 方法 | 行为 | 结论 |
+|---|---|---|
+| `mixin/LevelRendererMixin` 三个 `rte$setSectionDirty*`（对应 `setSectionDirty` / 三参 / 四参重载） | 只把区块重建事件转给 `RailRenderDispatcher.registerLightUpdate`，让**它自己的轨道网格**重建一次 | 是"区块变了我要重建我的网格"，不是"我要改区块的光"。没有任何光照数据被写 |
+| `mixin/PositionAndRotationLightMixin` 覆写 MTR 的 `PositionAndRotation.getLight(Vector)` | 用 `LightSampler.packed(world, x, y+1, z)` 换掉原返回值 | 只决定**车体顶点自己的 lightmap 采样点**（往上抬一格，避免车体埋在轨道里变黑）。是读 |
+| `util/LightSampler` | 调 `Level.getBrightness(BLOCK/SKY, pos)`；被遮挡时在 7 个邻居偏移里取最大值；最后用 `LightTexture.pack`（`method_23687`）打包成整数 | `pack` 只是把两个 0–15 拼成一个 int，**不写任何缓冲**。纯读 |
+| 全 jar 扫描 | `setBlockState`(`method_8501`) 只出现在轨道节点放置的网络包 / 切片笔刷物品里；`ChunkSection` 状态、`LightmapTextureManager`、`method_33157`（方块光照 section 通知）**零命中** | 没有 chunk relight、没有 lightmap 写入、没有动态光源 |
+
+对照：我们的 `BeamBlockLight` / `BeamRelight` / `RailRelightScheduler` 走的是**完全相反**的路
+——把 0–15 的方块光写进区块顶点 lightmap，再触发 section 重建。RTE 没有这一层。
+
+### 9.2 证据二："照亮"是一次屏幕空间后处理，而且它真的给材质加光
+
+调用链：`mixin/GameRendererMixin.rte$renderVehicleLighting`（注入点 = `renderLevel` 返回之后的
+`At.Shift.AFTER`）→ `VehicleLightRenderer.renderLighting()` → `VehicleLightPass.render(spots, projection, view)`。
+
+`VehicleLightPass` 的行为（类 / 方法 / 行为，逐条）：
+
+1. `render(...)`：从主帧缓冲取 `getDepthAttachment()`（`Framebuffer.method_30278`）；用
+   `glCopyTexSubImage2D` 把**场景颜色**拷进自建纹理（因为要边读边写）；绑定 12 个 spot 的
+   uniform（位置/方向/内外锥余弦/颜色/范围）；`glDrawArrays(GL_TRIANGLES, 0, 3)` 画一个全屏三角形。
+2. 片元程序 `main()`：`texture(SceneDepth)` 取深度 → `InverseProjection`/`InverseView` 反投影出
+   **视空间位置** → 用 `dFdx × dFdy` 叉乘出**法线**（朝相机翻转）→ 逐灯累加两项：
+   - **表面项** `surface`：`LightColor * cone(smoothstep(cosOuter, cosInner)) * 距离窗
+     ((1-r⁴)²/(1+0.04d²)) * max(dot(N, L), 0)`；
+   - **体积项** `inscatter`：把"相机→该像素"的视线上落在灯球内的弦切 8 步，每步判锥内 + 距离窗 +
+     各向异性相位函数。
+3. 合成：`added = scene * surface * 9.0 + surface * 0.035 + inscatter * 0.35`，再
+   `lit = scene + (1 - exp(-added * 1.2)) * (1 - scene * 0.5)`，**直接写出 `fragColor`**（混合关闭）——
+   是一次颜色**替换**，不是叠加。
+
+所以"地面/墙被照亮"是真的：表面项乘的是 `scene`（已经画好的地面像素颜色，即材质 albedo），
+`N·L` 的法线来自深度导数。它**不需要**任何方块光照，也不会出现 0–15 的阶梯和"整条铁轨发光"。
+它的上限也很清楚：只有一层深度、只有正面法线，所以没有自阴影，被别的物体挡住的表面拿不到光。
+
+### 9.3 证据三：光锥是"深度遮挡"，不是无遮蔽叠加
+
+同一份片元程序：天空像素（`depth >= 0.999999`）直接跳过表面项；体积项的终点被
+`end = min(along + halfChord, viewDistance)` 夹在**场景深度**上。也就是说墙、站台、车体会把光柱
+截断在它们身上——这就是"光雾看起来在实体后面"的原因，全程没有几何锥、没有深度拷贝纹理之外的
+遮挡机制，也**没有**读 stencil/shadow map。附带的 `gfx/shader/OffsetLightRenderType.offsetBeaconBeam`
+（beacon-beam 式几何光，`POLYGON_OFFSET_LAYERING`、默认 LEQUAL）在 beta.4 的类里**没有任何调用点**，
+是没接线的死代码——说明连它家的"几何光"方案也是深度测试的。
+
+### 9.4 顺便把灯晕（billboard）也钉死
+
+`VehicleLightRenderer.drawFlare` + `VehicleLightRenderType.glow`，解码 RenderType 的每个 shard：
+
+| shard | 实测值 | 含义 |
+|---|---|---|
+| 顶点格式 | `POSITION_COLOR_TEXTURE` | 位置+UV+颜色，无 lightmap、无法线 |
+| 程序 | `POSITION_COLOR_TEXTURE_PROGRAM`（原版 `position_color_tex`） | 不是自写 shader |
+| 贴图 | `TextureStateShard(tex, blur=true, **mipmap=false**)` | **显式关掉 mipmap** |
+| 透明 | `LIGHTNING_TRANSPARENCY` | `SRC_ALPHA, ONE`，即加色 |
+| 写掩码 | `COLOR_MASK` | 只写颜色，不写深度 |
+| 剔除 | `DISABLE_CULLING` | 双面 |
+| 深度测试 | **未声明 → 默认 LEQUAL（开）** | 会遮挡 |
+
+尺寸/透明度：`sizeScale = (0.45 + 1.4·glare)·(1 - pull)`，`alpha = brightness·factor·(0.25 + 0.45·glare)`
+（正对相机也只有基础值的 **70%**，永远不会到 1）；`pull = min(0.9, 0.5·距离)`；灯位 z = ±(半长 + **0.02**)，
+即灯位在车体端面**外面 2 cm**。
+
+### 9.5 我们该保留 / 删除哪些本地光照机制
+
+1. **`BeamBlockLight`（真实方块光照）：保留，但从"主力"降为"可选增强"**，默认关、按侧线可开。
+   理由：RTE 用一条后处理就拿到了更好的结果——跟着材质变、无区块重建、无光照阶梯、无 Sodium 冲突、
+   白天自然变淡；而方块光照的独有价值只剩"光是世界状态，远处/延迟渲染也一致"，代价却正是
+   "整段铁轨发亮 + 每帧重建 section"。保留它是因为它在**没有我们的后处理**（光影接管、pass 被跳过）
+   时仍然是唯一能给地面上色的东西。
+2. **下一步真正值得投的是给 `ScatterPass` 补 surface 项**，不是继续调 `BeamBlockLight`。同一个
+   pass 已经拿得到深度和场景色，缺的只是 `N·L` 那三项（锥 smoothstep + 距离窗 + `1-exp` 滚降）。
+   补上之后"照亮地面"不再依赖方块光照，`beamBlockLight` 才能真正默认关。
+3. **该删除/降级的**：`railLight`（把灯烘进 ANTE/NTE 轨道顶点，v23 已默认关）连同 `railRelight*`
+   一起标记 deprecated；surface 项上线后 `BeamRelight` + `RailRelightScheduler` 的 section 重建链路
+   整条可以下线（先留一个版本的开关再删）。
+4. **灯晕三处对齐 RTE**（本版本已做前两条）：① 深度比较改 `GL_ALWAYS`（它的灯位在端面外 2 cm 所以
+   能吃 LEQUAL，我们的灯位在端面内 0.08 + inset，斜视时半个四边形埋在车头网格里）；② 尺寸下限从
+   6 px 提到 `max(8, 屏高×1.2%)`、默认尺寸 0.9 → 1.4；③ 贴图理想上应像它一样**关 mipmap**——我们
+   现在走 `TextureManager` 无法直接声明，如果诊断行显示"尺寸/透明度都正常但仍看不见"，这就是下一个
+   嫌疑（128×128 的核只占半径 8%，mip 平均后有效 alpha 会掉到 ~0.1）。
+
+---
+
 ### 附：与 LTE 现状的差距（只列缺口，不评价优劣）
 
 | 能力 | LTE 现状 | RTE beta.4 的做法 | 缺口性质 |

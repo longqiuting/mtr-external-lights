@@ -376,6 +376,10 @@ public final class Commands {
                 + " flareSize=" + String.format(java.util.Locale.ROOT, "%.2f",
                         cfg.flareSizeClamped())
                 + " minPx=" + cfg.flareMinPxClamped()
+                + "(实际用 " + cfg.beamFlareMinPxFor(
+                        net.minecraft.client.MinecraftClient.getInstance().getWindow().getScaledHeight())
+                + "，下限 8 或屏高 " + String.format(java.util.Locale.ROOT, "%.1f%%",
+                        cfg.flareMinPctClamped() * 100.0D) + ")"
                 + " alpha=" + String.format(java.util.Locale.ROOT, "%.2f", cfg.beamAlpha)
                 + " blockLight=" + (cfg.beamBlockLight ? "on" : "off")
                 + " radius=" + cfg.beamBlockLightRadius

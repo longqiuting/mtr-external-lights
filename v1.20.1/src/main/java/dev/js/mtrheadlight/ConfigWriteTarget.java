@@ -172,10 +172,18 @@ abstract class ConfigWriteTarget {
      * 空位。
      */
     static final int SCATTER = 36;
+    /**
+     * 铁轨烘焙光照（{@link HeadlightConfig#railLight}）——<b>旧方案</b>，默认关闭。侧线可覆盖。
+     *
+     * <p>打开它会把列车灯写进 ANTE/NTE 的轨道顶点（每顶点 lightmap 注入 + 区块重光照），
+     * 铁轨本身会整条发亮，看起来像铁轨在发光而不是"车灯照在地上"。默认关，只想给某条侧线看旧
+     * 观感时才在侧线页单独打开。37 是数值表（0–35、40）与 {@link #SCATTER}（36）之外第一个空位。
+     */
+    static final int RAIL_LIGHT = 37;
     static final int[] ALL_TOGGLES = {
             MASTER, DYNAMIC_LIGHT, LIGHT_BAND, RAIN_SPRAY, BUILTIN_TRAINS,
             TRAIN_COLLISION, TRACKBED, TRAIN_DAMAGE, TRAIN_MOBS, RAIN_HUSH, DAMAGE_IN_CREATIVE,
-            SCATTER,
+            SCATTER, RAIL_LIGHT,
     };
 
     /**
@@ -554,6 +562,8 @@ abstract class ConfigWriteTarget {
                     return eff.rainHush;
                 case SCATTER:
                     return config().scatterEnabled;
+                case RAIL_LIGHT:
+                    return config().railLight;
                 default:
                     return eff.beamFlare;
             }
@@ -607,6 +617,9 @@ abstract class ConfigWriteTarget {
                     break;
                 case SCATTER:
                     config().scatterEnabled = on;
+                    break;
+                case RAIL_LIGHT:
+                    config().railLight = on;
                     break;
                 default:
                     config().beamFlare = on;
@@ -814,6 +827,9 @@ abstract class ConfigWriteTarget {
                     break;
                 case SCATTER:
                     c.scatterEnabled = d.scatterEnabled;
+                    break;
+                case RAIL_LIGHT:
+                    c.railLight = d.railLight;
                     break;
                 default:
                     c.beamGlow = d.beamGlow;
@@ -1092,6 +1108,8 @@ abstract class ConfigWriteTarget {
                     return eff.trainCollisionDamage;
                 case RAIN_HUSH:
                     return eff.rainHush;
+                case RAIL_LIGHT:
+                    return eff.railLight;
                 case BUILTIN_TRAINS:
                 case TRAIN_COLLISION:
                 case TRACKBED:
@@ -1126,6 +1144,9 @@ abstract class ConfigWriteTarget {
                     break;
                 case RAIN_HUSH:
                     o.rainHush = Boolean.valueOf(on);
+                    break;
+                case RAIL_LIGHT:
+                    o.railLight = Boolean.valueOf(on);
                     break;
                 case BUILTIN_TRAINS:
                 case TRAIN_COLLISION:
@@ -1240,6 +1261,8 @@ abstract class ConfigWriteTarget {
                     return o.trainCollisionDamage == null;
                 case RAIN_HUSH:
                     return o.rainHush == null;
+                case RAIL_LIGHT:
+                    return o.railLight == null;
                 case BUILTIN_TRAINS:
                 case TRAIN_COLLISION:
                 case TRACKBED:
@@ -1384,6 +1407,9 @@ abstract class ConfigWriteTarget {
                     break;
                 case RAIN_HUSH:
                     o.rainHush = null;
+                    break;
+                case RAIL_LIGHT:
+                    o.railLight = null;
                     break;
                 case BUILTIN_TRAINS:
                 case TRAIN_COLLISION:

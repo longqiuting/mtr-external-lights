@@ -6,6 +6,10 @@
 > 因此文中描述的兜底方案 B+（`RailGlow.java` 自绘光带及其 `railGlow*` 配置、界面开关）已**整体删除**，
 > `RailRelightScheduler` 中的 `glowFallback` 跳过分支也一并移除（光影下照常重建）。
 > `railLightShaderBoost` 保留但默认改为 `false`。下文的配置表、文件清单与验证步骤均已过时。
+>
+> **2026-11-14 最终态：`railLight` 本身也已默认关闭（`false`）。** 烘焙进轨道顶点会让**铁轨自己发光**，
+> 不是"车灯照在地上"；现在只保留光带 / 灯晕 + `beamBlockLight` 的方块亮斑。见
+> `docs/report-2026-11-14-rail-light-off-by-default.md`。
 
 > 现状：B+（自绘光带）观感不合格——位置会压进轨道模型、宽度只能猜、平涂像塑料片。`railGlow` 默认已改为 `false`。
 >

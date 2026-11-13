@@ -32,7 +32,7 @@ public final class HeadlightConfig {
             .registerTypeAdapter(LightStyle.class, new LightStyle.Adapter())
             .create();
     /** Bumped when a default changes in a way an existing file has to be migrated onto. */
-    private static final int CONFIG_VERSION = 22;
+    private static final int CONFIG_VERSION = 24;
 
     /**
      * {@code railChunkBuildPerFrame} 的上限（每帧最多重建几个轨道区块）。
@@ -43,6 +43,15 @@ public final class HeadlightConfig {
      * 两处数值必须一致（{@code RailChunkBuildBoost} 有断言用的同一个 8）。
      */
     private static final int MAX_RAIL_CHUNK_BUILD_PER_FRAME = 8;
+
+    /**
+     * 灯晕的硬像素底：无论配置写多少，一盏通过全部判定的灯在屏幕上至少占这么多 GUI 像素高。
+     *
+     * <p>6 是「理论上可见」，在 1080p / GUI 缩放 3 下是 6 个逻辑像素 ≈ 18 个物理像素，
+     * 加色叠在一盏本来就亮的灯上，玩家看不出差别 —— 这就是「灯晕看不见」里属于尺寸的那一半。
+     * 8 是「一眼能认出这是一盏灯」的下限；再大就要靠 {@link #beamFlareMinPct} 随分辨率长。
+     */
+    private static final int MIN_PX_FLOOR = 8;
 
     /** Default beam colours, also used when a JSON/override carries a malformed hex string. */
     public static final int DEFAULT_HEAD_BEAM = 0xFFF3D6;
@@ -199,10 +208,20 @@ public final class HeadlightConfig {
     public Map<Long, SidingSettings> sidingSettings = new LinkedHashMap<>();
 
     /**
-     * Bake the dynamic light into ANTE's rail models (mixin, 1.20.1 only).
-     * The rails are rebuilt on a throttle instead of every frame, see the options below.
+     * <b>旧方案</b>：把列车灯烘焙进 ANTE/NTE 的轨道顶点（每顶点 lightmap 注入 + 区块重光照）。
+     * 默认 <b>关闭</b>（版本 23 起）。
+     *
+     * <p>为什么默认关：它让<b>铁轨自己</b>发光——整条轨面/道砟按 0-15 的光照阶梯被点亮，看起来像
+     * 一根灯管，而不是"车灯照在地上的一块光"。玩家反馈的「铁轨还在发光」就是这条链路。现在的方案
+     * 是光带（{@code lightStyle = BAND}）/ 灯晕（{@code FLARE}）+ {@link #beamBlockLight} 给方块
+     * 打的地面亮斑，都不改动铁轨模型本身。
+     *
+     * <p>要开回来（想要"铁轨被照亮"的旧观感）：本开关置 {@code true}，或用
+     * {@code sidingSettings[id].railLight = true} 只给某条侧线开。开着时下面的
+     * {@code railRelight*} 全部生效，且 {@link #railLightUnderShaders} /
+     * {@link #railLightGain} / {@link #railLightShaderBoost} 也只在它开着时才有意义。
      */
-    public boolean railLight = true;
+    public boolean railLight = false;
     /**
      * Poll the light around the player and the train heads every N client ticks.
      *
@@ -580,11 +599,43 @@ public final class HeadlightConfig {
      * squarely the lamp points at the camera, then scaled up if it would project to fewer than
      * {@link #beamFlareMinPx} pixels - a lamp 150 blocks away still has to be a visible dot, which
      * is the whole point of a marker light.
+     *
+     * <p>默认 1.4（版本 24 起，旧默认 0.9）：0.9 时一盏正对相机的头灯在 20 格处只有 1.7 格宽，
+     * 玩家在原尺寸 HUD 上看到的是一个聊胜于无的点 —— 「灯晕看不见」的一半是这个数量级问题，
+     * 不是渲染路径问题。1.4 让同一场景变成约 2.6 格宽，既不糊住车头也真的看起来像灯。
      */
-    public double beamFlareSize = 0.9D;
+    public double beamFlareSize = 1.4D;
 
     /** Minimum on-screen height of one flare, in GUI pixels. Below this the quad is scaled up. */
     public int beamFlareMinPx = 6;
+
+    /**
+     * 灯晕的<b>最小屏占比</b>：屏幕高度的百分比（0.012 = 1.2%）。
+     *
+     * <p>像素下限不能写死：GUI 缩放 2 / 3 / 4 下同一个 6 像素是三种完全不同的观感，高分屏上
+     * 6 像素约等于看不见。这个百分比让下限随窗口长：1080p（GUI 缩放 3，逻辑高 360）→ 4.3 像素，
+     * 实际上是 {@link #beamFlareMinPxFor} 里的 8 像素硬底生效；1440p（逻辑高 480）→ 5.8 像素；
+     * 而 720p 全屏（逻辑高 360）也是 8 像素。下限永远不低于 8 像素（见 {@code MIN_PX_FLOOR}）。
+     *
+     * <p>设 0 表示「只用 {@link #beamFlareMinPx}」——给不想被下限放大的人一个出口。
+     */
+    public double beamFlareMinPct = 0.012D;
+
+    /**
+     * The pixel floor actually used for this frame: the larger of the configured
+     * {@link #beamFlareMinPx}, the hard floor {@value #MIN_PX_FLOOR} and
+     * {@link #beamFlareMinPct} of the current GUI height.
+     */
+    public int beamFlareMinPxFor(final int screenHeight) {
+        final int byPct = (int) Math.round(Math.max(1, screenHeight) * flareMinPctClamped());
+        final int configured = flareMinPxClamped();
+        return Math.max(MIN_PX_FLOOR, Math.max(configured, byPct));
+    }
+
+    /** {@link #beamFlareMinPct} clamped to [0, 0.05] (0 = no percentage floor). */
+    public double flareMinPctClamped() {
+        return clamp(beamFlareMinPct, 0.0D, 0.05D);
+    }
 
     /**
      * 屏幕空间散射（{@code dev.js.mtrheadlight.sss.ScatterPass}）：车灯在空气里的光雾。
@@ -2342,6 +2393,9 @@ public final class HeadlightConfig {
         // keys show up in an existing config/mtrlte.json and can be edited by hand.
         // Version 22 adds lightStyle (BAND / FLARE / BOTH, default BAND = the light band only) and
         // folds the two legacy layer switches onto it; see the block at the end of this method.
+        // Version 23 turns railLight off by default: baking the beam into the rail vertices makes
+        // the rails themselves glow, which is not what the light is supposed to look like. Old
+        // files holding true (and the per-siding overrides that were on) are migrated to off.
         if (configVersion < 21) {
             // Version 21 turns the beam cone off by default (still experimental) and appends
             // rainSprayLowSpeedBoost. true was the shipped default of beamCone, so an old file
@@ -2360,6 +2414,34 @@ public final class HeadlightConfig {
             // 写着 "beamFlare": true 而实际不画灯晕，读的人只会以为配置坏了。
             // 逐侧线的 beamGlow / beamFlare 覆盖一律不动：那是玩家对单条侧线的明确选择。
             setLightStyle(style());
+        }
+        if (configVersion < 23) {
+            // Version 23 把 railLight 的默认值 true -> false：那是「把列车灯烘焙进 ANTE/NTE 轨道
+            // 顶点」的旧方案，铁轨本身会整条发亮（玩家反馈「铁轨还在发光」）。旧的照亮方式只有这一种，
+            // 所以老文件里的 true（以及逐侧线显式开的覆盖）只可能是旧默认值的残留，一律迁到「关」。
+            // 从 23 起玩家再打开会被保留 —— 那时 configVersion 已经等于 23，这段不会重跑。
+            if (railLight) {
+                railLight = false;
+                LteLog.LOGGER.info(
+                        "[lte] railLight=true 已迁到 false：铁轨烘焙光照是旧方案（铁轨会自己发光），"
+                                + "现在默认用光带/灯晕 + 地面亮斑");
+            }
+            if (sidingSettings != null) {
+                for (final SidingSettings o : sidingSettings.values()) {
+                    if (o != null && Boolean.TRUE.equals(o.railLight)) {
+                        // null = 跟随全局（= 关）。想给单条侧线重开，在界面上再选一次即可。
+                        o.railLight = null;
+                    }
+                }
+            }
+        }
+        if (configVersion < 24) {
+            // Version 24 把 beamFlareSize 的默认值 0.9 -> 1.4：0.9 画出来的灯晕在 20 格外只有
+            // 1.7 格宽，实测被玩家判为「完全看不见」（渲染路径是通的，quads 一直在涨）。只有
+            // 恰好等于旧默认值的文件被迁移，手调过的尺寸保留 —— 与 version 5 / 16 同一条规则。
+            if (Math.abs(beamFlareSize - 0.9D) < 1.0E-9D) {
+                beamFlareSize = 1.4D;
+            }
         }
         configVersion = CONFIG_VERSION;
         return true;

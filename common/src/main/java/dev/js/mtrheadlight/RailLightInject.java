@@ -24,6 +24,15 @@ import net.minecraft.world.World;
  * <p>The mixin is scoped to {@code rebuildBuffer}, so this method is only ever reached while rails
  * are being baked - no thread-local "inside the bake" flag is needed. That bake runs on the
  * chunk-build worker thread, which is why every external call below is guarded.
+ *
+ * <h2>Off by default (config version 23)</h2>
+ * Baking the beam into the rail vertices makes the <b>rails themselves</b> glow: the whole track
+ * surface climbs the 0-15 light steps, which reads as a lit strip rather than light falling on the
+ * ground. That is the old scheme, so {@link HeadlightConfig#railLight} now defaults to {@code false}
+ * and every call here returns the world value untouched unless the player turns it back on. The
+ * gate is in this class on purpose: the block value is only ever raised here, so one check covers
+ * both the block half and the shader sky half, and a beam snapshot published just before the switch
+ * went off can never keep a rail lit.
  */
 public final class RailLightInject {
     private RailLightInject() {
@@ -47,6 +56,13 @@ public final class RailLightInject {
     private static int resolve(final World world, final LightType type, final BlockPos pos,
                                final boolean diag) {
         final int original = world.getLightLevel(type, pos);
+        // Off by default since config version 23: rails must come out of the bake with exactly the
+        // light the world says. Checked here rather than at the publish site because this is the
+        // only place a rail vertex' light can come from - a stale snapshot published on the client
+        // thread must never outlive the switch that turned the subsystem off.
+        if (!railLightOn()) {
+            return original;
+        }
         if (type == LightType.BLOCK) {
             if (diag) {
                 RailDiag.call();
@@ -99,6 +115,30 @@ public final class RailLightInject {
             return block;
         } catch (Throwable t) {
             return original;
+        }
+    }
+
+    /**
+     * True when the rail-bake subsystem is allowed to raise the light at all: master switch, real
+     * block light, and at least one train that still wants baked rail light (global or per siding).
+     *
+     * <p>Runs once per intercepted light query on the chunk-build workers, so the map is only
+     * walked when it is actually non-empty - the shipped default (off, no sidings) costs three
+     * boolean reads and one {@code isEmpty}.
+     */
+    private static boolean railLightOn() {
+        try {
+            final HeadlightConfig cfg = MtrHeadlightClient.config();
+            if (cfg == null || !cfg.enabled || !cfg.dynamicLight) {
+                return false;
+            }
+            if (cfg.railLight) {
+                return true;
+            }
+            return cfg.sidingSettings != null && !cfg.sidingSettings.isEmpty()
+                    && cfg.railLightAnySiding();
+        } catch (Throwable t) {
+            return false;
         }
     }
 

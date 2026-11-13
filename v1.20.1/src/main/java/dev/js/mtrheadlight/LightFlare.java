@@ -47,9 +47,13 @@ import java.util.List;
  * at 40 blocks.
  *
  * <h2>Depth and blending</h2>
- * Additive ({@code SRC_ALPHA, ONE}), depth test on, depth write off, cull off. Each quad is pulled
- * up to {@value #MAX_PULL} blocks towards the camera so it cannot z-fight with the lamp housing it
- * sits {@value #FACE_GAP} in front of.
+ * Additive ({@code SRC_ALPHA, ONE}), depth <b>comparison forced to {@code GL_ALWAYS}</b>, depth write
+ * off, cull off. Each quad is still pulled up to {@value #MAX_PULL} blocks towards the camera, but the
+ * pull alone was not enough: the lamp sits a few centimetres <em>inside</em> the car's end face, so on
+ * an oblique view part of the quad stayed buried in the nose mesh and the whole glow was discarded -
+ * that is the "quads grow, screen stays dark" report this version answers. An additive quad cannot
+ * occlude the scene, so losing the depth test costs nothing visible (worst case: a little glow reads
+ * through a wall) and guarantees the lamp is drawn.
  *
  * <p>Exactly one of the two world-render callbacks draws ({@code latePass} matches "a shader pack is
  * active", see {@code ShaderPackProbe}), so a frame never doubles the glow - the same rule the beam
@@ -83,6 +87,11 @@ public final class LightFlare {
     private static final double PULL_FRACTION = 0.08D;
     /** Below this facing the lamp is pointing away from the camera - not drawn. */
     private static final double MIN_FACING = -0.15D;
+    /**
+     * Alpha floor as a share of the configured peak: a lamp that passed every gate is drawn at no
+     * less than {@code beamAlpha * this}. See the note in {@link #quad}.
+     */
+    private static final float MIN_ALPHA_SHARE = 0.35F;
     /** Distance fade starts at this share of the beam distance. */
     private static final double FADE_FROM = 0.70D;
     private static final Vec3d UP = new Vec3d(0.0D, 1.0D, 0.0D);
@@ -112,6 +121,24 @@ public final class LightFlare {
     private static int dQuads;
     private static int dNoLamp;
     private static boolean windowOn;
+
+    /** How many nearest lamps the {@code [lte] flare near:} line prints per window. */
+    private static final int NEAR_REPORT = 3;
+    /** Reported near-lamp slots, sorted by camera distance (index 0 = the closest lamp). */
+    private static double[] nearDist = new double[NEAR_REPORT];
+    private static double[] nearFacing = new double[NEAR_REPORT];
+    private static double[] nearWorld = new double[NEAR_REPORT];
+    private static double[] nearPx = new double[NEAR_REPORT];
+    private static double[] nearAlpha = new double[NEAR_REPORT];
+    private static double[] nearFade = new double[NEAR_REPORT];
+    private static String[] nearWhere = new String[NEAR_REPORT];
+    /** Did the textured draw actually run this window, and why not. */
+    private static boolean dDrawn;
+    private static String dDrawError;
+    /** {@code ok} / {@code missing} / {@code error:X} - the flare texture's state, sampled once. */
+    private static String dTexture = "unknown";
+    /** Was the last rendered frame the {@code lighttest} probe? Then the near table is not updated. */
+    private static boolean dTestWindow;
 
     private LightFlare() {
     }
@@ -165,22 +192,31 @@ public final class LightFlare {
             quads = lamps(cfg, client, camera, eye);
             dQuads += quads;
         }
+        dTestWindow = test;
 
         if (quads > 0) {
             // 两条绘制都在这里发生，都走 GlowCompat —— 参数只是 format 与贴图，GL 状态不在这里碰。
+            // 灯晕那一条另外打开 alwaysDepth：灯位在车体端面里面，深度测试会把它吃掉。
             try {
                 if (testCount > 0) {
                     GlowCompat.draw(testVerts, testCount, matrices);
                 } else if (flareCount > 0) {
-                    GlowCompat.drawTextured(flareVerts, flareCount, matrices, TEXTURE);
+                    GlowCompat.drawTextured(flareVerts, flareCount, matrices, TEXTURE, true);
+                    dDrawn = true;
                 }
             } catch (Throwable t) {
                 // 探针模式下这一句就是「程序/贴图没加载」的答案，直接进 [lte] lighttest: 那一行。
-                LightTest.flareFailure(t.getClass().getSimpleName() + ":" + firstLine(t));
+                dDrawError = t.getClass().getSimpleName() + ":" + firstLine(t);
+                LightTest.flareFailure(dDrawError);
                 if (!test) {
                     MtrHeadlightClient.LOGGER.error("[lte] light flare draw failed", t);
                 }
             }
+        }
+        if (!test && flareCount > 0 && "unknown".equals(dTexture)) {
+            // 采样一次就够：贴图状态不会在会话中途变（除非换了资源包，那时重载会重建管理器）。
+            // 它是「几何在、贴图没了」这一种失败的唯一名字 —— 探针那条路不贴图，证明不了它。
+            dTexture = textureState(client);
         }
         diag();
     }
@@ -189,10 +225,11 @@ public final class LightFlare {
     private static int lamps(final HeadlightConfig cfg, final MinecraftClient client,
                              final Vec3d camera, final Vec3d eye) {
         final double base = cfg.flareSizeClamped();
-        final int minPx = cfg.flareMinPxClamped();
+        final int screenH = Math.max(1, client.getWindow().getScaledHeight());
+        final int minPx = cfg.beamFlareMinPxFor(screenH);
         final float peak = (float) clamp(cfg.beamAlpha, 0.0D, 1.0D);
         final double fov = verticalFov(client);
-        final int screenH = Math.max(1, client.getWindow().getScaledHeight());
+        nearClear();
         int quads = 0;
 
         for (final TrainClient train : snapshotTrains()) {
@@ -276,14 +313,15 @@ public final class LightFlare {
     /**
      * One lamp's quad. Returns {@code false} when the lamp is behind the camera, points away, or is
      * beyond the beam distance - i.e. when nothing was written.
+     *
+     * <p>Every value the size / alpha / depth questions depend on is computed <b>before</b> any gate
+     * is applied and reported through {@link #nearAdd}, so a rejected lamp still shows up in the
+     * {@code [lte] flare near:} line with the reason it was rejected ("far" / "back" / "dim" /
+     * "ok"). That is the difference between "no light" and "no idea why no light".
      */
     private static boolean quad(final TrainLamps.Lamp lamp, final Vec3d camera, final Vec3d eye,
                                 final double distance, final double base, final int minPx,
                                 final float peakAlpha, final double fov, final int screenH) {
-        final double d = lamp.pos.distanceTo(eye);
-        if (d > distance || d < 1.0E-3D) {
-            return false;
-        }
         // Camera-relative: the matrix stack already carries the camera rotation only, so the
         // subtraction below (inside billboard) is what puts the quad in front of the camera.
         final Vec3d toCam = camera.subtract(lamp.pos);
@@ -294,22 +332,52 @@ public final class LightFlare {
         final Vec3d view = toCam.multiply(1.0D / camDist);
         // 1 when the lamp looks straight at the camera, 0 edge-on, negative when it faces away.
         final double facing = -lamp.dir.dotProduct(view);
-        if (facing < MIN_FACING) {
-            return false;
-        }
         final double facing3 = facing * facing * facing;
         double world = base * (0.45D + 1.4D * facing3);
         // Minimum on-screen size: scale the quad up until it covers minPx pixels of height.
         final double tanHalf = Math.tan(Math.toRadians(clamp(fov, 10.0D, 110.0D)) * 0.5D);
+        double pixels = 0.0D;
         if (tanHalf > 1.0E-3D) {
-            final double pixels = world / (2.0D * camDist * tanHalf) * screenH;
+            pixels = world / (2.0D * camDist * tanHalf) * screenH;
             if (pixels > 1.0E-6D && pixels < minPx) {
                 world *= (double) minPx / pixels;
+                pixels = minPx;
             }
         }
-        final float alpha = (float) clamp(peakAlpha * lamp.alpha * (0.35D + 0.65D * facing3)
-                * distanceFade(d, distance), 0.0D, 1.0D);
-        if (alpha <= 0.004F) {
+        final double d = lamp.pos.distanceTo(eye);
+        final double fade = distanceFade(d, distance);
+        // 亮度（朝向与灯的档位）先算，距离淡出最后乘：下限只抬"朝向/档位"这一项，
+        // 绝不越过距离淡出 —— 否则灯晕会在灯火距离的边缘突然被截断成一条硬边。
+        final double brightness = clamp(peakAlpha * lamp.alpha * (0.35D + 0.65D * facing3),
+                0.0D, 1.0D);
+        float alpha = (float) clamp(brightness * fade, 0.0D, 1.0D);
+
+        String why;
+        if (d > distance) {
+            why = "far";
+        } else if (facing < MIN_FACING) {
+            why = "back";
+        } else if (brightness <= 0.004D) {
+            why = "dim";
+        } else {
+            why = "ok";
+        }
+        // 可见性下限：任何一盏通过朝向/距离/暗度判定的灯，都不允许以一个「数学上有、屏幕上没有」
+        // 的透明度出场。0.55 * 0.35 = 0.19 的加色叠在亮地上仍然几乎看不出，这才是「灯晕看不见」
+        // 里属于透明度的那一半。下限只抬「朝向 × 灯的档位」这一项，距离淡出照旧最后乘，
+        // 所以灯火距离的边缘不会出现一条硬边。
+        final boolean gateOk = "ok".equals(why);
+        alpha = (float) clamp((gateOk ? Math.max(brightness, peakAlpha * MIN_ALPHA_SHARE) : brightness)
+                * fade, 0.0D, 1.0D);
+        if (gateOk && alpha <= 0.004F) {
+            why = "faded";      // 距离淡出已经把它压到不可见，不必占一个四边形
+        }
+        final boolean ok = "ok".equals(why);
+        // 诊断里报的是**最终写进顶点**的那个 alpha，不是中间值。
+        nearAdd(camDist, facing, world, pixels, alpha, fade, why + "/" + lamp.source
+                + (lamp.head ? ":head" : ":tail"));
+
+        if (!ok) {
             return false;
         }
 
@@ -330,6 +398,63 @@ public final class LightFlare {
         final float blue = (lamp.rgb & 0xFF) / 255.0F;
         billboard(new Vec3d(cx, cy, cz), right, up, camera, red, green, blue, alpha);
         return true;
+    }
+
+    /**
+     * Keeps the {@value #NEAR_REPORT} closest lamps of this frame (by camera distance), rewritten
+     * in place so nothing is allocated per frame.
+     */
+    private static void nearAdd(final double camDist, final double facing, final double world,
+                                final double pixels, final float alpha, final double fade,
+                                final String where) {
+        if (nearWhere.length < NEAR_REPORT) {
+            nearClear();
+        }
+        int slot = -1;
+        for (int i = 0; i < NEAR_REPORT; i++) {
+            if (nearWhere[i] == null || camDist < nearDist[i]) {
+                slot = i;
+                break;
+            }
+        }
+        if (slot < 0) {
+            return;
+        }
+        // shift the tail down so the table stays sorted by distance
+        for (int i = NEAR_REPORT - 1; i > slot; i--) {
+            nearDist[i] = nearDist[i - 1];
+            nearFacing[i] = nearFacing[i - 1];
+            nearWorld[i] = nearWorld[i - 1];
+            nearPx[i] = nearPx[i - 1];
+            nearAlpha[i] = nearAlpha[i - 1];
+            nearFade[i] = nearFade[i - 1];
+            nearWhere[i] = nearWhere[i - 1];
+        }
+        nearDist[slot] = camDist;
+        nearFacing[slot] = facing;
+        nearWorld[slot] = world;
+        nearPx[slot] = pixels;
+        nearAlpha[slot] = alpha;
+        nearFade[slot] = fade;
+        nearWhere[slot] = where;
+    }
+
+    /** Empties the near-lamp table (allocating it on first use); called once per frame. */
+    private static void nearClear() {
+        if (nearWhere == null || nearWhere.length < NEAR_REPORT
+                || nearFacing.length < NEAR_REPORT || nearWorld.length < NEAR_REPORT
+                || nearPx.length < NEAR_REPORT || nearAlpha.length < NEAR_REPORT
+                || nearFade.length < NEAR_REPORT) {
+            nearDist = new double[NEAR_REPORT];
+            nearFacing = new double[NEAR_REPORT];
+            nearWorld = new double[NEAR_REPORT];
+            nearPx = new double[NEAR_REPORT];
+            nearAlpha = new double[NEAR_REPORT];
+            nearFade = new double[NEAR_REPORT];
+            nearWhere = new String[NEAR_REPORT];
+            return;
+        }
+        Arrays.fill(nearWhere, null);
     }
 
     /**
@@ -468,9 +593,16 @@ public final class LightFlare {
     }
 
     /**
-     * {@code [lte] flare: trains=… lamps=… quads=…} every 5 s, and only while the feature is on.
-     * {@code trains>0 lamps=0} is the interesting failure: the trains are there but no lamp could be
-     * placed (see the {@code [lte] lights:} line from {@link VehicleLights#announce}).
+     * {@code [lte] flare: trains=… lamps=… quads=… noLamp=…} every 5 s, and only while the feature is on,
+     * followed by one {@code [lte] flare near:} line for the closest lamps of the last frame.
+     *
+     * <p>{@code trains>0 lamps=0} is the interesting failure: the trains are there but no lamp could be
+     * placed (see the {@code [lte] lights:} line from {@link VehicleLights#announce}). A non-zero
+     * {@code quads} with nothing on screen is answered by the second line: {@code d} (camera distance),
+     * {@code f} (facing), {@code w} (world size, blocks), {@code px} (screen pixels after the minimum-
+     * size rule), {@code a} (final alpha) and the verdict ({@code ok} / {@code far} / {@code back} /
+     * {@code dim}). {@code drawn=…} says whether the textured draw actually ran, {@code tex=…} whether
+     * the flare texture exists and is uploaded, {@code err=…} the exception that stopped it.
      */
     private static void diag() {
         final long now = System.currentTimeMillis();
@@ -479,15 +611,60 @@ public final class LightFlare {
         }
         diagAt = now;
         if (windowOn) {
-            MtrHeadlightClient.LOGGER.info("[lte] flare: trains={} lamps={} quads={} noLamp={}",
+            MtrHeadlightClient.LOGGER.info("[lte] flare: trains={} lamps={} quads={} noLamp={}"
+                            + " drawn={} tex={}{}",
                     Integer.valueOf(dTrains), Integer.valueOf(dLamps), Integer.valueOf(dQuads),
-                    Integer.valueOf(dNoLamp));
+                    Integer.valueOf(dNoLamp), Boolean.valueOf(dDrawn), dTexture,
+                    dDrawError == null ? "" : " err=" + dDrawError);
+            // 探针（lighttest）走的是 lightTest()，near 表这一帧没更新；那条线自己报 flareQuads，
+            // 这里不重复打一行过期的数。
+            if (!dTestWindow) {
+                final StringBuilder near = new StringBuilder();
+                for (int i = 0; i < NEAR_REPORT; i++) {
+                    if (nearWhere[i] == null) {
+                        continue;
+                    }
+                    if (near.length() > 0) {
+                        near.append(" | ");
+                    }
+                    near.append('#').append(i)
+                            .append(" d=").append(fmt(nearDist[i]))
+                            .append(" f=").append(fmt(nearFacing[i]))
+                            .append(" w=").append(fmt(nearWorld[i]))
+                            .append(" px=").append(fmt(nearPx[i]))
+                            .append(" a=").append(fmt(nearAlpha[i]))
+                            .append(" fade=").append(fmt(nearFade[i]))
+                            .append(' ').append(nearWhere[i]);
+                }
+                MtrHeadlightClient.LOGGER.info("[lte] flare near: {}", near.length() == 0
+                        ? "(no lamp reached the size/alpha stage)" : near.toString());
+            }
         }
         windowOn = false;
         dTrains = 0;
         dLamps = 0;
         dQuads = 0;
         dNoLamp = 0;
+        dDrawn = false;
+        dDrawError = null;
+    }
+
+    /** {@code ok} / {@code missing} / {@code notuploaded} / {@code error:X} for the flare texture. */
+    private static String textureState(final MinecraftClient client) {
+        try {
+            if (client.getResourceManager().getResource(TEXTURE).isEmpty()) {
+                return "missing";
+            }
+            final net.minecraft.client.texture.AbstractTexture texture =
+                    client.getTextureManager().getTexture(TEXTURE);
+            return texture != null && texture.getGlId() != -1 ? "ok" : "notuploaded";
+        } catch (Throwable t) {
+            return "error:" + t.getClass().getSimpleName();
+        }
+    }
+
+    private static String fmt(final double value) {
+        return String.format(java.util.Locale.ROOT, "%.2f", Double.valueOf(value));
     }
 
     private static double clamp(final double value, final double min, final double max) {

@@ -103,5 +103,9 @@
 ## 自检
 
 * `/mtr_lte flare status`：`lightStyle`、光带/灯晕各自画不画、方块光照挂钩状态；
-* 日志每 5 秒一行 `[lte] glow: …`（光带）和 `[lte] flare: trains=… lamps=… quads=…`（灯晕）；
-* 光带看不到时有 `[lte] glow: … near= skipped=` 的分类计数，灯晕看不到时看 `noLamp=`。
+* 日志每 5 秒一行 `[lte] glow: …`（光带）和
+  `[lte] flare: trains=… lamps=… quads=… noLamp=… drawn=… tex=…`（灯晕），紧跟一行
+  `[lte] flare near: #0 d=… f=… w=… px=… a=… fade=… ok|far|back|dim|faded/来源` —— 相机最近的
+  3 盏灯，把「quads 在涨但屏幕上没有」拆成**距离 / 朝向 / 世界尺寸（格）/ 屏幕像素 / 最终 alpha**
+  五个数；`drawn=false` 或 `err=…` 说明绘制本身抛了，`tex=missing` 说明贴图没打进包。
+* 光带看不到时有 `[lte] glow: … near= skipped=` 的分类计数，灯晕看不到时看 `noLamp=` 和 `near:` 行。

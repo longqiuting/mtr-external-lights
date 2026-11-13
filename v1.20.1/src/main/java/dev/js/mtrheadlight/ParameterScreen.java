@@ -434,6 +434,9 @@ public final class ParameterScreen extends Screen {
                 // 动态照亮 + 车灯亮度：灯晕（billboard）与真实方块光照是同一件事的两层，
                 // 所以两行挨着放。光柱那一行已随光柱一起删除（体积光锥不再绘制）。
                 this.rows.add(Row.toggle(ConfigWriteTarget.DYNAMIC_LIGHT, ConfigWriteTarget.LUMINANCE));
+                // 铁轨烘焙光照：把列车灯写进轨道顶点，铁轨自己会整条发亮 —— 旧方案，默认关。
+                // 两页都生成（SidingSettings 里有 railLight），想给某条侧线看旧观感时才在侧线页打开。
+                this.rows.add(Row.toggleWide(ConfigWriteTarget.RAIL_LIGHT));
                 this.rows.add(Row.color(true));
                 this.rows.add(Row.color(false));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_DISTANCE));
@@ -788,6 +791,9 @@ public final class ParameterScreen extends Screen {
             case ConfigWriteTarget.RAIN_HUSH:
                 return follow(this.target.readToggle(which)
                         ? tr("opt.rainHush.on") : tr("opt.rainHush.off"), which);
+            case ConfigWriteTarget.RAIL_LIGHT:
+                return follow(this.target.readToggle(which)
+                        ? tr("opt.railLight.on") : tr("opt.railLight.off"), which);
             case ConfigWriteTarget.SCATTER:
                 // 全局开关，不走 follow()：侧线页根本不生成这一行。
                 return tr(this.target.readToggle(which)

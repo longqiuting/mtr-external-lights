@@ -11,6 +11,7 @@ import net.minecraft.client.render.VertexFormats;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.Identifier;
 import org.joml.Matrix4f;
+import org.lwjgl.opengl.GL11;
 
 /**
  * 1.20.1 shim for {@link RailGlow}: the three calls that differ between the supported versions -
@@ -83,6 +84,22 @@ final class GlowCompat {
      */
     static void drawTextured(final float[] data, final int count, final MatrixStack stack,
                              final Identifier texture) {
+        drawTextured(data, count, stack, texture, false);
+    }
+
+    /**
+     * {@link #drawTextured} 的深度覆盖版本。
+     *
+     * <p>{@code alwaysDepth = true} 时把深度<b>比较</b>函数换成 {@code GL_ALWAYS}（写完逐位还原成
+     * {@code GL_LEQUAL}）：四边形仍然不写深度、仍然加色，但不再被车体/站台/隧道壁挡掉。
+     *
+     * <p>为什么灯晕需要它：灯晕挂在灯位上，而灯位在车体端面<b>里面</b>几个厘米（{@code TrainLamps}
+     * 的 {@code FLARE_GAP} + 模型的 {@code inset}）。即使再往相机拉 2 格，斜视时这个四边形仍可能
+     * 有一半埋在车头网格里 —— 于是「quads 一直在涨、屏幕上什么都没有」。加色四边形遮挡不了场景，
+     * 穿过去最多是隔着墙看到一点光晕，比彻底看不见好得多。
+     */
+    static void drawTextured(final float[] data, final int count, final MatrixStack stack,
+                             final Identifier texture, final boolean alwaysDepth) {
         final Matrix4f matrix = stack.peek().getPositionMatrix();
         RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
         RenderSystem.setShaderTexture(0, texture);
@@ -90,6 +107,9 @@ final class GlowCompat {
         RenderSystem.enableBlend();
         RenderSystem.blendFunc(GlStateManager.SrcFactor.SRC_ALPHA, GlStateManager.DstFactor.ONE);
         RenderSystem.enableDepthTest();
+        if (alwaysDepth) {
+            RenderSystem.depthFunc(GL11.GL_ALWAYS);
+        }
         RenderSystem.depthMask(false);
         RenderSystem.disableCull();
 
@@ -103,6 +123,9 @@ final class GlowCompat {
         }
         BufferRenderer.drawWithGlobalProgram(buffer.end());
 
+        if (alwaysDepth) {
+            RenderSystem.depthFunc(GL11.GL_LEQUAL);
+        }
         RenderSystem.depthMask(true);
         RenderSystem.defaultBlendFunc();
         RenderSystem.enableCull();
