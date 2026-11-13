@@ -25,10 +25,11 @@ const LOOT = path.join(RES, 'data', 'mtrlte', 'loot_tables', 'blocks');
 const LANG = path.join(RES, 'assets', 'mtrlte', 'lang');
 const ITEM_TEX = path.join(RES, 'assets', 'mtrlte', 'textures', 'item');
 
-// 方块没有朝向属性，blockstate 只有一个变体（键是空串）。
-// 例外：栏杆那几个 key 有 facing 属性（放置时按玩家朝向定），blockstate 要写满四个变体。
-// 这张表和 Java 端 tools/../EyecandyBlocks.DIRECTIONAL_KEYS 必须一致。
-const DIRECTIONAL_KEYS = new Set(['key4', 'key5', 'key6', 'key7', 'key13', 'key14']);
+// 方块默认没有朝向属性，blockstate 只有一个变体（键是空串）。
+// 例外：BRT 屏蔽门左右两扇 + 栏杆那几个 key 有 facing 属性（放置时按玩家朝向定），
+// blockstate 要写满四个变体。
+// 这张表和 Java 端 EyecandyBlocks.DIRECTIONAL_KEYS 必须一致。
+const DIRECTIONAL_KEYS = new Set(['key2', 'key3', 'key4', 'key5', 'key6', 'key7', 'key13', 'key14']);
 
 function isDirectional(key) {
   return DIRECTIONAL_KEYS.has(key);

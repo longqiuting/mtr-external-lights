@@ -33,9 +33,10 @@ import net.minecraft.world.BlockView;
  *   <li><b>本类（没有朝向属性）</b>：标牌 / 垃圾桶 / 单车 / 桥墩这类「正面朝人看」的独立摆件，
  *       模型烘在 {@code .obj} 里是死的，blockstate 只有一个变体（{@code ""}），放置时不会因为玩家
  *       朝向变样子。</li>
- *   <li><b>{@link EyecandyDirectionalBlock}（有 {@code facing}）</b>：栏杆那几段。长条几何单看模型
- *       分不出东西南北，放置时按<b>玩家朝向</b>定（和 MTR 原版屏蔽门同一个约定：{@code facing} =
- *       玩家看的方向 = 物件贴的那条边 / 正面朝的方向，也就是「背对玩家贴边」）。</li>
+ *   <li><b>{@link EyecandyDirectionalBlock}（有 {@code facing}）</b>：BRT 屏蔽门左右两扇 + 栏杆那几段。
+ *       长条几何 / 贴边的半扇单看模型分不出东西南北，放置时按<b>玩家朝向</b>定（和 MTR 原版屏蔽门
+ *       同一个约定：{@code facing} = 玩家看的方向；{@code NORTH} = 模型原始朝向，0° 不动矩阵）。
+ *       左 / 右半扇转的是<b>整扇</b>，不做镜像互换。</li>
  * </ul>
  * <p>两类都<b>没有刷子旋转</b>：用户明确说过「刷子旋转没什么用，玩家放置的时候自然就转向了」，
  * 所以朝向只在放置那一刻定一次，之后没有任何旋转手段（以前那套四向 {@code rotation} + MTR 刷子

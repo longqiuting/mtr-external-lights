@@ -44,10 +44,18 @@ import net.minecraft.util.Identifier;
  * }
  * </pre>
  *
- * <p>物体摆在哪完全由素材决定：方块本身<b>没有朝向属性</b>，模型烘进 {@code .obj} 就那一副样子，
- * 放置时不会转（要换方向就换一件镜像 / 另一侧的物件）。位置也只靠这里的 {@code translation}
+ * <p>物体摆在哪基本由素材决定：模型烘进 {@code .obj} 就那一副样子，位置只靠这里的 {@code translation}
  * 平移 —— 桥墩（{@code qiaodun20}）就是靠 {@code [0,2,0]} 把素材里「挂在放置点以下」的模型
  * 抬到墩顶贴着放置格顶面，玩家贴着上方桥面的底面放，墩身自然往下挂。
+ *
+ * <p>{@code translation} 是在<b>转过之后</b>的方块坐标轴上生效的（{@code scale → rotation →
+ * translation}，与 NTE 的 eyecandy 矩阵顺序一致：先转、再平移）。所以要把一件「转 90° 之后
+ * 变成长条」的模型贴到格子的某条边，偏移量要写在<b>转完之后</b>贴边的那一轴上 —— 例如 BRT 栏杆
+ * （{@code rotation} 90°、长条沿 x）写 {@code translation: [0,0,0.4531]} 才会贴到 z = 1 那条边；
+ * 写 {@code [-0.45,0,0]} 只会在长条方向上平移，薄面仍然压在格子中线上。
+ *
+ * <p>朝向只有一部分物件有（见 {@code EyecandyBlocks.DIRECTIONAL_KEYS}）：那些方块带 {@code facing}，
+ * 放置时按玩家朝向定一次，其余物件没有朝向属性、放置时不会转。
  *
  * <h2>命名空间改写</h2>
  * <p>素材是 MTR 的 Steam Loco 扩展（{@code mtrsteamloco}）的，路径 {@code eyecandies/*} 原样保留，

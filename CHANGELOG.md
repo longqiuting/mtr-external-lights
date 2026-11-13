@@ -34,6 +34,12 @@
   进度按时间插值（15 tick 走完全程，与帧率无关）
 - 碰撞按描述里的 `shape` 切换（关门挡人、开门变空），刷子右键手动开/关，潜行 + 刷子锁定
 - 物品栏是 3D 图标（按 `o` 组的包围盒生成的方块模型），进「厦门风格物件」页签
+- **固定玻璃板** `fangsu_psd_screendoor_high_glass`（厦门高）：**一个方块 = 一整格**，
+  格内左右各半个格（0.5 格）两片同时画 —— 和方速 `BlockEntityScreendoorGlass` 的
+  `dhmLeft` + `dhmRight`、`glassShape = shapeLeft ∪ shapeRight` 一致，不是「两个方块各画一半」；
+  左 / 右两半各有 4 种形态（`door` / `doorend` / `glass` / `longend`），
+  刷子右键改左半、潜行 + 刷子改右半
+  （旧的 `..._glass_left` / `..._glass_right` 两个方块已删除，旧存档里放下的玻璃会变成未知方块）
 
 ### 线路图（吊板 / 半高玻璃）
 

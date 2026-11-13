@@ -1,4 +1,4 @@
-// 方速厦门屏蔽门的玻璃板渲染器：画「当前形态」那一组几何，按 facing 绕 Y 转一次。
+// 方速厦门屏蔽门的玻璃板渲染器：一块方块画「左半 + 右半」两组几何，按 facing 绕 Y 转一次。
 package dev.js.mtrheadlight.xiamen.fangsu;
 
 import java.util.List;
@@ -15,20 +15,25 @@ import net.minecraft.util.math.RotationAxis;
 import net.minecraft.world.World;
 
 /**
- * 玻璃板（{@code fangsu_psd_screendoor_high_glass_left / _right}）的方块实体渲染器。
+ * 玻璃板（{@code fangsu_psd_screendoor_high_glass}）的方块实体渲染器。
  *
- * <h2>画什么</h2>
+ * <h2>画什么：两组，左右各一</h2>
  * <p>和门扇完全同一套管线（{@link FangsuPsdBlocks#meshes} → {@code o} 组 → 按材质拆开的
- * {@link RawMesh}），<b>区别只有一条</b>：这里只画<b>当前形态</b>那一组
- * （{@link FangsuPsdGlassDef.Form#group()}：{@code glass_left_door} / {@code glass_left_door_end} /
- * {@code glass_left_glass} / {@code glass_left_long_end}），没有任何门扇变换 —— 玻璃板是不动的。
- *
- * <p>形态是方块状态 {@link FangsuPsdGlassBlock#FORM}（刷子循环），状态一变这里就画另一组，
- * 碰撞盒也跟着换（同一个 {@code shape} 数组，见 {@link FangsuPsdGlassBlock}）。
+ * {@link RawMesh}），区别有两条：
+ * <ol>
+ *   <li><b>一块方块画两半</b>：{@code glass_left_<形态>} 与 {@code glass_right_<形态>} 各画一遍
+ *       （对方速就是 {@code whenRendering()} 里 {@code drawModel(dhmLeft)} + {@code drawModel(dhmRight)}）。
+ *       两半各 0.5 格，合起来才是完整一格 —— 不是「两个方块各画一半」；</li>
+ *   <li><b>两半的形态各自独立</b>：左半边取 {@link FangsuPsdGlassBlock#FORM_LEFT}，右半边取
+ *       {@link FangsuPsdGlassBlock#FORM_RIGHT}（{@code glass.left[]} / {@code glass.right[]} 两份列表），
+ *       所以「靠门那半是 {@code door}、另一半是纯玻璃」这种摆法画得出来。</li>
+ * </ol>
+ * 没有任何门扇变换 —— 玻璃板是不动的。
  *
  * <h2>朝向 / 渲染层</h2>
  * <p>和 {@link FangsuPsdDraw} 逐字一致：绕方块中心 {@code (0.5, ·, 0.5)} 转
- * {@code NEGATIVE_Y × facing 角度}（blockstate 的 {@code y} 是俯视顺时针）、
+ * {@code NEGATIVE_Y × facing 角度}（blockstate 的 {@code y} 是俯视顺时针；这等价于方速自己的
+ * {@code rotateY(-toRadians(facing.getHorizontal()) + PI)}），
  * {@code RenderLayer.getEntityCutout(贴图)} 直绑贴图（不进方块图集），alpha &lt; 0.1 裁掉；
  * 贴图名以 {@code ltg.png} 结尾的那份（灯带）在注册期被标成 {@code fullBright}，画出来是亮的。
  *
@@ -51,8 +56,10 @@ public class FangsuPsdGlassRenderer implements BlockEntityRenderer<FangsuPsdGlas
         }
         final FangsuPsdGlassDef def = block.def();
         final Map<String, List<RawMesh>> meshes = FangsuPsdBlocks.meshes(def);
-        final List<RawMesh> form = meshes.get(def.form(block.formOf(state)).group());
-        if (form == null) {
+        // 左右两半各一组几何：一格 = 左半（0.5 格）+ 右半（0.5 格）。
+        final List<RawMesh> left = meshes.get(def.leftForm(block.leftFormOf(state)).group());
+        final List<RawMesh> right = meshes.get(def.rightForm(block.rightFormOf(state)).group());
+        if (left == null && right == null) {
             return;
         }
 
@@ -64,7 +71,8 @@ public class FangsuPsdGlassRenderer implements BlockEntityRenderer<FangsuPsdGlas
                 matrices.multiply(RotationAxis.NEGATIVE_Y.rotationDegrees(degreesOf(facing)));
                 matrices.translate(-0.5F, 0.0F, -0.5F);
             }
-            FangsuPsdDraw.drawGroup(matrices, vertexConsumers, form, light, overlay);
+            FangsuPsdDraw.drawGroup(matrices, vertexConsumers, left, light, overlay);
+            FangsuPsdDraw.drawGroup(matrices, vertexConsumers, right, light, overlay);
         } finally {
             matrices.pop();
         }

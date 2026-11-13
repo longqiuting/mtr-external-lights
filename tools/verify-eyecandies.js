@@ -44,6 +44,11 @@ const DESCRIPTORS = [
 ];
 const CORNER_KEYS = ['key13', 'key14'];
 const NO_COLLISION_KEYS = ['qiaodun20'];
+// BRT 栏杆 4 段：薄面（z，约 0.09 格）必须整体贴在方块的一条边上，不能压着格子中线。
+const RAILING_KEYS = ['key4', 'key5', 'key6', 'key7'];
+// 有 facing 属性（放置时按玩家朝向定）的 key —— 与 Java 端 EyecandyBlocks.DIRECTIONAL_KEYS、
+// 生成器 tools/gen-eyecandy-assets.js 的同名集合必须一致。
+const FACING_KEYS = new Set(['key2', 'key3', 'key4', 'key5', 'key6', 'key7', 'key13', 'key14']);
 
 const VERBOSE = process.argv.includes('-v');
 
@@ -366,13 +371,28 @@ function checkEntry(key, entry, seenIds, seenFiles) {
     }
     if (box[1] < -1e-6) fail(`${tag} collision box dips below the floor: minY = ${box[1].toFixed(4)}`);
     if (box[1] > 0.02) fail(`${tag} collision box floats above the floor: minY = ${box[1].toFixed(4)}`);
+
+    if (RAILING_KEYS.includes(key)) {
+      // BRT 栏杆：薄的那一轴必须整体贴在方块的一条边上（min ≈ 0 或 max ≈ 1）。
+      // 「压着格子中线」= 描述文件和变换顺序不匹配（先把 translation 转了 90° 再平移，偏移量
+      // 落到了长轴 / 中线方向上）—— 那种情况下 [min, max] 会跨着 0.5，一眼能看出来。
+      const thin = size[0] <= size[2] ? 0 : 2;
+      const axisName = thin === 0 ? 'x' : 'z';
+      const lo = box[thin];
+      const hi = box[thin + 3];
+      if (Math.min(Math.abs(lo), Math.abs(1 - hi)) > 0.01) {
+        fail(`${tag} railing edge is not flush with a cell edge on ${axisName}: [${lo.toFixed(3)}, ${hi.toFixed(3)}]`
+          + ` (should reach 0 or 1 on the thin axis)`);
+      } else if (lo < 0.5 && hi > 0.5) {
+        fail(`${tag} railing straddles the cell centre line on ${axisName}: [${lo.toFixed(3)}, ${hi.toFixed(3)}]`);
+      } else ok(`${tag} railing flush on ${axisName}: [${lo.toFixed(3)}, ${hi.toFixed(3)}]`);
+    }
   }
 
   // 4) blockstate / 物品模型
-  //    栏杆那几个 key 有 facing 属性（放置时按玩家朝向定，见 EyecandyDirectionalBlock）→
-  //    blockstate 必须写满四个变体（少一个变体原版会把状态判成「未知」直接报错）；
-  //    其余物件单变体 ""。
-  const FACING_KEYS = new Set(['key4', 'key5', 'key6', 'key7', 'key13', 'key14']);
+  //    BRT 屏蔽门左右两扇 + 栏杆那几个 key 有 facing 属性（放置时按玩家朝向定，见
+  //    EyecandyDirectionalBlock）→ blockstate 必须写满四个变体（少一个变体原版会把状态判成
+  //    「未知」直接报错）；其余物件单变体 ""。
   const bsFile = path.join(BLOCKSTATES, id + '.json');
   if (!fs.existsSync(bsFile)) fail(`${tag} missing blockstate ${id}.json`);
   else {
@@ -496,6 +516,19 @@ function main() {
   for (const key of NO_COLLISION_KEYS) {
     if (!blocksSrc.includes(`"${key}"`)) fail(`EyecandyBlocks: no-collision key ${key} not listed`);
     else ok(`no-collision key ${key} listed`);
+  }
+  // facing 集合三处（Java / 生成器 / 本脚本）必须一致：漏一处就是「方块有 facing 但 blockstate
+  // 只有单变体」那种上线才炸的问题。
+  const directionalDecl = blocksSrc.slice(blocksSrc.indexOf('DIRECTIONAL_KEYS ='),
+    blocksSrc.indexOf('DIRECTIONAL_KEYS =') + 400);
+  const genSrc = fs.readFileSync(path.join(__dirname, 'gen-eyecandy-assets.js'), 'utf8');
+  for (const key of FACING_KEYS) {
+    if (!directionalDecl.includes(`"${key}"`)) {
+      fail(`EyecandyBlocks.DIRECTIONAL_KEYS is missing "${key}" (expected by the blockstates)`);
+    } else ok(`directional key ${key} in EyecandyBlocks`);
+    if (!new RegExp(`DIRECTIONAL_KEYS = new Set\\(\\[[^\\]]*'${key}'`).test(genSrc)) {
+      fail(`gen-eyecandy-assets.js DIRECTIONAL_KEYS is missing '${key}'`);
+    } else ok(`directional key ${key} in the generator`);
   }
   const blockSrc = fs.readFileSync(path.join(src, 'xiamen', 'eyecandy', 'EyecandyBlock.java'), 'utf8');
   if (blockSrc.includes('EnumProperty.of("rotation"')) {

@@ -1,4 +1,4 @@
-// 方速屏蔽门的注册点：14 个门方块 + 2 块玻璃板 + 3 个方块实体类型 + 创造页签条目 + OBJ 网格缓存。
+// 方速屏蔽门的注册点：14 个门方块 + 1 块玻璃板 + 3 个方块实体类型 + 创造页签条目 + OBJ 网格缓存。
 package dev.js.mtrheadlight.xiamen.fangsu;
 
 import java.util.ArrayList;
@@ -25,9 +25,9 @@ import net.minecraft.util.Identifier;
 
 /**
  * 方速（fangsu）屏蔽门 —— <b>5 款旋转端门 + 2 款厦门滑动门，各拆左 / 右</b>，共 14 个门方块，
- * 另加 2 块「厦门高」固定玻璃板。
+ * 另加 1 块「厦门高」固定玻璃板。
  *
- * <h2>16 个方块 = 14 个门 + 2 块玻璃板</h2>
+ * <h2>15 个方块 = 14 个门 + 1 块玻璃板（= 一整格）</h2>
  * <table border="1">
  *   <caption>方块 id 与来源</caption>
  *   <tr><th>id</th><th>来源（{@code assets/fangsu/}）</th><th>类型 / 开关方式</th></tr>
@@ -45,9 +45,10 @@ import net.minecraft.util.Identifier;
  *       <td>滑动门 · <b>MTR 列车自动</b></td></tr>
  *   <tr><td>{@code fangsu_psd_screendoor_high_left/_right}</td><td>{@code screendoor/xiamen/high.json}</td>
  *       <td>滑动门 · MTR 列车自动</td></tr>
- *   <tr><td>{@code fangsu_psd_screendoor_high_glass_left/_right}</td>
+ *   <tr><td>{@code fangsu_psd_screendoor_high_glass}</td>
  *       <td>{@code screendoor/xiamen/high.json} 的 {@code glass.left/right}</td>
- *       <td><b>固定玻璃板</b>（{@link FangsuPsdGlassBlock}，4 种形态刷子循环）</td></tr>
+ *       <td><b>固定玻璃板，一个方块 = 一整格</b>（格内左右两个 0.5 格半片同时画；
+ *       {@link FangsuPsdGlassBlock}，左右各 4 种形态、刷子切换）</td></tr>
  * </table>
  *
  * <h2>端门与滑动门是两个方块类（2026-11-13 拆分）</h2>
@@ -84,7 +85,7 @@ public final class FangsuPsdBlocks {
     /** 全部门方块（顺序 = 描述文件的顺序 = 页签里的顺序）。 */
     private static final List<FangsuPsdDef> DEFS = new ArrayList<>();
 
-    /** 玻璃板（{@code glass.left/right}，多形态、不可开合）；排在门后面。 */
+    /** 玻璃板（{@code glass.left/right} 两半同属一格，各 4 种形态、不可开合）；排在门后面。 */
     private static final List<FangsuPsdGlassDef> GLASS_DEFS = new ArrayList<>();
 
     /** 方块 id → 方块（门，两种方块类的公共父类 {@link Block}）。 */
@@ -219,7 +220,7 @@ public final class FangsuPsdBlocks {
 
         // 页签：进「厦门风格物件」（mtrlte:core，由 XiamenObjects 建），排在 eyecandy 之后 ——
         // 这一页本来就是「厦门风格」的大杂烩（屏蔽门 / 闸机 / 栏杆 / 装饰件）。
-        // 顺序 = 门扇那一组 → 玻璃板（左右各一块）。
+        // 顺序 = 门扇那一组 → 玻璃板（厦门高，一个方块 = 一整格）。
         ItemGroupEvents.modifyEntriesEvent(RegistryKey.of(RegistryKeys.ITEM_GROUP, XiamenObjects.CORE_TAB_ID))
                 .register(entries -> {
                     for (final FangsuPsdDef def : DEFS) {

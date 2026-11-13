@@ -13,8 +13,8 @@ import net.minecraft.util.math.Direction;
 import net.minecraft.util.shape.VoxelShape;
 
 /**
- * 会按玩家朝向转的 eyecandy 方块 —— 目前只有 <b>BRT 栏杆</b> 那几段
- * （{@link EyecandyBlocks#DIRECTIONAL_KEYS}：{@code key4 / key5 / key6 / key7 / key13 / key14}）。
+ * 会按玩家朝向转的 eyecandy 方块 —— <b>BRT 屏蔽门左右两扇 + BRT 栏杆</b>
+ * （{@link EyecandyBlocks#DIRECTIONAL_KEYS}：{@code key2 / key3 / key4 / key5 / key6 / key7 / key13 / key14}）。
  *
  * <h2>为什么单独一个类</h2>
  * <p>{@code facing} 只有部分物件有。属性是在 {@code appendProperties} 里注册的，而
@@ -24,10 +24,14 @@ import net.minecraft.util.shape.VoxelShape;
  *
  * <h2>朝向语义（与 MTR 原版屏蔽门一致）</h2>
  * <p>{@code facing = 玩家看的方向}（{@code ItemPlacementContext#getHorizontalPlayerFacing()}，
- * <b>不取反</b>，字节码依据见 {@code FangsuPsdDoorBlock#getPlacementState}）。对栏杆来说这就是
- * 「背对玩家贴边」：栏杆正面朝玩家看的那一侧（玩家对面），走向横在玩家面前。
- * <p>以前 eyecandy 用的是 {@code getOpposite()}（物件正面朝你），用户判成「翻到内侧」；
- * 而且那套还带刷子右键循环 —— 现在<b>只在放置那一刻按玩家朝向定一次，没有刷子旋转</b>。
+ * <b>不取反</b>，字节码依据见 {@code FangsuPsdDoorBlock#getPlacementState}）。
+ *
+ * <p>{@code facing = NORTH} 就是<b>模型原始朝向</b>（0°，矩阵一次都不动）。实测这些物件的原始几何：
+ * BRT 屏蔽门两扇（{@code key2 / key3}）与 BRT 栏杆四段（{@code key4}~{@code key7}）贴在方块
+ * <b>南边</b>（{@code z ≈ 0.9..1}，门扇 / 栏杆挤在最靠 +z 的那条面上），转角栏杆（{@code key13} /
+ * {@code key14}）的拐角在西北角。每 90° 把整件绕方块中心转一步 —— 也就是「朝哪个方向放，
+ * 就整件转到那个方向」，四向里左半扇仍然是左半扇（{@code left.obj}）、右半扇仍然是右半扇
+ * （{@code right.obj}），不做镜像 / 互换。
  *
  * <h2>模型与碰撞盒必须同一个角度</h2>
  * <ul>
@@ -65,7 +69,11 @@ public class EyecandyDirectionalBlock extends EyecandyBlock {
 
     /**
      * 放置：<b>和 MTR 原版屏蔽门同一套</b> —— {@code facing = 玩家看的方向}，不取反。
-     * 玩家朝北放 → 栏杆贴北边（玩家对面那条边），正面朝北。
+     * 玩家朝北放 → 栏杆 / 门扇贴北边（玩家对面那条边），正面朝北。
+     *
+     * <p>BRT 屏蔽门的左 / 右半扇也走这里：它们转的是<b>整扇</b>（rigid rotation），
+     * 四向里左仍然是左、右仍然是右，不做镜像 / 互换。
+     * <p>没有 {@code onUse}：这里<b>不提供刷子右键循环</b>，朝向只在放置那一刻定一次。
      */
     @Override
     public BlockState getPlacementState(final ItemPlacementContext ctx) {

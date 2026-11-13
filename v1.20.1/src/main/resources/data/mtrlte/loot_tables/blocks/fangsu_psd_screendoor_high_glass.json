@@ -6,7 +6,7 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "mtrlte:fangsu_psd_screendoor_high_glass_left"
+          "name": "mtrlte:fangsu_psd_screendoor_high_glass"
         }
       ],
       "conditions": [

@@ -54,6 +54,18 @@ import net.minecraft.util.Identifier;
  *   <li>最后才换算成模型空间 0..16（见上）。</li>
  * </ol>
  *
+ * <p><b>别把顺序改成「先平移后旋转」</b>：这个顺序与 NTE（{@code cn.zbx1425.mtrsteamloco.render.block.
+ * BlockEntityEyeCandyRenderer}）逐条对过 —— 它把 {@code PoseStack} 的矩阵链写成
+ * {@code translate(0.5,0,0.5) → translate(translation) → rotateX → rotateY → rotateZ →
+ * rotateY(facing)}，而 {@code cn.zbx1425.sowcer.math.Matrix4f} 的 {@code translate / rotateX / rotateY /
+ * rotateZ} 全是直接转调 JOML（<b>后乘</b> {@code M = M·T}），所以顶点实际经历的正是
+ * 「先绕模型原点转、再沿方块轴平移」（后乘意味着列表里越靠后的调用对顶点越先生效，于是第 2 步
+ * 先于第 3 步）。
+ * <p>后果：{@code translation} 的轴是<b>转完之后</b>的方块轴。一件 {@code rotation: [0,90,0]} 的模型
+ * 想贴格子边，偏移要写在转完之后的贴边轴上（BRT 栏杆那四件就是这么修的：{@code [0,0,0.4531]}，
+ * 见 {@code EyecandyEntry}）。写成模型自己的轴（{@code [-0.45,0,0]}）只会在长条方向上平移，
+ * 薄面照旧压在格子中线上。
+ *
  * <h2>UV</h2>
  * <ul>
  *   <li>{@code flipV}（两份描述里所有物件都是 {@code true}）→ {@code v' = 1 - v}：

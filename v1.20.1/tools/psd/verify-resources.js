@@ -125,9 +125,10 @@ for (const file of ['low', 'high']) {
   }
 }
 
-// 玻璃板：一个方块多种形态（刷子循环）。形态是否「全都在」是这套东西最容易静默失败的地方 ——
-// 少一条 subModel 就少一种形态，界面上看不出来，只能靠这里对账（素材 glass.left/right 的
-// 每一条 = 一种形态，id 是 door / doorend / glass / longend，auto 那条是规则、没有几何）。
+// 玻璃板：一个方块 = 一整格，格内左右各半个格（两半各 4 种形态，刷子切换）。
+// 形态是否「全都在」是这套东西最容易静默失败的地方 —— 少一条 subModel 就少一种形态，
+// 界面上看不出来，只能靠这里对账（素材 glass.left/right 的每一条 = 一种形态，
+// id 是 door / doorend / glass / longend，auto 那条是规则、没有几何）。
 const GLASS_FORM_KEYS = new Set();
 for (const file of ['high']) {
   const p = path.join(ASSETS, 'fangsu_psd', 'screendoor', 'xiamen', file + '.json');
@@ -136,6 +137,7 @@ for (const file of ['high']) {
   if (!json) continue;
   if (!json.glass) { fail('screendoor/' + file + ': no glass section (forms would be missing)'); continue; }
   const model = checkModel(json.model, 'screendoor/' + file + ' glass');
+  const sides = {};
   for (const side of ['left', 'right']) {
     const forms = [];
     for (const e of json.glass[side] || []) {
@@ -151,8 +153,22 @@ for (const file of ['high']) {
     }
     if (forms.length < 2) fail('glass ' + file + '/' + side + ': only ' + forms.length + ' form(s), expected the 4 material forms');
     if (!forms.includes('glass')) fail('glass ' + file + '/' + side + ': no "glass" form (that is the default state)');
-    blocks.push({ id: 'fangsu_psd_screendoor_' + file + '_glass_' + side, kind: 'glass' });
+    sides[side] = forms;
   }
+  // 左半 x ∈ [8,16]、右半 x ∈ [0,8]：两半各 0.5 格拼成一整格。x 跑到另一半上就是「一格还是两格」搞错了。
+  for (const side of ['left', 'right']) {
+    for (const e of json.glass[side] || []) {
+      if (!e.shape) continue;
+      const xs = e.shape.map((b) => [b[0], b[3]]);
+      if (side === 'left' && xs.some(([x1, x2]) => x2 <= 8)) {
+        fail('glass ' + file + '/left form "' + e.id + '": shape x ' + JSON.stringify(xs) + ' does not reach into x 8..16 (left half)');
+      }
+      if (side === 'right' && xs.some(([x1]) => x1 >= 8)) {
+        fail('glass ' + file + '/right form "' + e.id + '": shape x ' + JSON.stringify(xs) + ' does not stay in x 0..8 (right half)');
+      }
+    }
+  }
+  blocks.push({ id: 'fangsu_psd_screendoor_' + file + '_glass', kind: 'glass' });
 }
 
 // ---------------------------------------------------------------- 2. model json resolver

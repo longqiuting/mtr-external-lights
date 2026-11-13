@@ -83,10 +83,12 @@ import net.minecraft.util.shape.VoxelShape;
  *       的顶面 = 上方桥面的底面，玩家贴着桥面底部放就是一条完整的墩。</li>
  * </ol>
  *
- * <h2>没有朝向</h2>
- * <p>方块只有一种状态（blockstate 单变体 {@code ""}）：没有 {@code ROTATION}、没有刷子旋转、
- * 也没有「四向各一份碰撞盒」。模型烘在 {@code .obj} 里，放下去是什么样子就一直是什么样子
- * （用户原话：「刷子旋转也没什么用，玩家放置的时候自然就转向了」）。
+ * <h2>朝向：只有一部分物件有</h2>
+ * <p>绝大多数方块只有一种状态（blockstate 单变体 {@code ""}）：没有 {@code facing}、没有刷子旋转、
+ * 也没有「四向各一份碰撞盒」。模型烘在 {@code .obj} 里，放下去是什么样子就一直是什么样子。
+ * 例外是 {@link #DIRECTIONAL_KEYS} 那几件（BRT 屏蔽门左右两扇、BRT 栏杆 4 段、两个转角栏杆）：
+ * 它们有 {@code facing} 属性，<b>放置时按玩家朝向定一次</b>，模型与碰撞盒一起转，
+ * 之后<b>没有任何旋转手段</b>（用户原话：「刷子旋转也没什么用，玩家放置的时候自然就转向了」）。
  *
  * <h2>为什么注册期就要读 OBJ</h2>
  * <p>碰撞箱是方块属性，服务端也得有 —— 所以这里在主线程（两端）读 59 个 obj 的顶点算盒子，
@@ -121,20 +123,22 @@ public final class EyecandyBlocks {
     private static final Set<String> NO_COLLISION_KEYS = new LinkedHashSet<>(List.of("qiaodun20"));
 
     /**
-     * 放置时按玩家朝向转的 key（BRT 栏杆 4 段 + 两个转角栏杆）。
+     * 放置时按玩家朝向转的 key（BRT 屏蔽门左右两扇 + BRT 栏杆 4 段 + 两个转角栏杆）。
      *
-     * <p>这几个的几何是「一条长条横在方块里」，单看模型分不出东西南北，只有在世界里按玩家朝向转
-     * 才有意义：朝北放 → 栏杆面朝北（玩家对面那条边），走向横在玩家面前。转的是<b>模型和碰撞盒两
-     * 份</b>（{@link EyecandyBlock#shapeFor} 与 {@link EyecandyRenderer} 用同一个角度）。
+     * <p>这些物件的几何是「一条长条横在方块里」或者「一扇贴在格子边上」，单看模型分不出东西南北，
+     * 只有在世界里按玩家朝向转才有意义：朝北放 → 正面 / 贴边的那个面朝北（玩家对面那条边）。
+     * 转的是<b>模型和碰撞盒两份</b>（{@link EyecandyBlock#shapeFor} 与 {@link EyecandyRenderer}
+     * 用同一个角度）。
      *
      * <p>其余物件（标牌 / 垃圾桶 / 单车 / 桥墩 …）都是「正面朝人看」的独立摆件，保持原样不转 ——
-     * 用户说过刷子旋转没用，所以这里<b>只按放置时的玩家朝向定一次，不提供任何后续旋转手段</b>。
+     * 用户说过刷子旋转没用，所以这里<b>只按放置时的玩家朝向定一次，不提供任何后续旋转手段</b>
+     * （BRT 屏蔽门那两扇也一样：放置时定朝向，<b>没有刷子右键循环</b>）。
      *
-     * <p>没把 BRT 屏蔽门（{@code key2 / key3}）放进来：那两件是「左 / 右」成对的半扇门，几何已经贴
-     * 在方块南边（{@code z ≈ 13..16}），转 180° 会把左右两扇在视觉上互换，得由美术那侧决定。
+     * <p>{@code key2 / key3}（BRT 屏蔽门右 / 左半扇）是「左 / 右」成对的半扇门：转的是<b>整扇</b>
+     * （rigid rotation），左仍然是左、右仍然是右 —— 不做任何镜像 / 互换，四向里两扇配对关系不变。
      */
     private static final Set<String> DIRECTIONAL_KEYS =
-            new LinkedHashSet<>(List.of("key4", "key5", "key6", "key7", "key13", "key14"));
+            new LinkedHashSet<>(List.of("key2", "key3", "key4", "key5", "key6", "key7", "key13", "key14"));
 
     /** 抹零阈值（模型单位）：比 2.5 单位（≈2px）更小的负数当作浮点噪声。 */
     private static final double NUDGE_UNITS = 2.5D;
@@ -209,8 +213,8 @@ public final class EyecandyBlocks {
      * <p>这是「普通物件」那一条规则算出来的整块 AABB —— 转角栏杆与桥墩用另两条规则（见类注释），
      * 这里只当参考值（日志、调试命令、{@code tools/verify-eyecandies.js} 用）。
      * {@code qiaodun20} 会是 {@code y ∈ [-19, 1]}（从放置点往下挂 20 格，墩顶贴放置格顶面），
-     * {@code key4}~{@code key7}（BRT 栏杆）会是 {@code x ∈ [-0.5, 0.6]}（贴边放置，横跨格线）——
-     * 数值超出 0..1 是<b>有意</b>的。
+     * {@code key4}~{@code key7}（BRT 栏杆）会是 {@code z ∈ [0.906, 1]}（薄面贴着方块南边那条面子，
+     * 沿 x 横跨整格并略微顶出去 0.05 格，与相邻段对接）—— 数值超出 0..1 是<b>有意</b>的。
      */
     public static double[] boxOf(final EyecandyEntry entry) {
         final String text = modelText(entry);

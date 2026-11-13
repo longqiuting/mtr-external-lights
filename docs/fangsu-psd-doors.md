@@ -253,10 +253,12 @@ TrainServer#openDoors   0: instanceof mtr/block/BlockPSDAPGDoorBase
    方块本体是 MTR 的 2 格柱（`HALF` 只有 lower/upper），模型从下半段画到 3 格是纯视觉。
    站着的玩家仍被下面 2 格挡住（跳也跳不过去），但第三格那一段穿得过去。
    要把第三格做实，需要重写 `onPlaced` / `onBreak` / 掉落条件改用 3 段柱，风险比收益大，没做。
-2. **玻璃板的 4 种形态已经全都接进来了（2026-11-13）。** `fangsu_psd_screendoor_high_glass_left` /
-   `_right` 就是描述文件里 `glass.left/right`：一个方块存当前形态（blockstate 的 `form` 0..3），
-   **MTR 刷子右键循环**：`door`（带门扇）/ `doorend`（门端板）/ `glass`（纯玻璃，默认）/ `longend`（长端板），
-   见「9. 玻璃板的多种形态」。`auto` 那条「按邻居自动选形态」的规则没搬（没有配置界面，循环更好预测）。
+2. **玻璃板的 4 种形态已经全都接进来了（2026-11-13，同一格两半的改法见「9. 玻璃板的多种形态」）。**
+   `fangsu_psd_screendoor_high_glass` 就是描述文件里 `glass.left/right`，**一个方块 = 一整格**：
+   格内左半、右半各有一个形态下标（blockstate 的 `form_left` / `form_right` 0..3），
+   **MTR 刷子右键改左半、潜行 + 刷子改右半**：`door`（带门扇）/ `doorend`（门端板）/
+   `glass`（纯玻璃，默认）/ `longend`（长端板），见「9. 玻璃板的多种形态」。
+   `auto` 那条「按邻居自动选形态」的规则没搬（没有配置界面，循环更好预测）。
    `screendoor_low` 没有玻璃组（`door_low.obj` 只有 `o left` / `o right`），所以它不出玻璃方块。
    `step` 的正负已按方速的 `translate(-doorVal * step)` 取负（`FangsuPsdDef.loadScreendoor` 一处）。
 3. `shape` 的**高度**仍照搬素材（`drlduanmen` 实物 1.125 格、`shlowduanmen` 1.4375 格，`shape` 都写 25），
@@ -299,11 +301,20 @@ node v1.20.1/tools/psd/verify-resources.js v1.20.1/src/main/resources \
 `https://doc.fangsu.top/screendoor_glass.md`）与反编译的 `BlockEntityScreendoorGlass` 说得很清楚：
 
 * 屏蔽门的玻璃和门在**同一个 `.obj`** 里，`o` 组区分部件；
+* **一个玻璃方块 = 一整格**，格内左右各**半个格（0.5 格）**拼起来（文档原话：「一个玻璃方块是由左右
+  两部分拼接而成的」，是「一个方块的两半」，不是「两个方块」）；
 * 配置 `glass.left[]` / `glass.right[]` 的**每一条就是一个形态**：`id`（唯一名）、`subModel`（= `o` 组名）、
   `shape`（这一形态的碰撞箱，1/16 格）；
-* 方速一个玻璃方块同时画左右两半（`subModelLeft` / `subModelRight`），另有 `glass.auto[]` 一套
-  「按邻居自动选形态」的规则表（`LEFT_BLOCK` / `RIGHT_BLOCK` 是 `SCREENDOOR_DOOR` / `SCREENDOOR_GLASS` / `NULL`）；
+* 方速一个玻璃方块同时画左右两半（`BlockEntityScreendoorGlass` 的 `dhmLeft` / `dhmRight`，
+  `whenRendering()` 里两遍 `drawModel`），碰撞是两半的**并集**（`reloadModelAndShape()` 里
+  `glassShape = shapeLeft ∪ shapeRight`，`getFinalShape()` 只返回它）；另有 `glass.auto[]` 一套
+  「按邻居自动选形态」的规则表（`LEFT_BLOCK` / `RIGHT_BLOCK` 是 `SCREENDOOR_DOOR` / `SCREENDOOR_GLASS` / `NULL`，
+  同一条规则同时给 `left` 和 `right` —— 又一次说明两半属于同一个方块）；
   `whenUseWithBrush` 是「重置成 auto 并重算」。
+
+「一格」的硬证据（`door.obj` 顶点包围盒，单位 = 格，方块中心在原点）：
+`glass_left_glass` x ∈ [−0.5, 0]、`glass_right_glass` x ∈ [0, 0.5] —— 两半各 0.5 格、接缝在方块中心。
+配置的 `shape` 也一样：左 = x 8..16、右 = x 0..8，同一格里各占半边。
 
 `high.json` 里左 / 右各有 4 个真形态（`auto` 那条没有 `subModel` / `shape`，是规则）：
 
@@ -316,14 +327,19 @@ node v1.20.1/tools/psd/verify-resources.js v1.20.1/src/main/resources \
 
 我们的落地（`FangsuPsdGlassDef` + `FangsuPsdGlassBlock`）：
 
-* **一个方块 + blockstate 的 `form` 属性**（0..3，默认取素材里 `glass` 那一档）；`MTR 刷子右键`循环，
-  动作栏提示形态名（`block.mtrlte.fangsu_psd_glass_form.<id>`），潜行 / 别的物品不响应；
-* 几何：`form` → `subModel` → `.obj` 的 `o` 组（`FangsuPsdGlassRenderer` 只画这一组）；
-* 碰撞：`form` × 4 朝向**注册期预烘**（`FangsuPsdGlassBlock#buildShape`，y 不裁 = 一块给 3 格高，
-  x/z 裁到本格），换形态时几何和碰撞一起换；
-* 左右仍拆成两个方块（和 14 块门扇同一个约定）：左块只画 `glass_left_*`，右块只画 `glass_right_*`，
-  两块并排才是一整格；
+* **一个方块 `fangsu_psd_screendoor_high_glass` = 一整格**，格内左右两半同时画：`FangsuPsdGlassRenderer`
+  一次画 `glass_left_<左形态>` + `glass_right_<右形态>` 两组（等于方速的 `dhmLeft` + `dhmRight`）；
+* **两个 blockstate 属性**：`form_left` / `form_right`（各 0..3，默认都取素材里 `glass` 那一档）——
+  `glass.left[]` / `glass.right[]` 是两份独立列表（方速界面上也是两个下拉框），
+  「靠门那半 `door`、另一半纯玻璃」这种真实摆法要能做出来；
+* 操作：`MTR 刷子右键`循环**左半**形态、`潜行 + 刷子`循环**右半**形态，动作栏提示
+  「左半/右半: 形态名」（`block.mtrlte.fangsu_psd_glass_half.*` + `block.mtrlte.fangsu_psd_glass_form.<id>`）；别的物品不响应；
+* 碰撞：`form_left × form_right × 4 朝向`**注册期预烘**（`FangsuPsdGlassBlock#buildShape`，
+  **左半盒子 ∪ 右半盒子** = 一格的并集；y 不裁 = 一块给 3 格高，x/z 裁到本格），换形态时几何和碰撞一起换；
 * `auto` 规则**没搬**：没有配置界面，复刻邻居扫描收益不大，循环更可预测。
+* 旧存档注意：上一版把玻璃拆成了 `..._glass_left` / `..._glass_right` 两个方块，那两个 id 已删除，
+  存档里已放下的玻璃会变成未知方块（贴图/方块实体消失）。
+
 
 ### 之前「门上的贴纸不见了」（第 6 条）查到了什么
 

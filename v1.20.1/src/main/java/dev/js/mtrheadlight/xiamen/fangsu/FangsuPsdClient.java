@@ -11,7 +11,7 @@ import net.fabricmc.fabric.api.client.rendering.v1.BlockEntityRendererRegistry;
  * <ul>
  *   <li>{@code mtrlte:fangsu_psd_door} → {@link FangsuPsdRenderer}（滑动门，MTR 方块实体）；</li>
  *   <li>{@code mtrlte:fangsu_psd_end_door} → {@link FangsuPsdEndDoorRenderer}（端门，驾驶钥匙开关）；</li>
- *   <li>{@code mtrlte:fangsu_psd_glass} → {@link FangsuPsdGlassRenderer}（玻璃板，4 种形态）。</li>
+ *   <li>{@code mtrlte:fangsu_psd_glass} → {@link FangsuPsdGlassRenderer}（玻璃板，一格两半、各 4 种形态）。</li>
  * </ul>
  *
  * <p>三个渲染器的几何绘制都是 {@link FangsuPsdDraw}，差别只有「进度从哪来」。
