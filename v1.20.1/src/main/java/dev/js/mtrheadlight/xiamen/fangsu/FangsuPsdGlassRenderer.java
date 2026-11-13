@@ -26,7 +26,10 @@ import net.minecraft.world.World;
  *       两半各 0.5 格，合起来才是完整一格 —— 不是「两个方块各画一半」；</li>
  *   <li><b>两半的形态各自独立</b>：左半边取 {@link FangsuPsdGlassBlock#FORM_LEFT}，右半边取
  *       {@link FangsuPsdGlassBlock#FORM_RIGHT}（{@code glass.left[]} / {@code glass.right[]} 两份列表），
- *       所以「靠门那半是 {@code door}、另一半是纯玻璃」这种摆法画得出来。</li>
+ *       所以「靠门那半是 {@code door}、另一半是纯玻璃」这种摆法画得出来。
+ *       这两条属性里存的是<b>已求好的形态</b> —— 自动档（{@link FangsuPsdGlassBlock#AUTO_LEFT} /
+ *       {@link FangsuPsdGlassBlock#AUTO_RIGHT}）的那一半由 {@code glass.auto[]} 规则算出结果后写进去，
+ *       所以渲染器不用知道「自动还是手动」，直接按形态画就行（和碰撞盒同一份数据）。</li>
  * </ol>
  * 没有任何门扇变换 —— 玻璃板是不动的。
  *

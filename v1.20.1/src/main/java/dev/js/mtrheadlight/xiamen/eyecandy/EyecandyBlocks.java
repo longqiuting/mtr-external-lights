@@ -58,8 +58,9 @@ import net.minecraft.util.shape.VoxelShape;
  * {@code mtrlte}。
  *
  * <h2>一个 key 一个方块</h2>
- * <p>id = {@code mtrlte:eyecandy_<key 小写>}（{@code key1} / {@code bike2} / {@code qiaodun20} /
- * {@code sign_stand_1} …），中文名直接用描述文件的 {@code name}（写进 {@code lang/zh_cn.json}）。
+ * <p>id = {@code mtrlte:eyecandy_<key>}，key 就是<b>中文名的英译</b>（{@code xiamen_metro_100m_sign} /
+ * {@code shared_bike_luotianyi} / {@code bridge_pier_20} / {@code nanputuo_sign_stand_1} …，
+ * 见描述文件），中文名直接用描述文件的 {@code name}（写进 {@code lang/zh_cn.json}）。
  * 59 个方块共用一个方块实体类型 {@code mtrlte:eyecandy}（渲染器按方块实例上的描述挑网格）。
  *
  * <h2>碰撞箱：三条规则</h2>
@@ -71,13 +72,13 @@ import net.minecraft.util.shape.VoxelShape;
  *       {@code collisionShape} 是 {@code 0,0,0,0,0,0}，高度还统一写成 16 / 24，跟真实几何对不上）。
  *       末尾的「抖动」：{@code -2.5..0} 这种亚像素负数抹成 0；<b>大于 2.5 单位的负值保留</b> ——
  *       那是真伸出去一格的几何（4.875 格长的 BRT 栏杆、20 格高的桥墩）。</li>
- *   <li><b>转角栏杆 → L 形</b>（{@link #CORNER_KEYS}：{@code key13} 适配 MSD 的转角栏杆、
- *       {@code key14} 厦门 BRT 栏杆转角）：这两件<b>不是一整块</b>，直接套 AABB 会把拐角里那块
+ *   <li><b>转角栏杆 → L 形</b>（{@link #CORNER_KEYS}：{@code msd_corner_railing} 适配 MSD 的转角栏杆、
+ *       {@code xiamen_brt_railing_corner} 厦门 BRT 栏杆转角）：这两件<b>不是一整块</b>，直接套 AABB 会把拐角里那块
  *       空地也挡住（而且 BRT 拐角模型本身 4.5 格宽，AABB 连邻居格都算进去了）。做法是从几何
  *       推出方块内 {@code 16 × 16} 的占位格（{@link RawObjParser#footprint}），闭运算补掉 1 单位
  *       的缝，再按行合并成一组盒子（{@link #cornerBoxes}）—— 结果就是两条栏杆的 L，
  *       走廊里既不会有一堵看不见的墙，也不会从栏杆里穿过去。</li>
- *   <li><b>桥墩 → 只有轮廓</b>（{@link #NO_COLLISION_KEYS}：{@code qiaodun20}）：碰撞盒是空集，
+ *   <li><b>桥墩 → 只有轮廓</b>（{@link #NO_COLLISION_KEYS}：{@code bridge_pier_20}）：碰撞盒是空集，
  *       轮廓是一个 1×1×1 的整格框（选中时能看见一格的范围，方便对齐），模型本身按
  *       {@code first.json} 的 {@code "translation": [0, 2, 0]} 从放置点<b>往下挂</b>：墩顶落在放置格
  *       的顶面 = 上方桥面的底面，玩家贴着桥面底部放就是一条完整的墩。</li>
@@ -111,22 +112,26 @@ public final class EyecandyBlocks {
     public static final Identifier ENTITY_ID = new Identifier(NAMESPACE, "eyecandy");
 
     /**
-     * 转角栏杆（要 L 形碰撞箱的 key）：{@code key13} 适配 MSD 的转角栏杆、{@code key14} 厦门 BRT 栏杆转角。
+     * 转角栏杆（要 L 形碰撞箱的 key）：{@code msd_corner_railing} 适配 MSD 的转角栏杆、
+     * {@code xiamen_brt_railing_corner} 厦门 BRT 栏杆转角。
      * <p>两件的几何都是「两条互相垂直的栏杆」，套整格 AABB 会把拐角里的空地挡住。
      */
-    private static final Set<String> CORNER_KEYS = new LinkedHashSet<>(List.of("key13", "key14"));
+    private static final Set<String> CORNER_KEYS =
+            new LinkedHashSet<>(List.of("msd_corner_railing", "xiamen_brt_railing_corner"));
 
     /**
-     * 只要轮廓、不要碰撞的 key：{@code qiaodun20}（20 格高的桥墩）。
+     * 只要轮廓、不要碰撞的 key：{@code bridge_pier_20}（20 格高的桥墩）。
      * <p>轮廓 = 1×1×1 整格框（对齐用），碰撞 = 空集（一格方框不该挡人，真正的墩身是 20 格高的几何）。
      */
-    private static final Set<String> NO_COLLISION_KEYS = new LinkedHashSet<>(List.of("qiaodun20"));
+    private static final Set<String> NO_COLLISION_KEYS = new LinkedHashSet<>(List.of("bridge_pier_20"));
 
     /**
      * 放置时按玩家朝向转的 key（BRT 屏蔽门左右两扇 + BRT 栏杆 4 段 + 两个转角栏杆）。
      *
      * <p>这些物件的几何是「一条长条横在方块里」或者「一扇贴在格子边上」，单看模型分不出东西南北，
-     * 只有在世界里按玩家朝向转才有意义：朝北放 → 正面 / 贴边的那个面朝北（玩家对面那条边）。
+     * 只有在世界里按玩家朝向转才有意义：几何原始贴<b>南</b>边，放置时 {@code facing} 取玩家朝向的
+     * <b>反方向</b>（{@link EyecandyDirectionalBlock#getPlacementState}），所以朝北放 → 整件落到
+     * <b>北边</b>（玩家对面那条边），背对玩家。
      * 转的是<b>模型和碰撞盒两份</b>（{@link EyecandyBlock#shapeFor} 与 {@link EyecandyRenderer}
      * 用同一个角度）。
      *
@@ -134,11 +139,14 @@ public final class EyecandyBlocks {
      * 用户说过刷子旋转没用，所以这里<b>只按放置时的玩家朝向定一次，不提供任何后续旋转手段</b>
      * （BRT 屏蔽门那两扇也一样：放置时定朝向，<b>没有刷子右键循环</b>）。
      *
-     * <p>{@code key2 / key3}（BRT 屏蔽门右 / 左半扇）是「左 / 右」成对的半扇门：转的是<b>整扇</b>
+     * <p>{@code xiamen_brt_psd_right / xiamen_brt_psd_left}（BRT 屏蔽门右 / 左半扇）是「左 / 右」成对的半扇门：转的是<b>整扇</b>
      * （rigid rotation），左仍然是左、右仍然是右 —— 不做任何镜像 / 互换，四向里两扇配对关系不变。
      */
-    private static final Set<String> DIRECTIONAL_KEYS =
-            new LinkedHashSet<>(List.of("key2", "key3", "key4", "key5", "key6", "key7", "key13", "key14"));
+    private static final Set<String> DIRECTIONAL_KEYS = new LinkedHashSet<>(List.of(
+            "xiamen_brt_psd_right", "xiamen_brt_psd_left",
+            "xiamen_brt_railing_middle", "xiamen_brt_railing_left", "xiamen_brt_railing_right",
+            "xiamen_brt_railing_middle_plain",
+            "msd_corner_railing", "xiamen_brt_railing_corner"));
 
     /** 抹零阈值（模型单位）：比 2.5 单位（≈2px）更小的负数当作浮点噪声。 */
     private static final double NUDGE_UNITS = 2.5D;
@@ -212,8 +220,8 @@ public final class EyecandyBlocks {
      *
      * <p>这是「普通物件」那一条规则算出来的整块 AABB —— 转角栏杆与桥墩用另两条规则（见类注释），
      * 这里只当参考值（日志、调试命令、{@code tools/verify-eyecandies.js} 用）。
-     * {@code qiaodun20} 会是 {@code y ∈ [-19, 1]}（从放置点往下挂 20 格，墩顶贴放置格顶面），
-     * {@code key4}~{@code key7}（BRT 栏杆）会是 {@code z ∈ [0.906, 1]}（薄面贴着方块南边那条面子，
+     * {@code bridge_pier_20} 会是 {@code y ∈ [-19, 1]}（从放置点往下挂 20 格，墩顶贴放置格顶面），
+     * {@code xiamen_brt_railing_*}（BRT 栏杆）会是 {@code z ∈ [0.906, 1]}（薄面贴着方块南边那条面子，
      * 沿 x 横跨整格并略微顶出去 0.05 格，与相邻段对接）—— 数值超出 0..1 是<b>有意</b>的。
      */
     public static double[] boxOf(final EyecandyEntry entry) {

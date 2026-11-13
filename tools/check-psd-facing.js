@@ -94,7 +94,7 @@ function main() {
       `                             碰撞 ${fmt(box)}  ${same ? '✓ 重合' : '✗ 错开'}`);
   }
 
-  console.log('\n== eyecandy 栏杆 key4（几何 x ≈ −8..9.6、z 7.25..8.75，长条横在方块里）==');
+  console.log('\n== eyecandy 栏杆 xiamen_brt_railing_middle（几何 x ≈ −8..9.6、z 7.25..8.75，长条横在方块里）==');
   for (const facing of FACINGS) {
     const box = rotSteps([-7.98, 0, 7.25, 9.58, 22, 8.75], BLOCK_ROTATION[facing] / 90);
     const thin = box[3] - box[0] < box[5] - box[2] ? 'x 方向薄 → 走向沿 z（南北）' : 'z 方向薄 → 走向沿 x（东西）';

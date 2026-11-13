@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 离线「俯视平面图」：把 eyecandy 的 .obj 按描述文件的变换摆好，从正上方画成 PNG。
 //
-// 为什么要它：BRT 栏杆（key4~key7）的问题是「厚度方向压在格子中线上」，在 3D 等轴图里
+// 为什么要它：BRT 栏杆（xiamen_brt_railing_*）的问题是「厚度方向压在格子中线上」，在 3D 等轴图里
 // 很难一眼看出它到底贴不贴边 —— 俯视图里格子边线 / 中线都画出来，一眼就能判断。
 //
 // 变换与 Java 端 `RawObjParser.place` 完全同构：scale → rotation(XYZ 欧拉) → translation(格)

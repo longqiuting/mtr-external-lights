@@ -29,77 +29,82 @@ const ITEM_TEX = path.join(RES, 'assets', 'mtrlte', 'textures', 'item');
 // 例外：BRT 屏蔽门左右两扇 + 栏杆那几个 key 有 facing 属性（放置时按玩家朝向定），
 // blockstate 要写满四个变体。
 // 这张表和 Java 端 EyecandyBlocks.DIRECTIONAL_KEYS 必须一致。
-const DIRECTIONAL_KEYS = new Set(['key2', 'key3', 'key4', 'key5', 'key6', 'key7', 'key13', 'key14']);
+const DIRECTIONAL_KEYS = new Set([
+  'xiamen_brt_psd_right', 'xiamen_brt_psd_left',
+  'xiamen_brt_railing_middle', 'xiamen_brt_railing_left', 'xiamen_brt_railing_right',
+  'xiamen_brt_railing_middle_plain',
+  'msd_corner_railing', 'xiamen_brt_railing_corner',
+]);
 
 function isDirectional(key) {
   return DIRECTIONAL_KEYS.has(key);
 }
 
-// 厦门包英文名（英文 / 拼音缩写都行，这里按「别人看得懂」来写）。
+// 厦门包英文名（key = 中文名的英译，这张表只给 en_us 的显示名）。
 const EN_XIAMEN = {
-  key1: 'Xiamen Metro 100 m Sign',
-  key2: 'Xiamen BRT Platform Door (Right)',
-  key3: 'Xiamen BRT Platform Door (Left)',
-  key4: 'Xiamen BRT Railing (Middle)',
-  key5: 'Xiamen BRT Railing (Left)',
-  key6: 'Xiamen BRT Railing (Right)',
-  key7: 'Xiamen BRT Railing (Middle, Untextured)',
-  key8: 'Xiamen Style Bin',
-  key9: 'Generic Stone Bollard',
-  key10: 'Xiamen Metro P+M Kiosk',
-  key11: 'Xiamen BRT Fire Equipment Cabinet',
-  key13: 'Corner Railing (MSD)',
-  key14: 'Xiamen BRT Railing (Corner)',
-  key1145: 'Xiamen Metro 200 m Sign',
-  bike: 'Shared Bike',
-  bike2: 'Shared Bike (Luo Tianyi Blue)',
-  bike3: 'Shared Bike (Yuezheng Ling Red)',
-  bike4: 'Shared Bike (Yuezheng Longya Green)',
-  bike5: 'Shared Bike (Yanhe Blue)',
-  bike6: 'Shared Bike (Zhiyu Moke Blue)',
-  bike7: 'Shared Bike (Mo Qingxian Yellow)',
-  bike8: 'Shared Bike (Hatsune Miku Blue)',
-  qiaodun20: 'Bridge Pier (20 Blocks)',
-  rolling_turning: 'Corner Roller Shutter (Tianjin)',
-  rolling_bottom_turning: 'Corner Roller Shutter Bottom (Tianjin)',
+  xiamen_metro_100m_sign: 'Xiamen Metro 100 m Sign',
+  xiamen_brt_psd_right: 'Xiamen BRT Platform Door (Right)',
+  xiamen_brt_psd_left: 'Xiamen BRT Platform Door (Left)',
+  xiamen_brt_railing_middle: 'Xiamen BRT Railing (Middle)',
+  xiamen_brt_railing_left: 'Xiamen BRT Railing (Left)',
+  xiamen_brt_railing_right: 'Xiamen BRT Railing (Right)',
+  xiamen_brt_railing_middle_plain: 'Xiamen BRT Railing (Middle, Untextured)',
+  xiamen_bin: 'Xiamen Style Bin',
+  stone_bollard: 'Generic Stone Bollard',
+  xiamen_metro_pm_kiosk: 'Xiamen Metro P+M Kiosk',
+  xiamen_brt_fire_cabinet: 'Xiamen BRT Fire Equipment Cabinet',
+  msd_corner_railing: 'Corner Railing (MSD)',
+  xiamen_brt_railing_corner: 'Xiamen BRT Railing (Corner)',
+  xiamen_metro_200m_sign: 'Xiamen Metro 200 m Sign',
+  shared_bike: 'Shared Bike',
+  shared_bike_luotianyi: 'Shared Bike (Luo Tianyi Blue)',
+  shared_bike_lezhengling: 'Shared Bike (Yuezheng Ling Red)',
+  shared_bike_lezhenglongya: 'Shared Bike (Yuezheng Longya Green)',
+  shared_bike_yanhe: 'Shared Bike (Yanhe Blue)',
+  shared_bike_zhiyumoke: 'Shared Bike (Zhiyu Moke Blue)',
+  shared_bike_moqingxian: 'Shared Bike (Mo Qingxian Yellow)',
+  shared_bike_hatsunemiku: 'Shared Bike (Hatsune Miku Blue)',
+  bridge_pier_20: 'Bridge Pier (20 Blocks)',
+  tianjin_rolling_shutter_corner: 'Corner Roller Shutter (Tianjin)',
+  tianjin_rolling_shutter_corner_bottom: 'Corner Roller Shutter Bottom (Tianjin)',
 };
 
-// 南普陀包英文名。
+// 南普陀包英文名（key = nanputuo_ + 中文名的英译）。
 const EN_NANPUTUO = {
-  book_stand: 'Book Stand',
-  digital_display_onwall: 'Digital Display (Wall)',
-  digital_display_stand: 'Digital Display (Standing)',
-  jixiang_box: 'Incense Offering Box',
-  money_box_1: 'Donation Box (Blessing)',
-  money_box_2: 'Donation Box',
-  sign_on_wall_1: 'Notice (Wall, Dharma Goods)',
-  sign_on_wall_2: 'Notice (Wall, Respect the Dharma)',
-  sign_on_wall_small: 'Notice (Wall, Do Not Shake)',
-  sign_stand_1: 'Notice (Standing, Ethnic Unity)',
-  sign_stand_2: 'Notice (Standing, Temple Entry Rules)',
-  sign_stand_3: 'Notice (Standing, Polite Language)',
-  sign_stand_4: 'Notice (Standing, Three Treasures)',
-  sign_stand_5: 'Notice (Standing, Dharma Goods)',
-  sign_stand_6: 'Notice (Standing, Guide Map)',
-  sign_stand_7: 'Notice (Standing, Temple Booking)',
-  sign_stand_8: 'Notice (Standing, Blank)',
-  sign_stand_small_1: 'Small Notice (No Feeding)',
-  sign_stand_small_2: 'Small Notice (Keep Off the Lawn)',
-  sign_stand_small_3: 'Small Notice (Offer Incense Politely)',
-  sign_stand_small_4: 'Small Notice (Entrance / Exit)',
-  stone_zhu: 'Stone Pillar (Blank)',
-  stone_zhu_warning_1: 'Stone Pillar (Do Not Sit, Style 1)',
-  stone_zhu_warning_2: 'Stone Pillar (Do Not Sit, Style 2)',
-  warning_stand_1: 'Warning Sign (No Visitors)',
-  warning_stand_2: 'Warning Sign (Accessible Route)',
-  warning_stand_3: 'Warning Sign (Entrance / Exit)',
-  warning_stand_4: 'Warning Sign (Dharma Goods)',
-  warning_stand_5: 'Warning Sign (No Feeding)',
-  warning_stand_6: 'Warning Sign (Respect the Dharma)',
-  warning_stand_7: 'Warning Sign (No Climbing)',
-  window_1: 'Window, Style 1',
-  window_2: 'Window, Style 2',
-  zhixiang_stand: 'Incense Stand',
+  nanputuo_book_stand: 'Book Stand',
+  nanputuo_digital_display_onwall: 'Digital Display (Wall)',
+  nanputuo_digital_display_stand: 'Digital Display (Standing)',
+  nanputuo_jixiang_box: 'Incense Offering Box',
+  nanputuo_money_box_1: 'Donation Box (Blessing)',
+  nanputuo_money_box_2: 'Donation Box',
+  nanputuo_sign_on_wall_1: 'Notice (Wall, Dharma Goods)',
+  nanputuo_sign_on_wall_2: 'Notice (Wall, Respect the Dharma)',
+  nanputuo_sign_on_wall_small: 'Notice (Wall, Do Not Shake)',
+  nanputuo_sign_stand_1: 'Notice (Standing, Ethnic Unity)',
+  nanputuo_sign_stand_2: 'Notice (Standing, Temple Entry Rules)',
+  nanputuo_sign_stand_3: 'Notice (Standing, Polite Language)',
+  nanputuo_sign_stand_4: 'Notice (Standing, Three Treasures)',
+  nanputuo_sign_stand_5: 'Notice (Standing, Dharma Goods)',
+  nanputuo_sign_stand_6: 'Notice (Standing, Guide Map)',
+  nanputuo_sign_stand_7: 'Notice (Standing, Temple Booking)',
+  nanputuo_sign_stand_8: 'Notice (Standing, Blank)',
+  nanputuo_sign_stand_small_1: 'Small Notice (No Feeding)',
+  nanputuo_sign_stand_small_2: 'Small Notice (Keep Off the Lawn)',
+  nanputuo_sign_stand_small_3: 'Small Notice (Offer Incense Politely)',
+  nanputuo_sign_stand_small_4: 'Small Notice (Entrance / Exit)',
+  nanputuo_stone_zhu: 'Stone Pillar (Blank)',
+  nanputuo_stone_zhu_warning_1: 'Stone Pillar (Do Not Sit, Style 1)',
+  nanputuo_stone_zhu_warning_2: 'Stone Pillar (Do Not Sit, Style 2)',
+  nanputuo_warning_stand_1: 'Warning Sign (No Visitors)',
+  nanputuo_warning_stand_2: 'Warning Sign (Accessible Route)',
+  nanputuo_warning_stand_3: 'Warning Sign (Entrance / Exit)',
+  nanputuo_warning_stand_4: 'Warning Sign (Dharma Goods)',
+  nanputuo_warning_stand_5: 'Warning Sign (No Feeding)',
+  nanputuo_warning_stand_6: 'Warning Sign (Respect the Dharma)',
+  nanputuo_warning_stand_7: 'Warning Sign (No Climbing)',
+  nanputuo_window_1: 'Window, Style 1',
+  nanputuo_window_2: 'Window, Style 2',
+  nanputuo_zhixiang_stand: 'Incense Stand',
 };
 
 const PACKS = [
@@ -118,6 +123,13 @@ function writeIfChanged(file, text) {
   if (fs.existsSync(file) && fs.readFileSync(file, 'utf8') === text) return false;
   fs.writeFileSync(file, text);
   return true;
+}
+
+/** lang 文件按 key 排序写回（补进去的新 id 不会堆在文件末尾，diff 只看真正改动的行）。 */
+function langJson(json) {
+  const sorted = {};
+  for (const key of Object.keys(json).sort()) sorted[key] = json[key];
+  return JSON.stringify(sorted, null, 2) + '\n';
 }
 
 function main() {
@@ -229,7 +241,7 @@ function main() {
       }
     }
     if (dirty) {
-      writeIfChanged(file, JSON.stringify(json, null, 2) + '\n');
+      writeIfChanged(file, langJson(json));
       langWritten++;
     }
   }

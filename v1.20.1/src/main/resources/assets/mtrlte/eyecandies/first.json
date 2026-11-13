@@ -1,302 +1,702 @@
 {
-"key1":{
-"name":"厦门地铁100米指示牌",
-"model":"mtrsteamloco:eyecandies/sign.obj",
-"textureId":"mtrsteamloco:eyecandies/texture.png",
-"flipV":true,
-"shape":"0,0,0,16,16,16/0,0,0,16,16,16",
-"collisionShape":"0,0,0,0,0,0/0,0,0,0,0,0",
-"translation":[0,0,0],
-"rotation":[0,0,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"key2":{
-"name":"厦门BRT屏蔽门右侧",
-"model":"mtrsteamloco:eyecandies/right.obj",
-"textureId":"mtrsteamloco:eyecandies/right.png",
-"flipV":true,
-"shape":"0,0,0,16,24,1/0,0,0,16,24,1",
-"collisionShape":"0,0,0,16,24,1/0,0,0,16,24,1",
-"translation":[0,0,0.40],
-"rotation":[0,0,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"key3":{
-"name":"厦门BRT屏蔽门左侧",
-"model":"mtrsteamloco:eyecandies/left.obj",
-"textureId":"mtrsteamloco:eyecandies/left.png",
-"flipV":true,
-"shape":"0,0,0,16,24,1/0,0,0,16,24,1",
-"collisionShape":"0,0,0,16,24,1/0,0,0,16,24,1",
-"translation":[0,0,0.40],
-"rotation":[0,0,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"key4":{
-"name":"厦门BRT栏杆中部",
-"model":"mtrsteamloco:eyecandies/middle.obj",
-"textureId":"mtrsteamloco:eyecandies/middle.png",
-"flipV":true,
-"shape":"0,0,0,16,24,1/0,0,0,16,24,1",
-"collisionShape":"0,0,0,16,24,1/0,0,0,16,24,1",
-"translation":[0,0,0.4531],
-"rotation":[0,90,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"key5":{
-"name":"厦门BRT栏杆左部",
-"model":"mtrsteamloco:eyecandies/leftlangan.obj",
-"textureId":"mtrsteamloco:eyecandies/leftlangan.png",
-"flipV":true,
-"shape":"0,0,0,16,24,1/0,0,0,16,24,1",
-"collisionShape":"0,0,0,16,24,1/0,0,0,16,24,1",
-"translation":[0,0,0.4531],
-"rotation":[0,90,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"key6":{
-"name":"厦门BRT栏杆右部",
-"model":"mtrsteamloco:eyecandies/rightlangan.obj",
-"textureId":"mtrsteamloco:eyecandies/rightlangan.png",
-"flipV":true,
-"shape":"0,0,0,16,24,1/0,0,0,16,24,1",
-"collisionShape":"0,0,0,16,24,1/0,0,0,16,24,1",
-"translation":[0,0,0.4531],
-"rotation":[0,90,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"key7":{
-"name":"厦门BRT栏杆中部(无贴图）",
-"model":"mtrsteamloco:eyecandies/middle-nontexture.obj",
-"textureId":"mtrsteamloco:eyecandies/middle-nontexture.png",
-"flipV":true,
-"shape":"0,0,0,16,24,1/0,0,0,16,24,1",
-"collisionShape":"0,0,0,16,24,1/0,0,0,16,24,1",
-"translation":[0,0,0.4531],
-"rotation":[0,90,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"key8":{
-"name":"厦门风格垃圾桶",
-"model":"mtrsteamloco:eyecandies/laji.obj",
-"textureId":"mtrsteamloco:eyecandies/texturelaji.png",
-"flipV":true,
-"shape":"0,0,0,16,16,16/0,0,0,16,16,16",
-"collisionShape":"0,0,0,16,16,16/0,0,0,16,16,16",
-"translation":[0,0,0],
-"rotation":[0,0,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"key9":{
-"name":"通用石墩子",
-"model":"mtrsteamloco:eyecandies/barr.obj",
-"textureId":"mtrsteamloco:eyecandies/pasted.png",
-"flipV":true,
-"shape":"0,0,0,16,24,16/0,0,0,16,24,16",
-"collisionShape":"0,0,0,16,24,16/0,0,0,16,24,16",
-"translation":[0,0,0],
-"rotation":[0,0,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"key10":{
-"name":"厦门地铁P+M查询机",
-"model":"mtrsteamloco:eyecandies/pm.obj",
-"textureId":"mtrsteamloco:eyecandies/pmtexture.png",
-"flipV":true,
-"shape":"0,0,0,16,24,16/0,0,0,16,24,16",
-"collisionShape":"0,0,0,16,24,16/0,0,0,16,24,16",
-"translation":[0,0,0],
-"rotation":[0,0,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"key11":{
-"name":"厦门BRT风格消防器材柜",
-"model":"mtrsteamloco:eyecandies/fire.obj",
-"textureId":"mtrsteamloco:eyecandies/texturefire.png",
-"flipV":true,
-"shape":"0,0,0,16,24,16/0,0,0,16,24,16",
-"collisionShape":"0,0,0,16,24,16/0,0,0,16,24,16",
-"translation":[0,0,0],
-"rotation":[0,0,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"key13":{
-"name":"适配MSD的转角栏杆",
-"model":"mtrsteamloco:eyecandies/railing_stair_flat.obj",
-"textureId":"mtrsteamloco:eyecandies/railing.png",
-"flipV":true,
-"shape":"0,0,0,3,22,16/0,0,0,16,22,3",
-"collisionShape":"0,0,0,3,24,16/0,0,0,16,24,3",
-"translation":[0,0,0],
-"rotation":[0,90,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"key14":{
-"name":"厦门BRT栏杆转角",
-"model":"mtrsteamloco:eyecandies/langan_turn.obj",
-"textureId":"mtrsteamloco:eyecandies/middle-nontexture.png",
-"flipV":true,
-"shape":"0,0,0,1,24,16/0,0,0,16,24,1",
-"collisionShape":"0,0,0,1,24,16/0,0,0,16,24,1",
-"translation":[0,0,0],
-"rotation":[0,0,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"key1145":{
-"name":"厦门地铁200米指示牌",
-"model":"mtrsteamloco:eyecandies/signhunderd.obj",
-"textureId":"mtrsteamloco:eyecandies/texture200m.png",
-"flipV":true,
-"shape":"0,0,0,16,16,16/0,0,0,16,16,16",
-"collisionShape":"0,0,0,0,0,0/0,0,0,0,0,0",
-"translation":[0,0,0],
-"rotation":[0,0,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"bike":{
-"name":"通用共享单车",
-"model":"mtrsteamloco:eyecandies/bike.obj",
-"textureId":"mtrsteamloco:eyecandies/bike.png",
-"flipV":true,
-"shape":"0,0,0,16,16,16/0,0,0,16,16,16",
-"collisionShape":"0,0,0,0,0,0/0,0,0,0,0,0",
-"translation":[0,0,0],
-"rotation":[0,0,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"bike2":{
-"name":"共享单车(洛天依蓝）",
-"model":"mtrsteamloco:eyecandies/bike2.obj",
-"textureId":"mtrsteamloco:eyecandies/bike2.png",
-"flipV":true,
-"shape":"0,0,0,16,16,16/0,0,0,16,16,16",
-"collisionShape":"0,0,0,0,0,0/0,0,0,0,0,0",
-"translation":[0,0,0],
-"rotation":[0,0,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"bike3":{
-"name":"共享单车(乐正绫红）",
-"model":"mtrsteamloco:eyecandies/bike3.obj",
-"textureId":"mtrsteamloco:eyecandies/bike3.png",
-"flipV":true,
-"shape":"0,0,0,16,16,16/0,0,0,16,16,16",
-"collisionShape":"0,0,0,0,0,0/0,0,0,0,0,0",
-"translation":[0,0,0],
-"rotation":[0,0,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"bike4":{
-"name":"共享单车(乐正龙牙绿）",
-"model":"mtrsteamloco:eyecandies/bike4.obj",
-"textureId":"mtrsteamloco:eyecandies/bike4.png",
-"flipV":true,
-"shape":"0,0,0,16,16,16/0,0,0,16,16,16",
-"collisionShape":"0,0,0,0,0,0/0,0,0,0,0,0",
-"translation":[0,0,0],
-"rotation":[0,0,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"bike5":{
-"name":"共享单车(言和蓝）",
-"model":"mtrsteamloco:eyecandies/bike5.obj",
-"textureId":"mtrsteamloco:eyecandies/bike5.png",
-"flipV":true,
-"shape":"0,0,0,16,16,16/0,0,0,16,16,16",
-"collisionShape":"0,0,0,0,0,0/0,0,0,0,0,0",
-"translation":[0,0,0],
-"rotation":[0,0,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"bike6":{
-"name":"共享单车(徵羽摩柯蓝）",
-"model":"mtrsteamloco:eyecandies/bike6.obj",
-"textureId":"mtrsteamloco:eyecandies/bike6.png",
-"flipV":true,
-"shape":"0,0,0,16,16,16/0,0,0,16,16,16",
-"collisionShape":"0,0,0,0,0,0/0,0,0,0,0,0",
-"translation":[0,0,0],
-"rotation":[0,0,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"bike7":{
-"name":"共享单车(墨清弦黄）",
-"model":"mtrsteamloco:eyecandies/bike7.obj",
-"textureId":"mtrsteamloco:eyecandies/bike7.png",
-"flipV":true,
-"shape":"0,0,0,16,16,16/0,0,0,16,16,16",
-"collisionShape":"0,0,0,0,0,0/0,0,0,0,0,0",
-"translation":[0,0,0],
-"rotation":[0,0,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"bike8":{
-"name":"共享单车(初音未来蓝）",
-"model":"mtrsteamloco:eyecandies/bike8.obj",
-"textureId":"mtrsteamloco:eyecandies/bike8.png",
-"flipV":true,
-"shape":"0,0,0,16,16,16/0,0,0,16,16,16",
-"collisionShape":"0,0,0,0,0,0/0,0,0,0,0,0",
-"translation":[0,0,0],
-"rotation":[0,0,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"qiaodun20":{
-"name":"桥墩20格高",
-"model":"mtrsteamloco:eyecandies/stand.obj",
-"textureId":"mtrsteamloco:eyecandies/stand.png",
-"flipV":true,
-"shape":"0,0,0,16,16,16/0,0,0,16,16,16",
-"collisionShape":"0,0,0,0,0,0/0,0,0,0,0,0",
-"translation":[0,2,0],
-"rotation":[0,0,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"rolling_turning":{
-"name":"适配天津地铁模组的转角卷帘门",
-"model":"mtrsteamloco:eyecandies/rolling_turning.obj",
-"textureId":"mtrsteamloco:eyecandies/light_gray_concrete.png",
-"flipV":true,
-"shape":"0,0,0,16,16,16/0,0,0,16,16,16",
-"collisionShape":"0,0,0,16,16,16/0,0,0,16,16,16",
-"translation":[0,0,0],
-"rotation":[0,180,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-},
-"rolling_bottom_turning":{
-"name":"适配天津地铁模组的转角卷帘门底部",
-"model":"mtrsteamloco:eyecandies/rolling_bottom_turning.obj",
-"textureId":"mtrsteamloco:eyecandies/light_gray_concrete.png",
-"flipV":true,
-"shape":"0,0,0,16,16,16/0,0,0,16,16,16",
-"collisionShape":"0,0,0,16,16,16/0,0,0,16,16,16",
-"translation":[0,0,0],
-"rotation":[0,180,0],
-"scale":[1,1,1],
-"mirror":[false,false,false]
-}
+  "xiamen_metro_100m_sign": {
+    "name": "厦门地铁100米指示牌",
+    "model": "mtrsteamloco:eyecandies/sign.obj",
+    "textureId": "mtrsteamloco:eyecandies/texture.png",
+    "flipV": true,
+    "shape": "0,0,0,16,16,16/0,0,0,16,16,16",
+    "collisionShape": "0,0,0,0,0,0/0,0,0,0,0,0",
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "xiamen_metro_sign": {
+    "name": "厦门地铁指示牌",
+    "model": "mtrsteamloco:eyecandies/sign.obj",
+    "textureId": "mtrsteamloco:eyecandies/metro_sign.png",
+    "flipV": true,
+    "shape": "0,0,0,16,16,16/0,0,0,16,16,16",
+    "collisionShape": "0,0,0,0,0,0/0,0,0,0,0,0",
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "xiamen_brt_psd_right": {
+    "name": "厦门BRT屏蔽门右侧",
+    "model": "mtrsteamloco:eyecandies/right.obj",
+    "textureId": "mtrsteamloco:eyecandies/right.png",
+    "flipV": true,
+    "shape": "0,0,0,16,24,1/0,0,0,16,24,1",
+    "collisionShape": "0,0,0,16,24,1/0,0,0,16,24,1",
+    "translation": [
+      0,
+      0,
+      0.4
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "xiamen_brt_psd_left": {
+    "name": "厦门BRT屏蔽门左侧",
+    "model": "mtrsteamloco:eyecandies/left.obj",
+    "textureId": "mtrsteamloco:eyecandies/left.png",
+    "flipV": true,
+    "shape": "0,0,0,16,24,1/0,0,0,16,24,1",
+    "collisionShape": "0,0,0,16,24,1/0,0,0,16,24,1",
+    "translation": [
+      0,
+      0,
+      0.4
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "xiamen_brt_railing_middle": {
+    "name": "厦门BRT栏杆中部",
+    "model": "mtrsteamloco:eyecandies/middle.obj",
+    "textureId": "mtrsteamloco:eyecandies/middle.png",
+    "flipV": true,
+    "shape": "0,0,0,16,24,1/0,0,0,16,24,1",
+    "collisionShape": "0,0,0,16,24,1/0,0,0,16,24,1",
+    "translation": [
+      0,
+      0,
+      0.4531
+    ],
+    "rotation": [
+      0,
+      90,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "xiamen_brt_railing_left": {
+    "name": "厦门BRT栏杆左部",
+    "model": "mtrsteamloco:eyecandies/leftlangan.obj",
+    "textureId": "mtrsteamloco:eyecandies/leftlangan.png",
+    "flipV": true,
+    "shape": "0,0,0,16,24,1/0,0,0,16,24,1",
+    "collisionShape": "0,0,0,16,24,1/0,0,0,16,24,1",
+    "translation": [
+      0,
+      0,
+      0.4531
+    ],
+    "rotation": [
+      0,
+      90,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "xiamen_brt_railing_right": {
+    "name": "厦门BRT栏杆右部",
+    "model": "mtrsteamloco:eyecandies/rightlangan.obj",
+    "textureId": "mtrsteamloco:eyecandies/rightlangan.png",
+    "flipV": true,
+    "shape": "0,0,0,16,24,1/0,0,0,16,24,1",
+    "collisionShape": "0,0,0,16,24,1/0,0,0,16,24,1",
+    "translation": [
+      0,
+      0,
+      0.4531
+    ],
+    "rotation": [
+      0,
+      90,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "xiamen_brt_railing_middle_plain": {
+    "name": "厦门BRT栏杆中部(无贴图）",
+    "model": "mtrsteamloco:eyecandies/middle-nontexture.obj",
+    "textureId": "mtrsteamloco:eyecandies/middle-nontexture.png",
+    "flipV": true,
+    "shape": "0,0,0,16,24,1/0,0,0,16,24,1",
+    "collisionShape": "0,0,0,16,24,1/0,0,0,16,24,1",
+    "translation": [
+      0,
+      0,
+      0.4531
+    ],
+    "rotation": [
+      0,
+      90,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "xiamen_bin": {
+    "name": "厦门风格垃圾桶",
+    "model": "mtrsteamloco:eyecandies/laji.obj",
+    "textureId": "mtrsteamloco:eyecandies/texturelaji.png",
+    "flipV": true,
+    "shape": "0,0,0,16,16,16/0,0,0,16,16,16",
+    "collisionShape": "0,0,0,16,16,16/0,0,0,16,16,16",
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "stone_bollard": {
+    "name": "通用石墩子",
+    "model": "mtrsteamloco:eyecandies/barr.obj",
+    "textureId": "mtrsteamloco:eyecandies/pasted.png",
+    "flipV": true,
+    "shape": "0,0,0,16,24,16/0,0,0,16,24,16",
+    "collisionShape": "0,0,0,16,24,16/0,0,0,16,24,16",
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "xiamen_metro_pm_kiosk": {
+    "name": "厦门地铁P+M查询机",
+    "model": "mtrsteamloco:eyecandies/pm.obj",
+    "textureId": "mtrsteamloco:eyecandies/pmtexture.png",
+    "flipV": true,
+    "shape": "0,0,0,16,24,16/0,0,0,16,24,16",
+    "collisionShape": "0,0,0,16,24,16/0,0,0,16,24,16",
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "xiamen_brt_fire_cabinet": {
+    "name": "厦门BRT风格消防器材柜",
+    "model": "mtrsteamloco:eyecandies/fire.obj",
+    "textureId": "mtrsteamloco:eyecandies/texturefire.png",
+    "flipV": true,
+    "shape": "0,0,0,16,24,16/0,0,0,16,24,16",
+    "collisionShape": "0,0,0,16,24,16/0,0,0,16,24,16",
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "msd_corner_railing": {
+    "name": "适配MSD的转角栏杆",
+    "model": "mtrsteamloco:eyecandies/railing_stair_flat.obj",
+    "textureId": "mtrsteamloco:eyecandies/railing.png",
+    "flipV": true,
+    "shape": "0,0,0,3,22,16/0,0,0,16,22,3",
+    "collisionShape": "0,0,0,3,24,16/0,0,0,16,24,3",
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      90,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "xiamen_brt_railing_corner": {
+    "name": "厦门BRT栏杆转角",
+    "model": "mtrsteamloco:eyecandies/langan_turn.obj",
+    "textureId": "mtrsteamloco:eyecandies/middle-nontexture.png",
+    "flipV": true,
+    "shape": "0,0,0,1,24,16/0,0,0,16,24,1",
+    "collisionShape": "0,0,0,1,24,16/0,0,0,16,24,1",
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "shared_bike": {
+    "name": "通用共享单车",
+    "model": "mtrsteamloco:eyecandies/bike.obj",
+    "textureId": "mtrsteamloco:eyecandies/bike.png",
+    "flipV": true,
+    "shape": "0,0,0,16,16,16/0,0,0,16,16,16",
+    "collisionShape": "0,0,0,0,0,0/0,0,0,0,0,0",
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "shared_bike_luotianyi": {
+    "name": "共享单车(洛天依蓝）",
+    "model": "mtrsteamloco:eyecandies/bike2.obj",
+    "textureId": "mtrsteamloco:eyecandies/bike2.png",
+    "flipV": true,
+    "shape": "0,0,0,16,16,16/0,0,0,16,16,16",
+    "collisionShape": "0,0,0,0,0,0/0,0,0,0,0,0",
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "shared_bike_lezhengling": {
+    "name": "共享单车(乐正绫红）",
+    "model": "mtrsteamloco:eyecandies/bike3.obj",
+    "textureId": "mtrsteamloco:eyecandies/bike3.png",
+    "flipV": true,
+    "shape": "0,0,0,16,16,16/0,0,0,16,16,16",
+    "collisionShape": "0,0,0,0,0,0/0,0,0,0,0,0",
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "shared_bike_lezhenglongya": {
+    "name": "共享单车(乐正龙牙绿）",
+    "model": "mtrsteamloco:eyecandies/bike4.obj",
+    "textureId": "mtrsteamloco:eyecandies/bike4.png",
+    "flipV": true,
+    "shape": "0,0,0,16,16,16/0,0,0,16,16,16",
+    "collisionShape": "0,0,0,0,0,0/0,0,0,0,0,0",
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "shared_bike_yanhe": {
+    "name": "共享单车(言和蓝）",
+    "model": "mtrsteamloco:eyecandies/bike5.obj",
+    "textureId": "mtrsteamloco:eyecandies/bike5.png",
+    "flipV": true,
+    "shape": "0,0,0,16,16,16/0,0,0,16,16,16",
+    "collisionShape": "0,0,0,0,0,0/0,0,0,0,0,0",
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "shared_bike_zhiyumoke": {
+    "name": "共享单车(徵羽摩柯蓝）",
+    "model": "mtrsteamloco:eyecandies/bike6.obj",
+    "textureId": "mtrsteamloco:eyecandies/bike6.png",
+    "flipV": true,
+    "shape": "0,0,0,16,16,16/0,0,0,16,16,16",
+    "collisionShape": "0,0,0,0,0,0/0,0,0,0,0,0",
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "shared_bike_moqingxian": {
+    "name": "共享单车(墨清弦黄）",
+    "model": "mtrsteamloco:eyecandies/bike7.obj",
+    "textureId": "mtrsteamloco:eyecandies/bike7.png",
+    "flipV": true,
+    "shape": "0,0,0,16,16,16/0,0,0,16,16,16",
+    "collisionShape": "0,0,0,0,0,0/0,0,0,0,0,0",
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "shared_bike_hatsunemiku": {
+    "name": "共享单车(初音未来蓝）",
+    "model": "mtrsteamloco:eyecandies/bike8.obj",
+    "textureId": "mtrsteamloco:eyecandies/bike8.png",
+    "flipV": true,
+    "shape": "0,0,0,16,16,16/0,0,0,16,16,16",
+    "collisionShape": "0,0,0,0,0,0/0,0,0,0,0,0",
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "bridge_pier_20": {
+    "name": "桥墩20格高",
+    "model": "mtrsteamloco:eyecandies/stand.obj",
+    "textureId": "mtrsteamloco:eyecandies/stand.png",
+    "flipV": true,
+    "shape": "0,0,0,16,16,16/0,0,0,16,16,16",
+    "collisionShape": "0,0,0,0,0,0/0,0,0,0,0,0",
+    "translation": [
+      0,
+      2,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "tianjin_rolling_shutter_corner": {
+    "name": "适配天津地铁模组的转角卷帘门",
+    "model": "mtrsteamloco:eyecandies/rolling_turning.obj",
+    "textureId": "mtrsteamloco:eyecandies/light_gray_concrete.png",
+    "flipV": true,
+    "shape": "0,0,0,16,16,16/0,0,0,16,16,16",
+    "collisionShape": "0,0,0,16,16,16/0,0,0,16,16,16",
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      180,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  },
+  "tianjin_rolling_shutter_corner_bottom": {
+    "name": "适配天津地铁模组的转角卷帘门底部",
+    "model": "mtrsteamloco:eyecandies/rolling_bottom_turning.obj",
+    "textureId": "mtrsteamloco:eyecandies/light_gray_concrete.png",
+    "flipV": true,
+    "shape": "0,0,0,16,16,16/0,0,0,16,16,16",
+    "collisionShape": "0,0,0,16,16,16/0,0,0,16,16,16",
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      180,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "mirror": [
+      false,
+      false,
+      false
+    ]
+  }
 }

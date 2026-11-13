@@ -1,5 +1,5 @@
 {
-"book_stand":{
+"nanputuo_book_stand":{
 "name":"书架",
 "model":"mtrsteamloco:eyecandies/book_stand.obj",
 "textureId":"mtrsteamloco:eyecandies/book_stand.png",
@@ -11,7 +11,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"digital_display_onwall":{
+"nanputuo_digital_display_onwall":{
 "name":"数字显示屏(挂墙)",
 "model":"mtrsteamloco:eyecandies/digital_display_onwall.obj",
 "textureId":"mtrsteamloco:eyecandies/digital_display_onwall.png",
@@ -23,7 +23,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"digital_display_stand":{
+"nanputuo_digital_display_stand":{
 "name":"数字显示屏(直立)",
 "model":"mtrsteamloco:eyecandies/digital_display_stand.obj",
 "textureId":"mtrsteamloco:eyecandies/digital_display_stand.png",
@@ -35,7 +35,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"jixiang_box":{
+"nanputuo_jixiang_box":{
 "name":"寄香盒",
 "model":"mtrsteamloco:eyecandies/jixiang_box.obj",
 "textureId":"mtrsteamloco:eyecandies/jixiang_box.png",
@@ -47,7 +47,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"money_box_1":{
+"nanputuo_money_box_1":{
 "name":"功德箱（纳福）",
 "model":"mtrsteamloco:eyecandies/money_box_1.obj",
 "textureId":"mtrsteamloco:eyecandies/money_box_1.png",
@@ -59,7 +59,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"money_box_2":{
+"nanputuo_money_box_2":{
 "name":"功德箱",
 "model":"mtrsteamloco:eyecandies/money_box_2.obj",
 "textureId":"mtrsteamloco:eyecandies/money_box_2.png",
@@ -71,7 +71,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"sign_on_wall_1":{
+"nanputuo_sign_on_wall_1":{
 "name":"告示牌（挂墙，法物流通处）",
 "model":"mtrsteamloco:eyecandies/sign_on_wall_1.obj",
 "textureId":"mtrsteamloco:eyecandies/sign_on_wall_1.png",
@@ -83,7 +83,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"sign_on_wall_2":{
+"nanputuo_sign_on_wall_2":{
 "name":"告示牌（挂墙，恭敬法宝）",
 "model":"mtrsteamloco:eyecandies/sign_on_wall_2.obj",
 "textureId":"mtrsteamloco:eyecandies/sign_on_wall_2.png",
@@ -95,7 +95,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"sign_on_wall_small":{
+"nanputuo_sign_on_wall_small":{
 "name":"告示牌（挂墙，请勿摇晃）",
 "model":"mtrsteamloco:eyecandies/sign_on_wall_small.obj",
 "textureId":"mtrsteamloco:eyecandies/sign_on_wall_small.png",
@@ -107,7 +107,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"sign_stand_1":{
+"nanputuo_sign_stand_1":{
 "name":"告示牌（直立，促进民族交往）",
 "model":"mtrsteamloco:eyecandies/sign_stand_1.obj",
 "textureId":"mtrsteamloco:eyecandies/sign_stand_1.png",
@@ -119,7 +119,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"sign_stand_2":{
+"nanputuo_sign_stand_2":{
 "name":"告示牌（直立，入寺公告）",
 "model":"mtrsteamloco:eyecandies/sign_stand_2.obj",
 "textureId":"mtrsteamloco:eyecandies/sign_stand_2.png",
@@ -131,7 +131,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"sign_stand_3":{
+"nanputuo_sign_stand_3":{
 "name":"告示牌（直立，文明用语）",
 "model":"mtrsteamloco:eyecandies/sign_stand_3.obj",
 "textureId":"mtrsteamloco:eyecandies/sign_stand_3.png",
@@ -143,7 +143,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"sign_stand_4":{
+"nanputuo_sign_stand_4":{
 "name":"告示牌（直立，文明三宝地）",
 "model":"mtrsteamloco:eyecandies/sign_stand_4.obj",
 "textureId":"mtrsteamloco:eyecandies/sign_stand_4.png",
@@ -155,7 +155,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"sign_stand_5":{
+"nanputuo_sign_stand_5":{
 "name":"告示牌（直立，法物流通处）",
 "model":"mtrsteamloco:eyecandies/sign_stand_5.obj",
 "textureId":"mtrsteamloco:eyecandies/sign_stand_5.png",
@@ -167,7 +167,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"sign_stand_6":{
+"nanputuo_sign_stand_6":{
 "name":"告示牌（直立，导览地图）",
 "model":"mtrsteamloco:eyecandies/sign_stand_6.obj",
 "textureId":"mtrsteamloco:eyecandies/sign_stand_6.png",
@@ -179,7 +179,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"sign_stand_7":{
+"nanputuo_sign_stand_7":{
 "name":"告示牌（直立，预约入寺）",
 "model":"mtrsteamloco:eyecandies/sign_stand_7.obj",
 "textureId":"mtrsteamloco:eyecandies/sign_stand_7.png",
@@ -191,7 +191,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"sign_stand_8":{
+"nanputuo_sign_stand_8":{
 "name":"告示牌（直立，空白）",
 "model":"mtrsteamloco:eyecandies/sign_stand_8.obj",
 "textureId":"mtrsteamloco:eyecandies/sign_stand_8.png",
@@ -203,7 +203,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"sign_stand_small_1":{
+"nanputuo_sign_stand_small_1":{
 "name":"告示牌（直立，小型，谢绝喂食）",
 "model":"mtrsteamloco:eyecandies/sign_stand_small_1.obj",
 "textureId":"mtrsteamloco:eyecandies/sign_stand_small_1.png",
@@ -215,7 +215,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"sign_stand_small_2":{
+"nanputuo_sign_stand_small_2":{
 "name":"告示牌（直立，小型，请勿踩踏草坪）",
 "model":"mtrsteamloco:eyecandies/sign_stand_small_2.obj",
 "textureId":"mtrsteamloco:eyecandies/sign_stand_small_2.png",
@@ -227,7 +227,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"sign_stand_small_3":{
+"nanputuo_sign_stand_small_3":{
 "name":"告示牌（直立，小型，文明敬香）",
 "model":"mtrsteamloco:eyecandies/sign_stand_small_3.obj",
 "textureId":"mtrsteamloco:eyecandies/sign_stand_small_3.png",
@@ -239,7 +239,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"sign_stand_small_4":{
+"nanputuo_sign_stand_small_4":{
 "name":"告示牌（直立，小型，出入口）",
 "model":"mtrsteamloco:eyecandies/sign_stand_small_4.obj",
 "textureId":"mtrsteamloco:eyecandies/sign_stand_small_4.png",
@@ -251,7 +251,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"stone_zhu":{
+"nanputuo_stone_zhu":{
 "name":"石头柱（空白）",
 "model":"mtrsteamloco:eyecandies/stone_zhu.obj",
 "textureId":"mtrsteamloco:eyecandies/stone_zhu.png",
@@ -263,7 +263,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"stone_zhu_warning_1":{
+"nanputuo_stone_zhu_warning_1":{
 "name":"石头柱（请勿就坐，款式一）",
 "model":"mtrsteamloco:eyecandies/stone_zhu_warning_1.obj",
 "textureId":"mtrsteamloco:eyecandies/stone_zhu_warning_1.png",
@@ -275,7 +275,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"stone_zhu_warning_2":{
+"nanputuo_stone_zhu_warning_2":{
 "name":"石头柱（请勿就坐，款式二）",
 "model":"mtrsteamloco:eyecandies/stone_zhu_warning_2.obj",
 "textureId":"mtrsteamloco:eyecandies/stone_zhu_warning_2.png",
@@ -287,7 +287,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"warning_stand_1":{
+"nanputuo_warning_stand_1":{
 "name":"警告牌（谢绝参观）",
 "model":"mtrsteamloco:eyecandies/warning_stand_1.obj",
 "textureId":"mtrsteamloco:eyecandies/warning_stand_1.png",
@@ -299,7 +299,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"warning_stand_2":{
+"nanputuo_warning_stand_2":{
 "name":"警告牌（无障碍通道）",
 "model":"mtrsteamloco:eyecandies/warning_stand_2.obj",
 "textureId":"mtrsteamloco:eyecandies/warning_stand_2.png",
@@ -311,7 +311,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"warning_stand_3":{
+"nanputuo_warning_stand_3":{
 "name":"警告牌（出入口）",
 "model":"mtrsteamloco:eyecandies/warning_stand_3.obj",
 "textureId":"mtrsteamloco:eyecandies/warning_stand_3.png",
@@ -323,7 +323,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"warning_stand_4":{
+"nanputuo_warning_stand_4":{
 "name":"警告牌（法物流通处）",
 "model":"mtrsteamloco:eyecandies/warning_stand_4.obj",
 "textureId":"mtrsteamloco:eyecandies/warning_stand_4.png",
@@ -335,7 +335,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"warning_stand_5":{
+"nanputuo_warning_stand_5":{
 "name":"警告牌（请勿喂食）",
 "model":"mtrsteamloco:eyecandies/warning_stand_5.obj",
 "textureId":"mtrsteamloco:eyecandies/warning_stand_5.png",
@@ -347,7 +347,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"warning_stand_6":{
+"nanputuo_warning_stand_6":{
 "name":"警告牌（恭敬法宝）",
 "model":"mtrsteamloco:eyecandies/warning_stand_6.obj",
 "textureId":"mtrsteamloco:eyecandies/warning_stand_6.png",
@@ -359,7 +359,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"warning_stand_7":{
+"nanputuo_warning_stand_7":{
 "name":"警告牌（禁止攀爬）",
 "model":"mtrsteamloco:eyecandies/warning_stand_7.obj",
 "textureId":"mtrsteamloco:eyecandies/warning_stand_7.png",
@@ -371,7 +371,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"window_1":{
+"nanputuo_window_1":{
 "name":"窗户，款式一",
 "model":"mtrsteamloco:eyecandies/window_1.obj",
 "textureId":"mtrsteamloco:eyecandies/window_1.png",
@@ -383,7 +383,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"window_2":{
+"nanputuo_window_2":{
 "name":"窗户，款式二",
 "model":"mtrsteamloco:eyecandies/window_2.obj",
 "textureId":"mtrsteamloco:eyecandies/window_2.png",
@@ -395,7 +395,7 @@
 "scale":[1,1,1],
 "mirror":[false,false,false]
 },
-"zhixiang_stand":{
+"nanputuo_zhixiang_stand":{
 "name":"置香处（直立）",
 "model":"mtrsteamloco:eyecandies/zhixiang_stand.obj",
 "textureId":"mtrsteamloco:eyecandies/zhixiang_stand.png",

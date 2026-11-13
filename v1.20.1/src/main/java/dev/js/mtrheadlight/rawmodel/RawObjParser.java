@@ -79,10 +79,10 @@ import net.minecraft.util.Identifier;
  * <p>法线用三角形叉积算（保证与绕序一致、背面剔除不会画反）。{@code shade} 按法线的主轴取原版那套
  * {@code down 0.5 / up 1.0 / 南北 0.8 / 东西 0.6} —— OBJ 里没有「自发光」信息，{@code fullBright} 恒为 {@code false}。
  *
- * <h2>整体在放置点以下的模型（qiaodun20，不抬到地面）</h2>
+ * <h2>整体在放置点以下的模型（bridge_pier_20，不抬到地面）</h2>
  * <p>{@code stand.obj}（20 格高的桥墩）的 y 是 {@code -21..-1}：在素材里它是<b>从放置点往下挂</b>的。
  * 这里<b>原样保留</b> —— 不做任何「抬到贴地」的兜底，玩家贴着上方桥面的底面放，桥墩就往下挂，
- * 墩顶正好落在放置格的顶面（{@code first.json} 的 {@code qiaodun20} 用 {@code "translation":[0,2,0]}
+ * 墩顶正好落在放置格的顶面（{@code first.json} 的 {@code bridge_pier_20} 用 {@code "translation":[0,2,0]}
  * 把这 2 格的错位补上：素材的墩顶在放置格底面下 1 格，抬 2 格之后就是放置格顶面 = 桥面底面）。
  *
  * <p>以前这里有一条「整个网格都在 {@code y ≤ 0} 就抬到贴地、再抬 {@code raise} 格」的兜底规则，

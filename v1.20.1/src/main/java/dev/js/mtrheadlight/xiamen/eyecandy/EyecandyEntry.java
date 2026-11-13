@@ -31,7 +31,7 @@ import net.minecraft.util.Identifier;
  * 所以只有描述文件是分开的 —— 一份描述 = 一个页签。
  *
  * <pre>
- * "key1": {
+ * "xiamen_metro_100m_sign": {               // 顶层 key = 方块 id 去掉 mtrlte:eyecandy_ 前缀（中文名的英译）
  *   "name":        "厦门地铁100米指示牌",   // 中文名，直接进 zh_cn.json
  *   "model":       "mtrsteamloco:eyecandies/sign.obj",
  *   "textureId":   "mtrsteamloco:eyecandies/texture.png",
@@ -45,7 +45,7 @@ import net.minecraft.util.Identifier;
  * </pre>
  *
  * <p>物体摆在哪基本由素材决定：模型烘进 {@code .obj} 就那一副样子，位置只靠这里的 {@code translation}
- * 平移 —— 桥墩（{@code qiaodun20}）就是靠 {@code [0,2,0]} 把素材里「挂在放置点以下」的模型
+ * 平移 —— 桥墩（{@code bridge_pier_20}）就是靠 {@code [0,2,0]} 把素材里「挂在放置点以下」的模型
  * 抬到墩顶贴着放置格顶面，玩家贴着上方桥面的底面放，墩身自然往下挂。
  *
  * <p>{@code translation} 是在<b>转过之后</b>的方块坐标轴上生效的（{@code scale → rotation →
@@ -62,8 +62,11 @@ import net.minecraft.util.Identifier;
  * 只把命名空间换成 {@code mtrlte} —— 文件本身已经复制到本模组的
  * {@code assets/mtrlte/eyecandies/} 下，所以资源引用不用再跨模组。
  *
- * <p>{@code blockId} = {@code mtrlte:eyecandy_<key 小写>}（{@code key1145} → {@code eyecandy_key1145}，
- * {@code sign_stand_1} → {@code eyecandy_sign_stand_1}）。
+ * <p>{@code blockId} = {@code mtrlte:eyecandy_<key>}，key 就是<b>中文名的英译</b>，所以 id 一眼能读懂
+ * （{@code xiamen_metro_200m_sign} → {@code eyecandy_xiamen_metro_200m_sign}，
+ * {@code nanputuo_sign_stand_1} → {@code eyecandy_nanputuo_sign_stand_1}）。
+ * 以前那种 {@code key1 / key1145 / qiaodun20} 的编号 key 已经全部废弃 —— 旧存档里放下的方块会变成
+ * 未知方块（id 变了，没有迁移，需重放）。
  */
 public record EyecandyEntry(Pack pack, String key, String displayName, Identifier modelId, Identifier texture,
                             boolean flipV, float[] scale, float[] rotation, float[] translation,

@@ -22,6 +22,7 @@ import net.minecraft.sound.BlockSoundGroup;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.state.StateManager;
+import net.minecraft.state.property.BooleanProperty;
 import net.minecraft.state.property.IntProperty;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
@@ -29,10 +30,12 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
+import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.shape.VoxelShape;
 import net.minecraft.util.shape.VoxelShapes;
 import net.minecraft.world.BlockView;
 import net.minecraft.world.World;
+import net.minecraft.world.WorldAccess;
 
 /**
  * 方速厦门屏蔽门的<b>玻璃板</b>（{@code fangsu_psd_screendoor_high_glass}）——
@@ -47,20 +50,45 @@ import net.minecraft.world.World;
  * 几何也是两半各 0.5 格：{@code glass_left_glass} x ∈ [-0.5, 0]，{@code glass_right_glass}
  * x ∈ [0, 0.5]，接缝在方块中心。
  *
- * <p>所以这里<b>不再</b>有 left / right 两个方块（那是上一版的错误做法）：一块方块同时画
- * {@code glass_left_*} 与 {@code glass_right_*} 两组，碰撞盒是两半 {@code shape} 的<b>并集</b>
- * （{@link #buildShape}）。完整依据见 {@link FangsuPsdGlassDef} 的类注释。
- *
- * <h2>形态：两半各一个下标</h2>
+ * <h2>形态：两半各一个下标 + 两半各一个「自动」开关</h2>
  * <p>{@code glass.left[]} / {@code glass.right[]} 是<b>两份独立的形态列表</b>（方速的
- * {@code getSubModelInfos()} 也是两个下拉框），所以状态里有两个属性：
- * {@link #FORM_LEFT} 与 {@link #FORM_RIGHT}，各自 0..3
- * （{@code door} / {@code doorend} / {@code glass} / {@code longend}）。
- * 「左边紧挨门扇、右边纯玻璃」这种真实摆法就靠它。
+ * {@code getSubModelInfos()} 也是两个下拉框），所以状态里有四个属性：
+ * <ul>
+ *   <li>{@link #FORM_LEFT} / {@link #FORM_RIGHT}：0..3
+ *       （{@code door} / {@code doorend} / {@code glass} / {@code longend}）——
+ *       <b>已经求好的形态</b>，碰撞盒和渲染都直接用它；</li>
+ *   <li>{@link #AUTO_LEFT} / {@link #AUTO_RIGHT}：这一半是不是「自动档」
+ *       （= 方速下拉框里的 {@code auto}）。自动档的形态由
+ *       {@code glass.auto[]} 规则按左右邻居算出来，写在上面那两个属性里；
+ *       手动档（{@code false}）的形态玩家说了算，邻居怎么变都不动。</li>
+ * </ul>
+ * 默认两半都是自动档 —— <b>刚放下就自动和邻居连上</b>，这就是 MTR 原版屏蔽门的那个手感。
  *
- * <p>操作：<b>MTR 刷子右键</b>循环左半形态，<b>潜行 + 刷子右键</b>循环右半形态（动作栏给出当前形态）。
+ * <p>操作：<b>MTR 刷子右键</b>点左半换左半、点右半换右半
+ * （循环顺序 = 下拉框顺序：{@code auto → door → doorend → glass → longend → auto}）；
+ * <b>潜行 + 刷子</b>把这一排（连通的那一串玻璃）全部<b>退回自动档并重连</b>
+ * —— 对方速就是 {@code whenUseWithBrush} 里的 {@code triggerAutoSync}。
  * 别的物品右键完全不响应。形态换了碰撞盒跟着换 —— 两件事都从同一个 {@code shape} 数组来，
  * 不会「看得见摸不着」。
+ *
+ * <h2>邻居自动连接（{@code glass.auto[]}）</h2>
+ * <p>规则表在 {@link FangsuPsdGlassDef#auto()} 里（从素材 {@code glass.auto[]} 原样读出来的），
+ * 求值见 {@link #relink}：正序找第一条命中、且写了这一侧的规则，
+ * 邻居只看「沿屏蔽门这条线、面朝 {@code FACING} 时的左手 / 右手那个方块」是
+ * 门扇 / 玻璃 / 没有（见 {@link #kindAt}）—— 和方速 {@code FacingBlockUtil#getLeftPos} 一致。
+ *
+ * <p>三处触发重算，凑齐「和 MTR 一样」的体验：
+ * <ol>
+ *   <li><b>放置</b>：{@link #getPlacementState} 里就按规则算一次；</li>
+ *   <li><b>邻居变化</b>：{@link #getStateForNeighborUpdate} —— 左右邻居被放 / 拆 / 换，本块跟着重连，
+ *       和 {@code BlockPSDAPGBase} 那套「放下去自己就连上」是同一个做法；</li>
+ *   <li><b>刷子</b>：刷一下顺手把这块和左右相邻玻璃的自动档一起重算（
+ *       {@link #refreshRun}，对方速 {@code notifyNeighborsForAuto}）。</li>
+ * </ol>
+ *
+ * <p>素材这套规则里 {@code doorend} / {@code longend} <b>auto 永远选不到</b>（前 6 条规则覆盖了
+ * 全部分支，{@code "if": "TRUE"} 那条只是兜底）—— 端头形态只能手动刷，和方速只能在下拉框里手选
+ * 是同一个事实。邻居门扇不区分款式（方速的 {@code BlockRelation} 也只认类型）。
  *
  * <h2>为什么单独一个方块类（不继承 {@code BlockPSDAPGDoorBase}）</h2>
  * <ul>
@@ -88,17 +116,32 @@ public class FangsuPsdGlassBlock extends HorizontalFacingBlock implements BlockE
      *
      * <p>上限写死 4：素材里 {@code glass.left} 有 4 条真形态
      * （{@code door / doorend / glass / longend}）。加更多形态时把这里和 {@link #MAX_FORMS} 一起改。
+     * <b>自动档也写在这个属性里</b>（由规则算出来的那个形态），另见 {@link #AUTO_LEFT}。
      */
     public static final IntProperty FORM_LEFT = IntProperty.of("form_left", 0, 3);
 
     /** <b>右半</b>（格内 x 0..8 那半）的当前形态，下标进 {@link FangsuPsdGlassDef#right()}。 */
     public static final IntProperty FORM_RIGHT = IntProperty.of("form_right", 0, 3);
 
+    /**
+     * 左半是不是<b>自动档</b>（方速下拉框里的 {@code auto}）。
+     *
+     * <p>{@code true} = 形态由 {@code glass.auto[]} 按邻居算，邻居一变就重算；
+     * {@code false} = 玩家手动指定的形态，邻居怎么变都不动。
+     */
+    public static final BooleanProperty AUTO_LEFT = BooleanProperty.of("auto_left");
+
+    /** 右半是不是自动档（同 {@link #AUTO_LEFT}）。 */
+    public static final BooleanProperty AUTO_RIGHT = BooleanProperty.of("auto_right");
+
     /** {@link #FORM_LEFT} / {@link #FORM_RIGHT} 的上限 + 1。 */
     private static final int MAX_FORMS = 4;
 
     /** 水平四向的 4 份形状（索引 = {@code facing} 的 90° 倍数 / 90）。 */
     private static final int FACINGS = 4;
+
+    /** 「潜行 + 刷子」整排重连时最多走多少格（防止在超大结构上一个右键卡住）。 */
+    private static final int MAX_RUN = 64;
 
     private final FangsuPsdGlassDef def;
 
@@ -138,7 +181,9 @@ public class FangsuPsdGlassBlock extends HorizontalFacingBlock implements BlockE
         setDefaultState(getStateManager().getDefaultState()
                 .with(FACING, Direction.NORTH)
                 .with(FORM_LEFT, Math.min(MAX_FORMS - 1, def.defaultLeft()))
-                .with(FORM_RIGHT, Math.min(MAX_FORMS - 1, def.defaultRight())));
+                .with(FORM_RIGHT, Math.min(MAX_FORMS - 1, def.defaultRight()))
+                .with(AUTO_LEFT, true)
+                .with(AUTO_RIGHT, true));
     }
 
     /** 这个方块对应的描述（渲染器 / 网格缓存都从这里取）。 */
@@ -146,7 +191,7 @@ public class FangsuPsdGlassBlock extends HorizontalFacingBlock implements BlockE
         return this.def;
     }
 
-    /** 左半现在是第几种形态（越界夹到合法范围）。 */
+    /** 左半现在是第几种形态（越界夹到合法范围）。自动档读到的是规则算好的结果。 */
     public int leftFormOf(final BlockState state) {
         return clampForm(state.contains(FORM_LEFT) ? state.get(FORM_LEFT) : this.def.defaultLeft(),
                 this.def.left().size());
@@ -156,6 +201,28 @@ public class FangsuPsdGlassBlock extends HorizontalFacingBlock implements BlockE
     public int rightFormOf(final BlockState state) {
         return clampForm(state.contains(FORM_RIGHT) ? state.get(FORM_RIGHT) : this.def.defaultRight(),
                 this.def.right().size());
+    }
+
+    /** 左半是不是自动档。 */
+    public static boolean isAutoLeft(final BlockState state) {
+        return state.contains(AUTO_LEFT) && state.get(AUTO_LEFT);
+    }
+
+    /** 右半是不是自动档。 */
+    public static boolean isAutoRight(final BlockState state) {
+        return state.contains(AUTO_RIGHT) && state.get(AUTO_RIGHT);
+    }
+
+    /** 左半用的形态 id（动作栏提示 / 调试用）。 */
+    public String leftKeyOf(final BlockState state) {
+        return isAutoLeft(state) ? FangsuPsdGlassDef.AUTO_KEY
+                : this.def.leftForm(leftFormOf(state)).key();
+    }
+
+    /** 右半用的形态 id。 */
+    public String rightKeyOf(final BlockState state) {
+        return isAutoRight(state) ? FangsuPsdGlassDef.AUTO_KEY
+                : this.def.rightForm(rightFormOf(state)).key();
     }
 
     private static int clampForm(final int stored, final int forms) {
@@ -183,6 +250,9 @@ public class FangsuPsdGlassBlock extends HorizontalFacingBlock implements BlockE
      * 同一套约定，也和渲染器里 {@code NEGATIVE_Y} 那个矩阵是同一个方向）；<b>把 x / z 裁到本格</b>。
      * <b>y 不裁</b>：素材里玻璃板是 {@code y 0..48}，一块方块给出 3 格高的碰撞
      * （轮廓也一起高，选中的框和板一样高）。
+     *
+     * <p>形态自己的盒子决定「哪里是空的」——{@code doorend} 这种只占 {@code z 11..13} 的端板
+     * 就只挡那 2 px，另一半该空的地方真的空着（{@code longend} 反而横跨 {@code z 0..14}）。
      *
      * @param quarters 转几个 90°（不是角度 —— 取值见 {@link #shapeQuarterTurns}）
      */
@@ -270,39 +340,193 @@ public class FangsuPsdGlassBlock extends HorizontalFacingBlock implements BlockE
         };
     }
 
+    // ------------------------------------------------------------------ 邻居自动连接（glass.auto）
+
+    /** 「朝左」= {@code facing.rotateYCounterclockwise()}（方速 {@code getLeftDirection}，north 时是西）。 */
+    private static Direction leftOf(final BlockState state) {
+        return state.get(FACING).rotateYCounterclockwise();
+    }
+
+    /** 「朝右」= {@code facing.rotateYClockwise()}（方速 {@code getRightDirection}）。 */
+    private static Direction rightOf(final BlockState state) {
+        return state.get(FACING).rotateYClockwise();
+    }
+
+    /**
+     * 沿屏蔽门这条线，那个方向上是什么 —— 方速 {@code BlockRelation} 的
+     * {@code LEFT_BLOCK} / {@code RIGHT_BLOCK} 取值。
+     *
+     * <p>三种取值：
+     * <ul>
+     *   <li>{@link FangsuPsdGlassDef#SCREENDOOR_GLASS} 另一块同向玻璃；</li>
+     *   <li>{@link FangsuPsdGlassDef#SCREENDOOR_DOOR} 我们自己的滑动门扇（{@link FangsuPsdDoorBlock}）；</li>
+     *   <li>{@link FangsuPsdGlassDef#NULL} 没有 / 朝向不同（方速不查朝向，这里查 ——
+     *       一堵垂直的玻璃墙不该把这一排连歪，转角处玩家手动刷一下就好）。</li>
+     * </ul>
+     */
+    private static String kindAt(final BlockView world, final BlockPos pos, final Direction facing) {
+        final BlockState state = world.getBlockState(pos);
+        if (state.getBlock() instanceof FangsuPsdGlassBlock) {
+            return state.contains(FACING) && state.get(FACING) == facing
+                    ? FangsuPsdGlassDef.SCREENDOOR_GLASS : FangsuPsdGlassDef.NULL;
+        }
+        if (state.getBlock() instanceof FangsuPsdDoorBlock) {
+            // 门扇没有 FACING（不该发生）时按「是门」算，宁可连上也不要断开。
+            return !state.contains(FACING) || state.get(FACING) == facing
+                    ? FangsuPsdGlassDef.SCREENDOOR_DOOR : FangsuPsdGlassDef.NULL;
+        }
+        return FangsuPsdGlassDef.NULL;
+    }
+
+    /**
+     * 按 {@code glass.auto[]} 求某一半的形态下标。
+     *
+     * <p>方速 {@code recomputeAuto} 是<b>倒序</b>遍历规则、每条命中的都覆盖一次 →
+     * 等价于「正序取第一条命中、且写了这一侧的规则」（先出现的优先级高）。
+     * 一条都没命中时退回素材里的默认形态（{@code id == "glass"}）。
+     *
+     * @param left 求左半（{@code true}）还是右半（{@code false}）
+     */
+    private int resolveAuto(final BlockState state, final BlockView world, final BlockPos pos,
+                            final boolean left) {
+        final Direction facing = state.get(FACING);
+        final String leftBlock = kindAt(world, pos.offset(facing.rotateYCounterclockwise()), facing);
+        final String rightBlock = kindAt(world, pos.offset(facing.rotateYClockwise()), facing);
+        for (final FangsuPsdGlassDef.AutoRule rule : this.def.auto()) {
+            if (!rule.matches(leftBlock, rightBlock)) {
+                continue;
+            }
+            final String key = left ? rule.left() : rule.right();
+            if (key == null) {
+                continue; // 这条规则不管这一侧
+            }
+            final int index = left ? this.def.leftIndexOf(key) : this.def.rightIndexOf(key);
+            if (index >= 0) {
+                return index;
+            }
+        }
+        return left ? this.def.defaultLeft() : this.def.defaultRight();
+    }
+
+    /**
+     * 把自动档的那一半按规则重算一遍（手动档原样保留）。
+     *
+     * <p>没有 {@code world} 的时候就原样返回，调用方（渲染 / 碰撞）不会因为世界拿不到而炸。
+     */
+    BlockState relink(final BlockState state, final BlockView world, final BlockPos pos) {
+        if (world == null || (!isAutoLeft(state) && !isAutoRight(state))) {
+            return state;
+        }
+        BlockState out = state;
+        if (isAutoLeft(state)) {
+            out = out.with(FORM_LEFT, clampForm(resolveAuto(state, world, pos, true), this.def.left().size()));
+        }
+        if (isAutoRight(state)) {
+            out = out.with(FORM_RIGHT, clampForm(resolveAuto(state, world, pos, false), this.def.right().size()));
+        }
+        return out;
+    }
+
+    /**
+     * 邻居变了就把自动档重算一遍 —— 和 {@code BlockPSDAPGBase} 那套「放下去自己就连上」同一个做法。
+     *
+     * <p>只有<b>左右</b>（沿门线那两个方向）的邻居会影响形态，上下 / 前后一律不管。
+     * 返回值变了会让原版自己再写一次方块状态，渲染器（BER）和碰撞盒随之刷新。
+     */
+    @Override
+    public BlockState getStateForNeighborUpdate(final BlockState state, final Direction direction,
+                                                final BlockState neighborState, final WorldAccess world,
+                                                final BlockPos pos, final BlockPos neighborPos) {
+        if (direction != leftOf(state) && direction != rightOf(state)) {
+            return state;
+        }
+        return relink(state, world, pos);
+    }
+
+    /**
+     * 把这一块（以及 {@code forceAuto} 时的整排）的自动档重算一遍，变化的写回世界。
+     *
+     * @param forceAuto {@code true} = 先把两半都打回自动档（「潜行 + 刷子」的整排重连，
+     *                  对应方速 {@code triggerAutoSync(true, true)} + 左右邻居各一半）
+     * @return 真正被改动的方块数
+     */
+    private static int refreshRun(final World world, final BlockPos pos, final boolean forceAuto) {
+        final BlockState start = world.getBlockState(pos);
+        if (!(start.getBlock() instanceof FangsuPsdGlassBlock)) {
+            return 0;
+        }
+        final Direction facing = start.get(FACING);
+        int changed = applyRelink(world, pos, forceAuto) ? 1 : 0;
+        for (final Direction side : new Direction[] {leftOf(start), rightOf(start)}) {
+            BlockPos at = pos;
+            for (int i = 0; i < MAX_RUN; i++) {
+                final BlockPos next = at.offset(side);
+                final BlockState nextState = world.getBlockState(next);
+                if (!(nextState.getBlock() instanceof FangsuPsdGlassBlock)
+                        || !nextState.contains(FACING) || nextState.get(FACING) != facing) {
+                    break;
+                }
+                if (applyRelink(world, next, forceAuto)) {
+                    changed++;
+                }
+                at = next;
+            }
+        }
+        return changed;
+    }
+
+    private static boolean applyRelink(final World world, final BlockPos pos, final boolean forceAuto) {
+        final BlockState state = world.getBlockState(pos);
+        if (!(state.getBlock() instanceof FangsuPsdGlassBlock glass)) {
+            return false;
+        }
+        final BlockState base = forceAuto ? state.with(AUTO_LEFT, true).with(AUTO_RIGHT, true) : state;
+        final BlockState relinked = glass.relink(base, world, pos);
+        if (relinked == state) {
+            return false;
+        }
+        world.setBlockState(pos, relinked, Block.NOTIFY_ALL);
+        return true;
+    }
+
     // ------------------------------------------------------------------ 放置
 
     /**
      * 板子的朝向：<b>和 MTR 原版屏蔽门同一套</b> —— {@code FACING = 玩家看的方向}，几何贴在那条边上
      * （门扇方块 {@link FangsuPsdDoorBlock#getPlacementState} 有完整的 javap 依据）。
      *
-     * <p>原来这里写 {@code getOpposite()}（正面朝玩家），效果就是整块板子翻到玩家这一侧的内侧，
-     * 和门扇一起偏了 180°。现在两者都跟 MTR 一样「贴玩家对面那条边」。
+     * <p>放置时两半都是自动档，并且<b>当场按邻居算一次</b> —— 摆到门扇旁边的那一块直接就是
+     * {@code door / glass}，不用先刷一下。
      *
      * <p>不需要支撑：玻璃板是独立件，方速那边也只要求「和门放在同一条线上」，没有贴墙约束。
      */
     @Override
     public BlockState getPlacementState(final ItemPlacementContext ctx) {
-        return getDefaultState().with(FACING, FangsuPsdPlacement.facingOf(ctx));
+        final BlockState placed = getDefaultState()
+                .with(FACING, FangsuPsdPlacement.facingOf(ctx))
+                .with(AUTO_LEFT, true)
+                .with(AUTO_RIGHT, true);
+        return relink(placed, ctx.getWorld(), ctx.getBlockPos());
     }
 
     @Override
     protected void appendProperties(final StateManager.Builder<Block, BlockState> builder) {
-        builder.add(FACING, FORM_LEFT, FORM_RIGHT);
+        builder.add(FACING, FORM_LEFT, FORM_RIGHT, AUTO_LEFT, AUTO_RIGHT);
     }
 
-    // ------------------------------------------------------------------ 右键：刷子循环（左半 / 右半）
+    // ------------------------------------------------------------------ 右键：刷子换形态（点哪半换哪半）
 
     /**
-     * MTR 刷子右键 = 换<b>左半</b>的下一种形态（循环）；<b>潜行</b> + 刷子 = 换<b>右半</b>。
-     * 别的物品一律不响应。
+     * 刷子右键 = <b>换命中的那一半</b>：点左半换左半、点右半换右半，循环顺序就是方速那个下拉框
+     * （{@code auto → door → doorend → glass → longend → auto}）。<b>潜行 + 刷子</b> = 整排退回自动档
+     * 重连（= 方速 {@code whenUseWithBrush}）。别的物品一律不响应。
      *
-     * <p>为什么不是「整格一起换」：方速的两半是两份独立的形态列表（{@code glass.left[]} /
-     * {@code glass.right[]}，界面里也是两个下拉框），实际摆放时经常只有靠门那一半是
-     * {@code door} / {@code doorend}，另一半是纯玻璃。整格一起换就做不出这种。
+     * <p>为什么按「点中哪半」而不是潜行区分左右：格内两半各 0.5 格、都看得见，点哪半换哪半最直接，
+     * 也不依赖「潜行时客户端会不会吞掉方块交互」这种平台细节。
      *
-     * <p>为什么是循环而不是方速那套「按邻居自动选形态」：我们没有配置界面，智能选型反而让玩家
-     * 猜不到下一次会变成什么；循环 + 动作栏提示最直接（和 eyecandy 以前那套刷子四向旋转同一个手势）。
+     * <p>为什么是循环而不是像方速那样只能开界面选：我们没有配置界面，循环 + 动作栏提示
+     * （显示「哪一半 / 现在是什么形态」，自动档显示成「自动」）。{@code auto} 就在循环里 ——
+     * 转一圈回到自动档，和下拉框里选中 {@code auto} 是同一件事。
      */
     @Override
     public ActionResult onUse(final BlockState state, final World world, final BlockPos pos,
@@ -310,26 +534,71 @@ public class FangsuPsdGlassBlock extends HorizontalFacingBlock implements BlockE
         if (!FangsuPsdInteract.isBrush(player.getStackInHand(hand))) {
             return ActionResult.PASS;
         }
-        final boolean rightHalf = player.isSneaking();
-        final List<FangsuPsdGlassDef.Form> forms = rightHalf ? this.def.right() : this.def.left();
-        final int count = Math.min(MAX_FORMS, forms.size());
-        if (count <= 1) {
-            return ActionResult.PASS;
-        }
         if (world.isClient) {
             return ActionResult.SUCCESS;
         }
-        final int current = rightHalf ? rightFormOf(state) : leftFormOf(state);
-        final int next = (current + 1) % count;
-        world.setBlockState(pos, state.with(rightHalf ? FORM_RIGHT : FORM_LEFT, next), Block.NOTIFY_ALL);
+        if (player.isSneaking()) {
+            // 整排重连：这一串玻璃全部退回自动档，再让自动规则把它连起来。
+            final int changed = refreshRun(world, pos, true);
+            world.playSound(null, pos, SoundEvents.BLOCK_LEVER_CLICK, SoundCategory.BLOCKS, 0.4F, 1.4F);
+            player.sendMessage(Text.translatable("block.mtrlte.fangsu_psd_glass_auto.reconnect", changed),
+                    true);
+            return ActionResult.CONSUME;
+        }
+        final boolean leftHalf = hitLeftHalf(state, hit, pos);
+        final BlockState next = cycleHalf(state, leftHalf);
+        world.setBlockState(pos, next, Block.NOTIFY_ALL);
+        // 顺手把这块（其余自动档的一半）和左右相邻玻璃重算一遍：刷一下整排跟着连。
+        refreshRun(world, pos, false);
         world.playSound(null, pos, SoundEvents.BLOCK_LEVER_CLICK, SoundCategory.BLOCKS, 0.4F,
-                1.0F + next * 0.1F);
-        // 动作栏提示「哪一半 + 现在是什么形态」：刷子是循环的，不给反馈玩家不知道转到第几个了。
-        player.sendMessage(Text.translatable(rightHalf ? "block.mtrlte.fangsu_psd_glass_half.right"
-                        : "block.mtrlte.fangsu_psd_glass_half.left")
+                1.0F + (leftHalf ? 0.0F : 0.1F));
+        player.sendMessage(Text.translatable(leftHalf ? "block.mtrlte.fangsu_psd_glass_half.left"
+                        : "block.mtrlte.fangsu_psd_glass_half.right")
                 .append(Text.literal(": "))
-                .append(Text.translatable(FangsuPsdGlassDef.langKey(forms.get(next).key()))), true);
+                .append(Text.translatable(FangsuPsdGlassDef.langKey(
+                        leftHalf ? leftKeyOf(next) : rightKeyOf(next)))), true);
         return ActionResult.CONSUME;
+    }
+
+    /**
+     * 命中点在方块的哪一半：把命中位置投影到「朝左」那条轴上，正的就是左半。
+     *
+     * <p>朝左 = {@code facing.rotateYCounterclockwise()}，和模型里 {@code glass_left_*} 那 0.5 格
+     * 是同一侧（north 时都在西半）；渲染器和碰撞盒用同一套角度，所以「点哪半」和「看到哪半」一致。
+     */
+    private static boolean hitLeftHalf(final BlockState state, final BlockHitResult hit, final BlockPos pos) {
+        final Direction left = leftOf(state);
+        final Vec3d at = hit.getPos();
+        final double along = (at.x - (pos.getX() + 0.5D)) * left.getOffsetX()
+                + (at.z - (pos.getZ() + 0.5D)) * left.getOffsetZ();
+        return along >= 0.0D;
+    }
+
+    /**
+     * 某一半的下一个状态：自动档 → 第一种手动态（{@code door}）→ … → 最后一种 → 自动档。
+     *
+     * <p>回到自动档后由随后的 {@link #refreshRun} 立刻按规则算一次，动作栏直接显示「自动」，
+     * 玩家不用再刷一遍才看到连接。
+     */
+    private BlockState cycleHalf(final BlockState state, final boolean leftHalf) {
+        final int count = Math.min(MAX_FORMS,
+                (leftHalf ? this.def.left() : this.def.right()).size());
+        final IntProperty form = leftHalf ? FORM_LEFT : FORM_RIGHT;
+        final BooleanProperty auto = leftHalf ? AUTO_LEFT : AUTO_RIGHT;
+        if (count <= 0) {
+            return state;
+        }
+        final boolean currentlyAuto = leftHalf ? isAutoLeft(state) : isAutoRight(state);
+        if (currentlyAuto) {
+            // 自动 → 第一种手动态
+            return state.with(auto, false).with(form, 0);
+        }
+        final int current = leftHalf ? leftFormOf(state) : rightFormOf(state);
+        if (current + 1 < count) {
+            return state.with(auto, false).with(form, current + 1);
+        }
+        // 最后一种 → 回到自动档；具体形态由随后的 refreshRun 按规则重算。
+        return state.with(auto, true);
     }
 
     // ------------------------------------------------------------------ 方块实体
@@ -356,7 +625,7 @@ public class FangsuPsdGlassBlock extends HorizontalFacingBlock implements BlockE
 
         @Override
         public void writeCompoundTag(final net.minecraft.nbt.NbtCompound nbt) {
-            // 什么都不存：形态在 blockstate 的 FORM_LEFT / FORM_RIGHT 里，拆掉再放回来不需要记住任何东西。
+            // 什么都不存：形态和自动档都在 blockstate 的 FORM_* / AUTO_* 里，拆掉再放回来不需要记住任何东西。
         }
     }
 }

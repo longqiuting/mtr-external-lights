@@ -9,9 +9,9 @@
 //   2. 贴图能解码、尺寸 ≤ 1024（超了就说明没有降采样，显存白吃）；
 //   3. 碰撞箱从几何独立重算一遍（**不复用** Java 的代码，公式按 RawObjParser 的约定重写）：
 //        · 普通物件：每轴尺寸 > 0、在 0.02..400 格之间、y 轴最低点 ≈ 0；
-//        · 转角栏杆（key13 / key14）：占位格必须**不是**整块（< 85%），而且要同时有
+//        · 转角栏杆（msd_corner_railing / xiamen_brt_railing_corner）：占位格必须**不是**整块（< 85%），而且要同时有
 //          「贴 x 边」和「贴 z 边」的两条臂 —— 也就是真的 L 形，而不是一个 AABB；
-//        · 桥墩（qiaodun20）：从放置点往下挂（y ∈ [-19, 1]、高 20 格、墩顶贴放置格顶面），
+//        · 桥墩（bridge_pier_20）：从放置点往下挂（y ∈ [-19, 1]、高 20 格、墩顶贴放置格顶面），
 //          不带已废弃的 raise，而且只有轮廓没有碰撞；
 //   4. blockstate 是单变体 ""（指到 mtrlte:block/empty，方块没有朝向属性）、
 //      物品模型是 item/generated + layer0；
@@ -42,13 +42,16 @@ const DESCRIPTORS = [
   { file: 'first.json', expect: 25, label: '厦门风格物件包' },
   { file: 'nanputuo.json', expect: 34, label: '南普陀' },
 ];
-const CORNER_KEYS = ['key13', 'key14'];
-const NO_COLLISION_KEYS = ['qiaodun20'];
+const CORNER_KEYS = ['msd_corner_railing', 'xiamen_brt_railing_corner'];
+const NO_COLLISION_KEYS = ['bridge_pier_20'];
 // BRT 栏杆 4 段：薄面（z，约 0.09 格）必须整体贴在方块的一条边上，不能压着格子中线。
-const RAILING_KEYS = ['key4', 'key5', 'key6', 'key7'];
+const RAILING_KEYS = ['xiamen_brt_railing_middle', 'xiamen_brt_railing_left',
+  'xiamen_brt_railing_right', 'xiamen_brt_railing_middle_plain'];
 // 有 facing 属性（放置时按玩家朝向定）的 key —— 与 Java 端 EyecandyBlocks.DIRECTIONAL_KEYS、
 // 生成器 tools/gen-eyecandy-assets.js 的同名集合必须一致。
-const FACING_KEYS = new Set(['key2', 'key3', 'key4', 'key5', 'key6', 'key7', 'key13', 'key14']);
+const FACING_KEYS = new Set(['xiamen_brt_psd_right', 'xiamen_brt_psd_left',
+  'xiamen_brt_railing_middle', 'xiamen_brt_railing_left', 'xiamen_brt_railing_right',
+  'xiamen_brt_railing_middle_plain', 'msd_corner_railing', 'xiamen_brt_railing_corner']);
 
 const VERBOSE = process.argv.includes('-v');
 
@@ -272,7 +275,7 @@ function checkEntry(key, entry, seenIds, seenFiles) {
   const objName = entry.model.replace(/^.*\//, '');
   const pngName = entry.textureId.replace(/^.*\//, '');
   if (seenFiles.has(objName)) fail(`${tag} duplicate model file name ${objName}`);
-  seenFiles.add(objName); // obj 一件一个；贴图可以两件共用（key14 与 key7 共用 middle-nontexture.png）
+  seenFiles.add(objName); // obj 一件一个；贴图可以两件共用（xiamen_brt_railing_corner 与 xiamen_brt_railing_middle_plain 共用 middle-nontexture.png）
   if (!fs.existsSync(path.join(EYECANDY, objName))) {
     fail(`${tag} missing model ${objName}`);
     return null;
@@ -544,10 +547,10 @@ function main() {
   else ok('XiamenClient calls EyecandyClient.register()');
 
   // 汇总表
-  console.log('\nkey                    id                              size (blocks)          min corner            name');
+  console.log('\nkey                                   id                                               size (blocks)          min corner            name');
   for (const r of rows) {
     const f = (v) => v.toFixed(3).padStart(7);
-    console.log(`${r.key.padEnd(22)} ${r.id.padEnd(31)} ${f(r.size[0])}${f(r.size[1])}${f(r.size[2])}  ${f(r.box[0])}${f(r.box[1])}${f(r.box[2])}  ${r.name}`);
+    console.log(`${r.key.padEnd(36)} ${r.id.padEnd(47)} ${f(r.size[0])}${f(r.size[1])}${f(r.size[2])}  ${f(r.box[0])}${f(r.box[1])}${f(r.box[2])}  ${r.name}`);
   }
 
   console.log(`\n${checks} checks passed, ${failures} failure(s)`);

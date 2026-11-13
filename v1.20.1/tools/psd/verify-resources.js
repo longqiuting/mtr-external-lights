@@ -129,7 +129,7 @@ for (const file of ['low', 'high']) {
 // 形态是否「全都在」是这套东西最容易静默失败的地方 —— 少一条 subModel 就少一种形态，
 // 界面上看不出来，只能靠这里对账（素材 glass.left/right 的每一条 = 一种形态，
 // id 是 door / doorend / glass / longend，auto 那条是规则、没有几何）。
-const GLASS_FORM_KEYS = new Set();
+const GLASS_FORM_KEYS = new Set(['auto']);   // auto = 下拉框第一项 / 刷子循环里的自动档，动作栏也会显示
 for (const file of ['high']) {
   const p = path.join(ASSETS, 'fangsu_psd', 'screendoor', 'xiamen', file + '.json');
   if (!exists(p)) { fail('descriptor missing: ' + path.relative(RES, p)); continue; }
@@ -154,6 +154,30 @@ for (const file of ['high']) {
     if (forms.length < 2) fail('glass ' + file + '/' + side + ': only ' + forms.length + ' form(s), expected the 4 material forms');
     if (!forms.includes('glass')) fail('glass ' + file + '/' + side + ': no "glass" form (that is the default state)');
     sides[side] = forms;
+  }
+  // 邻居规则表 glass.auto[]：形状必须对得上 —— 规则里写的 left/right 必须是这一侧真有的形态 id，
+  // 写错一个名字就会静默退回兜底形态（看起来「自动没生效」，很难查）。
+  const rules = json.glass.auto;
+  if (!Array.isArray(rules) || !rules.length) {
+    fail('glass ' + file + ': no glass.auto[] rule table (neighbour auto-connect would do nothing)');
+  } else {
+    let fallback = false;
+    for (const rule of rules) {
+      if (!rule || rule.if === undefined) { fail('glass ' + file + ' auto: rule without "if"'); continue; }
+      if (rule.if === 'TRUE') fallback = true;
+      for (const side of ['left', 'right']) {
+        const want = rule[side];
+        if (want === undefined) continue;
+        if (!sides[side].includes(want)) {
+          fail('glass ' + file + ' auto: rule "' + JSON.stringify(rule.if) + '" sets ' + side
+            + ' = "' + want + '", which is not one of ' + sides[side].join('/'));
+        }
+      }
+    }
+    if (!fallback) fail('glass ' + file + ' auto: no {"if": "TRUE"} fallback rule');
+    if (!sides.left.includes('glass') || !sides.right.includes('glass')) {
+      fail('glass ' + file + ' auto: fallback form "glass" missing');
+    }
   }
   // 左半 x ∈ [8,16]、右半 x ∈ [0,8]：两半各 0.5 格拼成一整格。x 跑到另一半上就是「一格还是两格」搞错了。
   for (const side of ['left', 'right']) {

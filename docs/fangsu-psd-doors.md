@@ -329,16 +329,50 @@ node v1.20.1/tools/psd/verify-resources.js v1.20.1/src/main/resources \
 
 * **一个方块 `fangsu_psd_screendoor_high_glass` = 一整格**，格内左右两半同时画：`FangsuPsdGlassRenderer`
   一次画 `glass_left_<左形态>` + `glass_right_<右形态>` 两组（等于方速的 `dhmLeft` + `dhmRight`）；
-* **两个 blockstate 属性**：`form_left` / `form_right`（各 0..3，默认都取素材里 `glass` 那一档）——
+* **四个 blockstate 属性**：`form_left` / `form_right`（各 0..3 = 已求好的形态）
+  + `auto_left` / `auto_right`（这一半是不是「自动档」= 方速下拉框里的 `auto`）。
   `glass.left[]` / `glass.right[]` 是两份独立列表（方速界面上也是两个下拉框），
-  「靠门那半 `door`、另一半纯玻璃」这种真实摆法要能做出来；
-* 操作：`MTR 刷子右键`循环**左半**形态、`潜行 + 刷子`循环**右半**形态，动作栏提示
-  「左半/右半: 形态名」（`block.mtrlte.fangsu_psd_glass_half.*` + `block.mtrlte.fangsu_psd_glass_form.<id>`）；别的物品不响应；
+  「靠门那半 `door`、另一半纯玻璃」这种真实摆法要能做出来；**自动档也各管各的**；
+* **刷子语义（左右独立 + 自动连接）**：
+  - `MTR 刷子右键`**点哪半换哪半** —— 命中点投影到「朝左」轴（`facing.rotateYCounterclockwise()`）
+    的正负决定左/右半（`hitLeftHalf`），循环顺序 = 方速下拉框顺序
+    `auto → door → doorend → glass → longend → auto`，动作栏提示「左半/右半: 形态名」
+    （`block.mtrlte.fangsu_psd_glass_half.*` + `block.mtrlte.fangsu_psd_glass_form.<id>`，
+    自动档显示 `block.mtrlte.fangsu_psd_glass_form.auto` = 「自动（按邻居连接）」）；
+  - `潜行 + 刷子` = **整排退回自动档重连**（walk 到同向连续的玻璃串，最多 64 格，
+    先把两半都置回 auto 再按规则重算），这就是方速 `whenUseWithBrush` 的 `triggerAutoSync`；
+  - 别的物品不响应；
+* **邻居自动连接**（`glass.auto[]` 规则表原样从素材读，代码里不写死）：
+  - 触发点三处：**放置**（`getPlacementState` 里当场算一次）、**邻居变化**
+    （`getStateForNeighborUpdate`，只看左右两个沿门线方向）、**刷子**（`refreshRun`）；
+  - 求值：正序取第一条命中、且写了这一侧的规则 —— 等价于方速 `recomputeAuto` 的
+    「规则表倒序遍历、命中就覆盖」（首条优先级最高）；`tools/sim-psd-glass-auto.js` 对 9 种组合
+    逐条比对过两种求值顺序，结果完全一致；
+  - 邻居取值：同向玻璃 = `SCREENDOOR_GLASS`、本模组的滑动门扇 = `SCREENDOOR_DOOR`、其它 / 朝向不同 = `NULL`
+    （方速不查朝向，这里查：一堵垂直的玻璃墙不该把这一排连歪）；
+  - 判定表（`左邻居 × 右邻居 → 左半/右半`）：
+
+    | 左 \ 右 | 门扇 | 玻璃 | 空 |
+    | --- | --- | --- | --- |
+    | **门扇** | `door` / `door` | `door` / `glass` | `door` / `glass` |
+    | **玻璃** | `glass` / `door` | `glass` / `glass` | `glass` / `door` |
+    | **空** | `glass` / `door` | `door` / `glass` | `glass` / `glass` |
+
+    归纳：**左有右有 → `glass/glass`；左有右无 → `glass/door`；左无右有 → `door/glass`；
+    左无右无 → `glass/glass`**。「左边没东西、右边是玻璃」会得到 `door`（规则 5 `LEFT_BLOCK != GLASS`
+    先命中），这是素材规则本身的边角，方速原版一样；不满意就刷一下那一半改成 `longend`。
+    `doorend` / `longend` **auto 永远选不到**（前 6 条规则覆盖了全部分支，`"if": "TRUE"` 那条
+    只是兜底），要端头只能手动刷 —— 和方速只能在下拉框里手选是同一个事实；
 * 碰撞：`form_left × form_right × 4 朝向`**注册期预烘**（`FangsuPsdGlassBlock#buildShape`，
-  **左半盒子 ∪ 右半盒子** = 一格的并集；y 不裁 = 一块给 3 格高，x/z 裁到本格），换形态时几何和碰撞一起换；
-* `auto` 规则**没搬**：没有配置界面，复刻邻居扫描收益不大，循环更可预测。
+  **左半盒子 ∪ 右半盒子** = 一格的并集；y 不裁 = 一块给 3 格高，x/z 裁到本格），
+  换形态时几何和碰撞一起换。北向下各形态（`tools/sim-psd-glass-auto.js` 的输出，1/16 格）：
+  `glass` 厚 1 px（z 3..4）、`door` 2 px 且靠外侧（z 2..4）、`doorend` 2 px 但更靠里（z 3..5）、
+  `longend` 跨满深度（z 2..16）；某个形态只要没给盒子，那部分就是真的空（并集只算有的那几块）；
 * 旧存档注意：上一版把玻璃拆成了 `..._glass_left` / `..._glass_right` 两个方块，那两个 id 已删除，
-  存档里已放下的玻璃会变成未知方块（贴图/方块实体消失）。
+  存档里已放下的玻璃会变成未知方块（贴图/方块实体消失）；上一版的两个属性 `form_left` /
+  `form_right` 名字和值都没变，新增的 `auto_left` / `auto_right` 在旧存档里读不到 ——
+  原版 `NbtHelper.toBlockState` 是从方块默认状态起逐条覆盖，所以老玻璃会拿到默认值 `true`（自动档），
+  下一次邻居更新（旁边放/拆一块玻璃）就自动连上；不想让它变就在刷子循环里手动选一档。
 
 
 ### 之前「门上的贴纸不见了」（第 6 条）查到了什么
