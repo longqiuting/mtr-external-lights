@@ -71,10 +71,12 @@ import net.minecraft.world.World;
  * <h2>本体 + 侧壳（JCM 式两格闸机）</h2>
  * <p>新素材的闸机是「两个柜子夹一条通道」：本体这份 JSON 里柜体在本地 {@code x 12..16}、挡杆一路扫到
  * {@code x -4}，而 {@code *_barrier_side.json} 是<b>同一坐标系</b>里镜像出来的另一个柜体
- * （本地 {@code x -4..0}）—— 也就是「本体旁边那一格」里的柜子。所以放下本体时会自动在
- * {@link #sideOf(Direction)} 那一侧放一个 {@link XiamenTicketGateSide}（同向、贴着脸），
- * 拆一个另一个跟着消失。碰撞：本体的柜体从 MTR 原来的 {@code x 15..16} 放宽到素材实际占的
- * {@code x 12..16}（不然玩家会走进柜子里），挡杆那面墙沿用 MTR 的 {@code z 7..9}（关门才拦人）。
+ * （本地 {@code x -4..0}）—— 也就是「本体旁边那一格」里的柜子。侧壳是<b>独立方块 + 独立物品</b>
+ * （{@link XiamenTicketGates.Side}，地铁 / BRT 各一款，四台本体共用，不分进 / 出），玩家自己摆在
+ * 通道另一侧（几何上的那一侧见 {@link #sideOf(Direction)}）。
+ *
+ * <p>碰撞<b>完全照 JCM 的 {@code TicketBarrier1}</b>：柜体 {@code y 0..24} + 关门时挡杆那面墙
+ * {@code x 0..16 / z 7..9 / y 0..24}，1.5 格高 —— 玩家跳不过去（见 {@link #getCollisionShape}）。
  */
 public class XiamenTicketGate extends BlockTicketBarrier implements BlockEntityProvider {
 
@@ -84,9 +86,6 @@ public class XiamenTicketGate extends BlockTicketBarrier implements BlockEntityP
     /** 用哪一套原始模型（{@code ticket_barrier} = 厦门地铁，{@code brt_barrier} = 厦门BRT）。 */
     private final String rawModel;
 
-    /** 配套的侧壳方块（{@link XiamenTicketGates#register()} 里回填；为 {@code null} 时只放本体）。 */
-    private XiamenTicketGateSide side;
-
     public XiamenTicketGate(final boolean isEntrance, final String rawModel) {
         super(isEntrance);
         this.entrance = isEntrance;
@@ -94,26 +93,18 @@ public class XiamenTicketGate extends BlockTicketBarrier implements BlockEntityP
     }
 
     /**
-     * 侧壳在本体的哪一侧（同向、紧贴的那一格）。
+     * 另一只柜子（侧壳）在本体的哪一侧：素材里侧壳摆在本地 <b>x 为负</b> 的一侧，
+     * 也就是 {@code FACING} 的逆时针邻居（北→西、东→北、南→东、西→南）。
      *
-     * <p>素材里侧壳摆在本地 <b>x 为负</b> 的一侧；渲染器把它转给世界的映射是
-     * {@code y = FACING.getOpposite().asRotation()}（原版 {@code "y"} 语义，见
-     * {@link XiamenTicketGateRenderer}），而原版 {@code "y": n} 等价于「绕 Y 顺时针转 n/90 次」，
-     * 本地 {@code -x}（西）跟着转 n/90 次就是 {@code FACING} 的逆时针邻居 —— 四个朝向逐个验算过：
-     * 北→西、东→北、南→东、西→南。正好就是 {@link Direction#rotateYCounterclockwise()}。
+     * <p>推导：渲染器把模型转给世界的映射是 {@code y = FACING.getOpposite().asRotation()}
+     * （原版 {@code "y"} 语义，见 {@link XiamenTicketGateRenderer}），而原版 {@code "y": n} 等价于
+     * 「绕 Y 顺时针转 n/90 次」，本地 {@code -x}（西）跟着转 n/90 次就是 {@link Direction#rotateYCounterclockwise()}。
+     *
+     * <p>侧壳是<b>独立方块、玩家自己摆</b>（见 {@link XiamenTicketGates.Side}），所以这里只是给
+     * 「通道两侧各一只柜子」这个摆法做几何说明，不再有代码替玩家放下侧壳。
      */
     public static Direction sideOf(final Direction facing) {
         return facing.rotateYCounterclockwise();
-    }
-
-    /** 注册期回填配套侧壳（服务端 / 客户端都要有，见 {@link XiamenTicketGates#register()}）。 */
-    public void setSide(final XiamenTicketGateSide side) {
-        this.side = side;
-    }
-
-    /** 配套侧壳（没有回填时 {@code null}）。 */
-    public XiamenTicketGateSide side() {
-        return this.side;
     }
 
     /** 进站闸机？ */
@@ -128,6 +119,10 @@ public class XiamenTicketGate extends BlockTicketBarrier implements BlockEntityP
 
     // ------------------------------------------------------------------ 碰撞 / 框选
 
+    /** 碰撞盒的高度：**1.5 格**，照 MTR {@code BlockTicketBarrier} / JCM {@code TicketBarrier1} 的 {@code 24}
+     *  （本站之前误写成 16 = 1 格，玩家一跳就过）。 */
+    private static final double COLLISION_TOP = 24.0D;
+
     /**
      * 框选 = 柜体本身（本地 {@code x 12..16}、高 16）：与素材一致，也是 MTR 原本那份轮廓
      * （MTR：{@code 12,0,0 → 16,15,16}），所以这里只是把高度按素材补到 16。
@@ -139,21 +134,39 @@ public class XiamenTicketGate extends BlockTicketBarrier implements BlockEntityP
     }
 
     /**
-     * 碰撞：**完全照 JCM 的闸机**（`TicketBarrier1#getCollisionShape` 字节码里只有
-     * `IBlock.getVoxelShapeByDirection(12, 0, 0, 16, 16, 16, facing)` 一个盒子），即
-     * 「本地 x 12..16、整格深、高 16」的柜体框；关门时再把挡杆那面墙（z 7..9）并上去，
-     * 开门时只剩柜体框，中间 12/16 的通道可以走人。
+     * 碰撞：**完全照 JCM 的闸机**（{@code TicketBarrier1#getCollisionShape} 的字节码）。
+     *
+     * <p>JCM 的方法体只有两个盒子（{@code javap -c} 逐条对下来）：
+     *
+     * <pre>
+     *   A = getVoxelShapeByDirection(15, 0, 0, 16, 24, 16, facing)   // 柜体：整格深、高 24
+     *   open.isOpen() ? A
+     *                 : union(A, getVoxelShapeByDirection(0, 0, 7, 16, 24, 9, facing));  // 挡杆那面墙
+     * </pre>
+     *
+     * <p><b>关键是那个 24</b>（1.5 格）：MTR 的 {@code BlockTicketBarrier} 和 JCM 的 {@code TicketBarrier1}
+     * 用的都是 {@code 24}（{@code javap} 两边逐字节一致），而本站之前的实现误写成 {@code 16}（1 格）——
+     * 玩家跳跃顶点约 1.25 格，1 格高的墙一跳就过去了，这是「能跳过闸机」的唯一原因。
+     * 挡杆那面墙 {@code x 0..16}（整格宽）× {@code z 7..9}（2/16 厚）× {@code y 0..24}，
+     * 关门时把通道从地板一直封到 1.5 格高，开门时整面墙消失、只剩柜体。
+     *
+     * <p>唯一的偏离是柜体的 x：JCM 的柜体占 {@code x 15..16}（1/16），我们这份素材的柜体占
+     * {@code x 12..16}（4/16，见 {@code rawmodels/*_closed.json}），照 JCM 的 15..16 会让玩家走进柜子里 ——
+     * 所以柜体按素材取 {@code 12..16}，高度仍按 JCM 取 24。侧壳那半只柜子在
+     * {@link XiamenTicketGateSide} 里，同样是 24 高。
      */
     @Override
     public VoxelShape getCollisionShape(final BlockState state, final BlockView world, final BlockPos pos,
                                         final ShapeContext context) {
         final Direction facing = state.get(FACING);
-        final VoxelShape frame = IBlock.getVoxelShapeByDirection(12.0D, 0.0D, 0.0D, 16.0D, 16.0D, 16.0D, facing);
+        // 柜体（JCM: 15,0,0 → 16,24,16；本站素材柜体宽 4/16，取 12..16）。
+        final VoxelShape frame = IBlock.getVoxelShapeByDirection(12.0D, 0.0D, 0.0D, 16.0D, COLLISION_TOP, 16.0D, facing);
         if (state.get(OPEN).isOpen()) {
             return frame;
         }
+        // 挡杆那面墙：关门时封死整格（x 0..16、z 7..9），高度同 JCM 的 24 —— 跳不过去。
         return VoxelShapes.union(frame,
-                IBlock.getVoxelShapeByDirection(0.0D, 0.0D, 7.0D, 16.0D, 16.0D, 9.0D, facing));
+                IBlock.getVoxelShapeByDirection(0.0D, 0.0D, 7.0D, 16.0D, COLLISION_TOP, 9.0D, facing));
     }
 
     // ------------------------------------------------------------------ 放置 / 拆除（本体与侧壳互相独立）

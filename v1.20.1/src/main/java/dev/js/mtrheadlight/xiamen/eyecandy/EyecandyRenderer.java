@@ -1,4 +1,4 @@
-// eyecandy 的渲染器：按方块实例上的描述取 OBJ 网格，再按 blockstate 的 rotation 绕方块中心转一次。
+// eyecandy 的渲染器：按方块实例上的描述取 OBJ 网格，原样画在方块位置（没有朝向 / 没有旋转）。
 package dev.js.mtrheadlight.xiamen.eyecandy;
 
 import dev.js.mtrheadlight.rawmodel.RawMesh;
@@ -10,8 +10,6 @@ import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.render.block.entity.BlockEntityRenderer;
 import net.minecraft.client.render.block.entity.BlockEntityRendererFactory;
 import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.RotationAxis;
 import net.minecraft.world.World;
 
 /**
@@ -19,14 +17,9 @@ import net.minecraft.world.World;
  *
  * <h2>画什么</h2>
  * <p>方块实例上的 {@link EyecandyEntry} → {@link EyecandyBlocks#mesh} → {@code assets/mtrlte/eyecandies/*.obj}
- * 解析出来的 {@link RawMesh}。{@code scale / rotation / translation / raise} 已经在解析期烘进顶点
- * （见 {@code RawObjParser}），所以这里只做<b>一件事</b>：按 blockstate 的
- * {@link EyecandyBlock#ROTATION} 绕方块中心（{@code (0.5, ·, 0.5)}）转 {@code 0 / 90 / 180 / 270}。
+ * 解析出来的 {@link RawMesh}。{@code scale / rotation / translation} 已经在解析期烘进顶点
+ * （见 {@code RawObjParser}），方块本身也没有朝向属性，所以这里<b>什么矩阵都不用动</b>：
  * BER 的 {@code matrices} 原点就是方块西北下角，网格本身在模型空间 0..16 里摆好了。
- *
- * <p>转角与 {@link EyecandyBlock#shapeOf} 用的是同一个数（{@link EyecandyBlock#blockRotation}）：
- * blockstate 的 {@code y} 是「从上往下看顺时针」，JOML 的正角是逆时针，所以这里用
- * {@code NEGATIVE_Y}（和 {@code dep_on_roof} / 站外标志同一套写法）。
  *
  * <h2>渲染层</h2>
  * <p>{@code RenderLayer.getEntityCutout(texture)}（{@link RawModelRenderer#cutoutLayer} 按贴图缓存了
@@ -59,22 +52,8 @@ public class EyecandyRenderer implements BlockEntityRenderer<EyecandyBlockEntity
         if (mesh == null) {
             return;
         }
-        final Direction rotation = state.contains(EyecandyBlock.ROTATION)
-                ? state.get(EyecandyBlock.ROTATION) : Direction.NORTH;
         final RenderLayer layer = RawModelRenderer.cutoutLayer(mesh);
         final VertexConsumer consumer = vertexConsumers.getBuffer(layer);
-        if (rotation == Direction.NORTH) {
-            RawModelRenderer.render(matrices, consumer, mesh, light, overlay);
-            return;
-        }
-        matrices.push();
-        try {
-            matrices.translate(0.5F, 0.0F, 0.5F);
-            matrices.multiply(RotationAxis.NEGATIVE_Y.rotationDegrees(EyecandyBlock.blockRotation(rotation)));
-            matrices.translate(-0.5F, 0.0F, -0.5F);
-            RawModelRenderer.render(matrices, consumer, mesh, light, overlay);
-        } finally {
-            matrices.pop();
-        }
+        RawModelRenderer.render(matrices, consumer, mesh, light, overlay);
     }
 }

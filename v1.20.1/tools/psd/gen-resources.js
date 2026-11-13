@@ -8,56 +8,6 @@ const ASSETS = path.join(RES, 'assets/mtrlte');
 const PSD = path.join(ASSETS, 'fangsu_psd');
 const DATA = path.join(RES, 'data/mtrlte');
 
-// ---------------------------------------------------------------- obj/mtl helpers
-function objGroups(text) {
-  const verts = [];
-  const uvs = [];
-  let group = '';
-  let mat = '';
-  const groups = new Map();
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith('#')) continue;
-    const sp = line.indexOf(' ');
-    const kw = sp < 0 ? line : line.slice(0, sp);
-    const rest = sp < 0 ? '' : line.slice(sp + 1).trim();
-    if (kw === 'v') verts.push(rest.split(/\s+/).map(Number));
-    else if (kw === 'vt') uvs.push(rest.split(/\s+/).map(Number));
-    else if (kw === 'usemtl') mat = rest;
-    else if (kw === 'o' || kw === 'g') group = rest;
-    else if (kw === 'f') {
-      let g = groups.get(group);
-      if (!g) { g = { min: [1e9, 1e9, 1e9], max: [-1e9, -1e9, -1e9], uvMin: [1e9, 1e9], uvMax: [-1e9, -1e9], perMat: new Map() }; groups.set(group, g); }
-      const faces = rest.split(/\s+/).length;
-      g.perMat.set(mat, (g.perMat.get(mat) || 0) + faces);
-      for (const corner of rest.split(/\s+/)) {
-        const [vi, ti] = corner.split('/').map((s) => (s === '' || s === undefined ? NaN : parseInt(s, 10)));
-        const v = verts[vi - 1];
-        if (v) for (let a = 0; a < 3; a++) { g.min[a] = Math.min(g.min[a], v[a]); g.max[a] = Math.max(g.max[a], v[a]); }
-        const uv = uvs[ti - 1];
-        if (uv) { g.uvMin[0] = Math.min(g.uvMin[0], uv[0]); g.uvMin[1] = Math.min(g.uvMin[1], uv[1]); g.uvMax[0] = Math.max(g.uvMax[0], uv[0]); g.uvMax[1] = Math.max(g.uvMax[1], uv[1]); }
-      }
-    }
-  }
-  return groups;
-}
-
-function mtlMaps(mtlPath) {
-  const out = new Map();
-  let mat = null;
-  for (const raw of fs.readFileSync(mtlPath, 'utf8').split(/\r?\n/)) {
-    const line = raw.trim();
-    if (line.startsWith('newmtl ')) mat = line.slice(7).trim();
-    else if (line.startsWith('map_Kd ') && mat) out.set(mat, line.slice(7).trim());
-  }
-  return out;
-}
-
-// obj units (1 unit = 1 block, xz centred) -> model units 0..16
-const mx = (v) => v * 16 + 8;
-const mz = (v) => v * 16 + 8;
-const my = (v) => v * 16;
-
 // ---------------------------------------------------------------- definitions
 const DEFS = [];
 
@@ -84,6 +34,7 @@ for (const file of ['brtduanmen', 'mtrduanmen', 'drlduanmen', 'shlowduanmen', 's
       zh, en,
       obj: entry.model.replace('mtrlte:', ''),
       groups: [entry.subModels.main, entry.subModels.door],
+      flipV: entry.flipV !== false,
     });
   }
 }
@@ -104,6 +55,7 @@ for (const file of ['low', 'high']) {
       en: 'Fangsu platform screen door Xiamen ' + labelEn + ' (' + side + ')',
       obj: json.model.replace('mtrlte:', ''),
       groups,
+      flipV: json.flipV !== false,
     });
   }
 }
@@ -123,76 +75,10 @@ for (const def of DEFS) {
   fs.writeFileSync(path.join(BS_DIR, def.id + '.json'),
     JSON.stringify({ variants: { '': { model: 'mtrlte:block/fangsu_psd_particle_only' } } }, null, 2) + '\n');
 
-  // 3D item icon: one cuboid per `o` group (union AABB of the group, dominant material's texture).
-  const objPath = path.join(ASSETS, def.obj);
-  const texDir = 'textures/' + def.obj.substring(0, def.obj.lastIndexOf('/') + 1);
-  const groups = objGroups(fs.readFileSync(objPath, 'utf8'));
-  const maps = mtlMaps(objPath.replace(/\.obj$/, '.mtl'));
-
-  const boxes = [];
-  let maxExtent = 16;
-  for (const name of def.groups) {
-    const g = groups.get(name);
-    if (!g) continue;
-    let best = null;
-    let bestFaces = -1;
-    for (const [mat, faces] of g.perMat) if (faces > bestFaces) { bestFaces = faces; best = mat; }
-    const png = maps.get(best);
-    if (!png) continue;
-    // obj bounds (1 unit = 1 block, xz centred) -> model units, 0..16 with the NW bottom corner at the origin
-    const box = {
-      from: [mx(g.min[0]), my(g.min[1]), mz(g.min[2])],
-      to: [mx(g.max[0]), my(g.max[1]), mz(g.max[2])],
-      uv: [g.uvMin[0], 1 - g.uvMax[1], g.uvMax[0], 1 - g.uvMin[1]],
-      tex: 'mtrlte:' + texDir.replace(/^textures\//, '') + png.replace(/\.png$/, ''),
-    };
-    boxes.push(box);
-    maxExtent = Math.max(maxExtent, ...box.from.map(Math.abs), ...box.to.map(Math.abs));
-  }
-  if (!boxes.length) {
-    console.log('!! no geometry for ' + def.id);
-    continue;
-  }
-  const s = Math.min(1, 28 / maxExtent);
-  const q = (v) => Math.round(v * s * 1000) / 1000;
-  const elements = [];
-  const textures = {};
-  boxes.forEach((box, index) => {
-    const key = String(index);
-    textures[key] = box.tex;
-    const from = box.from.map(q);
-    const to = box.to.map(q);
-    for (let a = 0; a < 3; a++) {
-      if (to[a] - from[a] < 0.5) {
-        const mid = (from[a] + to[a]) / 2;
-        from[a] = Math.round((mid - 0.25) * 1000) / 1000;
-        to[a] = Math.round((mid + 0.25) * 1000) / 1000;
-      }
-      from[a] = Math.max(-16, Math.min(31.5, from[a]));
-      to[a] = Math.max(from[a] + 0.5, Math.min(32, to[a]));
-    }
-    const u = box.uv;
-    const uv = [Math.round(u[0] * 16 * 1000) / 1000, Math.round(u[1] * 16 * 1000) / 1000,
-      Math.round(u[2] * 16 * 1000) / 1000, Math.round(u[3] * 16 * 1000) / 1000];
-    const faces = {};
-    for (const face of ['north', 'east', 'south', 'west', 'up', 'down']) {
-      faces[face] = { uv, texture: '#' + key };
-    }
-    elements.push({ from, to, faces });
-  });
-  fs.writeFileSync(path.join(MODEL_DIR, def.id + '_icon.json'), JSON.stringify({
-    textures,
-    elements,
-    display: {
-      gui: { rotation: [30, 225, 0], scale: [0.625, 0.625, 0.625] },
-      ground: { rotation: [0, 0, 0], translation: [0, 3, 0], scale: [0.25, 0.25, 0.25] },
-      fixed: { rotation: [0, 0, 0], scale: [0.5, 0.5, 0.5] },
-      thirdperson_righthand: { rotation: [75, 45, 0], translation: [0, 2.5, 0], scale: [0.375, 0.375, 0.375] },
-      firstperson_righthand: { rotation: [0, 45, 0], scale: [0.4, 0.4, 0.4] },
-    },
-  }, null, 2) + '\n');
-  fs.writeFileSync(path.join(ITEM_DIR, def.id + '.json'),
-    JSON.stringify({ parent: 'mtrlte:block/' + def.id + '_icon' }, null, 2) + '\n');
+  // Item icon: a 64x64 sprite rasterised from the real .obj — written by gen-item-sprites.js
+  // at the bottom of this script (it owns both textures/item/fangsu_psd/<name>.png and
+  // models/item/<id>.json). 不做「一个 o 组一个立方体」的方块模型图标了：方块模型只能描述
+  // 轴对齐盒子，把一整个 uv 矩形贴到 6 个面上，物品栏里就是一片糊掉的图集。
 
   // loot: only the lower half drops an item
   fs.writeFileSync(path.join(LOOT_DIR, def.id + '.json'), JSON.stringify({
@@ -209,6 +95,9 @@ for (const def of DEFS) {
   }, null, 2) + '\n');
 }
 
+// ---------------------------------------------------------------- item icons
+const sprites = require('./gen-item-sprites').generate(DEFS, RES);
+
 // ---------------------------------------------------------------- lang
 function addLang(file, pick) {
   const p = path.join(ASSETS, 'lang', file);
@@ -222,5 +111,5 @@ function addLang(file, pick) {
 addLang('zh_cn.json', (d) => d.zh);
 addLang('en_us.json', (d) => d.en);
 
-console.log(DEFS.length + ' blocks generated:');
+console.log(DEFS.length + ' blocks generated (' + sprites.length + ' item sprites):');
 for (const d of DEFS) console.log('  ' + d.id + '  ' + d.zh + '  <- ' + d.obj);

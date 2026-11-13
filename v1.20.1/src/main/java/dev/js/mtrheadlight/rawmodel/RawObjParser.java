@@ -67,15 +67,15 @@ import net.minecraft.util.Identifier;
  * <p>法线用三角形叉积算（保证与绕序一致、背面剔除不会画反）。{@code shade} 按法线的主轴取原版那套
  * {@code down 0.5 / up 1.0 / 南北 0.8 / 东西 0.6} —— OBJ 里没有「自发光」信息，{@code fullBright} 恒为 {@code false}。
  *
- * <h2>整体在地面以下的模型（qiaodun20）</h2>
+ * <h2>整体在放置点以下的模型（qiaodun20，不抬到地面）</h2>
  * <p>{@code stand.obj}（20 格高的桥墩）的 y 是 {@code -21..-1}：在素材里它是<b>从放置点往下挂</b>的。
- * 作为一个方块，挂在地底没有意义（碰撞箱会只剩 0 高），所以这里有一条兜底规则：
- * <b>整个网格都在 {@code y ≤ 0} 时，抬到贴地</b>（平移 {@code -minY}，渲染与碰撞一起抬，不会错位）。
- * 只对有这一特征的模型生效，别的物件（比如沉 2px 的 BRT 屏蔽门）不受影响。
+ * 这里<b>原样保留</b> —— 不做任何「抬到贴地」的兜底，玩家贴着上方桥面的底面放，桥墩就往下挂，
+ * 墩顶正好落在放置格的顶面（{@code first.json} 的 {@code qiaodun20} 用 {@code "translation":[0,2,0]}
+ * 把这 2 格的错位补上：素材的墩顶在放置格底面下 1 格，抬 2 格之后就是放置格顶面 = 桥面底面）。
  *
- * <p>抬到贴地之后还可以再抬一段固定的格数（描述里的 {@code raise}，默认 0）：桥墩抬 2 格是用户在
- * 游戏里量出来的位置（贴地时墩顶比轨道低两格），所以 {@code first.json} 的 {@code qiaodun20} 写着
- * {@code "raise": 2}。这一步放在「贴地」<b>之后</b>，所以 {@code translation} 的 y 分量与它不冲突。
+ * <p>以前这里有一条「整个网格都在 {@code y ≤ 0} 就抬到贴地、再抬 {@code raise} 格」的兜底规则，
+ * 结果是桥墩从地面往上长 20 格（玩家得反着找位置）。已删除：素材怎么摆就怎么画，
+ * 唯一的调整入口是描述里明明白白的 {@code translation}（格）。
  */
 public final class RawObjParser {
 
@@ -117,12 +117,11 @@ public final class RawObjParser {
      * @param rotation  逐轴旋转，度数，XYZ 欧拉序
      * @param translation 逐轴平移，单位：格
      * @param mirror    逐轴镜像（{@code true} = 该轴取反）
-     * @param raise     贴地之后再整体抬高的格数（{@code first.json} 的 {@code raise}，默认 0）
      * @return 网格；读不到 / 解析失败时 {@code null}（并且只警告一次）
      */
     public static RawMesh get(final Identifier id, final Identifier texture, final boolean flipV,
                               final float[] scale, final float[] rotation, final float[] translation,
-                              final boolean[] mirror, final float raise) {
+                              final boolean[] mirror) {
         final RawMesh cached = CACHE.get(id);
         if (cached != null) {
             return cached;
@@ -138,7 +137,7 @@ public final class RawObjParser {
                 return null;
             }
             final RawMesh mesh = parse(new String(in.readAllBytes(), StandardCharsets.UTF_8),
-                    texture, flipV, scale, rotation, translation, mirror, raise);
+                    texture, flipV, scale, rotation, translation, mirror);
             CACHE.put(id, mesh);
             LteLog.LOGGER.info("[lte] obj model: loaded {} ({} quads, texture {})",
                     id, mesh.quadCount(), mesh.texture());
@@ -150,12 +149,12 @@ public final class RawObjParser {
         }
     }
 
-    /** 从 OBJ 文本解析出完整网格（顶点已按 {@code scale/rotation/translation/raise} 摆好）。 */
+    /** 从 OBJ 文本解析出完整网格（顶点已按 {@code scale/rotation/translation} 摆好）。 */
     public static RawMesh parse(final String text, final Identifier texture, final boolean flipV,
                                 final float[] scale, final float[] rotation, final float[] translation,
-                                final boolean[] mirror, final float raise) {
+                                final boolean[] mirror) {
         final Geometry geometry = read(text, true, flipV);
-        final float[][] verts = place(geometry.positions, scale, rotation, translation, mirror, raise);
+        final float[][] verts = place(geometry.positions, scale, rotation, translation, mirror);
         final List<RawMesh.Quad> quads = new ArrayList<>(geometry.faces.size());
         for (final Face face : geometry.faces) {
             emit(face, verts, geometry.texCoords, quads);
@@ -187,8 +186,7 @@ public final class RawObjParser {
      */
     public static Map<String, RawMesh> materials(final Identifier objId, final boolean flipV,
                                                  final float[] scale, final float[] rotation,
-                                                 final float[] translation, final boolean[] mirror,
-                                                 final float raise) {
+                                                 final float[] translation, final boolean[] mirror) {
         final Map<String, RawMesh> cached = MATERIAL_CACHE.get(objId);
         if (cached != null) {
             return cached;
@@ -204,7 +202,7 @@ public final class RawObjParser {
             final String dir = directoryOf(objId.getPath());
             final Map<String, String> maps = mtlTextures(text, objId.getNamespace(), dir);
             final Geometry geometry = read(text, true, flipV);
-            final float[][] verts = place(geometry.positions, scale, rotation, translation, mirror, raise);
+            final float[][] verts = place(geometry.positions, scale, rotation, translation, mirror);
             final Map<String, List<RawMesh.Quad>> byMaterial = new LinkedHashMap<>();
             for (final Face face : geometry.faces) {
                 emit(face, verts, geometry.texCoords,
@@ -282,9 +280,9 @@ public final class RawObjParser {
      * 60 个物件合计 4 万多行，几十毫秒就把全部碰撞箱算完了。
      */
     public static double[] bounds(final String text, final float[] scale, final float[] rotation,
-                                  final float[] translation, final boolean[] mirror, final float raise) {
+                                  final float[] translation, final boolean[] mirror) {
         final Geometry geometry = read(text, false, false);
-        final float[][] verts = place(geometry.positions, scale, rotation, translation, mirror, raise);
+        final float[][] verts = place(geometry.positions, scale, rotation, translation, mirror);
         if (verts.length == 0) {
             return new double[6];
         }
@@ -304,11 +302,11 @@ public final class RawObjParser {
     /**
      * OBJ 顶点 → 模型空间顶点：{@code scale → mirror → rotation → translation → 单位换算}。
      *
-     * <p>整体在地面以下的模型（{@code qiaodun20}）在这里抬到贴地，再抬 {@code raise} 格，
-     * 见类注释最后一节。
+     * <p>素材里的模型怎么摆就怎么画（桥墩那种「挂在放置点以下」的模型也原样保留），
+     * 要挪位置只有一个入口：描述里的 {@code translation}（格）。
      */
     public static float[][] place(final List<float[]> positions, final float[] scale, final float[] rotation,
-                                  final float[] translation, final boolean[] mirror, final float raise) {
+                                  final float[] translation, final boolean[] mirror) {
         final float[] s = scale == null ? new float[] {1, 1, 1} : scale;
         final float[] a = rotation == null ? new float[] {0, 0, 0} : rotation;
         final float[] t = translation == null ? new float[] {0, 0, 0} : translation;
@@ -316,8 +314,6 @@ public final class RawObjParser {
         final boolean rotated = a[0] != 0.0F || a[1] != 0.0F || a[2] != 0.0F;
 
         final float[][] out = new float[positions.size()][];
-        float minY = Float.MAX_VALUE;
-        float maxY = -Float.MAX_VALUE;
         for (int i = 0; i < out.length; i++) {
             final float[] v = positions.get(i);
             final float[] p = {v[0] * s[0] * (m[0] ? -1.0F : 1.0F),
@@ -330,15 +326,9 @@ public final class RawObjParser {
             p[1] += t[1];
             p[2] += t[2];
             out[i] = p;
-            minY = Math.min(minY, p[1]);
-            maxY = Math.max(maxY, p[1]);
         }
 
-        // 整个模型挂在 y<=0（素材里 qiaodun20 从放置点往下挂 20 格）：抬到贴地，再抬 raise 格。
-        final float lift = (maxY <= 0.0F && minY < Float.MAX_VALUE ? -minY : 0.0F) + raise;
-
         for (final float[] p : out) {
-            p[1] += lift;
             p[0] = p[0] * UNITS_PER_BLOCK + HALF_BLOCK;
             p[1] = p[1] * UNITS_PER_BLOCK;
             p[2] = p[2] * UNITS_PER_BLOCK + HALF_BLOCK;
@@ -367,9 +357,9 @@ public final class RawObjParser {
      * @return 长度 {@code 256} 的 0/1 数组；没有几何时全 0
      */
     public static int[] footprint(final String text, final float[] scale, final float[] rotation,
-                                  final float[] translation, final boolean[] mirror, final float raise) {
+                                  final float[] translation, final boolean[] mirror) {
         final Geometry geometry = read(text, true, false);
-        final float[][] verts = place(geometry.positions, scale, rotation, translation, mirror, raise);
+        final float[][] verts = place(geometry.positions, scale, rotation, translation, mirror);
         final int[] grid = new int[FOOTPRINT_SIZE * FOOTPRINT_SIZE];
         for (final Face face : geometry.faces) {
             final int n = face.vertex.length;

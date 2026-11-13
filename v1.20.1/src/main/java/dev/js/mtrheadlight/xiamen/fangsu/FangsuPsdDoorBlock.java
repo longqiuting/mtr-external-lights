@@ -73,7 +73,7 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
 
     private final FangsuPsdDef def;
 
-    /** 碰撞盒：{@code [half][角度/90]}。 */
+    /** 碰撞盒：{@code [half][绕 Y 的 90° 步数]}（步数的取法见 {@link #shapeQuarterTurns}）。 */
     private final VoxelShape[][] collision;
 
     /** 轮廓盒（选中 / 高亮）：永远用关门的形状，开门后也还能点到这块门。 */
@@ -168,13 +168,13 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
         if (isOpen(world, pos)) {
             return VoxelShapes.empty();
         }
-        return this.collision[halfIndex(state)][rotationIndex(state)];
+        return this.collision[halfIndex(state)][shapeQuarterTurns(state)];
     }
 
     @Override
     public VoxelShape getOutlineShape(final BlockState state, final BlockView world, final BlockPos pos,
                                       final ShapeContext context) {
-        return this.outline[halfIndex(state)][rotationIndex(state)];
+        return this.outline[halfIndex(state)][shapeQuarterTurns(state)];
     }
 
     /**
@@ -198,13 +198,35 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
         return IBlock.getStatePropertySafe(state, HALF) == DoubleBlockHalf.LOWER ? 0 : 1;
     }
 
-    private static int rotationIndex(final BlockState state) {
+    /**
+     * 碰撞盒要转几个 90°（作用在 {@link #buildShape} 的 {@code (x,z) → (16-z, x)} 上，也就是每格 −90°）。
+     *
+     * <h2>为什么 north 是 2 而不是 0（= 比模型多转 180°）</h2>
+     * <p>方速自己的<b>模型</b>和<b>碰撞盒</b>并不是同一个朝向 —— 差一个 180°：
+     * <ul>
+     *   <li>模型：{@code BaseBlockEntityRender#render} 里是
+     *       {@code candyPose.rotateY(-toRadians(facing.getHorizontal()) + PI)}（注意那个 {@code + PI}，
+     *       所以 north 时是 0°）；</li>
+     *   <li>碰撞盒：{@code BlockEntityDuanmen#setShape} / {@code BlockEntityScreendoor#setShape} 里是
+     *       {@code toRadians(-facing.getHorizontal())}（<b>没有</b> {@code + PI}，所以 north 时是 −180°）。</li>
+     * </ul>
+     * 也就是说同一个 {@code FACING} 下，碰撞盒必须比模型再多转 180° 才和画出来的门扇重合。
+     * 反证（素材本身就是两组数）：{@code doorPos.x} 的右扇是 −0.4375（铰链在西），可
+     * {@code shape.open} 里右扇展开后落在 x 14..16（东）；模型的门扇贴 z 0..2（北），
+     * {@code shape.close} 却写 15..16（南）—— x 和 z 同时反号，正好是绕 Y 的 180°。
+     *
+     * <p>照模型转（north=0）就会出现用户反馈的现象：门扇画在方块一侧、碰撞盒在另一侧，
+     * 看着「模型镜像了」。
+     *
+     * <p>{@link #buildShape} 里的每一步是 {@code (x,z) → (16-z, x)}，即 −90°；下表的数字就是步数。
+     */
+    private static int shapeQuarterTurns(final BlockState state) {
         final Direction facing = IBlock.getStatePropertySafe(state, FACING);
         return switch (facing) {
-            case EAST -> 1;
-            case SOUTH -> 2;
-            case WEST -> 3;
-            default -> 0;
+            case EAST -> 3;
+            case SOUTH -> 0;
+            case WEST -> 1;
+            default -> 2;   // NORTH
         };
     }
 
@@ -314,13 +336,19 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
      * <p>父类那份是「每调用一次推进 0.95」—— 与帧率挂钩：60 fps 约 0.56 s 走完，144 fps 只剩 0.23 s
      * （看起来就是瞬开）。这里改成<b>按时间推进</b>：
      * {@code progress += dt / MOVE_TICKS}，{@code dt} 用 {@code world.getTime() + tickDelta} 的差值，
-     * 所以 60 / 144 / 240 fps 以及掉帧时都是同一个速度（{@value #MOVE_TICKS} tick ≈ 0.75 s 走完），
+     * 所以 60 / 144 / 240 fps 以及掉帧时都是同一个速度（{@value #MOVE_TICKS} tick ≈ 0.35 s 走完），
      * 并且每帧都平滑（不是按 tick 跳）。
      */
     public static class FangsuPsdDoorEntity extends TileEntityPSDAPGDoorBase {
 
-        /** 全行程耗时（tick）。MTR 自己约 34 帧 @60fps ≈ 0.57 s，这里稍慢一点，看起来更像气动的门。 */
-        public static final float MOVE_TICKS = 15.0F;
+        /**
+         * 全行程耗时（tick）。<b>调速度就改这一个数</b>。
+         *
+         * <p>MTR 自己那套是按帧推进（60 fps ≈ 0.57 s），方速是 500 ms。原来这里写 15 tick（0.75 s），
+         * 用户反馈「太慢」；7 tick = 0.35 s，90° 摆过去的手感和真实端门更接近。
+         * 改动会影响全部 14 个变体（端门 + 滑动门），因为方块实体是共用的。
+         */
+        public static final float MOVE_TICKS = 7.0F;
 
         /** 客户端插值进度 0..1。 */
         private double progress;

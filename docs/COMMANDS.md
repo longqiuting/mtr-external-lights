@@ -294,7 +294,6 @@
 | 墙上扶手 ×11 | `railing_wall_*` | 平直/起段/斜段/收尾/内角/外角 + 镜像 |
 | 玻璃扶手 ×11 | `railing_glass_*` | 同上，半透明 |
 | 站外标志 ×4 | `station_sign_{wall,pole}_{xiamen,jiaomei}` | 厦门 / 角美 × 挂墙 / 杆上，亮度 15 |
-| 厦门吊板（可单独放） | `psd_top_xiamen_standalone` | 屏蔽门吊板拆出来的一块：任意位置可放、剪刀（或 MTR 刷子）右键切四向形态，线路图仍按最近的站台画 |
 
 **交互速查**
 

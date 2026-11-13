@@ -35,4 +35,15 @@ public class DepOnRoofBlockEntity extends BlockEntityMapper implements DepCountd
     public void setDepLock(final DepOnWallLock lock) {
         this.depLock = lock;
     }
+
+    /**
+     * 挂顶版专用的搜索范围（{@link DepCountdown#ROOF_SEARCH}，{@code 7 / 4 / 5}）。
+     *
+     * <p>吊在天花板上时方块比站台面高好几格，用挂墙版的 {@code 5 / 3 / 3} 经常<b>整个站台都落在
+     * 垂直余量之外</b> —— 屏幕永远是空的。所以这里把半径、x/z 外扩各放宽一点、垂直多给 2 格。
+     */
+    @Override
+    public DepCountdown.Search search() {
+        return DepCountdown.ROOF_SEARCH;
+    }
 }

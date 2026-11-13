@@ -21,6 +21,7 @@ assets/mtrlte/fangsu_psd/duanmen/*.json|obj|mtl
 assets/mtrlte/fangsu_psd/screendoor/xiamen/*.json|obj|mtl
 assets/mtrlte/textures/fangsu_psd/duanmen/*.png
 assets/mtrlte/textures/fangsu_psd/screendoor/xiamen/*.png
+assets/mtrlte/textures/item/fangsu_psd/*.png          <- 物品图标（本模组渲染出来的，不是素材包的）
 ```
 
 描述文件里的 `"fangsu:..."` 在复制时改写成 `"mtrlte:fangsu_psd/..."`；`.obj` / `.mtl` 原样不动；
@@ -91,18 +92,31 @@ if (direction == IBlock.getSideDirection(state) && !neighborState.isOf(this)) re
   `RenderPSDAPGDoor` 同一个做法，否则两段各画一次会重合成 z-fighting。3 格高的变体（BRT、厦门高）
   从下半段一直画到 3 格，视觉上不受「方块只有 2 格」的限制。
 * 朝向：`FACING` → 俯视顺时针角（north 0 / east 90 / south 180 / west 270），绕方块中心
-  `(0.5, ·, 0.5)` 转 `RotationAxis.NEGATIVE_Y`（与 `eyecandy` / `dep_on_wall` 同一套约定）。
+  `(0.5, ·, 0.5)` 转 `RotationAxis.NEGATIVE_Y`（与 `dep_on_wall` 同一套约定；eyecandy 的物件没有朝向属性，
+  这一层它用不上）。
   门扇的旋转/平移压在朝向那一层**里面**，所以是在方块自己的坐标系里开合。
 
 ### 门扇变换
 
 | 类型 | 变换 | 参数来源 |
 | --- | --- | --- |
-| 端门（旋转） | `translate(pivot) → rotateY(doorAngle × p) → translate(-pivot)` | `doorPos`（格，相对方块中心）→ 模型单位 `×16+8`；`doorAngle` 弧度（右扇 −1 / 左扇 +1） |
-| 滑动门（平移） | `translate(step × p, 0, 0)` | `step` 格（左 0.95 / 右 −0.95） |
+| 端门（旋转） | `translate(pivot) → rotateY(angle × p) → translate(-pivot)` | `doorPos`（格，相对方块中心）→ 模型单位 `×16+8`；`doorAngle` 是 **π/2 的倍数**（右扇 −1 / 左扇 +1），读入时乘成 ±π/2 = ±90° |
+| 滑动门（平移） | `translate(step × p, 0, 0)` | 素材 `step` 0.95 / −0.95，**读入时取负**（见下） |
 
 `p ∈ [0,1]` 是开合进度。矩阵是在 `RotationAxis.POSITIVE_Y` 上做的（右手定则，和 `RawObjParser` 里
 烘 `rotation` 用的公式同一套），所以正负号与素材的语义一致。
+
+两处都对齐方速自己的 `BlockEntityDuanmen#whenRendering`（`dec-fangsu` 反编译）：
+
+```java
+mat.translate(doorPos[0], doorPos[1], doorPos[2]);
+mat.rotateY((float) (0.5 * doorAngle * doorVal * Math.PI));   // ← 0.5π × doorAngle，所以 ±1 = ±90°
+mat.translate(-doorPos[0], -doorPos[1], -doorPos[2]);
+```
+
+* `doorAngle` 原来被当成弧度直接用，门只转 ±1 rad ≈ ±57°，看着「没开到位」；乘 π/2 才是 90°。
+* 滑动门方速写的是 `translate(-doorVal * step, 0, 0)`（**负号**），原来照 `+step` 用，
+  两扇门朝反方向滑（镜像）。现在在读入 `Motion` 时取负，渲染器只管 `+step`。
 
 ### 动画插值
 
@@ -111,10 +125,13 @@ if (direction == IBlock.getSideDirection(state) && !neighborState.isOf(this)) re
 ```
 target = clamp(getOpenValue() / 32, 0, 1)                // 来自 MTR 的 setOpen
 dt     = clamp((world.getTime() + tickDelta) - lastSample, 0, 4)
-step   = dt / MOVE_TICKS          // MOVE_TICKS = 15 tick（0.75 s 走完全程）
+step   = dt / MOVE_TICKS          // MOVE_TICKS = 7 tick（0.35 s 走完全程，调速度就改这个常量）
 progress += sign(target - progress) * step，越界夹到 target
 ```
 
+* `MOVE_TICKS` 原来是 15 tick（0.75 s），用户反馈「动画太慢」；现在 7 tick ≈ 0.35 s，
+  90° 甩过去的手感更接近真实端门。常量在 `FangsuPsdDoorBlock.FangsuPsdDoorEntity#MOVE_TICKS`，
+  14 个变体共用（一个方块实体类型）。
 * 用 `world.getTime() + tickDelta` 而不是「每帧固定步长」：MTR 自己的 `getOpen(float)` 是
   `openClient += 0.95 * partialTicks` 每帧推进，**与帧率挂钩**（60 fps ≈ 0.56 s，144 fps ≈ 0.23 s，
   看起来就是瞬开）。这里按时间推进，60 / 144 / 240 fps 与掉帧时速度一致。
@@ -132,9 +149,39 @@ progress += sign(target - progress) * step，越界夹到 target
 * `getCullingShape` 返回空集：门只有 2~3 单位厚，不这样做邻居的贴面会被判成「看不见」而整面不画，
   墙上会出现一个方块大小的洞。
 
-素材里的 `shape` 是方速自己写的粗略数（`drlduanmen` 1.125 格高、`shlowduanmen` 1.4375 格高，
-`shape` 却都写 25；z 也统一偏了约 13/16 格），这里**逐字照搬** —— 方速就是按这些数判碰撞的，
-照搬行为才一致，没有替素材「修」几何。
+### 碰撞盒要比模型多转 180°（「模型镜像了」的真正原因）
+
+方速的**模型**和**碰撞盒**不在同一个朝向，差 180°：
+
+| | 方速代码 | north 时的朝向 |
+| --- | --- | --- |
+| 模型 | `BaseBlockEntityRender#render`：`candyPose.rotateY(-toRadians(facing.getHorizontal()) + PI)` | 0° |
+| 碰撞盒 | `BlockEntityDuanmen#setShape`：`rotY = toRadians(-facing.getHorizontal())` | −180° |
+
+素材里两组数也是这么写的，互为反证：
+
+* `doorPos.x`：右扇 −0.4375（铰链在**西**），可 `shape.open` 里右扇转开之后落在 **x 14..16**（东）；
+* 模型门扇贴 **z 0..2**（北），`shape.close` 却写 **z 15..16**（南）。
+
+x、z 同时反号 = 绕 Y 的 180°。我们的渲染器映射（`NEGATIVE_Y` + `north 0 / east 90 / south 180 / west 270`）
+正好等于方速的模型那一行（连 `+ PI` 都在），所以**模型是对的**；错的是碰撞盒照模型转了，
+于是门扇画在方块一侧、碰撞盒在另一侧 —— 看着就像「模型被镜像了」。
+
+修法：`FangsuPsdDoorBlock#shapeQuarterTurns` 在模型的基础上再加 2 格（180°）
+
+```java
+NORTH -> 2   EAST -> 3   SOUTH -> 0   WEST -> 1     // = 模型步数 + 2
+```
+
+实测（4 朝向 × 10 个变体，模型门扇包围盒 vs 烘出来的碰撞盒中心）：
+
+| | 中心偏差 |
+| --- | --- |
+| 修之前 | 0.972 格（几乎整整一格，就是「错位一格」） |
+| 修之后 | 0.035 格（剩下的只是 `shape` 厚 1/16、门扇厚 2/16） |
+
+素材里的 `shape` 高度仍是方速自己写的粗略数（`drlduanmen` 1.125 格高、`shlowduanmen` 1.4375 格高，
+`shape` 却都写 25），这里**逐字照搬** —— 方速就是按这些数判碰撞的，照搬行为才一致。
 
 ## 5. 手动开关 / 锁定
 
@@ -151,13 +198,16 @@ progress += sign(target - progress) * step，越界夹到 target
 ## 6. 物品 / 页签
 
 * 14 个 `BlockItem`，进「厦门风格物件」页签（`mtrlte:core`，排在 eyecandy 之后）。
-* 物品图标是 **3D 方块模型**：按每个 `o` 组的包围盒生成 `<id>_icon.json`（每个组一个 cuboid，
-  贴图用该组里面数最多的那个材质，UV 用该组的 uv 范围），`models/item/<id>.json` 只是
-  `parent` 到它。3 格高的模型在图标里等比缩到 ≤ 28 单位（方块模型允许的 −16..32 区间）。
-* 图标 / 粒子贴图走的是**方块图集**（模型管线会 stitch），而 1024×1024 基本占满整张图集、
-  stitch 会失败（物品图标变紫黑）。所以 `downscale-icons.js` 给两张 1024 的贴图各生成一份
-  256×256 的盒式降采样 `<name>_icon.png`，图标模型与粒子模型只引用这一份；
-  BER 仍然用原尺寸（`getEntityCutout` 直绑贴图，不进图集）。
+* 物品图标是 **64×64 平面贴图**（`item/generated`，和 `mtrlte:item/apg_door` 那批 PSD 图标同一套做法，
+  也和方速自己给 `duanmen` 物品的 `item/generated` 一样）。贴图由 `gen-item-sprites.js`
+  从**真 .obj** 正交渲染出来：正视图、按包围盒等比塞进 64×64（留 2px 透明边）、4× 超采样抗锯齿、
+  图集里 alpha=0 的像素按磨砂玻璃（半透明浅蓝）画，所以门扇的玻璃在图标里是看得见的一片。
+* 为什么不做「3D 方块模型」图标（上一版）：方块模型只能描述**轴对齐盒子**，最多做到
+  「一个 `o` 组一个 cuboid + 整组 uv 矩形贴 6 个面」，物品栏里就是一片糊掉的图集；
+  3 格高的模型还得缩到 ≤28 单位。这条路删掉了（`models/block/*_icon.json` 与
+  `textures/block/fangsu_psd_*.png` 一并删除）。
+* 图集现在只剩 blockstate 的粒子模型还要用 `mtrlte:fangsu_psd/duanmen/mtrduanmen`
+  （256×256，stitch 没问题），所以 1024 降采样那一步（`downscale-icons.js`）也一并删了。
 
 ## 7. 已知限制
 
@@ -165,16 +215,21 @@ progress += sign(target - progress) * step，越界夹到 target
    方块本体是 MTR 的 2 格柱（`HALF` 只有 lower/upper），模型从下半段画到 3 格是纯视觉。
    站着的玩家仍被下面 2 格挡住（跳也跳不过去），但第三格那一段穿得过去。
    要把第三格做实，需要重写 `onPlaced` / `onBreak` / 掉落条件改用 3 段柱，风险比收益大，没做。
-2. **滑动门只搬了门扇，没搬方速的固定玻璃 / 门框（`glass` 那套 `auto` 规则）。**
-   所以 `screendoor_low/high` 单放一格是「一扇薄板」，两格并排时两扇会各滑 ±0.95 格互相穿插。
-   配合方速的玻璃方块才是标准的藏门效果。`step` 的正负按素材原值，若游戏里看着滑反了取反即可
-   （`FangsuPsdDef.loadScreendoor` 一处）。
-3. **端门的开合角度按素材的 `doorAngle`（±1 弧度 ≈ ±57°）**，不是 90°。素材给的就是这个数。
-4. `shape` 的 z 偏移与高度误差照搬素材（见「碰撞」一节），所以碰撞箱和画出来的门扇会差
-   最多一格厚的距离；在门洞里看不出来，单独摆在空地上能看出来。
-5. 方块设置（硬度 / 声音 / 地图色）沿用 MTR 的 `BlockPSDAPGDoorBase()` 无参构造，
+2. **滑动门搬了门扇 + `glass` 那块固定玻璃板，`doorend` / `longend` 两种端板还没搬。**
+   `fangsu_psd_screendoor_high_glass_left` / `_right` 就是描述文件里 `glass.left/right` 的
+   `id == "glass"` 那一条（组 `glass_left_glass` / `glass_right_glass`）—— 静态、不可开合，
+   单独一个方块类 `FangsuPsdGlassBlock`（**不继承** `BlockPSDAPGDoorBase`，否则列车会把它当门扇开、
+   开门时把碰撞设空）。碰撞照素材 `shape`，一块给 3 格高（竖直不裁，只把 x/z 裁到本格）。
+   `id == "door"`（带玻璃的门扇）、`doorend`（带门扇的端板）、`longend`（长端板）三档没搬，
+   需要时按同一套路加进 `FangsuPsdDef.loadGlass()` 的白名单即可。
+   `screendoor_low` 没有玻璃组（`door_low.obj` 只有 `o left` / `o right`），所以它不出玻璃方块。
+   `step` 的正负已按方速的 `translate(-doorVal * step)` 取负（`FangsuPsdDef.loadScreendoor` 一处）。
+3. `shape` 的**高度**仍照搬素材（`drlduanmen` 实物 1.125 格、`shlowduanmen` 1.4375 格，`shape` 都写 25），
+   所以这两个变体的碰撞比门本身高一点。z 方向不再有偏差（180° 已修，见「碰撞」一节）。
+   要按实物改高度，得在注册期读一遍 obj 的 `v` 行量高度（`RawObjParser.bounds` 可用），这次没做。
+4. 方块设置（硬度 / 声音 / 地图色）沿用 MTR 的 `BlockPSDAPGDoorBase()` 无参构造，
    没有另外定制。
-6. 刷子锁定只影响「列车开不开」，不影响手动开关。
+5. 刷子锁定只影响「列车开不开」，不影响手动开关。
 
 ## 8. 校验
 
@@ -195,8 +250,8 @@ node v1.20.1/tools/psd/verify-resources.js v1.20.1/src/main/resources \
 | 脚本 | 作用 |
 | --- | --- |
 | `inspect-obj.js` | 打印 obj 的 `o` 组 / 材质 / 包围盒 / uv 范围（选 pivot、核对高度时用） |
-| `asset-report.js` | png 尺寸（判断要不要降采样）+ mtl 的材质 → 贴图对应 |
+| `asset-report.js` | png 尺寸 + mtl 的材质 → 贴图对应 |
 | `import-assets.js` | 把素材包复制进 jar 并改写命名空间 |
-| `gen-resources.js` | 生成 14 个 blockstate / 3D 图标模型 / 掉落表 / lang |
-| `downscale-icons.js` | 给 >256 的贴图生成 256 的图标副本（图集能 stitch），并把图标模型指过去 |
+| `gen-resources.js` | 生成 14 个 blockstate / 掉落表 / lang，并调用下面的图标生成器 |
+| `gen-item-sprites.js` | 从 `.obj` 正交渲染 64×64 物品图标（`textures/item/fangsu_psd/*.png` + `item/generated` 的 item 模型） |
 | `verify-resources.js` | 上面的验收脚本 |

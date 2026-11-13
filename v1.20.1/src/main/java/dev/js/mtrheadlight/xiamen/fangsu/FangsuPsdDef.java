@@ -22,7 +22,7 @@ import net.minecraft.util.Identifier;
  * <ul>
  *   <li><b>旋转式端门 × 5</b>（{@code duanmen/{brt,mtr,drl,shlow,shhigh}duanmen.json}）：
  *       每个描述里 {@code content[]} 有 right / left 两条，字段
- *       {@code doorPos}（铰链，<b>格</b>，相对方块中心）/ {@code doorAngle}（<b>弧度</b>）/
+ *       {@code doorPos}（铰链，<b>格</b>，相对方块中心）/ {@code doorAngle}（<b>π/2 的倍数</b>，±1 = ±90°）/
  *       {@code subModels{main,door}}（{@code o} 组名）/ {@code shape{close,open}}（1/16 格）。</li>
  *   <li><b>滑动式厦门屏蔽门 × 2</b>（{@code screendoor/xiamen/{low,high}.json}）：
  *       {@code door.left[] / door.right[]} 里每项 {@code doors[]{subModel, shape, step}}，
@@ -58,7 +58,16 @@ import net.minecraft.util.Identifier;
 public record FangsuPsdDef(String id, String nameZh, String nameEn, Identifier model, boolean flipV,
                            String staticGroup, List<Motion> motions, List<double[]> closeBoxes) {
 
-    /** 一个会动的门扇。 */
+    /**
+     * 一个会动的门扇。
+     *
+     * @param group {@code o} 组名
+     * @param pivot 铰链，<b>模型空间</b>（1/16 格，0..16、原点在方块西北下角）
+     * @param angle 开到底时的旋转角，<b>弧度</b>。素材写的是 {@code doorAngle: ±1}，那是「π/2 的倍数」而不是弧度
+     *              （方速是 {@code rotateY(0.5 * doorAngle * doorVal * π)}），读进来时已经乘成 ±π/2 = ±90°
+     * @param step  开到底时的平移量，<b>格</b>（滑动门）。素材写的是 ±0.95；方速渲染时是
+     *              {@code translate(-doorVal * step)}，读进来时已按它取负，所以渲染器里直接用 {@code +step}
+     */
     public record Motion(String group, float[] pivot, float angle, float step) {
 
         /** 旋转式（端门）：绕竖直轴转 {@code angle} 弧度。 */
@@ -76,6 +85,15 @@ public record FangsuPsdDef(String id, String nameZh, String nameEn, Identifier m
 
     /** 滑动门 2 款（{@code door.left / door.right}）。 */
     private static final String[] SCREENDOOR = {"low", "high"};
+
+    /**
+     * 有玻璃组的滑动门款式。
+     *
+     * <p>只有 {@code high}：{@code door_low.obj} 里只有 {@code o left} / {@code o right} 两个门扇组，
+     * 没有玻璃（低款是半高的，边上没有固定玻璃板）。加新文件前先确认 {@code .obj} 里真有
+     * {@code o glass_*} 组，否则 {@link #loadGlass()} 会跳过、页签里也不会出现新方块。
+     */
+    private static final String[] SCREENDOOR_GLASS = {"high"};
 
     /** 端门款式的中文 / 英文名（按文件名，不替素材改称呼）。 */
     private static String[] duanmenName(final String file) {
@@ -131,7 +149,11 @@ public record FangsuPsdDef(String id, String nameZh, String nameEn, Identifier m
             final float[] doorPos = floats(entry.getAsJsonArray("doorPos"));
             // doorPos 是「格」、相对方块中心；模型空间是 0..16、原点在西北下角，所以 *16+8。
             final float[] pivot = {doorPos[0] * 16.0F + 8.0F, doorPos[1] * 16.0F, doorPos[2] * 16.0F + 8.0F};
-            final float angle = entry.get("doorAngle").getAsFloat();     // 弧度（-1 / +1）
+            // 素材里 doorAngle 是 ±1，单位<b>不是</b>弧度：方速自己的
+            // BlockEntityDuanmen#whenRendering 是 rotateY(0.5 * doorAngle * doorVal * π)，
+            // 也就是「π/2 的倍数」——±1 = 开到底转 ±90°。不乘这一步只会转 1 弧度（57°），
+            // 门扇会停在门洞里、看着像「没开到位」。
+            final float angle = entry.get("doorAngle").getAsFloat() * (float) (Math.PI / 2.0);
             final List<double[]> close =
                     boxes(entry.getAsJsonObject("shape").getAsJsonArray("close"));
 
@@ -167,8 +189,10 @@ public record FangsuPsdDef(String id, String nameZh, String nameEn, Identifier m
                 }
                 for (final JsonElement doorElement : entry.getAsJsonArray("doors")) {
                     final JsonObject door = doorElement.getAsJsonObject();
+                    // 素材的 step 是 0.95；方速渲染时是 translate(-doorVal * step, 0, 0)（注意负号），
+                    // 所以这里先取负，渲染器里就统一用 +step —— 否则两扇门会朝反方向滑（镜像）。
                     motions.add(new Motion(door.get("subModel").getAsString(), new float[] {8.0F, 0.0F, 8.0F},
-                            0.0F, door.get("step").getAsFloat()));
+                            0.0F, -door.get("step").getAsFloat()));
                     close.addAll(boxes(door.getAsJsonArray("shape")));
                 }
             }
@@ -181,6 +205,73 @@ public record FangsuPsdDef(String id, String nameZh, String nameEn, Identifier m
                     "Fangsu platform screen door Xiamen " + labelEn
                             + (side.equals("left") ? " (left)" : " (right)"),
                     model, flipV, null, List.copyOf(motions), List.copyOf(close)));
+        }
+    }
+
+    // ------------------------------------------------------------------ 玻璃板（静态）
+
+    /**
+     * 读滑动门的<b>玻璃板</b>（{@code glass.left[] / glass.right[]}），每个款式 × 左右各一个变体。
+     *
+     * <p>和 {@link #load()} 分开的原因：那些是<b>会动的门扇</b>（有 {@link Motion}），
+     * 这些是<b>不动的板材</b>（{@code motions} 为空、只有 {@link #staticGroup()}），注册成
+     * 另一个方块类（{@code FangsuPsdGlassBlock}），页签里排在一起。
+     *
+     * <p>只取 {@code id == "glass"} 那一条（{@code glass_left_glass} / {@code glass_right_glass}
+     * 两个组，就是固定玻璃板）。同一份描述里还有 {@code door} / {@code doorend} / {@code longend}
+     * —— 那是「带玻璃的门扇 / 端板 / 长端板」，属于门的另一种样式，这次没有单独搬。
+     * {@code id == "auto"} 那条只是给方速自动选型用的规则，没有几何，跳过。
+     *
+     * <p>读不到 / 解析失败只记一行日志（少两个方块，不影响门）。
+     */
+    public static List<FangsuPsdDef> loadGlass() {
+        final List<FangsuPsdDef> out = new ArrayList<>(SCREENDOOR_GLASS.length * 2);
+        for (final String file : SCREENDOOR_GLASS) {
+            try {
+                loadScreendoorGlass(file, out);
+            } catch (Throwable t) {
+                LteLog.LOGGER.warn("[lte] fangsu psd glass: could not read {}screendoor/xiamen/{}.json ({})",
+                        DIR, file, t.toString());
+            }
+        }
+        return out;
+    }
+
+    private static void loadScreendoorGlass(final String file, final List<FangsuPsdDef> out) {
+        final JsonObject root = read(DIR + "screendoor/xiamen/" + file + ".json");
+        if (!root.has("glass")) {
+            return;
+        }
+        final Identifier model = new Identifier(root.get("model").getAsString());
+        final boolean flipV = !root.has("flipV") || root.get("flipV").getAsBoolean();
+        final JsonObject glass = root.getAsJsonObject("glass");
+        final String label = file.equals("low") ? "低" : "高";
+        final String labelEn = file.equals("low") ? "low" : "high";
+
+        for (final String side : new String[] {"left", "right"}) {
+            if (!glass.has(side)) {
+                continue;
+            }
+            for (final JsonElement element : glass.getAsJsonArray(side)) {
+                final JsonObject entry = element.getAsJsonObject();
+                // "auto" 那条是规则（没有 subModel / shape），跳过。
+                if (!entry.has("subModel") || !entry.has("shape")) {
+                    continue;
+                }
+                if (!"glass".equals(entry.get("id").getAsString())) {
+                    continue;
+                }
+                final boolean isLeft = side.equals("left");
+                out.add(new FangsuPsdDef(
+                        "fangsu_psd_screendoor_" + file + "_glass_" + side,
+                        "方速屏蔽门玻璃 厦门" + label + "（" + (isLeft ? "左" : "右") + "）",
+                        "Fangsu platform screen door glass Xiamen " + labelEn
+                                + (isLeft ? " (left)" : " (right)"),
+                        model, flipV,
+                        entry.get("subModel").getAsString(),
+                        List.of(),
+                        boxes(entry.getAsJsonArray("shape"))));
+            }
         }
     }
 

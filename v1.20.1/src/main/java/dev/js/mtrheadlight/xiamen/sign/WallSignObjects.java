@@ -1,10 +1,12 @@
-// 贴墙标识（厦门 / 角美 / LTE）的注册：3 个方块 + 3 个物品，进「厦门风格物件」页签、排在两个 logo 方块后面。
+// 贴墙标识（厦门 / 角美 / LTE）的注册：3 个方块 + 3 个物品；厦门、角美进「厦门风格物件」页签，
+// LTE 那面进「LTE 工具」页签（它是本模组的牌子，不是厦门风格物件）。
 package dev.js.mtrheadlight.xiamen.sign;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import dev.js.mtrheadlight.LteLog;
+import dev.js.mtrheadlight.signal.LteCoreItems;
 import dev.js.mtrheadlight.xiamen.XiamenObjects;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
 import net.minecraft.block.AbstractBlock;
@@ -44,7 +46,10 @@ import net.minecraft.util.Identifier;
  * </ul>
  *
  * <p>由 {@code LteServer} 在 {@code LogoObjects.register()} 之后调用：页签条目的插入顺序 =
- * 注册顺序，排在这就能让三个标识正好落在两个 logo 方块（{@code xiamen_logo} / {@code jiaomei_logo}）后面。
+ * 注册顺序，排在这就能让<b>厦门 / 角美</b>两个标识正好落在两个 logo 方块
+ * （{@code xiamen_logo} / {@code jiaomei_logo}）后面。<b>LTE 那一面不进厦门页</b>：
+ * 它进「LTE 工具」页签（{@link dev.js.mtrheadlight.signal.LteCoreItems#TOOLS_TAB_ID}），
+ * 排在那五件工具物品后面 —— 它是本模组自己的牌子，不属于厦门风格物件。
  */
 public final class WallSignObjects {
 
@@ -91,10 +96,18 @@ public final class WallSignObjects {
                     .register(entries -> {
                         entries.add(xiamen.item());
                         entries.add(jiaomei.item());
-                        entries.add(lte.item());
                     });
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] wall sign: could not add the creative tab entries", t);
+        }
+
+        // LTE 那一面进「LTE 工具」页签（排在工具物品后面）：它是本模组自己的牌子，
+        // 不该混在「厦门风格物件」里。页签由 LteCoreItems 建，register 顺序在它之后。
+        try {
+            ItemGroupEvents.modifyEntriesEvent(RegistryKey.of(RegistryKeys.ITEM_GROUP, LteCoreItems.TOOLS_TAB_ID))
+                    .register(entries -> entries.add(lte.item()));
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] wall sign: could not add the LTE wall sign to the tools tab", t);
         }
 
         for (final Entry entry : ENTRIES) {

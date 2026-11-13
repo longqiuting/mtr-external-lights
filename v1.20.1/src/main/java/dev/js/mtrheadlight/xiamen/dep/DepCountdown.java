@@ -27,6 +27,8 @@ import net.minecraft.util.math.BlockPos;
  * <pre>
  * 1. RailwayData.getClosePlatformId(ClientData.PLATFORMS, DATA_CACHE, pos, 5, 3, 3)
  *       → 离这块牌子最近的站台 id（0 = 附近没有站台 → 空屏）
+ *       // 后三个数是「搜索半径 / x·z 外扩 / y 外扩」，按牌子种类取：挂墙 5/3/3（JCM 原值），
+ *       // 挂顶 7/4/5（吊在天花板上比站台面高好几格，垂直余量必须更宽，见 WALL_SEARCH / ROOF_SEARCH）
  * 2. ClientData.SCHEDULES_FOR_PLATFORM.get(platformId)   // null = 没数据
  * 3. new ArrayList&lt;&gt;(entries) + Collections.sort         // 按 arrivalMillis（同刻再按 routeId）
  * 4. entry = 排序后第一条「还没走完」的班次            // 见下面「锁」
@@ -67,11 +69,40 @@ import net.minecraft.util.math.BlockPos;
 final class DepCountdown {
 
     /**
-     * 找站台的搜索范围：{@code (搜索半径, 包围盒外扩x/z, 外扩y)} = {@code (5, 3, 3)}，
+     * 挂墙版的找站台范围：{@code (搜索半径, 包围盒外扩x/z, 外扩y)} = {@code (5, 3, 3)}，
      * <b>和 JCM 的 {@code RenderDepartureTimer} 完全一致</b>。
      */
     private static final int SEARCH_RADIUS = 5;
     private static final int SEARCH_MARGIN = 3;
+
+    /**
+     * 一次「找站台」用的搜索范围（{@link RailwayData#getClosePlatformId} 的后三个参数）。
+     *
+     * @param radius           搜索半径（格）
+     * @param horizontalMargin 站台包围盒在 x / z 上再外扩多少格
+     * @param verticalMargin   站台包围盒在 y 上再外扩多少格
+     */
+    record Search(int radius, int horizontalMargin, int verticalMargin) {
+    }
+
+    /**
+     * 挂墙版：JCM 原值 {@code (5, 3, 3)}。
+     *
+     * <p>牌子钉在站台头端<b>齐平台面</b>的墙上，离站台包围盒本来就只有一两格，
+     * {@code 3} 格的垂直余量够用。
+     */
+    static final Search WALL_SEARCH = new Search(SEARCH_RADIUS, SEARCH_MARGIN, SEARCH_MARGIN);
+
+    /**
+     * 挂顶版：{@code (7, 4, 5)} —— 比挂墙版<b>每个方向都放宽一点</b>，垂直多给 2 格。
+     *
+     * <p>挂在天花板上时，牌子本身在楼板下面（{@code y} 比站台面高好几格），
+     * 而站台包围盒是薄薄一片贴在地面上的，所以最容易卡住的是<b>垂直</b>那一维：
+     * 只给 3 格时「天花板下 4~5 格」的位置就找不到站台，屏幕永远空着（这就是本次要修的症状）。
+     * 水平方向顺带放宽 1 格（半径 5→7、x/z 外扩 3→4），免得牌子挂在站台边缘上方时也落空。
+     * 放得再宽就有风险认到隔壁站台 —— 7 / 4 / 5 是这个权衡下的取值。
+     */
+    static final Search ROOF_SEARCH = new Search(7, 4, 5);
 
     private DepCountdown() {
     }
@@ -97,6 +128,17 @@ final class DepCountdown {
 
         /** 换一把锁；传 {@code null} 就是放锁。 */
         void setDepLock(DepOnWallLock lock);
+
+        /**
+         * 这块牌子「找站台」用的搜索范围。
+         *
+         * <p>默认是挂墙版（{@link #WALL_SEARCH}，JCM 原值）；挂顶版在
+         * {@code DepOnRoofBlockEntity} 里覆盖成 {@link #ROOF_SEARCH} ——
+         * 吊在天花板上比贴墙高好几格，垂直余量要宽一些（见 {@link #ROOF_SEARCH} 的说明）。
+         */
+        default Search search() {
+            return WALL_SEARCH;
+        }
     }
 
     /**
@@ -121,9 +163,11 @@ final class DepCountdown {
         Display result = null;
 
         try {
+            // 搜索范围按牌子种类走：挂墙 5/3/3（JCM 原值），挂顶 7/4/5（见 ROOF_SEARCH）。
+            final Search search = holder.search();
             platformId = RailwayData.getClosePlatformId(
                     ClientData.PLATFORMS, ClientData.DATA_CACHE, pos,
-                    SEARCH_RADIUS, SEARCH_MARGIN, SEARCH_MARGIN);
+                    search.radius(), search.horizontalMargin(), search.verticalMargin());
             if (platformId == 0L) {
                 // 附近没站台：牌子旁边什么也没有，把锁也放掉。
                 holder.setDepLock(null);

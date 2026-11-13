@@ -1,15 +1,6 @@
 {
   "variants": {
-    "rotation=north": {
-      "model": "mtrlte:block/empty"
-    },
-    "rotation=east": {
-      "model": "mtrlte:block/empty"
-    },
-    "rotation=south": {
-      "model": "mtrlte:block/empty"
-    },
-    "rotation=west": {
+    "": {
       "model": "mtrlte:block/empty"
     }
   }

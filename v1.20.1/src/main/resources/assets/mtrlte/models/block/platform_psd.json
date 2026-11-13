@@ -1,7 +1,0 @@
-{
-    "parent": "mtrlte:block/platform",
-    "textures": {
-        "main": "mtrlte:block/marble",
-        "top": "mtr:block/transparent"
-    }
-}

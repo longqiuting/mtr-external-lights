@@ -1,4 +1,4 @@
-// 闸机的「侧壳」：柜体镜像那一半，跟本体同向、紧贴在本体的一侧（JCM 闸机的 本体 + 侧壳 方案）。
+// 闸机的「侧壳」：柜体镜像那一半（JCM 闸机的 本体 + 侧壳 方案）；地铁 / BRT 各一款，四台本体共用。
 package dev.js.mtrheadlight.xiamen.ticket;
 
 import mtr.block.IBlock;
@@ -32,27 +32,30 @@ import net.minecraft.world.World;
  * 把它做成真正的一个方块：<b>本体占一格，侧壳占它旁边那一格</b>，两格同向、柜体贴着脸。
  * 一个方块硬塞两个柜体做不到 —— 碰撞 / 框选 / 破坏 / 光照都只能按格算。
  *
+ * <p>侧壳本身<b>不分进 / 出</b>：它没有 {@code OPEN}、不参与判定、也不开合，进站闸机旁边和出站闸机
+ * 旁边摆的是同一只柜子。所以只按素材分两款（地铁 {@code ticket_barrier_side} / BRT
+ * {@code brt_barrier_side}），见 {@link XiamenTicketGates.Side}。
+ *
  * <h2>位置与朝向</h2>
- * <p>侧壳永远在本体的 {@link XiamenTicketGate#sideOf(Direction)} 那一侧（= 本体 {@code FACING} 的逆时针
- * 90°，推导见那个方法），{@code FACING} 与本体的 {@code FACING} 完全相同（{@link XiamenTicketGates} 放本体时
- * 一起放下来、用同一个值）。渲染时 {@link XiamenTicketGateRenderer} 把侧壳的模型往本体那一格平移一格，
- * 于是两份素材回到同一个局部坐标系里严丝合缝。
+ * <p>侧壳是<b>独立方块 + 独立物品</b>（地铁 / BRT 各一款，四台本体共用，不分进 / 出）：摆在本体的
+ * {@link XiamenTicketGate#sideOf(Direction)} 那一侧（= 本体 {@code FACING} 的逆时针 90°，推导见那个方法），
+ * {@code FACING} 摆成与本体的 {@code FACING} 相同。渲染时 {@link XiamenTicketGateRenderer} 把侧壳的模型
+ * 往本体那一格平移一格，于是两份素材回到同一个局部坐标系里严丝合缝 —— 两份素材本来就是同一套局部坐标。
  *
  * <h2>碰撞 / 框选</h2>
  * <p>都不是满方块（模型只占本地 x 12..16 那 4/16 的一条），所以：
  * <ul>
- *   <li>轮廓 / 碰撞 = 柜体本身（{@code x 12..16}，高度按素材取 17）；</li>
- *   <li>碰撞比轮廓高一点（到 24）与 MTR 自己的闸机一致，避免玩家跳到柜子上；</li>
+ *   <li>轮廓 = 柜体本身（{@code x 12..16}，高度按素材取 17）；</li>
+ *   <li>碰撞 = 同样那条，高度取 {@code 24}（1.5 格）—— 与 JCM 侧柜（{@code TicketBarrier1Decor}，
+ *       {@code getVoxelShapeByDirection(12, 0, 0, 16, 24, 16, facing)}）逐位一致，玩家跳不上柜顶；</li>
  *   <li>{@link #getCullingShape} 返回空集：不是满方块，否则邻居朝我们的面会被当成「被挡住」而剔除，
  *       缝隙里能看穿邻居（{@code eyecandy} 那边踩过这个坑）。</li>
  * </ul>
- * 挡杆（关门时横在通道上的那根）<b>不</b>在这里，它是本体的碰撞：本体的挡杆正好横跨过来，
- * 侧壳这 4/16 又已经被柜体本身占住，所以不用重复一份。
+ * 挡杆（关门时横在通道上的那根）<b>不</b>在这里，它是本体的碰撞。
  *
  * <h2>破坏</h2>
- * <p>侧壳没有物品、也没有掉落（{@code data/mtrlte/loot_tables/blocks/} 里没有它的表）。
- * 拆本体 → 侧壳一起消失；拆侧壳 → 本体按正常掉落被拆掉（{@link #onStateReplaced}），
- * 这样不会出现「半台闸机」或者「拆一半白丢一个方块」。
+ * <p>侧壳有自己的物品与掉落表（{@code data/mtrlte/loot_tables/blocks/ticket_gate_*_side.json}），
+ * 拆下来就是它自己那件物品 —— 跟本体完全独立，两侧可以分别摆、分别拆。
  */
 public class XiamenTicketGateSide extends Block implements BlockEntityProvider {
 
@@ -60,7 +63,7 @@ public class XiamenTicketGateSide extends Block implements BlockEntityProvider {
     public static final DirectionProperty FACING = HorizontalFacingBlock.FACING;
 
     /** 柜体在本地坐标里的范围（与素材一致）：x 12..16、z 整格；轮廓高 17（BRT 柜体顶 17.27），
-     *  碰撞抬到 24（1.5 格，与 MTR 自己的闸机一致，跳不上柜子）。 */
+     *  碰撞取 24（1.5 格）—— 与 JCM 侧柜 {@code TicketBarrier1Decor} 的 {@code 12,0,0 → 16,24,16} 一致。 */
     private static final double CABINET_X1 = 12.0D;
 
     private static final double OUTLINE_TOP = 17.0D;

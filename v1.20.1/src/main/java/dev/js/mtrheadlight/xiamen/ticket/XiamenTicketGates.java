@@ -1,4 +1,4 @@
-// 八个闸机方块（厦门地铁 / 厦门BRT × 进站 / 出站 × 本体 / 侧壳）的注册点：方块 + 物品 + 方块实体类型 + 创造页签。
+// 六个闸机方块（厦门地铁 / 厦门BRT × 进站 / 出站 的本体，加两款共用侧壳）的注册点：方块 + 物品 + 方块实体类型 + 创造页签。
 package dev.js.mtrheadlight.xiamen.ticket;
 
 import java.util.List;
@@ -18,79 +18,105 @@ import net.minecraft.registry.RegistryKeys;
 import net.minecraft.util.Identifier;
 
 /**
- * 闸机的注册入口：<b>4 台闸机 = 4 个本体 + 4 个侧壳，共 8 个方块</b>，全部共用一个方块实体类型。
+ * 闸机的注册入口：<b>4 台闸机本体 + 2 款侧壳，共 6 个方块</b>，全部共用一个方块实体类型。
  *
  * <table border="1">
- *   <caption>四台闸机（每台两个方块）</caption>
- *   <tr><th>本体 id</th><th>原始模型（rawmodels/*）</th><th>侧壳 id</th><th>{@code isEntrance}</th></tr>
+ *   <caption>四台闸机本体</caption>
+ *   <tr><th>本体 id</th><th>原始模型（rawmodels/*）</th><th>配套侧壳</th><th>{@code isEntrance}</th></tr>
  *   <tr><td>{@code mtrlte:ticket_gate_xiamen_in}</td>
- *       <td>{@code ticket_barrier_closed / _open}</td><td>{@code …_in_side}</td><td>{@code true}</td></tr>
+ *       <td>{@code ticket_barrier_closed / _open}</td><td>{@code ticket_gate_xiamen_side}</td><td>{@code true}</td></tr>
  *   <tr><td>{@code mtrlte:ticket_gate_xiamen_out}</td><td>同上（<b>进出共用</b>）</td>
- *       <td>{@code …_out_side}</td><td>{@code false}</td></tr>
+ *       <td>{@code ticket_gate_xiamen_side}</td><td>{@code false}</td></tr>
  *   <tr><td>{@code mtrlte:ticket_gate_brt_in}</td>
- *       <td>{@code brt_barrier_closed / _open}</td><td>{@code …_in_side}</td><td>{@code true}</td></tr>
+ *       <td>{@code brt_barrier_closed / _open}</td><td>{@code ticket_gate_brt_side}</td><td>{@code true}</td></tr>
  *   <tr><td>{@code mtrlte:ticket_gate_brt_out}</td><td>同上（<b>进出共用</b>）</td>
- *       <td>{@code …_out_side}</td><td>{@code false}</td></tr>
+ *       <td>{@code ticket_gate_brt_side}</td><td>{@code false}</td></tr>
  * </table>
  *
  * <h2>为什么进出共用一套模型</h2>
  * <p>地面上看，进站闸机和出站闸机长得一模一样（厦门地铁的实际闸机就是同一款），差别只在判定：
  * 同一张 {@code OPEN} 状态图，两端靠 {@code isEntrance} 决定走 {@code onEnter} 还是 {@code onExit}。
  *
- * <h2>为什么每台是「本体 + 侧壳」两个方块</h2>
- * <p>新素材把闸机做成「两个柜子夹一条通道」，两份 JSON 用的是<b>同一套局部坐标</b>：
- * 本体的柜体在 {@code x 12..16}、挡杆扫到 {@code x -4}；{@code *_barrier_side.json} 是同一柜体镜像到
- * {@code x -4..0} 的那一份 —— 也就是「本体旁边那一格」里的柜子。一个方块塞不下两个柜体
- * （碰撞 / 框选 / 破坏都只能按格算），所以按 JCM 闸机的做法拆成两个方块：
- * 放本体时会自动在 {@link XiamenTicketGate#sideOf} 那一侧放下 {@link XiamenTicketGateSide}
- * （同向、贴着脸），拆一个另一个跟着走。四种组合各自一对模型，见 {@link Gate#rawModel} /
- * {@link Gate#sideRawModel}。
- *
- * <h2>侧壳为什么也在创造页签之外</h2>
- * <p>侧壳是结构件：没有自己的物品、不掉落（{@code data/mtrlte/loot_tables} 里没有它的表），
- * 玩家只拿本体那一件。页签里仍然是 <b>4 个物品</b>。
+ * <h2>侧壳为什么只有两款（不再分进 / 出）</h2>
+ * <p>侧壳是一只<b>纯柜体</b>：没有 {@code OPEN}、没有判定、也不参与开合，进站闸机旁边和出站闸机旁边
+ * 摆的是同一只柜子。所以侧壳按「素材」分两款就够 —— {@link Side}：地铁一款
+ * （{@code rawmodels/ticket_barrier_side.json}）、BRT 一款（{@code brt_barrier_side.json}），
+ * 四台本体共用。<b>侧壳也是独立方块 + 独立物品</b>：自己摆在通道另一侧，不跟本体联动
+ * （一个方块塞不下两个柜体 —— 碰撞 / 框选 / 破坏都只能按格算）。
  *
  * <h2>几何从哪来</h2>
  * <p>直接读 Blockbench 导出的原始 JSON（{@code assets/mtrlte/rawmodels/*.json}），
  * 由 {@link XiamenTicketGateRenderer} 运行时逐元素旋转绘制 —— 素材里的
  * {@code -11.5 / -3.25 / 3.25 / 44} 这类任意角和 BRT 的三轴旋转都能原样表达。
  * 方块本身只剩一份空模型（{@code mtrlte:block/empty}），blockstate 只负责状态与朝向。
+ * 物品模型则是真正的原版 block model（{@code models/block/ticket_gate_*_item.json}，
+ * 由 {@code tools/gen-ticket-gate-item-models.js} 生成）—— 方块不存几何，物品必须自带一份。
  *
- * <p>由 {@code LteServer} 在厦门售票机 / 余额查询机之后调用；四个物品进「厦门风格物件」页签
+ * <p>由 {@code LteServer} 在厦门售票机 / 余额查询机之后调用；六个物品进「厦门风格物件」页签
  * （{@link XiamenObjects#CORE_TAB_ID}）。
  */
 public final class XiamenTicketGates {
 
-    /** 一台闸机：本体 id + 进 / 出 + 用哪两套素材。 */
+    /** 一款侧壳：一只柜体，四台本体按素材（地铁 / BRT）共用。 */
+    public static final class Side {
+
+        /** 方块 / 物品共用的 registry id。 */
+        public final Identifier id;
+        /** 侧壳原始模型名：{@code ticket_barrier_side} / {@code brt_barrier_side}。 */
+        public final String rawModel;
+
+        private XiamenTicketGateSide block;
+        private Item item;
+
+        private Side(final String path, final String rawModel) {
+            this.id = new Identifier(XiamenObjects.NAMESPACE, path);
+            this.rawModel = rawModel;
+        }
+
+        /** 注册好的侧壳方块（{@link XiamenTicketGates#register()} 之后非 null）。 */
+        public XiamenTicketGateSide block() {
+            return this.block;
+        }
+
+        /** 侧壳物品（侧壳是独立方块，能单独拿、单独摆）。 */
+        public Item item() {
+            return this.item;
+        }
+    }
+
+    /** 厦门地铁的侧壳。 */
+    public static final Side XIAMEN_SIDE = new Side("ticket_gate_xiamen_side", "ticket_barrier_side");
+
+    /** 厦门BRT 的侧壳。 */
+    public static final Side BRT_SIDE = new Side("ticket_gate_brt_side", "brt_barrier_side");
+
+    /** 两款侧壳（注册 + 客户端的遍历顺序）。 */
+    private static final List<Side> SIDES = List.of(XIAMEN_SIDE, BRT_SIDE);
+
+    /** 一台闸机本体：id + 进 / 出 + 用哪一套素材 + 用哪款侧壳。 */
     public static final class Gate {
 
         /** 本体方块 / 物品共用的 registry id。 */
         public final Identifier id;
-        /** 侧壳方块的 registry id（{@code <本体 id>_side}；没有物品）。 */
-        public final Identifier sideId;
         /** {@code true} = 进站（{@code BlockTicketBarrier(true)}）。 */
         public final boolean entrance;
         /** 物品模型前缀：{@code ticket_gate_xiamen} / {@code ticket_gate_brt}（item 模型名由它拼）。 */
         public final String model;
         /** 本体原始模型前缀：{@code ticket_barrier} / {@code brt_barrier}（渲染器再拼 {@code _open / _closed}）。 */
         public final String rawModel;
-        /** 侧壳原始模型名：{@code ticket_barrier_side} / {@code brt_barrier_side}。 */
-        public final String sideRawModel;
+        /** 配套侧壳（按素材共用，与进 / 出无关）。 */
+        public final Side side;
 
         private XiamenTicketGate block;
-        private XiamenTicketGateSide side;
         private Item item;
-        /** 侧壳物品（侧壳是独立方块，不再跟本体联动）。 */
-        private Item sideItem;
 
         private Gate(final String path, final boolean entrance, final String model, final String rawModel,
-                     final String sideRawModel) {
+                     final Side side) {
             this.id = new Identifier(XiamenObjects.NAMESPACE, path);
-            this.sideId = new Identifier(XiamenObjects.NAMESPACE, path + "_side");
             this.entrance = entrance;
             this.model = model;
             this.rawModel = rawModel;
-            this.sideRawModel = sideRawModel;
+            this.side = side;
         }
 
         /** 注册好的本体方块（{@link XiamenTicketGates#register()} 之后非 null）。 */
@@ -98,30 +124,20 @@ public final class XiamenTicketGates {
             return this.block;
         }
 
-        /** 注册好的侧壳方块（{@link XiamenTicketGates#register()} 之后非 null）。 */
-        public XiamenTicketGateSide side() {
-            return this.side;
-        }
-
-        /** 方块物品（只有本体有）。 */
+        /** 方块物品。 */
         public Item item() {
             return this.item;
         }
-
-        /** 侧壳物品（侧壳是独立方块，2012-11-13 起不再跟本体联动）。 */
-        public Item sideItem() {
-            return this.sideItem;
-        }
     }
 
-    /** 页签里的顺序：地铁进 → 地铁出 → BRT 进 → BRT 出。 */
+    /** 页签里的顺序：地铁进 → 地铁出 → BRT 进 → BRT 出（侧壳另按材料排在后头）。 */
     private static final List<Gate> GATES = List.of(
-            new Gate("ticket_gate_xiamen_in", true, "ticket_gate_xiamen", "ticket_barrier", "ticket_barrier_side"),
-            new Gate("ticket_gate_xiamen_out", false, "ticket_gate_xiamen", "ticket_barrier", "ticket_barrier_side"),
-            new Gate("ticket_gate_brt_in", true, "ticket_gate_brt", "brt_barrier", "brt_barrier_side"),
-            new Gate("ticket_gate_brt_out", false, "ticket_gate_brt", "brt_barrier", "brt_barrier_side"));
+            new Gate("ticket_gate_xiamen_in", true, "ticket_gate_xiamen", "ticket_barrier", XIAMEN_SIDE),
+            new Gate("ticket_gate_xiamen_out", false, "ticket_gate_xiamen", "ticket_barrier", XIAMEN_SIDE),
+            new Gate("ticket_gate_brt_in", true, "ticket_gate_brt", "brt_barrier", BRT_SIDE),
+            new Gate("ticket_gate_brt_out", false, "ticket_gate_brt", "brt_barrier", BRT_SIDE));
 
-    /** 八个闸机方块共用的方块实体类型（渲染器按方块实例选模型）。 */
+    /** 六个闸机方块共用的方块实体类型（渲染器按方块实例选模型）。 */
     private static final Identifier ENTITY_ID = new Identifier(XiamenObjects.NAMESPACE, "ticket_gate");
 
     private static BlockEntityType<XiamenTicketGateBlockEntity> entityType;
@@ -130,9 +146,14 @@ public final class XiamenTicketGates {
     private XiamenTicketGates() {
     }
 
-    /** 四台闸机（客户端挂渲染器时按它遍历）。 */
+    /** 四台闸机本体（客户端挂渲染器时按它遍历）。 */
     public static List<Gate> gates() {
         return GATES;
+    }
+
+    /** 两款侧壳。 */
+    public static List<Side> sides() {
+        return SIDES;
     }
 
     /** 闸机的方块实体类型（{@link XiamenTicketGateBlockEntity} 构造器要用）。 */
@@ -140,7 +161,7 @@ public final class XiamenTicketGates {
         return entityType;
     }
 
-    /** 音效 + 8 个方块 + 4 个物品 + 方块实体类型 + 创造页签条目，{@code main} 入口（{@code LteServer}）调一次。 */
+    /** 音效 + 6 个方块 + 6 个物品 + 方块实体类型 + 创造页签条目，{@code main} 入口（{@code LteServer}）调一次。 */
     public static void register() {
         if (registered) {
             return;
@@ -150,24 +171,26 @@ public final class XiamenTicketGates {
         // 音效是 registry 条目，服务端也要有（passThrough 在服务端 playSound）。
         XiamenTicketGateSounds.register();
 
-        final Block[] blocks = new Block[GATES.size() * 2];
-        for (int i = 0; i < GATES.size(); i++) {
-            final Gate gate = GATES.get(i);
+        final Block[] blocks = new Block[GATES.size() + SIDES.size()];
+        int cursor = 0;
+        for (final Gate gate : GATES) {
             // 方块实例自己记着进 / 出与素材名，几何由 BER 画，所以一款方块只需要一个类。
             gate.block = Registry.register(Registries.BLOCK, gate.id,
                     new XiamenTicketGate(gate.entrance, gate.rawModel));
-            // 侧壳：纯装饰柜体。设置与本体对齐（叉不掉、需要工具、非满方块不让邻居面被剔除）。
-            gate.side = Registry.register(Registries.BLOCK, gate.sideId,
-                    new XiamenTicketGateSide(Block.Settings.create().strength(2.0F).requiresTool().nonOpaque(),
-                            gate.sideRawModel));
-            blocks[i * 2] = gate.block;
-            blocks[i * 2 + 1] = gate.side;
-            // 方块与物品同一个 id（本模组厦门物件的一贯做法）；侧壳是独立方块，也有自己的物品。
+            blocks[cursor++] = gate.block;
+            // 方块与物品同一个 id（本模组厦门物件的一贯做法）。
             gate.item = Registry.register(Registries.ITEM, gate.id, new BlockItem(gate.block, new Item.Settings()));
-            gate.sideItem = Registry.register(Registries.ITEM, gate.sideId, new BlockItem(gate.side, new Item.Settings()));
+        }
+        for (final Side side : SIDES) {
+            // 侧壳：纯装饰柜体。设置与本体对齐（需要工具、非满方块不让邻居面被剔除）。
+            side.block = Registry.register(Registries.BLOCK, side.id,
+                    new XiamenTicketGateSide(Block.Settings.create().strength(2.0F).requiresTool().nonOpaque(),
+                            side.rawModel));
+            blocks[cursor++] = side.block;
+            side.item = Registry.register(Registries.ITEM, side.id, new BlockItem(side.block, new Item.Settings()));
         }
 
-        // 方块实体类型：八个方块共用一个（服务端也要注册 —— 方块实体的创建/保存走的是它）。
+        // 方块实体类型：六个方块共用一个（服务端也要注册 —— 方块实体的创建/保存走的是它）。
         entityType = Registry.register(Registries.BLOCK_ENTITY_TYPE, ENTITY_ID,
                 FabricBlockEntityTypeBuilder.create(XiamenTicketGateBlockEntity::new, blocks).build());
 
@@ -176,7 +199,9 @@ public final class XiamenTicketGates {
                     .register(entries -> {
                         for (final Gate gate : GATES) {
                             entries.add(gate.item);
-                            entries.add(gate.sideItem);
+                        }
+                        for (final Side side : SIDES) {
+                            entries.add(side.item);
                         }
                     });
         } catch (Throwable t) {
@@ -185,7 +210,10 @@ public final class XiamenTicketGates {
 
         for (final Gate gate : GATES) {
             LteLog.LOGGER.info("[lte] ticket gate {} (entrance={}, rawmodel={}_*, side={})",
-                    gate.id, gate.entrance, gate.rawModel, gate.sideId);
+                    gate.id, gate.entrance, gate.rawModel, gate.side.id);
+        }
+        for (final Side side : SIDES) {
+            LteLog.LOGGER.info("[lte] ticket gate side shell {} (rawmodel={})", side.id, side.rawModel);
         }
     }
 }

@@ -1,8 +1,6 @@
 // 挂墙发车倒数器：贴在站台头端的墙上，列车开门后倒计离站秒数。
 package dev.js.mtrheadlight.xiamen.dep;
 
-import java.util.List;
-
 import net.minecraft.block.AbstractBlock;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockEntityProvider;
@@ -12,12 +10,9 @@ import net.minecraft.block.HorizontalFacingBlock;
 import net.minecraft.block.MapColor;
 import net.minecraft.block.ShapeContext;
 import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.client.item.TooltipContext;
 import net.minecraft.item.ItemPlacementContext;
-import net.minecraft.item.ItemStack;
 import net.minecraft.sound.BlockSoundGroup;
 import net.minecraft.state.StateManager;
-import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.shape.VoxelShape;
@@ -233,14 +228,5 @@ public class DepOnWallBlock extends HorizontalFacingBlock implements BlockEntity
     public BlockEntity createBlockEntity(final BlockPos pos, final BlockState state) {
         // 物品栏渲染 / 结构方块可能给不到真实 state，用默认态兜底（MTR 的方块也照传 null）。
         return new DepOnWallBlockEntity(pos, state == null ? getDefaultState() : state);
-    }
-
-    @Override
-    public void appendTooltip(final ItemStack stack, final BlockView world, final List<Text> tooltip,
-                              final TooltipContext context) {
-        tooltip.add(Text.translatable("tooltip.mtrlte.dep_on_wall"));
-        // 读数方向的现场开关：写在物品提示里，玩家不用翻文档也能发现它（见 DepOnWallOrient）。
-        tooltip.add(Text.translatable("tooltip.mtrlte.dep_on_wall.orient")
-                .formatted(net.minecraft.util.Formatting.GRAY));
     }
 }

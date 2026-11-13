@@ -63,20 +63,6 @@ public final class XiamenClient implements ClientModInitializer {
             LteLog.LOGGER.error("[lte] could not register the xiamen psd top renderer", t);
         }
 
-        // 2b) 独立吊板（psd_top_xiamen_standalone）—— 和上面屏蔽门吊板**同一个渲染器**：
-        //     MTR 的 RenderPSDTop 负责几何 / 站名 / 线路图，XiamenPsdTopRenderer 负责把
-        //     XiamenRouteScope 压栈，从而只换我们这块的线路图。
-        //     它有自己的 BlockEntityType（见 XiamenObjects），所以这里单独注册一份。
-        try {
-            BlockEntityRendererRegistry.register(XiamenObjects.standaloneTopEntityType(), context ->
-                    (BlockEntityRenderer<XiamenPsdBlocks.TileEntityStandaloneTop>) (Object)
-                            new XiamenPsdTopRenderer(context.getRenderDispatcher()));
-            LteLog.LOGGER.info("[lte] xiamen standalone psd top renderer registered: {}",
-                    XiamenPsdTopRenderer.class.getName());
-        } catch (Throwable t) {
-            LteLog.LOGGER.error("[lte] could not register the xiamen standalone psd top renderer", t);
-        }
-
         // 3) 半高 APG 门扇渲染器 —— 同样是 MTR 的 RenderPSDAPGDoor，只是 type = 2。
         try {
             @SuppressWarnings({"unchecked", "rawtypes"})
@@ -117,7 +103,6 @@ public final class XiamenClient implements ClientModInitializer {
             put(set.apgEnd, line + " apg end");
         }
         put(XiamenObjects.logo(), "logo");
-        put(XiamenObjects.standaloneTop(), "standalone psd top");
 
         // 6) 站外标志（4 个）：贴图是大片 alpha=0 的灯箱牌，同样必须 cutout。
         for (dev.js.mtrheadlight.xiamen.sign.StationSignObjects.Entry entry

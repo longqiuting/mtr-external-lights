@@ -46,3 +46,29 @@ for (const dir of ['models/block', 'models/item']) {
 
 console.log(`[${ver}] undefined face texture vars: ${missing.length}`);
 for (const m of [...new Set(missing)].slice(0, 40)) console.log('  - ' + m);
+
+// ---------------------------------------------------------------------------------------------
+// 还查一件事：`parent` 指向<b>本模组</b>却不存在的模型。这正是闸机侧壳物品「紫黑块」的原因 ——
+// `models/item/ticket_gate_brt_in_side.json` 的 parent 写成 `mtrlte:block/ticket_gate_brt_in_item`，
+// 那份 json 根本不存在，原版就直接画 MissingModel（紫黑）。上面那段因为文件缺失被 `continue` 跳过，
+// 所以单独补一条：只查显式写了本模组命名空间（或 assets 下有同名目录）的 parent，
+// `block/block` 这种原版 id 依旧放过。
+const dangling = [];
+function checkParents(dir) {
+  const d = path.join(A, 'mtrlte', dir);
+  if (!fs.existsSync(d)) return;
+  for (const f of fs.readdirSync(d)) {
+    if (!f.endsWith('.json')) continue;
+    const j = readJson(path.join(d, f));
+    if (!j || !j.parent) continue;
+    const i = j.parent.indexOf(':');
+    if (i < 0) continue; // 无命名空间 = 原版
+    const ns = j.parent.slice(0, i);
+    if (ns === 'minecraft') continue;
+    const target = path.join(A, ns, 'models', j.parent.slice(i + 1) + '.json');
+    if (!fs.existsSync(target)) dangling.push(`${dir}/${f}: parent ${j.parent} MISSING`);
+  }
+}
+for (const dir of ['models/block', 'models/item']) checkParents(dir);
+console.log(`[${ver}] missing parent models: ${dangling.length}`);
+for (const m of [...new Set(dangling)].slice(0, 40)) console.log('  - ' + m);

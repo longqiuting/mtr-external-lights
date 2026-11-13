@@ -1,3 +1,6 @@
 {
-  "parent": "mtrlte:block/fangsu_psd_mtrduanmen_left_icon"
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "mtrlte:item/fangsu_psd/mtrduanmen_left"
+  }
 }

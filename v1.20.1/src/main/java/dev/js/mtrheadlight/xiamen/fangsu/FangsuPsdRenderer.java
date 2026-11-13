@@ -31,10 +31,13 @@ import net.minecraft.world.World;
  *   <li><b>门扇</b>（{@code subModels.door} / 滑动门的 {@code subModel}）：按开合进度
  *       {@code p ∈ [0,1]} 变换后再画 ——
  *       <ul>
- *         <li>旋转式（端门）：绕竖直轴（{@code doorPos} 的 x/z，模型单位）转 {@code doorAngle * p} 弧度。
+ *         <li>旋转式（端门）：绕竖直轴（{@code doorPos} 的 x/z，模型单位）转 {@code angle * p} 弧度，
+ *              其中 {@code angle} 已经从素材的 {@code doorAngle: ±1} 换算成 ±π/2（±90°，见
+ *              {@link FangsuPsdDef.Motion#angle()}）。
  *             矩阵顺序是「先就地转，再按朝向转」：{@code translate(pivot) → rotate → translate(-pivot)}
  *             压在 {@code FACING} 那一层<b>里面</b>，所以门扇是在方块自己的坐标系里开合的；</li>
- *         <li>滑动式：沿 x 平移 {@code step * p} 格（{@code step} 是素材里的 0.95 / -0.95）。</li>
+ *         <li>滑动式：沿 x 平移 {@code step * p} 格（{@code step} 读入时已按方速的 {@code -step} 取负，
+ *              所以这里直接正着乘）。</li>
  *       </ul></li>
  *   <li><b>上半段</b>：{@code HALF == TOP} 的那个方块<b>不画</b> —— 整扇门（含 3 格高的变体）都由
  *       下半段的方块实体一次画完，和 MTR 自己的 {@code RenderPSDAPGDoor} 同一个做法
@@ -50,6 +53,9 @@ import net.minecraft.world.World;
  * <h2>朝向</h2>
  * <p>和 {@code eyecandy} 一模一样：绕方块中心 {@code (0.5, ·, 0.5)} 转 {@code NEGATIVE_Y}
  * （blockstate 的 {@code y} 是俯视顺时针，JOML 正角是逆时针，所以取负）。
+ * 这套映射正好等于方速自己的 {@code rotateY(-toRadians(facing.getHorizontal()) + PI)}
+ * （north 0 / east −90 / south 180 / west 90），也就是<b>模型</b>的朝向；
+ * 碰撞盒要在此基础上再多转 180° 才对得上 —— 见 {@code FangsuPsdDoorBlock#shapeQuarterTurns}。
  *
  * <h2>渲染层</h2>
  * <p>{@code RenderLayer.getEntityCutout(贴图)}（按贴图缓存，见 {@link RawModelRenderer#cutoutLayer}）：

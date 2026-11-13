@@ -17,7 +17,7 @@ import net.minecraft.util.math.RotationAxis;
 import net.minecraft.world.World;
 
 /**
- * 厦门 / BRT 闸机（4 个本体 + 4 个侧壳，共 8 个方块共用）的方块实体渲染器。
+ * 厦门 / BRT 闸机（4 个本体 + 2 款侧壳，共 6 个方块共用）的方块实体渲染器。
  *
  * <h2>画什么</h2>
  * <ul>

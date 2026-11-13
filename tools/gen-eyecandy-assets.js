@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 生成 eyecandy 的资源样板：blockstate（四向 rotation）/ 物品模型 / 掉落表 / lang 条目。
+// 生成 eyecandy 的资源样板：blockstate（单变体，无朝向）/ 物品模型 / 掉落表 / lang 条目。
 //
 // 两套素材 = 两份描述文件：
 //   · first.json     厦门风格物件包 26 件 → 物品进 mtrlte:core「厦门风格物件」（不新建页签）
@@ -23,8 +23,7 @@ const ITEM_MODELS = path.join(RES, 'assets', 'mtrlte', 'models', 'item');
 const LOOT = path.join(RES, 'data', 'mtrlte', 'loot_tables', 'blocks');
 const LANG = path.join(RES, 'assets', 'mtrlte', 'lang');
 
-// 四个朝向：必须与 EyecandyBlock.ROTATION（HORIZONTAL_FACING）的四个值一一对应。
-const ROTATIONS = ['north', 'east', 'south', 'west'];
+// 方块没有朝向属性，blockstate 只有一个变体（键是空串）。
 
 // 厦门包英文名（英文 / 拼音缩写都行，这里按「别人看得懂」来写）。
 const EN_XIAMEN = {
@@ -126,11 +125,8 @@ function main() {
       const blockId = 'mtrlte:' + id;
 
       // 1) blockstate：几何由 BER 画，方块模型是空的（和闸机 / 售票机同一套做法）；
-      //    但状态有 rotation 属性，四个变体都得写上，否则三个方向是「missing model」。
-      const variants = {};
-      for (const rotation of ROTATIONS) {
-        variants['rotation=' + rotation] = { model: 'mtrlte:block/empty' };
-      }
+      //    方块没有 ROTATION 属性，所以只有一个变体 ""（多写旋转变体会被原版判成未知状态）。
+      const variants = { '': { model: 'mtrlte:block/empty' } };
       if (writeIfChanged(path.join(BLOCKSTATES, id + '.json'), JSON.stringify({ variants }, null, 2) + '\n')) written++;
 
       // 2) 物品模型：item/generated + layer0 = 离线渲染出来的 128×128 等轴测图标。
@@ -189,14 +185,13 @@ function main() {
       langWritten++;
     }
   }
-  // 旋转提示（每个 eyecandy 物品的 tooltip，共用一条）。
-  const tip = { zh_cn: '手持刷子右键可旋转（四向）', en_us: 'Right-click with the brush to rotate (4 directions)' };
-  const tipKey = 'tooltip.mtrlte.eyecandy_rotation';
+  // 旋转提示那条 lang 键已随 ROTATION 属性一起删了：顺手清掉，免得留着一条没人用的文案。
+  const retiredTipKey = 'tooltip.mtrlte.eyecandy_rotation';
   for (const locale of ['zh_cn', 'en_us']) {
     const file = path.join(LANG, locale + '.json');
     const json = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (!json[tipKey]) {
-      json[tipKey] = tip[locale];
+    if (json[retiredTipKey]) {
+      delete json[retiredTipKey];
       writeIfChanged(file, JSON.stringify(json, null, 2) + '\n');
       langWritten++;
     }
@@ -206,4 +201,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { EN_XIAMEN, EN_NANPUTUO, ROTATIONS };
+module.exports = { EN_XIAMEN, EN_NANPUTUO };

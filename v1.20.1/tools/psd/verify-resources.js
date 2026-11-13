@@ -34,7 +34,8 @@ function readJson(p) {
 
 // resource id ("mtrlte:fangsu_psd/duanmen/x.obj") -> file on disk
 function fileOf(id, kind) {
-  const [ns, p] = id.split(':');
+  const [ns, p] = id.includes(':') ? id.split(':') : ['minecraft', id];
+  if (ns === 'minecraft') return null;      // vanilla resource: 不校验（jar 里没有这份文件）
   if (kind === 'texture') return path.join(NS_DIR, ns, 'textures', p + '.png');
   return path.join(NS_DIR, ns, p + (path.extname(p) ? '' : '.json'));
 }
@@ -126,19 +127,22 @@ for (const file of ['low', 'high']) {
 
 // ---------------------------------------------------------------- 2. model json resolver
 function modelFile(id) {
-  const [ns, p] = id.split(':');
+  const [ns, p] = id.includes(':') ? id.split(':') : ['minecraft', id];
   return path.join(NS_DIR, ns, 'models', p + '.json');
 }
 function checkModelJson(id, owner, seen = new Set()) {
   if (seen.has(id)) return;
   seen.add(id);
+  // vanilla parents ("item/generated", "block/block", "minecraft:...")：jar 里没有，跳过不查
+  if (!id.includes(':') || id.startsWith('minecraft:')) return;
   const file = modelFile(id);
   if (!exists(file)) { fail(owner + ': model json ' + id + ' missing'); return; }
   const json = readJson(file);
   if (!json) return;
   for (const tex of Object.values(json.textures || {})) {
     if (typeof tex !== 'string' || tex.startsWith('#')) continue;
-    if (!exists(fileOf(tex, 'texture'))) fail(owner + ': model ' + id + ' texture ' + tex + ' missing');
+    const texFile = fileOf(tex, 'texture');
+    if (texFile && !exists(texFile)) fail(owner + ': model ' + id + ' texture ' + tex + ' missing');
   }
   if (json.parent) checkModelJson(json.parent, owner, seen);
 }

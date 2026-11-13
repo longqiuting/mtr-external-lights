@@ -13,12 +13,9 @@ import net.minecraft.block.HorizontalFacingBlock;
 import net.minecraft.block.MapColor;
 import net.minecraft.block.ShapeContext;
 import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.client.item.TooltipContext;
 import net.minecraft.item.ItemPlacementContext;
-import net.minecraft.item.ItemStack;
 import net.minecraft.sound.BlockSoundGroup;
 import net.minecraft.state.StateManager;
-import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.shape.VoxelShape;
@@ -378,11 +375,5 @@ public class DepOnRoofBlock extends HorizontalFacingBlock implements BlockEntity
     public BlockEntity createBlockEntity(final BlockPos pos, final BlockState state) {
         // 物品栏渲染 / 结构方块可能给不到真实 state，用默认态兜底（MTR 的方块也照传 null）。
         return new DepOnRoofBlockEntity(pos, state == null ? getDefaultState() : state);
-    }
-
-    @Override
-    public void appendTooltip(final ItemStack stack, final BlockView world, final List<Text> tooltip,
-                              final TooltipContext context) {
-        tooltip.add(Text.translatable("tooltip.mtrlte.dep_on_roof"));
     }
 }

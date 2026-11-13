@@ -1,7 +1,0 @@
-{
-    "parent": "mtrlte:block/platform",
-    "textures": {
-        "main": "block/quartz_block_bottom",
-        "top": "mtr:block/transparent"
-    }
-}

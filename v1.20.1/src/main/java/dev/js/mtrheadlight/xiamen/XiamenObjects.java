@@ -58,11 +58,9 @@ import net.minecraft.util.Identifier;
  * {@code mtrlte:psd_door_xiamen} 类型（<b>老存档里的方块实体 id 不变</b>，不需要任何数据迁移）。
  * 渲染器因此也只需要注册一次，线路靠方块实例区分。
  *
- * <h2>另外还有一块「独立吊板」</h2>
- * <p>{@code mtrlte:psd_top_xiamen_standalone} —— 上面那 35 个方块里的吊板只能跟着屏蔽门整列一起放
- * （没有物品形态、下方不是门就掉），这一块把它拆了出来：有物品、任意位置可放、剪刀右键切四向，
- * 线路图仍是同一套（同一渲染器 + 同一批状态属性）。方块与方块实体见
- * {@link XiamenPsdBlocks.StandaloneTop} / {@link XiamenPsdBlocks.TileEntityStandaloneTop}。
+ * <p>（曾经还有一块 {@code mtrlte:psd_top_xiamen_standalone}「独立吊板」—— 把吊板拆出来单独放。
+ * 问题太多且不合算，已整体删除：方块、物品、资源、lang、注册、渲染器挂接全部移除，
+ * 屏蔽门自带的吊板（{@code psd_top_xiamen*}）完全不受影响。）
  */
 public final class XiamenObjects {
 
@@ -80,12 +78,6 @@ public final class XiamenObjects {
 
     /** 厦门地铁标志方块：{@code mtrlte:xiamen_logo}（与屏蔽门无关，只有一块）。 */
     public static final Identifier LOGO_ID = new Identifier(NAMESPACE, "xiamen_logo");
-
-    /**
-     * 独立吊板：{@code mtrlte:psd_top_xiamen_standalone} —— 屏蔽门吊板（y+2 那一格）
-     * 拆出来单独放置的版本，方块 + 物品同名。
-     */
-    public static final Identifier PSD_TOP_STANDALONE_ID = new Identifier(NAMESPACE, "psd_top_xiamen_standalone");
 
     /**
      * 方块实体的 registry id —— 1 号线时的那 4 个，<b>五条线路共用</b>。
@@ -162,18 +154,10 @@ public final class XiamenObjects {
 
     private static XiamenLogoBlock logo;
 
-    /** 独立吊板（方块的「不带线路后缀」那一套贴图，物品同名）。 */
-    private static XiamenPsdBlocks.StandaloneTop standaloneTop;
-
-    private static Item standaloneTopItem;
-
     private static BlockEntityType<XiamenPsdBlocks.TileEntityXiamenPSDDoor> psdDoorEntityType;
     private static BlockEntityType<XiamenPsdBlocks.TileEntityXiamenPSDTop> psdTopEntityType;
     private static BlockEntityType<XiamenPsdBlocks.TileEntityXiamenAPGDoor> apgDoorEntityType;
     private static BlockEntityType<XiamenPsdBlocks.TileEntityXiamenAPGGlass> apgGlassEntityType;
-
-    /** 独立吊板的方块实体类型（与屏蔽门吊板的类型分开，免得两条注册链互相牵连）。 */
-    private static BlockEntityType<XiamenPsdBlocks.TileEntityStandaloneTop> standaloneTopEntityType;
     private static boolean registered;
 
     private XiamenObjects() {
@@ -260,21 +244,6 @@ public final class XiamenObjects {
         return logo;
     }
 
-    /** 独立吊板方块（{@code mtrlte:psd_top_xiamen_standalone}）。 */
-    public static XiamenPsdBlocks.StandaloneTop standaloneTop() {
-        return standaloneTop;
-    }
-
-    /** 独立吊板的物品（就是一个 {@code BlockItem}）。 */
-    public static Item standaloneTopItem() {
-        return standaloneTopItem;
-    }
-
-    /** 独立吊板的方块实体类型。 */
-    public static BlockEntityType<XiamenPsdBlocks.TileEntityStandaloneTop> standaloneTopEntityType() {
-        return standaloneTopEntityType;
-    }
-
     public static BlockEntityType<XiamenPsdBlocks.TileEntityXiamenPSDDoor> psdDoorEntityType() {
         return psdDoorEntityType;
     }
@@ -304,13 +273,6 @@ public final class XiamenObjects {
         }
         logo = registerLogo(LOGO_ID);
 
-        // 独立吊板（psd_top_xiamen_standalone）：方块 + 同名物品。渲染器在 XiamenClient 里挂，
-        // 和屏蔽门吊板同一个（XiamenPsdTopRenderer），所以线路图那套一行都不用改。
-        standaloneTop = new XiamenPsdBlocks.StandaloneTop();
-        Registry.register(Registries.BLOCK, PSD_TOP_STANDALONE_ID, standaloneTop);
-        standaloneTopItem = Registry.register(Registries.ITEM, PSD_TOP_STANDALONE_ID,
-                new TooltipBlockItem(standaloneTop, "tooltip.mtrlte.psd_top_xiamen_standalone"));
-
         // 一个 BE 类型对五条线路的同种方块（老存档的 BE id 不变）。
         psdDoorEntityType = Registry.register(Registries.BLOCK_ENTITY_TYPE, PSD_DOOR_BE_ID,
                 FabricBlockEntityTypeBuilder.create(XiamenPsdBlocks.TileEntityXiamenPSDDoor::new,
@@ -324,9 +286,6 @@ public final class XiamenObjects {
         apgGlassEntityType = Registry.register(Registries.BLOCK_ENTITY_TYPE, APG_GLASS_BE_ID,
                 FabricBlockEntityTypeBuilder.create(XiamenPsdBlocks.TileEntityXiamenAPGGlass::new,
                         blocksOf(s -> s.apgGlass)).build());
-        standaloneTopEntityType = Registry.register(Registries.BLOCK_ENTITY_TYPE, PSD_TOP_STANDALONE_ID,
-                FabricBlockEntityTypeBuilder.create(XiamenPsdBlocks.TileEntityStandaloneTop::new,
-                        standaloneTop).build());
 
         // 页签图标是一个只画图标的物品（见 TabIcons 的类注释），不是这一页里的门扇 / 玻璃。
         TabIcons.register();
@@ -351,8 +310,6 @@ public final class XiamenObjects {
                         entries.add(set.apgGlass);
                         entries.add(set.apgEnd);
                     }
-                    // 最后一块：可以单独放的吊板（屏蔽门吊板本身没有物品形态）。
-                    entries.add(standaloneTopItem);
                 });
 
         for (final XiamenLine line : XiamenLine.values()) {
@@ -361,7 +318,6 @@ public final class XiamenObjects {
                     line, set.doorId, set.glassId, set.endId, set.topId,
                     set.apgDoorId, set.apgGlassId, set.apgEndId);
         }
-        LteLog.LOGGER.info("[lte] xiamen standalone psd top: {}", PSD_TOP_STANDALONE_ID);
     }
 
     /** 五条线路的同种方块（给 BE 类型用）。 */
@@ -430,31 +386,10 @@ public final class XiamenObjects {
         return block;
     }
 
-    /** 页签在 registry 里的那一份（调试用）。 */
+    /**
+     * 页签在 registry 里的那一份（调试用）。
+     */
     public static ItemGroup tab() {
         return Registries.ITEM_GROUP.get(CORE_TAB_ID);
-    }
-
-    /**
-     * 独立吊板的物品：普通 {@link net.minecraft.item.BlockItem} + 一行说明
-     * （「任意位置可放 / 剪刀切四向」这件事写在物品上才有人找得到）。
-     */
-    private static final class TooltipBlockItem extends net.minecraft.item.BlockItem {
-
-        private final String tooltipKey;
-
-        private TooltipBlockItem(final Block block, final String tooltipKey) {
-            super(block, new Item.Settings());
-            this.tooltipKey = tooltipKey;
-        }
-
-        @Override
-        public void appendTooltip(final ItemStack stack, final net.minecraft.world.World world,
-                                  final java.util.List<Text> tooltip,
-                                  final net.minecraft.client.item.TooltipContext context) {
-            super.appendTooltip(stack, world, tooltip, context);
-            tooltip.add(Text.translatable(this.tooltipKey)
-                    .formatted(net.minecraft.util.Formatting.GRAY));
-        }
     }
 }

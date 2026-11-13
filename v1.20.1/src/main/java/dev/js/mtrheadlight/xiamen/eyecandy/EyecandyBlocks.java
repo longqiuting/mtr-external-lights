@@ -65,7 +65,7 @@ import net.minecraft.util.shape.VoxelShape;
  * <h2>碰撞箱：三条规则</h2>
  * <ol>
  *   <li><b>普通物件 → 一个 AABB</b>：读 {@code .obj} 的 {@code v} 行，按
- *       {@code scale → rotation(XYZ 欧拉，度) → translation(格) → raise} 变换（{@link RawObjParser#place}），
+ *       {@code scale → rotation(XYZ 欧拉，度) → translation(格)} 变换（{@link RawObjParser#place}），
  *       换算到模型空间 0..16 取逐轴 min/max（{@link #boxOf}）。素材里那两列
  *       {@code shape} / {@code collisionShape} <b>一个都不用</b>（26 件里有 9 件的
  *       {@code collisionShape} 是 {@code 0,0,0,0,0,0}，高度还统一写成 16 / 24，跟真实几何对不上）。
@@ -79,13 +79,14 @@ import net.minecraft.util.shape.VoxelShape;
  *       走廊里既不会有一堵看不见的墙，也不会从栏杆里穿过去。</li>
  *   <li><b>桥墩 → 只有轮廓</b>（{@link #NO_COLLISION_KEYS}：{@code qiaodun20}）：碰撞盒是空集，
  *       轮廓是一个 1×1×1 的整格框（选中时能看见一格的范围，方便对齐），模型本身按
- *       {@code first.json} 的 {@code "raise": 2} 比原来高 2 格。</li>
+ *       {@code first.json} 的 {@code "translation": [0, 2, 0]} 从放置点<b>往下挂</b>：墩顶落在放置格
+ *       的顶面 = 上方桥面的底面，玩家贴着桥面底部放就是一条完整的墩。</li>
  * </ol>
  *
- * <h2>朝向</h2>
- * <p>每个方块都带四向 {@code ROTATION} 属性（见 {@link EyecandyBlock}）：放置时默认正面朝玩家，
- * 手持 MTR 刷子右键循环。碰撞箱在注册期就把<b>四个方向</b>都建好了（{@link EyecandyBlock#shapeOf}），
- * 所以转向时模型和碰撞一起转。
+ * <h2>没有朝向</h2>
+ * <p>方块只有一种状态（blockstate 单变体 {@code ""}）：没有 {@code ROTATION}、没有刷子旋转、
+ * 也没有「四向各一份碰撞盒」。模型烘在 {@code .obj} 里，放下去是什么样子就一直是什么样子
+ * （用户原话：「刷子旋转也没什么用，玩家放置的时候自然就转向了」）。
  *
  * <h2>为什么注册期就要读 OBJ</h2>
  * <p>碰撞箱是方块属性，服务端也得有 —— 所以这里在主线程（两端）读 60 个 obj 的顶点算盒子，
@@ -186,8 +187,8 @@ public final class EyecandyBlocks {
      *
      * <p>这是「普通物件」那一条规则算出来的整块 AABB —— 转角栏杆与桥墩用另两条规则（见类注释），
      * 这里只当参考值（日志、调试命令、{@code tools/verify-eyecandies.js} 用）。
-     * {@code qiaodun20} 会是 {@code y ∈ [2, 22]}（贴地后再抬 2 格），{@code key12}（线网图）会是
-     * {@code z ∈ [-1.5, 2.5]} —— 数值超出 0..1 是<b>有意</b>的。
+     * {@code qiaodun20} 会是 {@code y ∈ [-19, 1]}（从放置点往下挂 20 格，墩顶贴放置格顶面），
+     * {@code key12}（线网图）会是 {@code z ∈ [-1.5, 2.5]} —— 数值超出 0..1 是<b>有意</b>的。
      */
     public static double[] boxOf(final EyecandyEntry entry) {
         final String text = modelText(entry);
@@ -195,17 +196,14 @@ public final class EyecandyBlocks {
             return new double[] {0.0D, 0.0D, 0.0D, 1.0D, 1.0D, 1.0D};
         }
         final double[] units = RawObjParser.bounds(text, entry.scale(), entry.rotation(),
-                entry.translation(), entry.mirror(), entry.raise());
+                entry.translation(), entry.mirror());
         final double[] box = new double[6];
         for (int axis = 0; axis < 3; axis++) {
             double min = units[axis] / 16.0D;
             double max = units[axis + 3] / 16.0D;
-            // 亚像素负数抖到 0（只抖噪声级别的；大负值是真实的伸出几何）。
+            // 亚像素负数抖到 0（只抖噪声级别的；大负值是真实的伸出几何 —— 桥墩就是整段挂在 y<0）。
             if (min < 0.0D && min > -NUDGE_UNITS / 16.0D) {
                 min = 0.0D;
-            }
-            if (max < 0.0D) {
-                max = 0.0D;
             }
             if (max - min < MIN_SIZE_UNITS / 16.0D) {
                 max = min + MIN_SIZE_UNITS / 16.0D;
@@ -231,7 +229,7 @@ public final class EyecandyBlocks {
             final String text = modelText(entry);
             if (text != null) {
                 final int[] grid = RawObjParser.footprint(text, entry.scale(), entry.rotation(),
-                        entry.translation(), entry.mirror(), entry.raise());
+                        entry.translation(), entry.mirror());
                 final double[] box = boxOf(entry);
                 final List<double[]> corner = cornerBoxes(grid, Math.max(0.0D, box[1] * 16.0D),
                         Math.max(1.0D, box[4] * 16.0D));
@@ -255,7 +253,7 @@ public final class EyecandyBlocks {
         if (block != null) {
             return block.shape();
         }
-        return EyecandyBlock.shapeOf(boxesOf(entry), 0);
+        return EyecandyBlock.shapeOf(boxesOf(entry));
     }
 
     /**
@@ -265,7 +263,7 @@ public final class EyecandyBlocks {
      */
     public static RawMesh mesh(final EyecandyEntry entry) {
         return RawObjParser.get(entry.modelId(), entry.texture(), entry.flipV(),
-                entry.scale(), entry.rotation(), entry.translation(), entry.mirror(), entry.raise());
+                entry.scale(), entry.rotation(), entry.translation(), entry.mirror());
     }
 
     // ------------------------------------------------------------------ 转角栏杆：占位格 → 盒子

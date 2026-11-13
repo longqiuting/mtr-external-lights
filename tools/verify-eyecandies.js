@@ -11,11 +11,13 @@
 //        · 普通物件：每轴尺寸 > 0、在 0.02..400 格之间、y 轴最低点 ≈ 0；
 //        · 转角栏杆（key13 / key14）：占位格必须**不是**整块（< 85%），而且要同时有
 //          「贴 x 边」和「贴 z 边」的两条臂 —— 也就是真的 L 形，而不是一个 AABB；
-//        · 桥墩（qiaodun20）：raise = 2（y 从 2 格起），而且只有轮廓没有碰撞；
-//   4. blockstate 是四个 rotation 变体（都指到 mtrlte:block/empty）、物品模型是 item/generated + layer0；
+//        · 桥墩（qiaodun20）：从放置点往下挂（y ∈ [-19, 1]、高 20 格、墩顶贴放置格顶面），
+//          不带已废弃的 raise，而且只有轮廓没有碰撞；
+//   4. blockstate 是单变体 ""（指到 mtrlte:block/empty，方块没有朝向属性）、
+//      物品模型是 item/generated + layer0；
 //   5. 物品图标 128×128、有 alpha、不是全空；掉落表掉自己；
-//   6. lang（zh_cn / en_us）里 60 个 block/item 键 + 南普陀页签名 + 旋转提示都在，
-//      已废弃的 itemGroup.mtrlte.xiamen_decor 不在了；
+//   6. lang（zh_cn / en_us）里 60 个 block/item 键 + 南普陀页签名都在，
+//      已废弃的 itemGroup.mtrlte.xiamen_decor 与旋转提示 tooltip.mtrlte.eyecandy_rotation 都不在了；
 //   7. 源码里的约定：EyecandyBlocks 里有 nanputuo_decor、没有 xiamen_decor、转角 / 桥墩 key 都在，
 //      LteServer 调 EyecandyBlocks.register()、XiamenClient 调 EyecandyClient.register()。
 //
@@ -40,10 +42,8 @@ const DESCRIPTORS = [
   { file: 'first.json', expect: 26, label: '厦门风格物件包' },
   { file: 'nanputuo.json', expect: 34, label: '南普陀' },
 ];
-const ROTATIONS = ['north', 'east', 'south', 'west'];
 const CORNER_KEYS = ['key13', 'key14'];
 const NO_COLLISION_KEYS = ['qiaodun20'];
-const PIER_RAISE = 2;
 
 const VERBOSE = process.argv.includes('-v');
 
@@ -106,13 +106,12 @@ function pngHasPixels(file) {
 
 // ----------------------------------------------------------------- 几何（独立重写）
 
-/** scale → rotation(XYZ 欧拉) → translation → raise → 模型空间（与 RawObjParser.place 等价，代码独立重写）。 */
+/** scale → rotation(XYZ 欧拉) → translation → 模型空间（与 RawObjParser.place 等价，代码独立重写）。 */
 function placeVertices(vertices, entry) {
   const s = entry.scale || [1, 1, 1];
   const a = (entry.rotation || [0, 0, 0]).map((d) => (d * Math.PI) / 180);
   const t = entry.translation || [0, 0, 0];
   const m = entry.mirror || [false, false, false];
-  const raise = entry.raise || 0;
 
   // 三个轴各一个旋转矩阵，按 X→Y→Z 乘（等价于 Rz·Ry·Rx）。
   const rx = [[1, 0, 0], [0, Math.cos(a[0]), -Math.sin(a[0])], [0, Math.sin(a[0]), Math.cos(a[0])]];
@@ -130,9 +129,8 @@ function placeVertices(vertices, entry) {
     ];
   });
 
-  const ys = placed.map((p) => p[1]);
-  const lift = (Math.max(...ys) <= 0 ? -Math.min(...ys) : 0) + raise;
-  return placed.map((p) => [p[0] * 16 + 8, (p[1] + lift) * 16, p[2] * 16 + 8]);
+  // 素材怎么摆就怎么画：没有「抬到地面」的兜底了（桥墩整段挂在 y<0 是正常的）。
+  return placed.map((p) => [p[0] * 16 + 8, p[1] * 16, p[2] * 16 + 8]);
 }
 
 function objVertices(file) {
@@ -173,7 +171,6 @@ function boxOf(units) {
     let min = units[axis] / 16;
     let max = units[axis + 3] / 16;
     if (min < 0 && min > -NUDGE) min = 0;
-    if (max < 0) max = 0;
     if (max - min < MIN_SIZE) max = min + MIN_SIZE;
     box[axis] = min;
     box[axis + 3] = max;
@@ -309,12 +306,16 @@ function checkEntry(key, entry, seenIds, seenFiles) {
   const size = [box[3] - box[0], box[4] - box[1], box[5] - box[2]];
 
   if (NO_COLLISION_KEYS.includes(key)) {
-    // 桥墩：raise 必须把 y 抬到 2 格，而且方块本身不给碰撞（源码里那条规则由第 7 步核对）。
-    if (Math.abs(entry.raise - PIER_RAISE) > 1e-6) {
-      fail(`${tag} pier should carry "raise": ${PIER_RAISE}, got ${entry.raise}`);
-    } else ok(`${tag} pier raise = ${PIER_RAISE}`);
-    if (Math.abs(box[1] - PIER_RAISE) > 1e-3) {
-      fail(`${tag} pier bottom should sit at y = ${PIER_RAISE}, got ${box[1].toFixed(3)}`);
+    // 桥墩：素材整段挂在放置点以下，描述只把它抬 2 格 —— 墩顶落在放置格的顶面（= 上方桥面底面），
+    // 墩身往下挂 19 格。方块本身不给碰撞（源码里那条规则由第 7 步核对）。
+    if (Object.prototype.hasOwnProperty.call(entry, 'raise')) {
+      fail(`${tag} pier still carries the retired "raise" field (use translation)`);
+    } else ok(`${tag} pier has no "raise"`);
+    if (Math.abs(box[4] - 1) > 1e-3) {
+      fail(`${tag} pier top should sit at the block's top face (y = 1), got ${box[4].toFixed(3)}`);
+    } else ok(`${tag} pier top y = ${box[4].toFixed(3)} (block top face)`);
+    if (Math.abs(box[1] + 19) > 1e-3) {
+      fail(`${tag} pier bottom should hang 19 blocks below the placement point (y = -19), got ${box[1].toFixed(3)}`);
     } else ok(`${tag} pier bottom y = ${box[1].toFixed(3)}`);
     if (Math.abs(size[1] - 20) > 0.2) fail(`${tag} pier height is ${size[1].toFixed(2)} blocks, expected ~20`);
     else ok(`${tag} pier height ${size[1].toFixed(2)}`);
@@ -374,12 +375,9 @@ function checkEntry(key, entry, seenIds, seenFiles) {
     const bs = JSON.parse(fs.readFileSync(bsFile, 'utf8'));
     const variants = bs.variants || {};
     const keys = Object.keys(variants);
-    const bad = keys.filter((k) => !variants[k] || variants[k].model !== 'mtrlte:block/empty');
-    if (bad.length || keys.length !== ROTATIONS.length) {
-      fail(`${tag} blockstate should have the 4 rotation variants → mtrlte:block/empty (has ${keys.length}: ${keys.join(',')})`);
-    } else if (ROTATIONS.some((r) => !variants['rotation=' + r])) {
-      fail(`${tag} blockstate is missing one of rotation=${ROTATIONS.join('/')}`);
-    } else ok(`${tag} blockstate → block/empty ×4`);
+    if (keys.length !== 1 || keys[0] !== '' || !variants[''] || variants[''].model !== 'mtrlte:block/empty') {
+      fail(`${tag} blockstate should be the single "" variant → mtrlte:block/empty (has ${keys.length}: ${keys.join(',')})`);
+    } else ok(`${tag} blockstate → block/empty ×1`);
   }
 
   const itemFile = path.join(ITEM_MODELS, id + '.json');
@@ -457,8 +455,9 @@ function main() {
     else ok(`${name} no retired xiamen_decor tab name`);
     if (!json['itemGroup.mtrlte.core']) fail(`${name} missing itemGroup.mtrlte.core (the tab the 26 go into)`);
     else ok(`${name} core tab name`);
-    if (!json['tooltip.mtrlte.eyecandy_rotation']) fail(`${name} missing tooltip.mtrlte.eyecandy_rotation`);
-    else ok(`${name} rotation tooltip`);
+    if (json['tooltip.mtrlte.eyecandy_rotation']) {
+      fail(`${name} still has tooltip.mtrlte.eyecandy_rotation (the rotation property was removed)`);
+    } else ok(`${name} no rotation tooltip`);
   }
   for (const row of rows) {
     for (const [name, json] of [['zh_cn', langZh], ['en_us', langEn]]) {
@@ -487,11 +486,11 @@ function main() {
     else ok(`no-collision key ${key} listed`);
   }
   const blockSrc = fs.readFileSync(path.join(src, 'xiamen', 'eyecandy', 'EyecandyBlock.java'), 'utf8');
-  if (!blockSrc.includes('EnumProperty.of("rotation"')) {
-    fail('EyecandyBlock does not expose a 4-way "rotation" property (blockstate variants are rotation=north/…)');
-  } else ok('EyecandyBlock has a 4-way "rotation" property');
-  if (!blockSrc.includes('rotateYClockwise')) fail('EyecandyBlock does not cycle ROTATION on use');
-  else ok('EyecandyBlock cycles ROTATION');
+  if (blockSrc.includes('EnumProperty.of("rotation"')) {
+    fail('EyecandyBlock still exposes the retired 4-way "rotation" property');
+  } else ok('EyecandyBlock has no rotation property');
+  if (blockSrc.includes('rotateYClockwise')) fail('EyecandyBlock still cycles ROTATION on use');
+  else ok('EyecandyBlock has no brush rotation');
   const serverSrc = fs.readFileSync(path.join(src, 'server', 'LteServer.java'), 'utf8');
   if (!serverSrc.includes('EyecandyBlocks.register()')) fail('LteServer does not call EyecandyBlocks.register()');
   else ok('LteServer calls EyecandyBlocks.register()');

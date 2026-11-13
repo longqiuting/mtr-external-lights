@@ -24,5 +24,16 @@ public final class FangsuPsdClient implements ClientModInitializer {
         } catch (Throwable t) {
             LteLog.LOGGER.error("[lte] could not register the fangsu psd door renderer", t);
         }
+        // 玻璃板：另一个方块类 + 另一个方块实体类型（静态，只画 glass_* 那一组）。
+        try {
+            if (FangsuPsdBlocks.glassEntityType() != null) {
+                BlockEntityRendererRegistry.register(FangsuPsdBlocks.glassEntityType(),
+                        context -> new FangsuPsdGlassRenderer(context));
+                LteLog.LOGGER.info("[lte] fangsu psd glass renderer registered: {}",
+                        FangsuPsdGlassRenderer.class.getName());
+            }
+        } catch (Throwable t) {
+            LteLog.LOGGER.error("[lte] could not register the fangsu psd glass renderer", t);
+        }
     }
 }

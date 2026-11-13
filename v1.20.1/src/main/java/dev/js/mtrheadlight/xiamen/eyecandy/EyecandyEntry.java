@@ -40,13 +40,14 @@ import net.minecraft.util.Identifier;
  *   "translation": [0, 0, 0],               // 格
  *   "rotation":    [0, 0, 0],               // 度，XYZ 欧拉
  *   "scale":       [1, 1, 1],
- *   "mirror":      [false, false, false],
- *   "raise":       2                        // 可选，贴地之后再抬几格（只有桥墩用）
+ *   "mirror":      [false, false, false]
  * }
  * </pre>
  *
- * <p>朝向不写在描述里：方块带 {@code ROTATION} 属性（四向），放置时按玩家朝向给默认值，
- * 在游戏里用刷子右键循环 —— 见 {@link EyecandyBlock}。
+ * <p>物体摆在哪完全由素材决定：方块本身<b>没有朝向属性</b>，模型烘进 {@code .obj} 就那一副样子，
+ * 放置时不会转（要换方向就换一件镜像 / 另一侧的物件）。位置也只靠这里的 {@code translation}
+ * 平移 —— 桥墩（{@code qiaodun20}）就是靠 {@code [0,2,0]} 把素材里「挂在放置点以下」的模型
+ * 抬到墩顶贴着放置格顶面，玩家贴着上方桥面的底面放，墩身自然往下挂。
  *
  * <h2>命名空间改写</h2>
  * <p>素材是 MTR 的 Steam Loco 扩展（{@code mtrsteamloco}）的，路径 {@code eyecandies/*} 原样保留，
@@ -58,7 +59,7 @@ import net.minecraft.util.Identifier;
  */
 public record EyecandyEntry(Pack pack, String key, String displayName, Identifier modelId, Identifier texture,
                             boolean flipV, float[] scale, float[] rotation, float[] translation,
-                            boolean[] mirror, float raise, Identifier blockId) {
+                            boolean[] mirror, Identifier blockId) {
 
     /** 两套素材：一份描述文件 = 一个页签。 */
     public enum Pack {
@@ -108,7 +109,6 @@ public record EyecandyEntry(Pack pack, String key, String displayName, Identifie
                         triple(json, "rotation", 0.0F),
                         triple(json, "translation", 0.0F),
                         bools(json, "mirror"),
-                        number(json, "raise", 0.0F),
                         new Identifier(EyecandyBlocks.NAMESPACE,
                                 "eyecandy_" + item.getKey().toLowerCase(Locale.ROOT))));
             }
@@ -148,17 +148,6 @@ public record EyecandyEntry(Pack pack, String key, String displayName, Identifie
 
     private static boolean bool(final JsonObject json, final String key, final boolean fallback) {
         return json.has(key) && !json.get(key).isJsonNull() ? json.get(key).getAsBoolean() : fallback;
-    }
-
-    private static float number(final JsonObject json, final String key, final float fallback) {
-        if (!json.has(key) || json.get(key).isJsonNull()) {
-            return fallback;
-        }
-        try {
-            return json.get(key).getAsFloat();
-        } catch (Throwable t) {
-            return fallback;
-        }
     }
 
     private static float[] triple(final JsonObject json, final String key, final float fallback) {
