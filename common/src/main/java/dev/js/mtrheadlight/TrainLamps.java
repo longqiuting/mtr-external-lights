@@ -253,7 +253,12 @@ public final class TrainLamps {
                 .add(0.0D, height, 0.0D)
                 .subtract(out.multiply(back));
 
-        Vec3d dir = out;
+        /*
+         * dir 指向车外（灯照出去的方向）。`out` 是车体的内向弦（{@code pos} 用 `base - out*back`
+         * 才算到车脸外面），所以灯的朝向必须取反 —— 直接拿 `out` 当 dir 会让每盏灯都朝车厢里照，
+         * 只有站进车里（旁观）才看得见灯晕。
+         */
+        Vec3d dir = out.multiply(-1.0D);
         if (r.rot != null && r.rot.length >= 2) {
             dir = rotate(dir, right, r.rot[0], r.rot[1]);
         }
