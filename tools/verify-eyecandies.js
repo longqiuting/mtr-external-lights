@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 核对 eyecandy（厦门 26 件 + 南普陀 34 件）的「资源 + 碰撞箱 + 图标 + 页签」是不是成套的
+// 核对 eyecandy（厦门 25 件 + 南普陀 34 件）的「资源 + 碰撞箱 + 图标 + 页签」是不是成套的
 // （不开游戏就能查的那种错）。
 //
 // 查这些事：
@@ -39,7 +39,7 @@ const LOOT = path.join(RES, 'data', 'mtrlte', 'loot_tables', 'blocks');
 const LANG = path.join(RES, 'assets', 'mtrlte', 'lang');
 
 const DESCRIPTORS = [
-  { file: 'first.json', expect: 26, label: '厦门风格物件包' },
+  { file: 'first.json', expect: 25, label: '厦门风格物件包' },
   { file: 'nanputuo.json', expect: 34, label: '南普陀' },
 ];
 const CORNER_KEYS = ['key13', 'key14'];
@@ -369,13 +369,25 @@ function checkEntry(key, entry, seenIds, seenFiles) {
   }
 
   // 4) blockstate / 物品模型
+  //    栏杆那几个 key 有 facing 属性（放置时按玩家朝向定，见 EyecandyDirectionalBlock）→
+  //    blockstate 必须写满四个变体（少一个变体原版会把状态判成「未知」直接报错）；
+  //    其余物件单变体 ""。
+  const FACING_KEYS = new Set(['key4', 'key5', 'key6', 'key7', 'key13', 'key14']);
   const bsFile = path.join(BLOCKSTATES, id + '.json');
   if (!fs.existsSync(bsFile)) fail(`${tag} missing blockstate ${id}.json`);
   else {
     const bs = JSON.parse(fs.readFileSync(bsFile, 'utf8'));
     const variants = bs.variants || {};
     const keys = Object.keys(variants);
-    if (keys.length !== 1 || keys[0] !== '' || !variants[''] || variants[''].model !== 'mtrlte:block/empty') {
+    const allEmpty = keys.every((k) => variants[k] && variants[k].model === 'mtrlte:block/empty');
+    if (FACING_KEYS.has(key)) {
+      const wanted = ['facing=north', 'facing=east', 'facing=south', 'facing=west'];
+      const missing = wanted.filter((k) => !variants[k]);
+      if (missing.length || !allEmpty) {
+        fail(`${tag} blockstate should have all four facing= variants → mtrlte:block/empty `
+          + `(missing ${missing.join(',') || 'none'}, has ${keys.join(',')})`);
+      } else ok(`${tag} blockstate → block/empty ×4 (facing)`);
+    } else if (keys.length !== 1 || keys[0] !== '' || !variants[''] || variants[''].model !== 'mtrlte:block/empty') {
       fail(`${tag} blockstate should be the single "" variant → mtrlte:block/empty (has ${keys.length}: ${keys.join(',')})`);
     } else ok(`${tag} blockstate → block/empty ×1`);
   }
@@ -442,7 +454,7 @@ function main() {
       if (row) rows.push(row);
     }
   }
-  if (total !== 26 + 34) fail(`descriptors hold ${total} entries, expected 60`);
+  if (total !== 25 + 34) fail(`descriptors hold ${total} entries, expected 59`);
   else ok('60 entries in total');
 
   // 7) lang
@@ -453,7 +465,7 @@ function main() {
     else ok(`${name} nanputuo tab name`);
     if (json['itemGroup.mtrlte.xiamen_decor']) fail(`${name} still has the retired itemGroup.mtrlte.xiamen_decor`);
     else ok(`${name} no retired xiamen_decor tab name`);
-    if (!json['itemGroup.mtrlte.core']) fail(`${name} missing itemGroup.mtrlte.core (the tab the 26 go into)`);
+    if (!json['itemGroup.mtrlte.core']) fail(`${name} missing itemGroup.mtrlte.core (the tab the 25 go into)`);
     else ok(`${name} core tab name`);
     if (json['tooltip.mtrlte.eyecandy_rotation']) {
       fail(`${name} still has tooltip.mtrlte.eyecandy_rotation (the rotation property was removed)`);

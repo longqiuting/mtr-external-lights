@@ -183,7 +183,9 @@ NORTH -> 2   EAST -> 3   SOUTH -> 0   WEST -> 1     // = 模型步数 + 2
 素材里的 `shape` 高度仍是方速自己写的粗略数（`drlduanmen` 1.125 格高、`shlowduanmen` 1.4375 格高，
 `shape` 却都写 25），这里**逐字照搬** —— 方速就是按这些数判碰撞的，照搬行为才一致。
 
-## 5. 手动开关 / 锁定
+## 5. 手动开关 / 锁定（2026-11-13 拆分：滑动门仍是刷子，端门改成驾驶钥匙）
+
+### 滑动门（4 块，`FangsuPsdDoorBlock extends BlockPSDAPGDoorBase`）
 
 | 操作 | 效果 |
 | --- | --- |
@@ -194,6 +196,42 @@ NORTH -> 2   EAST -> 3   SOUTH -> 0   WEST -> 1     // = 模型步数 + 2
 
 手动打开后如果没有列车在场，就不会有 `scheduleBlockTick` 在排队，门会一直开着 —— 这是搭建时想要的，
 也意味着「手动开」不是「开一次就自动关」。
+
+### 端门（10 块，`FangsuPsdEndDoorBlock` = 普通方块 + `BlockEntityProvider`）
+
+用户要求：「端门改成玩家手持驾驶钥匙右键打开，不需要和列车联动」。
+
+| 操作 | 效果 |
+| --- | --- |
+| 手持 MTR 驾驶钥匙（`mtr:driver_key`）右键 | 开 / 关，7 tick 动画（`FangsuPsdProgress.MOVE_TICKS`） |
+| 别的任何东西右键（含 MTR 刷子） | 不响应（`ActionResult.PASS`，原版继续处理放置 / 使用） |
+
+为什么必须换掉继承链：MTR 的自动开门是 `TrainServer#openDoors` 拿**它自己的类**做 `instanceof`：
+
+```
+Train#scanDoors       167: instanceof mtr/block/BlockPSDAPGBase   → 整列都不再被列车认出来
+TrainServer#openDoors   0: instanceof mtr/block/BlockPSDAPGDoorBase
+                       57: be instanceof TileEntityPSDAPGDoorBase
+```
+
+只要方块还是 `BlockPSDAPGDoorBase` 的子类，列车就会开它；只要方块实体还是
+`TileEntityPSDAPGDoorBase`，就写不出「只有玩家能开」。换成普通方块 + 自己的方块实体之后，
+两处 `instanceof` 都不再成立，**从根上断开**。
+
+保留的东西：BER 画 OBJ（`FangsuPsdDraw`）、两格高（`HALF` 成对 + 放置补上半段 + 拆一半另一半消失）、
+碰撞切换（`OPEN` 为真时空集）、7 tick 动画、四向碰撞预烘。
+
+开合状态存在 **blockstate 的 `open` 属性**里（不是方块实体、不发自定义包）：`setBlockState` 本来就会把
+状态同步给所有客户端，客户端渲染器再把进度平滑推过去 —— 「状态即时、动画渐进」。
+
+一个顺手修掉的坑：MTR 的 `BlockDirectionalDoubleBlockBase#onBreak` 只在创造模式清另一半
+（`IBlock.onBreakCreative`），生存里拆上半扇会剩下半扇、随后被邻居更新变成空气且**不掉物品**。
+端门现在是：拆上段时若玩家不是创造，`World#breakBlock(down, true, player)` 把下段正常拆掉
+（掉落表的 `half=lower` 条件在那一刻成立，掉一次物品）。
+
+物品 id / 方块 id **都没变**（还是 `fangsu_psd_*duanmen_left|right`），老存档里的门不会丢；
+但老存档里这 10 个位置的方块实体类型是旧的 `fangsu_psd_door`，新版读档时会因为类型不匹配被丢掉、
+按新类型重建 —— 表现就是「端门读档后是关着的」（可以接受，端门本来就没有要记的状态）。
 
 ## 6. 物品 / 页签
 
@@ -215,13 +253,10 @@ NORTH -> 2   EAST -> 3   SOUTH -> 0   WEST -> 1     // = 模型步数 + 2
    方块本体是 MTR 的 2 格柱（`HALF` 只有 lower/upper），模型从下半段画到 3 格是纯视觉。
    站着的玩家仍被下面 2 格挡住（跳也跳不过去），但第三格那一段穿得过去。
    要把第三格做实，需要重写 `onPlaced` / `onBreak` / 掉落条件改用 3 段柱，风险比收益大，没做。
-2. **滑动门搬了门扇 + `glass` 那块固定玻璃板，`doorend` / `longend` 两种端板还没搬。**
-   `fangsu_psd_screendoor_high_glass_left` / `_right` 就是描述文件里 `glass.left/right` 的
-   `id == "glass"` 那一条（组 `glass_left_glass` / `glass_right_glass`）—— 静态、不可开合，
-   单独一个方块类 `FangsuPsdGlassBlock`（**不继承** `BlockPSDAPGDoorBase`，否则列车会把它当门扇开、
-   开门时把碰撞设空）。碰撞照素材 `shape`，一块给 3 格高（竖直不裁，只把 x/z 裁到本格）。
-   `id == "door"`（带玻璃的门扇）、`doorend`（带门扇的端板）、`longend`（长端板）三档没搬，
-   需要时按同一套路加进 `FangsuPsdDef.loadGlass()` 的白名单即可。
+2. **玻璃板的 4 种形态已经全都接进来了（2026-11-13）。** `fangsu_psd_screendoor_high_glass_left` /
+   `_right` 就是描述文件里 `glass.left/right`：一个方块存当前形态（blockstate 的 `form` 0..3），
+   **MTR 刷子右键循环**：`door`（带门扇）/ `doorend`（门端板）/ `glass`（纯玻璃，默认）/ `longend`（长端板），
+   见「9. 玻璃板的多种形态」。`auto` 那条「按邻居自动选形态」的规则没搬（没有配置界面，循环更好预测）。
    `screendoor_low` 没有玻璃组（`door_low.obj` 只有 `o left` / `o right`），所以它不出玻璃方块。
    `step` 的正负已按方速的 `translate(-doorVal * step)` 取负（`FangsuPsdDef.loadScreendoor` 一处）。
 3. `shape` 的**高度**仍照搬素材（`drlduanmen` 实物 1.125 格、`shlowduanmen` 1.4375 格，`shape` 都写 25），
@@ -244,6 +279,8 @@ node v1.20.1/tools/psd/verify-resources.js v1.20.1/src/main/resources \
 
 脚本还会检查：描述里的 `subModels.main/door` 与 `subModel` 必须真的出现在 `.obj` 的 `o` 组里
 （名字打错就会整扇门透明，这是最容易静默失败的地方），以及每个 `usemtl` 在 `.mtl` 里都有 `map_Kd`。
+2026-11-13 起还会对账**玻璃板的 4 种形态**：每种形态的 `subModel` 必须在 `.obj` 里、`shape` 必须是
+6 元组列表、必须有 `glass` 这一档（默认态）、并在两个 `lang` 里有形态名。
 
 工具脚本（都在 `v1.20.1/tools/psd/`）：
 
@@ -255,3 +292,54 @@ node v1.20.1/tools/psd/verify-resources.js v1.20.1/src/main/resources \
 | `gen-resources.js` | 生成 14 个 blockstate / 掉落表 / lang，并调用下面的图标生成器 |
 | `gen-item-sprites.js` | 从 `.obj` 正交渲染 64×64 物品图标（`textures/item/fangsu_psd/*.png` + `item/generated` 的 item 模型） |
 | `verify-resources.js` | 上面的验收脚本 |
+
+## 9. 玻璃板的多种形态（`screendoor/xiamen/high.json` 的 `glass`）
+
+方速开发文档 `screendoor_glass`（`https://doc.fangsu.top/#/screendoor_glass`，docsify：正文在
+`https://doc.fangsu.top/screendoor_glass.md`）与反编译的 `BlockEntityScreendoorGlass` 说得很清楚：
+
+* 屏蔽门的玻璃和门在**同一个 `.obj`** 里，`o` 组区分部件；
+* 配置 `glass.left[]` / `glass.right[]` 的**每一条就是一个形态**：`id`（唯一名）、`subModel`（= `o` 组名）、
+  `shape`（这一形态的碰撞箱，1/16 格）；
+* 方速一个玻璃方块同时画左右两半（`subModelLeft` / `subModelRight`），另有 `glass.auto[]` 一套
+  「按邻居自动选形态」的规则表（`LEFT_BLOCK` / `RIGHT_BLOCK` 是 `SCREENDOOR_DOOR` / `SCREENDOOR_GLASS` / `NULL`）；
+  `whenUseWithBrush` 是「重置成 auto 并重算」。
+
+`high.json` 里左 / 右各有 4 个真形态（`auto` 那条没有 `subModel` / `shape`，是规则）：
+
+| 形态 id | `o` 组（左 / 右） | 碰撞盒（左） | 是什么 |
+| --- | --- | --- | --- |
+| `door` | `glass_left_door` / `glass_right_door` | `[15,0,12,16,48,14]` + `[8,0,12,16,48,13]` | 带玻璃门扇那一格 |
+| `doorend` | `glass_left_door_end` / `glass_right_door_end` | `[15,0,11,16,48,13]` + `[8,0,11,16,48,12]` | 门旁边的端板 |
+| `glass`（**默认**） | `glass_left_glass` / `glass_right_glass` | `[8,0,12,16,48,13]` | 纯玻璃板 |
+| `longend` | `glass_left_long_end` / `glass_right_long_end` | `[15,0,0,16,48,14]` + `[8,0,12,16,48,13]` | 长端板 |
+
+我们的落地（`FangsuPsdGlassDef` + `FangsuPsdGlassBlock`）：
+
+* **一个方块 + blockstate 的 `form` 属性**（0..3，默认取素材里 `glass` 那一档）；`MTR 刷子右键`循环，
+  动作栏提示形态名（`block.mtrlte.fangsu_psd_glass_form.<id>`），潜行 / 别的物品不响应；
+* 几何：`form` → `subModel` → `.obj` 的 `o` 组（`FangsuPsdGlassRenderer` 只画这一组）；
+* 碰撞：`form` × 4 朝向**注册期预烘**（`FangsuPsdGlassBlock#buildShape`，y 不裁 = 一块给 3 格高，
+  x/z 裁到本格），换形态时几何和碰撞一起换；
+* 左右仍拆成两个方块（和 14 块门扇同一个约定）：左块只画 `glass_left_*`，右块只画 `glass_right_*`，
+  两块并排才是一整格；
+* `auto` 规则**没搬**：没有配置界面，复刻邻居扫描收益不大，循环更可预测。
+
+### 之前「门上的贴纸不见了」（第 6 条）查到了什么
+
+素材 `door.png`（1024×1024，原尺寸，没降采样）上半部分是两张警示贴纸：`小心站台间隙 / Mind the Gap`
+与 `小心夹手 / Mind Your Hands and Fingers`。贴纸几何在 `door.obj` 的**门扇组**
+（`left_door` / `right_door`）里，是一块 **z = −0.3812 的单面片**（门体是 −0.4375..−0.375，正面朝 +z），
+所以贴纸只在**模型 +z 那一侧**看得见 —— 也就是说，门一旦整体转了 180°，贴纸就跑到背面去了。
+
+逐面核对的结果：这 4 个四边形确实在我们要画的组里（`right_door` 2 个、`left_door` 2 个，uv 落在
+u 0.31..0.52 / v′ 0.00..0.03），`meshes()` 不会丢它们。第 6 条的真正原因是**第 2 条那处朝向反了 180°**
+（`getPlacementState` 里多了个 `getOpposite()`，见 `FangsuPsdPlacement`）：模型翻到内侧，贴纸那一面就朝
+轨道那边了，玩家站在站台上看到的是背面 —— 看起来就是「贴纸不见了」。朝向改回与 MTR 一致之后，
+贴纸那一面朝玩家/站台，自然就回来了。
+
+另一件和「缺部分贴图」直接相关的事：`door.obj` 里一共 10 个 `o` 组，之前只用了
+`right_door` / `left_door` / `glass_right_glass` / `glass_left_glass` 四个 —— 剩下 6 个
+（`glass_*_door`、`glass_*_door_end`、`glass_*_long_end`）**根本没有被任何方块引用**，
+所以那几种门型（带门扇 / 门端板 / 长端板）看上去就是「缺一块」。第 9 节接进来之后 10 个组全部可达：
+`verify-resources.js` 会逐个确认形态的 `o` 组真的存在。

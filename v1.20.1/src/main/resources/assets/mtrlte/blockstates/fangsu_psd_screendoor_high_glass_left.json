@@ -1,8 +1,5 @@
 {
   "variants": {
-    "facing=north": { "model": "mtrlte:block/fangsu_psd_particle_only" },
-    "facing=east": { "model": "mtrlte:block/fangsu_psd_particle_only" },
-    "facing=south": { "model": "mtrlte:block/fangsu_psd_particle_only" },
-    "facing=west": { "model": "mtrlte:block/fangsu_psd_particle_only" }
+    "": { "model": "mtrlte:block/fangsu_psd_particle_only" }
   }
 }

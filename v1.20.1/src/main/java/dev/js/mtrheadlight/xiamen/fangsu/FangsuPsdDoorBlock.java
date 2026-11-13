@@ -15,7 +15,6 @@ import net.minecraft.block.enums.DoubleBlockHalf;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemPlacementContext;
-import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
@@ -29,7 +28,12 @@ import net.minecraft.world.World;
 import net.minecraft.world.WorldAccess;
 
 /**
- * 一个方速屏蔽门变体（端门左/右 或 滑动门左/右），<b>继承 MTR 的 {@code BlockPSDAPGDoorBase}</b>。
+ * 一个方速<b>滑动</b>屏蔽门变体（{@code screendoor_low/high_left|right}，4 块），
+ * <b>继承 MTR 的 {@code BlockPSDAPGDoorBase}</b> —— 列车停稳自动开、发车自动关。
+ *
+ * <p><b>端门不在这里</b>：端门要「玩家手持驾驶钥匙手动开关、不接列车」，而（见下）MTR 的自动开门
+ * 是拿它自己的类做 {@code instanceof} 找出来的，继承就等于接上了列车。所以 5 款端门 × 左右 = 10 块
+ * 换成了 {@link FangsuPsdEndDoorBlock}（普通方块 + 方块实体）。两个类共用 {@link FangsuPsdDraw} 画几何。
  *
  * <h2>为什么必须继承（= 自动开关门的来源）</h2>
  * <p>MTR 的列车在停稳开门时走
@@ -122,15 +126,41 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
     // ------------------------------------------------------------------ 放置 / 朝向
 
     /**
-     * 放置：父类从玩家朝向拿 FACING（{@code getHorizontalPlayerFacing()}），这里取反 ——
-     * 让门的<b>正面</b>（模型里贴脸的那一面，north 侧）对着玩家，和 {@code eyecandy} 那套一致。
-     * 上半段由父类的 {@code onPlaced} 补，这里只改下半段的朝向。
+     * 放置：<b>和 MTR 原版屏蔽门逐字节一致</b> —— 直接用 {@code getHorizontalPlayerFacing()}，不取反。
+     *
+     * <h2>MTR 的写法（{@code libs/MTR-fabric-1.20.1-3.6.4.2-named.jar}，javap -c）</h2>
+     * <p>{@code BlockPSDAPGDoorBase} 没有自己的 {@code getPlacementState}，用的是
+     * {@code BlockDirectionalDoubleBlockBase#getPlacementState}：
+     * <pre>
+     *   0: aload_1
+     *   1: invokevirtual  ItemPlacementContext.getHorizontalPlayerFacing   // ← 没有 getOpposite
+     *   4: astore_2
+     *   5: aload_1 / getstatic Direction.UP / iconst_2
+     *  10: invokestatic   IBlock.isReplaceable(ctx, UP, 2)
+     *  16: aload_0 / getBlockPos() / aload_2
+     *  22: invokevirtual  getAdditionalState(pos, facing)                   // = getDefaultState()
+     *  25: getstatic      FACING / aload_2 / BlockState.with(FACING, facing)
+     *  35: getstatic      HALF   / LOWER / .with(HALF, LOWER)
+     * </pre>
+     * 也就是说 {@code FACING == 玩家看的那个方向}，含义是<b>门扇贴的那条边</b>（几何在那一侧贴边）：
+     * <pre>
+     *   IBlock.getVoxelShapeByDirection(0, 0, 0, 16, h, 4, FACING)        // 门扇 = 4 单位厚
+     *   IBlock$1 静态块：NORTH→1, EAST→2, SOUTH→3, WEST→4
+     *   case 1 (NORTH)：原样                    → z 0..4    （贴北边）
+     *   case 2 (EAST) ：(16-z2, x1, 16-z1, x2)  → x 12..16  （贴东边）
+     *   case 3 (SOUTH)：(16-z2, x1, 16-z1, x2)  → z 12..16  （贴南边）
+     *   case 4 (WEST) ：(x1, 16-z2, x2, 16-z1)  → x 0..4    （贴西边）
+     * </pre>
+     * 所以「玩家朝北放门」→ {@code FACING=NORTH} → 门扇落在<b>北侧那条边</b>，也就是玩家对面那条边、
+     * 正面朝北（背离玩家）。原来这里写 {@code getOpposite()} 会让门扇翻到玩家这一侧的内侧 ——
+     * 玩家反馈的「模型和碰撞箱都翻到内侧来了」就是这一处。
+     *
+     * <p>上半段由父类的 {@code onPlaced} 按同一个 {@code FACING} 补，这里只改下半段的朝向。
      */
     @Override
     public BlockState getPlacementState(final ItemPlacementContext context) {
         final BlockState state = super.getPlacementState(context);
-        return state == null ? null
-                : state.with(FACING, context.getHorizontalPlayerFacing().getOpposite());
+        return state == null ? null : state.with(FACING, FangsuPsdPlacement.facingOf(context));
     }
 
     /**
@@ -220,7 +250,7 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
      *
      * <p>{@link #buildShape} 里的每一步是 {@code (x,z) → (16-z, x)}，即 −90°；下表的数字就是步数。
      */
-    private static int shapeQuarterTurns(final BlockState state) {
+    static int shapeQuarterTurns(final BlockState state) {
         final Direction facing = IBlock.getStatePropertySafe(state, FACING);
         return switch (facing) {
             case EAST -> 3;
@@ -238,7 +268,7 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
      * （x/z 只保留 0..16，伸到邻居格的部分不归本方块管）；<b>取本段那一层 y</b>
      * （下段 0..16，上段 16..32 再下移 16）。
      */
-    private static VoxelShape buildShape(final List<double[]> boxes, final int half, final int yRotation) {
+    static VoxelShape buildShape(final List<double[]> boxes, final int half, final int yRotation) {
         final double lowY = half == 0 ? 0.0D : 16.0D;
         final double highY = lowY + 16.0D;
         final List<VoxelShape> parts = new ArrayList<>(boxes.size());
@@ -284,7 +314,7 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
     @Override
     public ActionResult onUse(final BlockState state, final World world, final BlockPos pos,
                               final PlayerEntity player, final Hand hand, final BlockHitResult hit) {
-        if (!isBrush(player.getStackInHand(hand))) {
+        if (!FangsuPsdInteract.isBrush(player.getStackInHand(hand))) {
             return super.onUse(state, world, pos, player, hand, hit);
         }
         if (player.isSneaking()) {
@@ -313,19 +343,6 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
         }
     }
 
-    /** MTR 的刷子（{@code mtr:brush}）；MTR 没装时不把右键打挂。 */
-    private static boolean isBrush(final ItemStack stack) {
-        if (stack == null || stack.isEmpty()) {
-            return false;
-        }
-        try {
-            final Item brush = mtr.Items.BRUSH.get();
-            return brush != Items.AIR && stack.getItem() == brush;
-        } catch (Throwable t) {
-            return false;
-        }
-    }
-
     // ------------------------------------------------------------------ 方块实体
 
     /**
@@ -334,36 +351,22 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
      *
      * <h2>为什么不直接用父类的 {@code getOpen(float)}</h2>
      * <p>父类那份是「每调用一次推进 0.95」—— 与帧率挂钩：60 fps 约 0.56 s 走完，144 fps 只剩 0.23 s
-     * （看起来就是瞬开）。这里改成<b>按时间推进</b>：
-     * {@code progress += dt / MOVE_TICKS}，{@code dt} 用 {@code world.getTime() + tickDelta} 的差值，
-     * 所以 60 / 144 / 240 fps 以及掉帧时都是同一个速度（{@value #MOVE_TICKS} tick ≈ 0.35 s 走完），
-     * 并且每帧都平滑（不是按 tick 跳）。
+     * （看起来就是瞬开）。这里改成<b>按时间推进</b>，插值本身在 {@link FangsuPsdProgress}
+     * （端门用的是同一份，两种门手感一致）。
      */
     public static class FangsuPsdDoorEntity extends TileEntityPSDAPGDoorBase {
 
         /**
-         * 全行程耗时（tick）。<b>调速度就改这一个数</b>。
+         * 全行程耗时（tick）。<b>调速度就改 {@link FangsuPsdProgress#MOVE_TICKS}</b>。
          *
          * <p>MTR 自己那套是按帧推进（60 fps ≈ 0.57 s），方速是 500 ms。原来这里写 15 tick（0.75 s），
          * 用户反馈「太慢」；7 tick = 0.35 s，90° 摆过去的手感和真实端门更接近。
-         * 改动会影响全部 14 个变体（端门 + 滑动门），因为方块实体是共用的。
+         * 改动会影响全部变体（端门 + 滑动门），因为插值器是共用的。
          */
-        public static final float MOVE_TICKS = 7.0F;
+        public static final float MOVE_TICKS = FangsuPsdProgress.MOVE_TICKS;
 
-        /** 客户端插值进度 0..1。 */
-        private double progress;
-
-        /** 上一次采样用的时间（tick，相对 {@link #origin}）。 */
-        private double lastSample = Double.NaN;
-
-        /**
-         * 时间原点（世界时间的 tick 数）。
-         *
-         * <p>为什么不直接拿 {@code world.getTime()} 当时间轴：那是<b>世界总 tick 数</b>，
-         * 老存档能到上亿，塞进 {@code float} 只剩几百 tick 的分辨率 —— 动画会一顿一顿甚至完全不动。
-         * 所以这里减掉第一次渲染时的时间，后面只在「几十 tick」的量级上算差值。
-         */
-        private long origin = Long.MIN_VALUE;
+        /** 客户端插值（按时间推进，见 {@link FangsuPsdProgress}）。 */
+        private final FangsuPsdProgress animation = new FangsuPsdProgress();
 
         public FangsuPsdDoorEntity(final BlockPos pos, final BlockState state) {
             super(FangsuPsdBlocks.entityType(), pos, state);
@@ -376,28 +379,7 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
          * @param tickDelta  当前帧的 partialTick
          */
         public float progress(final long ticks, final float tickDelta) {
-            if (this.origin == Long.MIN_VALUE) {
-                this.origin = ticks;
-            }
-            final double now = (double) (ticks - this.origin) + (double) tickDelta;
-            final float target = Math.max(0.0F, Math.min(1.0F, this.getOpenValue() / (float) MAX_OPEN_VALUE));
-            if (Double.isNaN(this.lastSample)) {
-                // 第一帧：直接对齐（方块刚加载时不该从 0 慢慢动起来）。
-                this.lastSample = now;
-                this.progress = target;
-                return (float) this.progress;
-            }
-            // 掉帧 / 区块重载时 dt 可能很大：夹住，免得一帧跳完整程。
-            final double dt = Math.max(0.0D, Math.min(4.0D, now - this.lastSample));
-            this.lastSample = now;
-            final double step = dt / MOVE_TICKS;
-            final double delta = target - this.progress;
-            if (Math.abs(delta) <= step) {
-                this.progress = target;
-            } else {
-                this.progress += Math.signum(delta) * step;
-            }
-            return (float) this.progress;
+            return this.animation.update(this.getOpenValue() / (float) MAX_OPEN_VALUE, ticks, tickDelta);
         }
     }
 }

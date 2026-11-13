@@ -1,4 +1,4 @@
-// 两套 eyecandy 素材（厦门风格物件包 26 件 + 南普陀 34 件）的注册点：
+// 两套 eyecandy 素材（厦门风格物件包 25 件 + 南普陀 34 件）的注册点：
 // 方块 + 物品 + 空壳方块实体 + 页签 + 碰撞箱（AABB / 转角 L 形 / 桥墩只有轮廓）。
 package dev.js.mtrheadlight.xiamen.eyecandy;
 
@@ -42,14 +42,14 @@ import net.minecraft.util.shape.VoxelShape;
  *   <caption>两套素材</caption>
  *   <tr><th>素材包</th><th>描述文件</th><th>件数</th><th>页签</th></tr>
  *   <tr><td>{@code resourcepacks/厦门风格物件包}</td><td>{@code assets/mtrlte/eyecandies/first.json}</td>
- *       <td>26</td><td>{@code mtrlte:core}「厦门风格物件」（与屏蔽门 / 闸机 / 栏杆同一页）</td></tr>
+ *       <td>25</td><td>{@code mtrlte:core}「厦门风格物件」（与屏蔽门 / 闸机 / 栏杆同一页）</td></tr>
  *   <tr><td>{@code resourcepacks/厦门南普陀相关装饰物件}</td>
  *       <td>{@code assets/mtrlte/eyecandies/nanputuo.json}</td><td>34</td>
  *       <td>{@code mtrlte:nanputuo_decor}「南普陀装饰物件」（单独一页）</td></tr>
  * </table>
  *
  * <p>原来那个 {@code mtrlte:xiamen_decor}「厦门装饰物件」页签<b>已经不注册了</b>（用户要求并进
- * 「厦门风格物件」，别再多出一个只放这 26 件的页）。来源是 {@link EyecandyEntry.Pack}。
+ * 「厦门风格物件」，别再多出一个只放这 25 件的页）。来源是 {@link EyecandyEntry.Pack}。
  *
  * <h2>素材</h2>
  * <p>{@code .obj} 和 {@code .png} 全部复制到本模组的 {@code assets/mtrlte/eyecandies/} 与
@@ -60,17 +60,17 @@ import net.minecraft.util.shape.VoxelShape;
  * <h2>一个 key 一个方块</h2>
  * <p>id = {@code mtrlte:eyecandy_<key 小写>}（{@code key1} / {@code bike2} / {@code qiaodun20} /
  * {@code sign_stand_1} …），中文名直接用描述文件的 {@code name}（写进 {@code lang/zh_cn.json}）。
- * 60 个方块共用一个方块实体类型 {@code mtrlte:eyecandy}（渲染器按方块实例上的描述挑网格）。
+ * 59 个方块共用一个方块实体类型 {@code mtrlte:eyecandy}（渲染器按方块实例上的描述挑网格）。
  *
  * <h2>碰撞箱：三条规则</h2>
  * <ol>
  *   <li><b>普通物件 → 一个 AABB</b>：读 {@code .obj} 的 {@code v} 行，按
  *       {@code scale → rotation(XYZ 欧拉，度) → translation(格)} 变换（{@link RawObjParser#place}），
  *       换算到模型空间 0..16 取逐轴 min/max（{@link #boxOf}）。素材里那两列
- *       {@code shape} / {@code collisionShape} <b>一个都不用</b>（26 件里有 9 件的
+ *       {@code shape} / {@code collisionShape} <b>一个都不用</b>（25 件里有 9 件的
  *       {@code collisionShape} 是 {@code 0,0,0,0,0,0}，高度还统一写成 16 / 24，跟真实几何对不上）。
  *       末尾的「抖动」：{@code -2.5..0} 这种亚像素负数抹成 0；<b>大于 2.5 单位的负值保留</b> ——
- *       那是真伸出去一格的几何（4.875 格长的 BRT 栏杆、64 格宽的线网图、20 格高的桥墩）。</li>
+ *       那是真伸出去一格的几何（4.875 格长的 BRT 栏杆、20 格高的桥墩）。</li>
  *   <li><b>转角栏杆 → L 形</b>（{@link #CORNER_KEYS}：{@code key13} 适配 MSD 的转角栏杆、
  *       {@code key14} 厦门 BRT 栏杆转角）：这两件<b>不是一整块</b>，直接套 AABB 会把拐角里那块
  *       空地也挡住（而且 BRT 拐角模型本身 4.5 格宽，AABB 连邻居格都算进去了）。做法是从几何
@@ -89,7 +89,7 @@ import net.minecraft.util.shape.VoxelShape;
  * （用户原话：「刷子旋转也没什么用，玩家放置的时候自然就转向了」）。
  *
  * <h2>为什么注册期就要读 OBJ</h2>
- * <p>碰撞箱是方块属性，服务端也得有 —— 所以这里在主线程（两端）读 60 个 obj 的顶点算盒子，
+ * <p>碰撞箱是方块属性，服务端也得有 —— 所以这里在主线程（两端）读 59 个 obj 的顶点算盒子，
  * 只有两件转角栏杆需要三角形（算占位格），其余走 {@link RawObjParser#bounds} 的
  * {@code withFaces=false} 分支。渲染用的完整网格只在客户端、第一次画到的时候才解析（{@link #mesh}）。
  *
@@ -105,7 +105,7 @@ public final class EyecandyBlocks {
     /** 南普陀页签 id：{@code mtrlte:nanputuo_decor}（名字由 {@code itemGroup.mtrlte.nanputuo_decor} 决定）。 */
     public static final Identifier NANPUTUO_TAB_ID = new Identifier(NAMESPACE, "nanputuo_decor");
 
-    /** 60 个方块共用的方块实体类型 id。 */
+    /** 59 个方块共用的方块实体类型 id。 */
     public static final Identifier ENTITY_ID = new Identifier(NAMESPACE, "eyecandy");
 
     /**
@@ -120,6 +120,22 @@ public final class EyecandyBlocks {
      */
     private static final Set<String> NO_COLLISION_KEYS = new LinkedHashSet<>(List.of("qiaodun20"));
 
+    /**
+     * 放置时按玩家朝向转的 key（BRT 栏杆 4 段 + 两个转角栏杆）。
+     *
+     * <p>这几个的几何是「一条长条横在方块里」，单看模型分不出东西南北，只有在世界里按玩家朝向转
+     * 才有意义：朝北放 → 栏杆面朝北（玩家对面那条边），走向横在玩家面前。转的是<b>模型和碰撞盒两
+     * 份</b>（{@link EyecandyBlock#shapeFor} 与 {@link EyecandyRenderer} 用同一个角度）。
+     *
+     * <p>其余物件（标牌 / 垃圾桶 / 单车 / 桥墩 …）都是「正面朝人看」的独立摆件，保持原样不转 ——
+     * 用户说过刷子旋转没用，所以这里<b>只按放置时的玩家朝向定一次，不提供任何后续旋转手段</b>。
+     *
+     * <p>没把 BRT 屏蔽门（{@code key2 / key3}）放进来：那两件是「左 / 右」成对的半扇门，几何已经贴
+     * 在方块南边（{@code z ≈ 13..16}），转 180° 会把左右两扇在视觉上互换，得由美术那侧决定。
+     */
+    private static final Set<String> DIRECTIONAL_KEYS =
+            new LinkedHashSet<>(List.of("key4", "key5", "key6", "key7", "key13", "key14"));
+
     /** 抹零阈值（模型单位）：比 2.5 单位（≈2px）更小的负数当作浮点噪声。 */
     private static final double NUDGE_UNITS = 2.5D;
 
@@ -132,13 +148,13 @@ public final class EyecandyBlocks {
     /** 占位格的闭运算次数（把 1 单位的采样缝补实，转角才不会变成漏勺）。 */
     private static final int CLOSE_PASSES = 3;
 
-    /** 描述文件里的顺序 = 页签里的顺序（两包依次：厦门 26 件、南普陀 34 件）。 */
+    /** 描述文件里的顺序 = 页签里的顺序（两包依次：厦门 25 件、南普陀 34 件）。 */
     private static final List<EyecandyEntry> ENTRIES = new ArrayList<>();
 
     private static final Map<String, EyecandyBlock> BLOCKS = new LinkedHashMap<>();
     private static final Map<String, Item> ITEMS = new LinkedHashMap<>();
 
-    /** OBJ 文本缓存（注册期一个物件要读两遍：算碰撞盒 + 打日志；60 个 obj 合计几 MB，别读两次）。 */
+    /** OBJ 文本缓存（注册期一个物件要读两遍：算碰撞盒 + 打日志；59 个 obj 合计几 MB，别读两次）。 */
     private static final Map<String, String> MODEL_TEXTS = new LinkedHashMap<>();
 
     private static BlockEntityType<EyecandyBlockEntity> entityType;
@@ -177,6 +193,11 @@ public final class EyecandyBlocks {
         return CORNER_KEYS.contains(key);
     }
 
+    /** 某个 key 放置时要不要按玩家朝向转（栏杆）。 */
+    public static boolean isDirectional(final String key) {
+        return DIRECTIONAL_KEYS.contains(key);
+    }
+
     /** 某个 key 是不是「只有轮廓没有碰撞」（桥墩）。 */
     public static boolean hasNoCollision(final String key) {
         return NO_COLLISION_KEYS.contains(key);
@@ -188,7 +209,8 @@ public final class EyecandyBlocks {
      * <p>这是「普通物件」那一条规则算出来的整块 AABB —— 转角栏杆与桥墩用另两条规则（见类注释），
      * 这里只当参考值（日志、调试命令、{@code tools/verify-eyecandies.js} 用）。
      * {@code qiaodun20} 会是 {@code y ∈ [-19, 1]}（从放置点往下挂 20 格，墩顶贴放置格顶面），
-     * {@code key12}（线网图）会是 {@code z ∈ [-1.5, 2.5]} —— 数值超出 0..1 是<b>有意</b>的。
+     * {@code key4}~{@code key7}（BRT 栏杆）会是 {@code x ∈ [-0.5, 0.6]}（贴边放置，横跨格线）——
+     * 数值超出 0..1 是<b>有意</b>的。
      */
     public static double[] boxOf(final EyecandyEntry entry) {
         final String text = modelText(entry);
@@ -404,7 +426,7 @@ public final class EyecandyBlocks {
     /**
      * 方块 + 物品 + 方块实体类型 + 两个页签的条目，{@code LteServer} 入口调一次。幂等。
      *
-     * <p>页签：厦门那 26 件追加进 {@code mtrlte:core}（注册顺序在别的模块之后，所以排在页签末尾），
+     * <p>页签：厦门那 25 件追加进 {@code mtrlte:core}（注册顺序在别的模块之后，所以排在页签末尾），
      * 南普陀 34 件进自己新开的 {@code mtrlte:nanputuo_decor}。
      */
     public static void register() {
@@ -430,11 +452,17 @@ public final class EyecandyBlocks {
         for (int i = 0; i < ENTRIES.size(); i++) {
             final EyecandyEntry entry = ENTRIES.get(i);
             final List<double[]> boxes = boxesOf(entry);
-            final EyecandyBlock block = new EyecandyBlock(AbstractBlock.Settings.create()
-                    .mapColor(MapColor.GRAY)
-                    .strength(0.8F)
-                    .sounds(BlockSoundGroup.STONE)
-                    .nonOpaque(), entry, boxes, !hasNoCollision(entry.key()));
+            final EyecandyBlock block = isDirectional(entry.key())
+                    ? new EyecandyDirectionalBlock(AbstractBlock.Settings.create()
+                            .mapColor(MapColor.GRAY)
+                            .strength(0.8F)
+                            .sounds(BlockSoundGroup.STONE)
+                            .nonOpaque(), entry, boxes, !hasNoCollision(entry.key()))
+                    : new EyecandyBlock(AbstractBlock.Settings.create()
+                            .mapColor(MapColor.GRAY)
+                            .strength(0.8F)
+                            .sounds(BlockSoundGroup.STONE)
+                            .nonOpaque(), entry, boxes, !hasNoCollision(entry.key()));
             Registry.register(Registries.BLOCK, entry.blockId(), block);
             // 方块与物品同一个 id（本模组厦门物件的一贯做法）。
             final Item item = Registry.register(Registries.ITEM, entry.blockId(),
@@ -444,11 +472,11 @@ public final class EyecandyBlocks {
             ITEMS.put(entry.key(), item);
         }
 
-        // 60 个方块共用一个方块实体类型（渲染器按方块实例上的 entry 挑网格）。
+        // 59 个方块共用一个方块实体类型（渲染器按方块实例上的 entry 挑网格）。
         entityType = Registry.register(Registries.BLOCK_ENTITY_TYPE, ENTITY_ID,
                 FabricBlockEntityTypeBuilder.create(EyecandyBlockEntity::new, blocks).build());
 
-        // 页签 1：厦门 26 件追加进「厦门风格物件」（mtrlte:core，别的模块已经建好了这一页）。
+        // 页签 1：厦门 25 件追加进「厦门风格物件」（mtrlte:core，别的模块已经建好了这一页）。
         ItemGroupEvents.modifyEntriesEvent(RegistryKey.of(RegistryKeys.ITEM_GROUP, XiamenObjects.CORE_TAB_ID))
                 .register(entries -> addAll(entries, EyecandyEntry.Pack.XIAMEN));
 

@@ -2,11 +2,12 @@
 // 生成 eyecandy 的资源样板：blockstate（单变体，无朝向）/ 物品模型 / 掉落表 / lang 条目。
 //
 // 两套素材 = 两份描述文件：
-//   · first.json     厦门风格物件包 26 件 → 物品进 mtrlte:core「厦门风格物件」（不新建页签）
+//   · first.json     厦门风格物件包 25 件 → 物品进 mtrlte:core「厦门风格物件」（不新建页签）
 //   · nanputuo.json  南普陀 34 件        → 物品进新页签 mtrlte:nanputuo_decor
 // 两个页签在 Java 端由 EyecandyBlocks.register() 挂条目，这里只负责「别的东西」（模型 / 掉落 / 名字）。
+// 描述文件里删掉的条目，重跑本脚本会把它的 blockstate / 物品模型 / 掉落表 / 图标 / lang 一起清掉。
 //
-// 为什么用脚本：60 × 4 份文件全是同一个模板，手写容易出现「某个 key 少一份」这类
+// 为什么用脚本：59 × 4 份文件全是同一个模板，手写容易出现「某个 key 少一份」这类
 // 「不开游戏看不出来」的错误（tools/verify-eyecandies.js 就是查这个的）。
 // 本脚本幂等：内容没变就不改文件，lang 里已有的键不覆盖。
 //
@@ -22,8 +23,16 @@ const BLOCKSTATES = path.join(RES, 'assets', 'mtrlte', 'blockstates');
 const ITEM_MODELS = path.join(RES, 'assets', 'mtrlte', 'models', 'item');
 const LOOT = path.join(RES, 'data', 'mtrlte', 'loot_tables', 'blocks');
 const LANG = path.join(RES, 'assets', 'mtrlte', 'lang');
+const ITEM_TEX = path.join(RES, 'assets', 'mtrlte', 'textures', 'item');
 
 // 方块没有朝向属性，blockstate 只有一个变体（键是空串）。
+// 例外：栏杆那几个 key 有 facing 属性（放置时按玩家朝向定），blockstate 要写满四个变体。
+// 这张表和 Java 端 tools/../EyecandyBlocks.DIRECTIONAL_KEYS 必须一致。
+const DIRECTIONAL_KEYS = new Set(['key4', 'key5', 'key6', 'key7', 'key13', 'key14']);
+
+function isDirectional(key) {
+  return DIRECTIONAL_KEYS.has(key);
+}
 
 // 厦门包英文名（英文 / 拼音缩写都行，这里按「别人看得懂」来写）。
 const EN_XIAMEN = {
@@ -38,7 +47,6 @@ const EN_XIAMEN = {
   key9: 'Generic Stone Bollard',
   key10: 'Xiamen Metro P+M Kiosk',
   key11: 'Xiamen BRT Fire Equipment Cabinet',
-  key12: 'Lingluo Rail Network Map',
   key13: 'Corner Railing (MSD)',
   key14: 'Xiamen BRT Railing (Corner)',
   key1145: 'Xiamen Metro 200 m Sign',
@@ -125,8 +133,12 @@ function main() {
       const blockId = 'mtrlte:' + id;
 
       // 1) blockstate：几何由 BER 画，方块模型是空的（和闸机 / 售票机同一套做法）；
-      //    方块没有 ROTATION 属性，所以只有一个变体 ""（多写旋转变体会被原版判成未知状态）。
-      const variants = { '': { model: 'mtrlte:block/empty' } };
+      //    栏杆那几个 key 有 facing 属性（放置时按玩家朝向定、之后不能转），所以要写满四个变体，
+      //    少一个变体原版会把状态判成「未知」直接报错；其余物件只有一个变体 ""。
+      const variants = isDirectional(key)
+        ? Object.fromEntries(['north', 'east', 'south', 'west']
+            .map((f) => ['facing=' + f, { model: 'mtrlte:block/empty' }]))
+        : { '': { model: 'mtrlte:block/empty' } };
       if (writeIfChanged(path.join(BLOCKSTATES, id + '.json'), JSON.stringify({ variants }, null, 2) + '\n')) written++;
 
       // 2) 物品模型：item/generated + layer0 = 离线渲染出来的 128×128 等轴测图标。
@@ -156,7 +168,33 @@ function main() {
     console.log(`${pack.name}: ${Object.keys(first).length} entries`);
   }
 
-  // 4) lang：只补缺的键（已有的不覆盖，方便人手改名字），顺手删掉废弃页签。
+  // 4) 清理孤儿：生成器只写不删，描述文件里删掉的条目（曾经那件「绫洛市轨道交通线网图」
+  //    key12 就是用户要求整件删掉的）会留下 blockstate / 物品模型 / 掉落表 / 图标没人收尸。
+  //    只扫 eyecandy_ 前缀的生成物，别的资源一概不碰 —— 这样重跑生成器就等于「资源与描述对齐」。
+  const expected = new Set(perLocale.zh_cn.keys());
+  const retired = new Set();
+  const PRUNE = [
+    { dir: BLOCKSTATES, ext: '.json' },
+    { dir: ITEM_MODELS, ext: '.json' },
+    { dir: LOOT, ext: '.json' },
+    { dir: ITEM_TEX, ext: '.png' },
+  ];
+  for (const target of PRUNE) {
+    if (!fs.existsSync(target.dir)) continue;
+    for (const name of fs.readdirSync(target.dir)) {
+      if (!name.startsWith('eyecandy_') || !name.endsWith(target.ext)) continue;
+      const id = name.slice(0, -target.ext.length);
+      if (expected.has(id)) continue;
+      fs.unlinkSync(path.join(target.dir, name));
+      retired.add(id);
+      written++;
+    }
+  }
+  if (retired.size) {
+    console.log(`retired: ${[...retired].join(', ')} (files deleted)`);
+  }
+
+  // 5) lang：只补缺的键（已有的不覆盖，方便人手改名字），顺手删掉废弃页签与已删条目的键。
   let langWritten = 0;
   for (const locale of ['zh_cn', 'en_us']) {
     const file = path.join(LANG, locale + '.json');
@@ -165,6 +203,15 @@ function main() {
     if (json[RETIRED_TAB]) {
       delete json[RETIRED_TAB];
       dirty = true;
+    }
+    // 已删条目的名字（block. / item. 两份）也一起清掉 —— 按「id 不在描述文件里」判定，
+    // 不依赖孤儿文件还在不在（文件可能早就手删了）。
+    for (const key of Object.keys(json)) {
+      const m = /^(?:block|item)\.mtrlte\.(eyecandy_.+)$/.exec(key);
+      if (m && !expected.has(m[1])) {
+        delete json[key];
+        dirty = true;
+      }
     }
     for (const [key, tab] of tabs) {
       if (!json[key]) {

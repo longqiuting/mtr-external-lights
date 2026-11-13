@@ -5,7 +5,7 @@ import dev.js.mtrheadlight.LteLog;
 import net.fabricmc.fabric.api.client.rendering.v1.BlockEntityRendererRegistry;
 
 /**
- * 全部 eyecandy（厦门 26 件 + 南普陀 34 件，共 60 个方块）的客户端接线：只注册
+ * 全部 eyecandy（厦门 25 件 + 南普陀 34 件，共 59 个方块）的客户端接线：只注册
  * {@link EyecandyRenderer}（它们共用一个方块实体类型 {@code mtrlte:eyecandy}）。
  *
  * <h2>为什么没有 {@code BlockRenderLayerMap}</h2>

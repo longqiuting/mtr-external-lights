@@ -23,7 +23,7 @@ import net.minecraft.util.Identifier;
  *   <caption>两套素材</caption>
  *   <tr><th>{@link Pack}</th><th>描述文件（classpath）</th><th>条数</th><th>进哪个页签</th></tr>
  *   <tr><td>{@code XIAMEN}（厦门风格物件包）</td><td>{@code assets/mtrlte/eyecandies/first.json}</td>
- *       <td>26</td><td>{@code mtrlte:core}「厦门风格物件」</td></tr>
+ *       <td>25</td><td>{@code mtrlte:core}「厦门风格物件」</td></tr>
  *   <tr><td>{@code NANPUTUO}（厦门南普陀相关装饰物件）</td><td>{@code assets/mtrlte/eyecandies/nanputuo.json}</td>
  *       <td>34</td><td>{@code mtrlte:nanputuo_decor}「南普陀装饰物件」</td></tr>
  * </table>

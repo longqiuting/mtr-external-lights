@@ -165,6 +165,15 @@ public final class LteServer implements ModInitializer {
             LteLog.LOGGER.warn("[lte] station sign blocks unavailable", t);
         }
 
+        // 「厦门风格物件」页签最前面的顺序（用户点名）：两个 logo → 两个贴墙标识 → 四件站外标志。
+        // 这里必须排在 LogoObjects / WallSignObjects / StationSignObjects 之后 —— 页签条目的回调
+        // 按注册顺序执行，重排的那一次得看得见它们；之后再注册的模块只会往末尾加，排不回来。
+        try {
+            dev.js.mtrheadlight.logo.LogoObjects.pinCoreTabOrder();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] core tab order unavailable", t);
+        }
+
         // 售票机 / 余额查询机（各两格高）：售票机接方速 / 原版两套界面（刷子切），
         // 余额查询机服务端读记分板 mtr_balance 后用一句文字报余额。同样进「厦门风格物件」页签。
         try {
@@ -197,9 +206,11 @@ public final class LteServer implements ModInitializer {
             LteLog.LOGGER.warn("[lte] xiamen eyecandy decorations unavailable", t);
         }
 
-        // 方速（fangsu）屏蔽门搬运版：5 款旋转端门 + 2 款厦门滑动门，各拆左/右共 14 个方块。
+        // 方速（fangsu）屏蔽门搬运版：5 款旋转端门 + 2 款厦门滑动门，各拆左/右共 14 个方块，
+        // 外加 2 块「厦门高」玻璃板（一个方块 4 种形态，刷子循环）。
         // 几何 / 材质 / 贴图 / 描述全部随 jar 走（assets/mtrlte/fangsu_psd/ + textures/fangsu_psd/），
-        // 不需要装方速；方块继承 MTR 的 BlockPSDAPGDoorBase，所以列车到站自动开门、发车自动关门。
+        // 不需要装方速。滑动门继承 MTR 的 BlockPSDAPGDoorBase（列车到站自动开门、发车自动关门）；
+        // 端门是普通方块 + 方块实体，玩家手持 MTR 驾驶钥匙右键开关（不接列车）。
         try {
             dev.js.mtrheadlight.xiamen.fangsu.FangsuPsdBlocks.register();
         } catch (Throwable t) {

@@ -10,6 +10,8 @@ import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.render.block.entity.BlockEntityRenderer;
 import net.minecraft.client.render.block.entity.BlockEntityRendererFactory;
 import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.util.math.Direction;
+import net.minecraft.util.math.RotationAxis;
 import net.minecraft.world.World;
 
 /**
@@ -18,8 +20,12 @@ import net.minecraft.world.World;
  * <h2>画什么</h2>
  * <p>方块实例上的 {@link EyecandyEntry} → {@link EyecandyBlocks#mesh} → {@code assets/mtrlte/eyecandies/*.obj}
  * 解析出来的 {@link RawMesh}。{@code scale / rotation / translation} 已经在解析期烘进顶点
- * （见 {@code RawObjParser}），方块本身也没有朝向属性，所以这里<b>什么矩阵都不用动</b>：
+ * （见 {@code RawObjParser}），方块本身默认没有朝向属性，所以这里通常<b>什么矩阵都不用动</b>：
  * BER 的 {@code matrices} 原点就是方块西北下角，网格本身在模型空间 0..16 里摆好了。
+ *
+ * <p>唯一的例外是栏杆（{@link EyecandyDirectionalBlock}，有 {@code facing}）：它要按放置时的
+ * 玩家朝向绕方块中心转 −{@code blockRotation} 度 —— 和 {@link EyecandyBlock#shapeFor} 转碰撞盒用的
+ * 是同一个角度，否则模型转了盒子不转。
  *
  * <h2>渲染层</h2>
  * <p>{@code RenderLayer.getEntityCutout(texture)}（{@link RawModelRenderer#cutoutLayer} 按贴图缓存了
@@ -54,6 +60,23 @@ public class EyecandyRenderer implements BlockEntityRenderer<EyecandyBlockEntity
         }
         final RenderLayer layer = RawModelRenderer.cutoutLayer(mesh);
         final VertexConsumer consumer = vertexConsumers.getBuffer(layer);
-        RawModelRenderer.render(matrices, consumer, mesh, light, overlay);
+        // 栏杆那几个 key 有 facing：绕方块中心转 −angle（与 shapeFor 的 (x,z)→(16−z,x) 同一方向）。
+        // 其余物件没有这个属性 → 恒为 north/0°，矩阵一次都不动。
+        final Direction facing = state.contains(EyecandyDirectionalBlock.FACING)
+                ? state.get(EyecandyDirectionalBlock.FACING) : Direction.NORTH;
+        final int degrees = EyecandyBlock.blockRotation(facing);
+        if (degrees == 0) {
+            RawModelRenderer.render(matrices, consumer, mesh, light, overlay);
+            return;
+        }
+        matrices.push();
+        try {
+            matrices.translate(0.5F, 0.0F, 0.5F);
+            matrices.multiply(RotationAxis.NEGATIVE_Y.rotationDegrees(degrees));
+            matrices.translate(-0.5F, 0.0F, -0.5F);
+            RawModelRenderer.render(matrices, consumer, mesh, light, overlay);
+        } finally {
+            matrices.pop();
+        }
     }
 }

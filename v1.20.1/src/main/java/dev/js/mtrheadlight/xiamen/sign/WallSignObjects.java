@@ -45,9 +45,9 @@ import net.minecraft.util.Identifier;
  *   <li>没有方块实体、没有存档数据 —— 三个方块只差贴图。</li>
  * </ul>
  *
- * <p>由 {@code LteServer} 在 {@code LogoObjects.register()} 之后调用：页签条目的插入顺序 =
- * 注册顺序，排在这就能让<b>厦门 / 角美</b>两个标识正好落在两个 logo 方块
- * （{@code xiamen_logo} / {@code jiaomei_logo}）后面。<b>LTE 那一面不进厦门页</b>：
+ * <p>由 {@code LteServer} 在 {@code LogoObjects.register()} 之后调用。最后的前排顺序由
+ * {@code LogoObjects.pinCoreTabOrder()} 统一重排（两个 logo → 这两个贴墙标识 → 四件站外标志），
+ * 所以这里不靠注册顺序定位置。<b>LTE 那一面不进厦门页</b>：
  * 它进「LTE 工具」页签（{@link dev.js.mtrheadlight.signal.LteCoreItems#TOOLS_TAB_ID}），
  * 排在那五件工具物品后面 —— 它是本模组自己的牌子，不属于厦门风格物件。
  */

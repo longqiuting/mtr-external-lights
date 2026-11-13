@@ -1,4 +1,4 @@
-// 方速「厦门屏蔽门」的玻璃板 —— 静物：不参与开合，只补上原来漏搬的那半套几何。
+// 方速厦门屏蔽门的玻璃板 —— 一个方块、多种形态（刷子循环），几何全部由 BER 画。
 package dev.js.mtrheadlight.xiamen.fangsu;
 
 import java.util.ArrayList;
@@ -14,60 +14,86 @@ import net.minecraft.block.HorizontalFacingBlock;
 import net.minecraft.block.MapColor;
 import net.minecraft.block.ShapeContext;
 import net.minecraft.block.entity.BlockEntity;
+import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemPlacementContext;
 import net.minecraft.item.Items;
 import net.minecraft.sound.BlockSoundGroup;
+import net.minecraft.sound.SoundCategory;
+import net.minecraft.sound.SoundEvents;
 import net.minecraft.state.StateManager;
+import net.minecraft.state.property.IntProperty;
+import net.minecraft.text.Text;
+import net.minecraft.util.ActionResult;
+import net.minecraft.util.Hand;
+import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.shape.VoxelShape;
 import net.minecraft.util.shape.VoxelShapes;
 import net.minecraft.world.BlockView;
+import net.minecraft.world.World;
 
 /**
  * 方速厦门屏蔽门的<b>玻璃板</b>（{@code fangsu_psd_screendoor_high_glass_left / _right}）。
  *
- * <h2>为什么单独一个方块类</h2>
- * <p>方速的滑动屏蔽门在 {@code screendoor/xiamen/high.json} 里其实有两套东西：
- * {@code door.left/right}（会滑动的门扇，已经搬了，见 {@link FangsuPsdDoorBlock}）和
- * {@code glass.left/right}（<b>不动的玻璃板 / 端板</b>）。后者当初没搬 —— 结果门扇一开，
- * 后面本该有一块固定玻璃挡着的地方是空的，玩家得拿别的方块硬凑。
- * 这一版把那半套几何补上：{@code glass} 那一条（{@code o glass_left_glass} /
- * {@code o glass_right_glass} 两个组）各注册成一个方块。
+ * <h2>一个方块 = 多种形态</h2>
+ * <p>方速的做法（文档 {@code screendoor_glass} + 反编译 {@code BlockEntityScreendoorGlass}）：
+ * 玻璃和门在<b>同一个 {@code .obj}</b> 里，配置 {@code glass.left[] / glass.right[]} 的每一条
+ * 就是一种形态 —— {@code door}（带玻璃的门扇）/ {@code doorend}（门旁端板）/ {@code glass}（纯玻璃板）/
+ * {@code longend}（长端板），各带自己的 {@code o} 组与 {@code shape}。所以「换形态」=
+ * <b>换一组几何 + 换一组碰撞盒</b>，见 {@link FangsuPsdGlassDef} 的表格。
  *
- * <h2>和门扇方块的区别（故意不一样）</h2>
+ * <p>状态属性 {@link #FORM} 存当前形态下标（默认 = 素材里的 {@code glass}），
+ * <b>MTR 刷子右键</b>循环（潜行 + 刷子不响应，留给别的操作；别的物品右键完全不响应）。
+ * 形态换了之后碰撞盒一起换 —— 两件事都从同一个 {@code shape} 数组来，不会「看得见摸不着」。
+ *
+ * <h2>为什么单独一个方块类（不继承 {@code BlockPSDAPGDoorBase}）</h2>
  * <ul>
- *   <li><b>不继承 {@code BlockPSDAPGDoorBase}</b>：玻璃板不会开、也不该被列车当成门扇。
- *       继承的话 MTR 的 {@code TrainServer#openDoors} 会把它当门，还会在「开门」时把碰撞设成空 ——
- *       那就成了「列车一停，玻璃就没了，人可以直接走出去」。所以这里是普通方块 +
- *       一个空壳方块实体（只为挂 BER）；</li>
- *   <li><b>碰撞常开</b>：几何是 3 格高的板材（{@code y 0..48}），碰撞盒照素材的
- *       {@code shape} 原值，<b>竖直方向不裁</b>（同一格里给出 3 格高的碰撞，和看到的板一样高），
+ *   <li><b>不开合</b>：玻璃板是固定件。继承的话 MTR 的 {@code TrainServer#openDoors} 会把它当门扇，
+ *       还会在「开门」时把碰撞设成空 —— 那就成了「列车一停玻璃就没了，人可以直接走出去」。
+ *       所以这里是普通方块 + 一个空壳方块实体（只为挂 BER）；</li>
+ *   <li><b>碰撞常开</b>：几何是 3 格高的板材（{@code y 0..48}），碰撞盒照素材的 {@code shape} 原值，
+ *       <b>竖直方向不裁</b>（同一格里给出 3 格高的碰撞，和看到的板一样高），
  *       只把 x / z 裁到本格 {@code 0..16}（伸到邻居格的部分不归这块管）；</li>
  *   <li><b>四向</b>：{@code facing} 和门扇同一套（{@code north=0 / east=90 / south=180 / west=270}），
- *       放置时取玩家朝向的反面 —— 板子的正面朝你。形状按四向<b>注册期预烘</b>
+ *       放置时取玩家朝向（{@link FangsuPsdPlacement}）。形状按「形态 × 四向」<b>注册期预烘</b>
  *       （见 {@link #buildShape}），渲染器用的是同一套角度，永远不会「模型转了碰撞没转」。</li>
  * </ul>
  *
+ * <h2>左 / 右两个方块</h2>
+ * <p>方速那边一个玻璃方块同时画左半和右半（{@code subModelLeft} / {@code subModelRight}），
+ * 我们拆成两个方块（和 14 块门扇同一个约定）：左块只画 {@code glass_left_*}，右块只画
+ * {@code glass_right_*}。两块并排摆才是一整格。
+ *
  * <h2>低款没有玻璃</h2>
- * <p>{@code screendoor/xiamen/low.json} 的 {@code door_low.obj} 里只有
- * {@code o left} / {@code o right} 两个门扇组、<b>没有玻璃组</b>（低款本来就是半高的，
- * 边上没有固定玻璃），所以只有 high 那款出玻璃方块。
+ * <p>{@code screendoor/xiamen/low.json} 的 {@code door_low.obj} 里只有 {@code o left} / {@code o right}
+ * 两个门扇组、<b>没有玻璃组</b>（低款本来就是半高的），所以只有 high 那款出玻璃方块。
  */
 public class FangsuPsdGlassBlock extends HorizontalFacingBlock implements BlockEntityProvider {
+
+    /**
+     * 当前形态（下标进 {@link FangsuPsdGlassDef#forms()}）。
+     *
+     * <p>上限写死 4：素材里 {@code glass.left/right} 各有 4 条真形态（{@code door / doorend /
+     * glass / longend}）。加更多形态时把这里和 {@link #MAX_FORMS} 一起改。
+     */
+    public static final IntProperty FORM = IntProperty.of("form", 0, 3);
+
+    /** {@link #FORM} 的上限 + 1。 */
+    private static final int MAX_FORMS = 4;
 
     /** 水平四向的 4 份形状（索引 = {@code facing} 的 90° 倍数 / 90）。 */
     private static final int FACINGS = 4;
 
-    private final FangsuPsdDef def;
+    private final FangsuPsdGlassDef def;
 
-    /** 四向的碰撞 / 轮廓盒（同一份，玻璃板不需要「开门后能穿过去」）。 */
-    private final VoxelShape[] shapes = new VoxelShape[FACINGS];
+    /** 碰撞 / 轮廓盒：{@code [形态][朝向]}（玻璃板不需要「开门后能穿过去」，两者同一份）。 */
+    private final VoxelShape[][] shapes;
 
     private Item item;
 
-    public FangsuPsdGlassBlock(final FangsuPsdDef def) {
+    public FangsuPsdGlassBlock(final FangsuPsdGlassDef def) {
         // 玻璃：半透明感由渲染器的 cutout 层给（贴图自己带 alpha），方块本身不发光。
         super(AbstractBlock.Settings.create()
                 .mapColor(MapColor.CLEAR)
@@ -75,18 +101,30 @@ public class FangsuPsdGlassBlock extends HorizontalFacingBlock implements BlockE
                 .sounds(BlockSoundGroup.GLASS)
                 .nonOpaque());
         this.def = def;
-        // 四向的形状：索引和 {@link FangsuPsdDoorBlock#shapeQuarterTurns} 是同一张表
-        // （方速的 shape 比模型多要 180°，玻璃板同样如此 —— 左右两块本来就是偏在一侧的，
-        // 少了这 180° 会变成「模型在左、碰撞在右」）。
-        for (int rotation = 0; rotation < FACINGS; rotation++) {
-            this.shapes[rotation] = buildShape(def.closeBoxes(), rotation);
+        final int forms = Math.min(MAX_FORMS, def.forms().size());
+        this.shapes = new VoxelShape[forms][FACINGS];
+        for (int form = 0; form < forms; form++) {
+            // 四向的形状索引和 {@link FangsuPsdDoorBlock#shapeQuarterTurns} 是同一张表
+            // （方速的 shape 比模型多要 180° —— 左右两块本来就是偏在一侧的，
+            // 少了这 180° 会变成「模型在左、碰撞在右」）。
+            for (int rotation = 0; rotation < FACINGS; rotation++) {
+                this.shapes[form][rotation] = buildShape(def.form(form).shape(), rotation);
+            }
         }
-        setDefaultState(getStateManager().getDefaultState().with(FACING, Direction.NORTH));
+        setDefaultState(getStateManager().getDefaultState()
+                .with(FACING, Direction.NORTH)
+                .with(FORM, Math.min(MAX_FORMS - 1, def.defaultForm())));
     }
 
     /** 这个方块对应的描述（渲染器 / 网格缓存都从这里取）。 */
-    public FangsuPsdDef def() {
+    public FangsuPsdGlassDef def() {
         return this.def;
+    }
+
+    /** 现在这个状态是第几种形态（越界夹到合法范围）。 */
+    public int formOf(final BlockState state) {
+        final int stored = state.contains(FORM) ? state.get(FORM) : this.def.defaultForm();
+        return Math.max(0, Math.min(this.shapes.length - 1, stored));
     }
 
     /** 物品（注册时回填）。 */
@@ -167,7 +205,7 @@ public class FangsuPsdGlassBlock extends HorizontalFacingBlock implements BlockE
     }
 
     private VoxelShape shapeFor(final BlockState state) {
-        return this.shapes[shapeQuarterTurns(state)];
+        return this.shapes[formOf(state)][shapeQuarterTurns(state)];
     }
 
     /**
@@ -191,19 +229,52 @@ public class FangsuPsdGlassBlock extends HorizontalFacingBlock implements BlockE
     // ------------------------------------------------------------------ 放置
 
     /**
-     * 板子的正面朝<b>放置的玩家</b>（和门扇方块 {@code getHorizontalPlayerFacing().getOpposite()}
-     * 同一个约定）。
+     * 板子的朝向：<b>和 MTR 原版屏蔽门同一套</b> —— {@code FACING = 玩家看的方向}，几何贴在那条边上
+     * （门扇方块 {@link FangsuPsdDoorBlock#getPlacementState} 有完整的 javap 依据）。
+     *
+     * <p>原来这里写 {@code getOpposite()}（正面朝玩家），效果就是整块板子翻到玩家这一侧的内侧，
+     * 和门扇一起偏了 180°。现在两者都跟 MTR 一样「贴玩家对面那条边」。
      *
      * <p>不需要支撑：玻璃板是独立件，方速那边也只要求「和门放在同一条线上」，没有贴墙约束。
      */
     @Override
     public BlockState getPlacementState(final ItemPlacementContext ctx) {
-        return getDefaultState().with(FACING, ctx.getHorizontalPlayerFacing().getOpposite());
+        return getDefaultState().with(FACING, FangsuPsdPlacement.facingOf(ctx));
     }
 
     @Override
     protected void appendProperties(final StateManager.Builder<Block, BlockState> builder) {
-        builder.add(FACING);
+        builder.add(FACING, FORM);
+    }
+
+    // ------------------------------------------------------------------ 右键：刷子循环形态
+
+    /**
+     * MTR 刷子右键 = <b>换下一种形态</b>（循环）。潜行 / 别的物品一律不响应。
+     *
+     * <p>为什么是循环而不是方速那套「按邻居自动选形态」：我们没有配置界面，智能选型反而让玩家
+     * 猜不到下一次会变成什么；循环 + 动作栏提示最直接（和 eyecandy 以前那套刷子四向旋转同一个手势）。
+     */
+    @Override
+    public ActionResult onUse(final BlockState state, final World world, final BlockPos pos,
+                              final PlayerEntity player, final Hand hand, final BlockHitResult hit) {
+        if (player.isSneaking() || !FangsuPsdInteract.isBrush(player.getStackInHand(hand))) {
+            return ActionResult.PASS;
+        }
+        final int forms = this.shapes.length;
+        if (forms <= 1) {
+            return ActionResult.PASS;
+        }
+        if (world.isClient) {
+            return ActionResult.SUCCESS;
+        }
+        final int next = (formOf(state) + 1) % forms;
+        world.setBlockState(pos, state.with(FORM, next), Block.NOTIFY_ALL);
+        world.playSound(null, pos, SoundEvents.BLOCK_LEVER_CLICK, SoundCategory.BLOCKS, 0.4F,
+                next == 0 ? 1.2F : 1.0F + next * 0.1F);
+        // 动作栏提示当前形态：刷子是循环的，不给反馈玩家不知道转到第几个了。
+        player.sendMessage(Text.translatable(FangsuPsdGlassDef.langKey(this.def.form(next).key())), true);
+        return ActionResult.CONSUME;
     }
 
     // ------------------------------------------------------------------ 方块实体
@@ -230,7 +301,7 @@ public class FangsuPsdGlassBlock extends HorizontalFacingBlock implements BlockE
 
         @Override
         public void writeCompoundTag(final net.minecraft.nbt.NbtCompound nbt) {
-            // 什么都不存：拆掉再放回来不需要记住任何东西。
+            // 什么都不存：形态在 blockstate 的 FORM 属性里，拆掉再放回来不需要记住任何东西。
         }
     }
 }

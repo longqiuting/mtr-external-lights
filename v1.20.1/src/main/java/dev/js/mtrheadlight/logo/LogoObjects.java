@@ -1,6 +1,8 @@
 // 标志方块的注册：LTE 自己的 logo（工具页） + 角美地铁 logo（厦门页）。
 package dev.js.mtrheadlight.logo;
 
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 
 import dev.js.mtrheadlight.LteLog;
@@ -12,6 +14,7 @@ import net.minecraft.block.MapColor;
 import net.minecraft.item.BlockItem;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
 import net.minecraft.registry.Registries;
 import net.minecraft.registry.Registry;
 import net.minecraft.registry.RegistryKey;
@@ -29,6 +32,9 @@ import net.minecraft.util.Identifier;
  *   <tr><td>{@code mtrlte:jiaomei_logo}</td><td>{@code block/jiaomei_logo}（角美地铁标志）</td>
  *       <td>{@code mtrlte:core}「厦门风格物件」（{@link XiamenObjects#CORE_TAB_ID}）</td></tr>
  * </table>
+ *
+ * <p>「厦门风格物件」页签<b>最前排</b>的顺序由 {@link #pinCoreTabOrder()} 统一重排
+ * （两个 logo → 厦门 / 角美的贴墙标识 → 四件站外标志），不依赖「谁先注册谁在前」。
  *
  * <p>方块和物品用同一个 id（本模组一贯的规矩）。两个方块除了贴图没有别的区别，
  * 所以同一个 {@link LogoBlock} 类实例化两次。
@@ -65,6 +71,23 @@ public final class LogoObjects {
     private static Item lteItem;
     private static Item jiaomeiItem;
     private static boolean registered;
+
+    /**
+     * 「厦门风格物件」页签最前面那几件，<b>按用户点名的顺序</b>：
+     * 两个 logo → 厦门 / 角美的贴墙标识 → 四件站外标志（挂墙 / 杆上 × 厦门 / 角美）。
+     *
+     * <p>{@code wall_sign_lte} 不在这里 —— 它是本模组自己的牌子，进「LTE 工具」页签；
+     * 这里的两个 logo 都在厦门页（LTE logo 在工具页）。
+     */
+    private static final List<Identifier> CORE_TAB_FRONT = List.of(
+            XiamenObjects.LOGO_ID,
+            JIAOMEI_ID,
+            new Identifier(NAMESPACE, "wall_sign_xiamen"),
+            new Identifier(NAMESPACE, "wall_sign_jiaomei"),
+            new Identifier(NAMESPACE, "station_sign_wall_xiamen"),
+            new Identifier(NAMESPACE, "station_sign_pole_xiamen"),
+            new Identifier(NAMESPACE, "station_sign_wall_jiaomei"),
+            new Identifier(NAMESPACE, "station_sign_pole_jiaomei"));
 
     private LogoObjects() {
     }
@@ -109,6 +132,7 @@ public final class LogoObjects {
         }
 
         // 厦门 / 角美两个标志进「厦门风格物件」页签的**最前面**，厦门在前、角美紧跟其后。
+        // （最终的「logo → 贴墙标识 → 站外标志」顺序由 pinCoreTabOrder() 统一重排，这里只保证先有位。）
         try {
             ItemGroupEvents.modifyEntriesEvent(RegistryKey.of(RegistryKeys.ITEM_GROUP, XiamenObjects.CORE_TAB_ID))
                     .register(entries -> {
@@ -123,6 +147,51 @@ public final class LogoObjects {
         }
 
         LteLog.LOGGER.info("[lte] logo blocks: {} / {}", LTE_ID, JIAOMEI_ID);
+    }
+
+    /**
+     * 把「厦门风格物件」页签最前面那几件<b>重排</b>成用户要的顺序（两个 logo → 两个贴墙标识 →
+     * 四件站外标志），而不是依赖「谁先注册谁在前」。
+     *
+     * <p>做法：拿 {@code entries.getDisplayStacks()}（页签正在拼的可变列表）→ 把我们关心的那几件
+     * 按 {@link #CORE_TAB_FRONT} 的顺序摘出来 → 原样（是同一个 {@link ItemStack} 实例，NBT 都不丢）
+     * 一次性插回下标 0。其余条目保持原有相对顺序，只被「往下推」。
+     *
+     * <h2>为什么单独一个方法、由 {@code LteServer} 在站外标志之后调</h2>
+     * <p>{@code ItemGroupEvents.modifyEntriesEvent} 的回调<b>按注册顺序</b>执行，回调里才看得见
+     * 前面回调已经加进去的条目。两个 logo 在 {@link #register()} 里就进页签了，贴墙标识
+     * （{@code WallSignObjects}）紧接着进，站外标志（{@code StationSignObjects}）最后进 ——
+     * 所以重排必须在<b>它们都注册完</b>之后注册，才不会「重排时那几件还没进列表」。
+     * 之后注册的模块（闸机 / 安检 / eyecandy / 方速 …）只会往回加，插到末尾，
+     * 不会跑回前排，所以再晚就没有影响。
+     */
+    public static void pinCoreTabOrder() {
+        try {
+            ItemGroupEvents.modifyEntriesEvent(RegistryKey.of(RegistryKeys.ITEM_GROUP, XiamenObjects.CORE_TAB_ID))
+                    .register(entries -> {
+                        final List<ItemStack> stacks = entries.getDisplayStacks();
+                        final List<ItemStack> front = new ArrayList<>(CORE_TAB_FRONT.size());
+                        for (final Identifier id : CORE_TAB_FRONT) {
+                            final Item item = Registries.ITEM.get(id);
+                            if (item == null || item == Items.AIR) {
+                                // 方块没注册（被别的模块挡了 / 版本差异）：跳过，不影响其余排序。
+                                continue;
+                            }
+                            for (final Iterator<ItemStack> it = stacks.iterator(); it.hasNext();) {
+                                final ItemStack stack = it.next();
+                                if (stack.isOf(item)) {
+                                    front.add(stack);
+                                    it.remove();
+                                }
+                            }
+                        }
+                        if (!front.isEmpty()) {
+                            stacks.addAll(0, front);
+                        }
+                    });
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] core tab order: could not pin the front of the xiamen tab", t);
+        }
     }
 
     /** MTR {@code Blocks.LOGO} 的设置，只有贴图不同。 */

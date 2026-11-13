@@ -125,6 +125,36 @@ for (const file of ['low', 'high']) {
   }
 }
 
+// 玻璃板：一个方块多种形态（刷子循环）。形态是否「全都在」是这套东西最容易静默失败的地方 ——
+// 少一条 subModel 就少一种形态，界面上看不出来，只能靠这里对账（素材 glass.left/right 的
+// 每一条 = 一种形态，id 是 door / doorend / glass / longend，auto 那条是规则、没有几何）。
+const GLASS_FORM_KEYS = new Set();
+for (const file of ['high']) {
+  const p = path.join(ASSETS, 'fangsu_psd', 'screendoor', 'xiamen', file + '.json');
+  if (!exists(p)) { fail('descriptor missing: ' + path.relative(RES, p)); continue; }
+  const json = readJson(p);
+  if (!json) continue;
+  if (!json.glass) { fail('screendoor/' + file + ': no glass section (forms would be missing)'); continue; }
+  const model = checkModel(json.model, 'screendoor/' + file + ' glass');
+  for (const side of ['left', 'right']) {
+    const forms = [];
+    for (const e of json.glass[side] || []) {
+      if (!e.subModel || !e.shape) continue;    // "auto" 规则条目：没有几何
+      forms.push(e.id);
+      GLASS_FORM_KEYS.add(e.id);
+      if (model && !model.groups.has(e.subModel)) {
+        fail('glass ' + file + '/' + side + ' form "' + e.id + '": o group "' + e.subModel + '" not found in ' + json.model);
+      }
+      if (!e.shape.length || !e.shape.every((b) => Array.isArray(b) && b.length === 6)) {
+        fail('glass ' + file + '/' + side + ' form "' + e.id + '": shape must be [[x1,y1,z1,x2,y2,z2], ...]');
+      }
+    }
+    if (forms.length < 2) fail('glass ' + file + '/' + side + ': only ' + forms.length + ' form(s), expected the 4 material forms');
+    if (!forms.includes('glass')) fail('glass ' + file + '/' + side + ': no "glass" form (that is the default state)');
+    blocks.push({ id: 'fangsu_psd_screendoor_' + file + '_glass_' + side, kind: 'glass' });
+  }
+}
+
 // ---------------------------------------------------------------- 2. model json resolver
 function modelFile(id) {
   const [ns, p] = id.includes(':') ? id.split(':') : ['minecraft', id];
@@ -174,6 +204,14 @@ for (const block of blocks) {
   }
 }
 
+// 玻璃板的形态名（刷子循环时动作栏显示的那个）：每种形态两个语言各要一条。
+for (const key of GLASS_FORM_KEYS) {
+  for (const [label, lang] of [['zh_cn', zh], ['en_us', en]]) {
+    const k = 'block.mtrlte.fangsu_psd_glass_form.' + key;
+    if (!lang[k]) fail('lang/' + label + ' missing ' + k);
+  }
+}
+
 // ---------------------------------------------------------------- jar 交叉核对
 if (JAR) {
   if (!exists(JAR) && !fs.existsSync(JAR)) {
@@ -181,9 +219,12 @@ if (JAR) {
   } else {
     const out = require('child_process').execFileSync('unzip', ['-Z1', JAR], { encoding: 'utf8' });
     const entries = new Set(out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean));
-    // jar 里的类文件也算：14 个方块 = 方块类 + 方块实体渲染器 + 注册点，缺一个都会静默不生效
+    // jar 里的类文件也算：方块类 + 方块实体渲染器 + 注册点，缺一个都会静默不生效
     for (const cls of ['FangsuPsdBlocks', 'FangsuPsdClient', 'FangsuPsdDef', 'FangsuPsdDoorBlock',
-      'FangsuPsdDoorBlock$FangsuPsdDoorEntity', 'FangsuPsdRenderer']) {
+      'FangsuPsdDoorBlock$FangsuPsdDoorEntity', 'FangsuPsdRenderer',
+      'FangsuPsdEndDoorBlock', 'FangsuPsdEndDoorBlock$FangsuPsdEndDoorEntity', 'FangsuPsdEndDoorRenderer',
+      'FangsuPsdGlassDef', 'FangsuPsdGlassDef$Form', 'FangsuPsdGlassBlock', 'FangsuPsdGlassRenderer',
+      'FangsuPsdDraw', 'FangsuPsdProgress', 'FangsuPsdPlacement', 'FangsuPsdInteract']) {
       const entry = 'dev/js/mtrheadlight/xiamen/fangsu/' + cls + '.class';
       if (!entries.has(entry)) fail('jar: ' + entry + ' missing');
     }

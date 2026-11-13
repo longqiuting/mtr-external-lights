@@ -51,12 +51,32 @@ import net.minecraft.util.Identifier;
  * @param nameEn     英文名（进 {@code lang/en_us.json}）
  * @param model      {@code .obj} 的 id（{@code mtrlte:fangsu_psd/<dir>/<name>.obj}）
  * @param flipV      是否翻转 v 轴（素材里所有条目都是 {@code true}）
+ * @param kind       这个变体的开关方式（见 {@link Kind}）
  * @param staticGroup 静态部分的 {@code o} 组名；{@code null} = 没有
  * @param motions    参与开合动画的门扇
  * @param closeBoxes 关门时的碰撞盒（1/16 格，可超出 0..16 —— 3 格高的门就是 y 到 48）
  */
-public record FangsuPsdDef(String id, String nameZh, String nameEn, Identifier model, boolean flipV,
+public record FangsuPsdDef(String id, String nameZh, String nameEn, Identifier model, boolean flipV, Kind kind,
                            String staticGroup, List<Motion> motions, List<double[]> closeBoxes) {
+
+    /**
+     * 这一扇门由谁开。
+     *
+     * <ul>
+     *   <li>{@link #END_DOOR} —— <b>端门</b>（{@code duanmen/*}，5 款 × 左右 = 10 块）：由玩家手持
+     *       MTR 驾驶钥匙右键开关，<b>不接列车</b>（见 {@code FangsuPsdEndDoorBlock}）；</li>
+     *   <li>{@link #SCREENDOOR} —— <b>滑动屏蔽门</b>（{@code screendoor/xiamen/*}，2 款 × 左右 = 4 块）：
+     *       继承 MTR 的 {@code BlockPSDAPGDoorBase}，列车停稳自动开、发车自动关
+     *       （见 {@code FangsuPsdDoorBlock}）。</li>
+     * </ul>
+     */
+    public enum Kind {
+        /** 端门：驾驶钥匙手动开关，与列车无关。 */
+        END_DOOR,
+        /** 滑动屏蔽门：MTR 列车信号自动开关。 */
+        SCREENDOOR
+    }
+
 
     /**
      * 一个会动的门扇。
@@ -85,15 +105,6 @@ public record FangsuPsdDef(String id, String nameZh, String nameEn, Identifier m
 
     /** 滑动门 2 款（{@code door.left / door.right}）。 */
     private static final String[] SCREENDOOR = {"low", "high"};
-
-    /**
-     * 有玻璃组的滑动门款式。
-     *
-     * <p>只有 {@code high}：{@code door_low.obj} 里只有 {@code o left} / {@code o right} 两个门扇组，
-     * 没有玻璃（低款是半高的，边上没有固定玻璃板）。加新文件前先确认 {@code .obj} 里真有
-     * {@code o glass_*} 组，否则 {@link #loadGlass()} 会跳过、页签里也不会出现新方块。
-     */
-    private static final String[] SCREENDOOR_GLASS = {"high"};
 
     /** 端门款式的中文 / 英文名（按文件名，不替素材改称呼）。 */
     private static String[] duanmenName(final String file) {
@@ -163,6 +174,7 @@ public record FangsuPsdDef(String id, String nameZh, String nameEn, Identifier m
                     names[1] + (right ? " (right)" : " (left)"),
                     new Identifier(entry.get("model").getAsString()),
                     !entry.has("flipV") || entry.get("flipV").getAsBoolean(),
+                    Kind.END_DOOR,
                     mainGroup,
                     List.of(new Motion(doorGroup, pivot, angle, 0.0F)),
                     close));
@@ -204,80 +216,19 @@ public record FangsuPsdDef(String id, String nameZh, String nameEn, Identifier m
                     "方速屏蔽门 厦门" + label + "（" + (side.equals("left") ? "左" : "右") + "）",
                     "Fangsu platform screen door Xiamen " + labelEn
                             + (side.equals("left") ? " (left)" : " (right)"),
-                    model, flipV, null, List.copyOf(motions), List.copyOf(close)));
+                    model, flipV, Kind.SCREENDOOR, null, List.copyOf(motions), List.copyOf(close)));
         }
     }
 
     // ------------------------------------------------------------------ 玻璃板（静态）
 
-    /**
-     * 读滑动门的<b>玻璃板</b>（{@code glass.left[] / glass.right[]}），每个款式 × 左右各一个变体。
-     *
-     * <p>和 {@link #load()} 分开的原因：那些是<b>会动的门扇</b>（有 {@link Motion}），
-     * 这些是<b>不动的板材</b>（{@code motions} 为空、只有 {@link #staticGroup()}），注册成
-     * 另一个方块类（{@code FangsuPsdGlassBlock}），页签里排在一起。
-     *
-     * <p>只取 {@code id == "glass"} 那一条（{@code glass_left_glass} / {@code glass_right_glass}
-     * 两个组，就是固定玻璃板）。同一份描述里还有 {@code door} / {@code doorend} / {@code longend}
-     * —— 那是「带玻璃的门扇 / 端板 / 长端板」，属于门的另一种样式，这次没有单独搬。
-     * {@code id == "auto"} 那条只是给方速自动选型用的规则，没有几何，跳过。
-     *
-     * <p>读不到 / 解析失败只记一行日志（少两个方块，不影响门）。
-     */
-    public static List<FangsuPsdDef> loadGlass() {
-        final List<FangsuPsdDef> out = new ArrayList<>(SCREENDOOR_GLASS.length * 2);
-        for (final String file : SCREENDOOR_GLASS) {
-            try {
-                loadScreendoorGlass(file, out);
-            } catch (Throwable t) {
-                LteLog.LOGGER.warn("[lte] fangsu psd glass: could not read {}screendoor/xiamen/{}.json ({})",
-                        DIR, file, t.toString());
-            }
-        }
-        return out;
-    }
-
-    private static void loadScreendoorGlass(final String file, final List<FangsuPsdDef> out) {
-        final JsonObject root = read(DIR + "screendoor/xiamen/" + file + ".json");
-        if (!root.has("glass")) {
-            return;
-        }
-        final Identifier model = new Identifier(root.get("model").getAsString());
-        final boolean flipV = !root.has("flipV") || root.get("flipV").getAsBoolean();
-        final JsonObject glass = root.getAsJsonObject("glass");
-        final String label = file.equals("low") ? "低" : "高";
-        final String labelEn = file.equals("low") ? "low" : "high";
-
-        for (final String side : new String[] {"left", "right"}) {
-            if (!glass.has(side)) {
-                continue;
-            }
-            for (final JsonElement element : glass.getAsJsonArray(side)) {
-                final JsonObject entry = element.getAsJsonObject();
-                // "auto" 那条是规则（没有 subModel / shape），跳过。
-                if (!entry.has("subModel") || !entry.has("shape")) {
-                    continue;
-                }
-                if (!"glass".equals(entry.get("id").getAsString())) {
-                    continue;
-                }
-                final boolean isLeft = side.equals("left");
-                out.add(new FangsuPsdDef(
-                        "fangsu_psd_screendoor_" + file + "_glass_" + side,
-                        "方速屏蔽门玻璃 厦门" + label + "（" + (isLeft ? "左" : "右") + "）",
-                        "Fangsu platform screen door glass Xiamen " + labelEn
-                                + (isLeft ? " (left)" : " (right)"),
-                        model, flipV,
-                        entry.get("subModel").getAsString(),
-                        List.of(),
-                        boxes(entry.getAsJsonArray("shape"))));
-            }
-        }
-    }
+    // 玻璃板（{@code glass.left[] / glass.right[]}）已经移到 {@link FangsuPsdGlassDef#load()}：
+    // 那套板材<b>一个方块有多种形态</b>（door / doorend / glass / longend，刷子循环），
+    // 数据结构与「一扇门只有一个形状」不同，单独一个 record 更清楚。
 
     // ------------------------------------------------------------------ 读文件的小工具
 
-    private static JsonObject read(final String path) {
+    static JsonObject read(final String path) {
         final String resource = "/assets/mtrlte/" + path;
         try (InputStream in = FangsuPsdDef.class.getResourceAsStream(resource)) {
             if (in == null) {
@@ -299,7 +250,7 @@ public record FangsuPsdDef(String id, String nameZh, String nameEn, Identifier m
     }
 
     /** {@code [[x1,y1,z1,x2,y2,z2], ...]}（1/16 格）→ {@code List<double[6]>}。 */
-    private static List<double[]> boxes(final JsonArray array) {
+    static List<double[]> boxes(final JsonArray array) {
         final List<double[]> out = new ArrayList<>(array.size());
         for (final JsonElement element : array) {
             final JsonArray box = element.getAsJsonArray();
