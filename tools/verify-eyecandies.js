@@ -13,13 +13,22 @@
 //          「贴 x 边」和「贴 z 边」的两条臂 —— 也就是真的 L 形，而不是一个 AABB；
 //        · 桥墩（bridge_pier_20）：从放置点往下挂（y ∈ [-19, 1]、高 20 格、墩顶贴放置格顶面），
 //          不带已废弃的 raise，而且只有轮廓没有碰撞；
-//   4. blockstate 是单变体 ""（指到 mtrlte:block/empty，方块没有朝向属性）、
-//      物品模型是 item/generated + layer0；
-//   5. 物品图标 128×128、有 alpha、不是全空；掉落表掉自己；
-//   6. lang（zh_cn / en_us）里 60 个 block/item 键 + 南普陀页签名都在，
+//   4. blockstate 是 facing=north/east/south/west 四个变体（指到 mtrlte:block/empty；
+//      **59 件全部都有 facing**，一件都不例外）、物品模型是 item/generated + layer0；
+//   5. 四向碰撞：把注册期那组盒子按 (x, z) → (16 − z, x) 转三圈，
+//        · 盒数 / 体积不变、四步回到原样；
+//        · 「转盒子」得到的 AABB 必须与「直接转顶点」得到的 AABB 一致（模型角度 = 碰撞角度）；
+//        · 不出格（允许 1 单位的伸出，BRT 栏杆每段顶出 0.05 格）；
+//        · 栏杆（薄面）按玩家朝向落边：玩家朝北 → 落到北边，朝东 → 东边 …（= 玩家对面那条边）；
+//   6. 物品图标 128×128、有 alpha、不是全空；掉落表掉自己；
+//   7. lang（zh_cn / en_us）里 60 个 block/item 键 + 南普陀页签名都在，
 //      已废弃的 itemGroup.mtrlte.xiamen_decor 与旋转提示 tooltip.mtrlte.eyecandy_rotation 都不在了；
-//   7. 源码里的约定：EyecandyBlocks 里有 nanputuo_decor、没有 xiamen_decor、转角 / 桥墩 key 都在，
+//   8. 源码里的约定：EyecandyBlocks 里有 nanputuo_decor、没有 xiamen_decor、转角 / 桥墩 key 都在，
+//      EyecandyBlock 自己带 FACING + 放置取反（getOpposite），没有刷子 / 没有旧 rotation 属性，
+//      EyecandyDirectionalBlock 已合并掉、DIRECTIONAL_KEYS 这类 key 集合不复存在，
+//      渲染器读 EyecandyBlock.FACING；
 //      LteServer 调 EyecandyBlocks.register()、XiamenClient 调 EyecandyClient.register()。
+
 //
 // 用法：node tools/verify-eyecandies.js        （只打印结论）
 //       node tools/verify-eyecandies.js -v     （再打印每个物件的 AABB 供人工核对）
@@ -47,13 +56,16 @@ const NO_COLLISION_KEYS = ['bridge_pier_20'];
 // BRT 栏杆 4 段：薄面（z，约 0.09 格）必须整体贴在方块的一条边上，不能压着格子中线。
 const RAILING_KEYS = ['xiamen_brt_railing_middle', 'xiamen_brt_railing_left',
   'xiamen_brt_railing_right', 'xiamen_brt_railing_middle_plain'];
-// 有 facing 属性（放置时按玩家朝向定）的 key —— 与 Java 端 EyecandyBlocks.DIRECTIONAL_KEYS、
-// 生成器 tools/gen-eyecandy-assets.js 的同名集合必须一致。
-const FACING_KEYS = new Set(['xiamen_brt_psd_right', 'xiamen_brt_psd_left',
-  'xiamen_brt_railing_middle', 'xiamen_brt_railing_left', 'xiamen_brt_railing_right',
-  'xiamen_brt_railing_middle_plain', 'msd_corner_railing', 'xiamen_brt_railing_corner']);
+// 四个朝向（blockRotation / 90 的下标顺序，与 EyecandyBlock.blockRotation 一致）。
+const FACINGS = ['north', 'east', 'south', 'west'];
+// 「转盒子」与「转顶点」两份 AABB 的容差（单位 = 模型空间 1/16 格）：
+// boxOf 的抹零是 2.5 单位，转前转后抹零的轴不同，所以留 3 单位的余量。
+const BOX_TOL = 3.0;
 
 const VERBOSE = process.argv.includes('-v');
+
+/** 两件共用同一份 .obj 的登记（不是错误，见 checkEntry 第 1 步）。 */
+const sharedModels = [];
 
 let failures = 0;
 let checks = 0;
@@ -263,6 +275,210 @@ function cornerBoxes(grid, gap = 2, passes = 3) {
 }
 
 
+// ----------------------------------------------------------------- 四向（facing）
+
+/** 一步 rot90（与 {@code EyecandyBlock.rotateBox} 同一公式）：[16 − z2, y1, x1, 16 − z1, y2, x2]。 */
+function rot90(box) {
+  const [x1, y1, z1, x2, y2, z2] = box;
+  return [16 - z2, y1, x1, 16 - z1, y2, x2];
+}
+
+/** 转 steps 个 90°。 */
+function rotBox(box, steps) {
+  let b = box;
+  for (let i = 0; i < ((steps % 4) + 4) % 4; i++) b = rot90(b);
+  return b;
+}
+
+/** 顶点转 steps 个 90°：{@code (x, z) → (16 − z, x)}（与渲染器 NEGATIVE_Y 同一个角度的等价写法）。 */
+function rotPoints(points, steps) {
+  let pts = points;
+  for (let i = 0; i < ((steps % 4) + 4) % 4; i++) pts = pts.map(([x, y, z]) => [16 - z, y, x]);
+  return pts;
+}
+
+function boundsOf(points) {
+  const raw = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+  for (const p of points) {
+    for (let i = 0; i < 3; i++) {
+      raw[i] = Math.min(raw[i], p[i]);
+      raw[i + 3] = Math.max(raw[i + 3], p[i]);
+    }
+  }
+  return raw;
+}
+
+/** AABB（单位）→ 那组盒子的并集 AABB（就是取两端的角点）。 */
+function unionBox(boxes) {
+  return boundsOf(boxes.flatMap((b) => [[b[0], b[1], b[2]], [b[3], b[4], b[5]]]));
+}
+
+/**
+ * 注册期真正用的那组盒子（模型空间单位），与 {@code EyecandyBlocks.boxesOf} 同构：
+ * 桥墩 = 整格框、转角栏杆 = L 形一组、其余 = 1 个 AABB。
+ */
+function boxesFor(key, entry, objFile, boxUnits) {
+  if (NO_COLLISION_KEYS.includes(key)) {
+    return [[0, 0, 0, 16, 16, 16]];
+  }
+  if (CORNER_KEYS.includes(key)) {
+    const grid = footprint(objFile, entry);
+    const yMin = Math.max(0, boxUnits[1]);
+    const yMax = Math.max(1, boxUnits[4]);
+    const boxes = cornerBoxes(grid);
+    if (boxes.length) {
+      return boxes.map((b) => [b.x1, yMin, b.z1, b.x2, yMax, b.z2]);
+    }
+  }
+  return [[boxUnits[0], boxUnits[1], boxUnits[2], boxUnits[3], boxUnits[4], boxUnits[5]]];
+}
+
+const volumeOf = (boxes) => boxes.reduce(
+  (n, b) => n + Math.abs((b[3] - b[0]) * (b[4] - b[1]) * (b[5] - b[2])), 0);
+
+/** 玩家朝向的反方向（= 放置时写进 facing 的那个值，见 EyecandyBlock#getPlacementState）。 */
+const OPPOSITE = { north: 'south', east: 'west', south: 'north', west: 'east' };
+
+/** 薄的那一轴：0 = x，2 = z。 */
+function thinAxis(size) {
+  return (size[0] <= size[2] ? 0 : 2);
+}
+
+/** 占位格里实心格的外接框（单位）；空格返回 null。 */
+function gridBox(grid) {
+  let minX = 16; let maxX = -1; let minZ = 16; let maxZ = -1;
+  for (let z = 0; z < 16; z++) {
+    for (let x = 0; x < 16; x++) {
+      if (!grid[z * 16 + x]) continue;
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+    }
+  }
+  return maxX < 0 ? null : [minX, 0, minZ, maxX + 1, 16, maxZ + 1];
+}
+
+/** 占位格转 steps 个 90°：格 (x, z) → (15 − z, x)。 */
+function rotGrid(grid, steps) {
+  let g = grid;
+  for (let i = 0; i < ((steps % 4) + 4) % 4; i++) {
+    const next = new Uint8Array(256);
+    for (let z = 0; z < 16; z++) {
+      for (let x = 0; x < 16; x++) {
+        if (g[z * 16 + x]) next[x * 16 + (15 - z)] = 1;
+      }
+    }
+    g = next;
+  }
+  return g;
+}
+
+/** 这组盒子伸出方块多少（单位）：旋转是绕中心的，伸出量必须守恒。 */
+const overhang = (boxes) => boxes.reduce((n, b) => n
+  + Math.max(0, -b[0]) + Math.max(0, -b[2]) + Math.max(0, b[3] - 16) + Math.max(0, b[5] - 16), 0);
+
+/**
+ * 四向碰撞：把北向那组盒子按 facing 转三圈，逐项核对。
+ *
+ * <p>「转盒子」与「转顶点」两份 AABB 必须一致 —— 这是「模型转了碰撞盒跟着转」的独立证明：
+ * 顶点这条路走的是渲染器那个角度（NEGATIVE_Y），盒子那条路走的是 {@code shapeOf} 的
+ * {@code (x, z) → (16 − z, x)}，两条路算出来的包围盒对不上就说明两份角度不一致。
+ * 转角栏杆比的是<b>占位格</b>（它的几何 4.5 格宽，套几何 AABB 本来就对不上 L 形的格子）。
+ *
+ * @return 四个朝向的盒子列表（下标同 {@link FACINGS}）
+ */
+function checkFourWay(key, entry, objFile, north, placed) {
+  const tag = `[${key}]`;
+  const northVolume = volumeOf(north);
+  const northOverhang = overhang(north);
+  const grid = CORNER_KEYS.includes(key) ? footprint(objFile, entry) : null;
+  const gridBoxNorth = grid ? gridBox(grid) : null;
+  const shapes = [];
+
+  for (let steps = 0; steps < 4; steps++) {
+    const facing = FACINGS[steps];
+    const rotated = north.map((b) => rotBox(b, steps));
+    shapes.push(rotated);
+
+    if (rotated.length !== north.length) {
+      fail(`${tag} facing=${facing}: ${rotated.length} collision box(es), north has ${north.length}`);
+    } else ok(`${tag} facing=${facing}: ${rotated.length} collision box(es)`);
+
+    if (Math.abs(volumeOf(rotated) - northVolume) > 1e-6) {
+      fail(`${tag} facing=${facing}: collision volume ${volumeOf(rotated).toFixed(2)} != north ${northVolume.toFixed(2)}`);
+    } else ok(`${tag} facing=${facing}: volume ${northVolume.toFixed(1)} preserved`);
+
+    // y 不许被 yaw 旋转影响。
+    if (rotated.some((b) => Math.abs(b[1] - north[0][1]) > 1e-9 || Math.abs(b[4] - north[0][4]) > 1e-9)) {
+      fail(`${tag} facing=${facing}: y range changed by the yaw rotation`);
+    }
+
+    // 直接转几何（顶点 / 占位格）vs 转盒子：同一个角度？
+    if (NO_COLLISION_KEYS.includes(key)) {
+      // 桥墩的「盒子」是有意为之的 1×1×1 框选（碰撞是空集），跟几何 AABB（20 格高）天然对不上；
+      // 整格框绕中心转还是整格框，所以这里只核对体积 / 伸出量，不拿几何比。
+      ok(`${tag} facing=${facing}: 1×1×1 outline frame is rotation-invariant (no collision)`);
+    } else {
+      const referenceNorth = gridBoxNorth ? gridBoxNorth : boundsOf(placed);
+      const direct = gridBoxNorth ? rotBox(referenceNorth, steps) : boundsOf(rotPoints(placed, steps));
+      const viaBox = unionBox(rotated);
+      // 转角栏杆的占位格只有 x/z（y 是整格高），所以只比水平四分量。
+      const axes = gridBoxNorth ? [0, 2, 3, 5] : [0, 1, 2, 3, 4, 5];
+      const drift = Math.max(...axes.map((i) => Math.abs(direct[i] - viaBox[i])));
+      if (drift > BOX_TOL) {
+        fail(`${tag} facing=${facing}: rotated boxes AABB drifts ${drift.toFixed(2)} from the rotated `
+          + `${gridBoxNorth ? 'footprint' : 'geometry'} (model angle and collision angle disagree)`);
+      } else ok(`${tag} facing=${facing}: boxes match the rotated ${gridBoxNorth ? 'footprint' : 'geometry'} (drift ${drift.toFixed(2)})`);
+    }
+
+    // 伸出量守恒：本来伸出方块的（单车 2 格、指示牌 -0.5 格、BRT 栏杆顶层）转完照样伸出，不能凭空缩回来。
+    if (Math.abs(overhang(rotated) - northOverhang) > 1e-6) {
+      fail(`${tag} facing=${facing}: overhang ${overhang(rotated).toFixed(2)} != north ${northOverhang.toFixed(2)}`);
+    } else if (northOverhang > 0) {
+      ok(`${tag} facing=${facing}: overhang ${northOverhang.toFixed(2)} preserved`);
+    } else {
+      ok(`${tag} facing=${facing}: inside the block`);
+    }
+  }
+
+  // 四步回到原样（闭运算没漏、rot90 没漂）。
+  const back = rotBox(north[0], 4);
+  if (back.some((v, i) => Math.abs(v - north[0][i]) > 1e-9)) {
+    fail(`${tag} four 90° steps do not return to the north box`);
+  } else ok(`${tag} four 90° steps return to north`);
+
+  // 栏杆：薄面要按玩家朝向落到「玩家对面」那条边（玩家朝北 → 北边 z≈0，朝东 → 东边 x≈16）。
+  if (RAILING_KEYS.includes(key)) {
+    for (const look of FACINGS) {
+      const steps = FACINGS.indexOf(OPPOSITE[look]);
+      const boxes = shapes[steps];
+      const b = unionBox(boxes);
+      const size = [b[3] - b[0], b[4] - b[1], b[5] - b[2]];
+      const axis = thinAxis(size);
+      const lo = b[axis];
+      const hi = b[axis];
+      const flushLo = Math.abs(Math.min(...boxes.map((q) => q[axis]))) < 0.01;
+      const flushHi = Math.abs(16 - Math.max(...boxes.map((q) => q[axis + 3]))) < 0.01;
+      const onFarEdge = (look === 'north' && flushLo)
+        || (look === 'south' && flushHi)
+        || (look === 'west' && flushLo)
+        || (look === 'east' && flushHi);
+      if (!onFarEdge) {
+        fail(`${tag} player looks ${look} (facing=${OPPOSITE[look]}): railing is not flush with the ${look} edge `
+          + `[${lo.toFixed(3)}, ${hi.toFixed(3)}]`);
+      } else ok(`${tag} player looks ${look} → railing on the ${look} edge`);
+    }
+  }
+
+  // 「这一件到底转不转得动」：四个朝向的盒子集合不一样就是看得出差别
+  // （用集合而不是包围盒：L 形转角栏杆的包围盒是整格，但两条臂确实转了）。
+  const sig = (bs) => bs.map((b) => b.map((v) => Math.round(v * 1000) / 1000).join(',')).sort().join('|');
+  const northSig = sig(north);
+  const varied = shapes.some((bs, i) => i > 0 && sig(bs) !== northSig);
+  return { shapes, varied };
+}
+
+
+
 // ----------------------------------------------------------------- 单个条目
 
 function checkEntry(key, entry, seenIds, seenFiles) {
@@ -274,8 +490,11 @@ function checkEntry(key, entry, seenIds, seenFiles) {
   // 1) 描述 → 文件
   const objName = entry.model.replace(/^.*\//, '');
   const pngName = entry.textureId.replace(/^.*\//, '');
-  if (seenFiles.has(objName)) fail(`${tag} duplicate model file name ${objName}`);
-  seenFiles.add(objName); // obj 一件一个；贴图可以两件共用（xiamen_brt_railing_corner 与 xiamen_brt_railing_middle_plain 共用 middle-nontexture.png）
+  // obj 可以两件共用（sign.obj 就是 100m / 200m 共用的一份几何，只靠 translation / rotation 区分），
+  // 贴图共用更常见（xiamen_brt_railing_corner 与 xiamen_brt_railing_middle_plain 共用 middle-nontexture.png），
+  // 所以这里只登记、不判错。
+  if (seenFiles.has(objName)) sharedModels.push(`${objName} (${key})`);
+  seenFiles.add(objName);
   if (!fs.existsSync(path.join(EYECANDY, objName))) {
     fail(`${tag} missing model ${objName}`);
     return null;
@@ -392,27 +611,27 @@ function checkEntry(key, entry, seenIds, seenFiles) {
     }
   }
 
+  // 3b) 四向碰撞（每件 4 份形状：注册期按 (x, z) → (16 − z, x) 预烘，转角栏杆的 L 形整组转）
+  const objFile = path.join(EYECANDY, objName);
+  const northBoxes = boxesFor(key, entry, objFile, box.map((v) => v * 16));
+  const fourWay = checkFourWay(key, entry, objFile, northBoxes, placed);
+
   // 4) blockstate / 物品模型
-  //    BRT 屏蔽门左右两扇 + 栏杆那几个 key 有 facing 属性（放置时按玩家朝向定，见
-  //    EyecandyDirectionalBlock）→ blockstate 必须写满四个变体（少一个变体原版会把状态判成
-  //    「未知」直接报错）；其余物件单变体 ""。
+  //    59 件全都有 facing 属性（放置时按玩家朝向定，见 EyecandyBlock）→ blockstate 必须写满
+  //    四个变体（少一个变体原版会把状态判成「未知」直接报错）。没有任何「单变体」的例外。
   const bsFile = path.join(BLOCKSTATES, id + '.json');
   if (!fs.existsSync(bsFile)) fail(`${tag} missing blockstate ${id}.json`);
   else {
     const bs = JSON.parse(fs.readFileSync(bsFile, 'utf8'));
     const variants = bs.variants || {};
     const keys = Object.keys(variants);
+    const wanted = FACINGS.map((f) => 'facing=' + f);
+    const missing = wanted.filter((k) => !variants[k]);
     const allEmpty = keys.every((k) => variants[k] && variants[k].model === 'mtrlte:block/empty');
-    if (FACING_KEYS.has(key)) {
-      const wanted = ['facing=north', 'facing=east', 'facing=south', 'facing=west'];
-      const missing = wanted.filter((k) => !variants[k]);
-      if (missing.length || !allEmpty) {
-        fail(`${tag} blockstate should have all four facing= variants → mtrlte:block/empty `
-          + `(missing ${missing.join(',') || 'none'}, has ${keys.join(',')})`);
-      } else ok(`${tag} blockstate → block/empty ×4 (facing)`);
-    } else if (keys.length !== 1 || keys[0] !== '' || !variants[''] || variants[''].model !== 'mtrlte:block/empty') {
-      fail(`${tag} blockstate should be the single "" variant → mtrlte:block/empty (has ${keys.length}: ${keys.join(',')})`);
-    } else ok(`${tag} blockstate → block/empty ×1`);
+    if (missing.length || keys.length !== 4 || !allEmpty) {
+      fail(`${tag} blockstate should have exactly the four facing= variants → mtrlte:block/empty `
+        + `(missing ${missing.join(',') || 'none'}, has ${keys.join(',')})`);
+    } else ok(`${tag} blockstate → block/empty ×4 (facing)`);
   }
 
   const itemFile = path.join(ITEM_MODELS, id + '.json');
@@ -446,7 +665,7 @@ function checkEntry(key, entry, seenIds, seenFiles) {
     else ok(`${tag} loot → itself`);
   }
 
-  return { key, id, name: entry.name, box, size, pack: entry.__pack };
+  return { key, id, name: entry.name, box, size, pack: entry.__pack, varied: fourWay.varied, fourWay: fourWay.shapes };
 }
 
 // ----------------------------------------------------------------- main
@@ -520,31 +739,75 @@ function main() {
     if (!blocksSrc.includes(`"${key}"`)) fail(`EyecandyBlocks: no-collision key ${key} not listed`);
     else ok(`no-collision key ${key} listed`);
   }
-  // facing 集合三处（Java / 生成器 / 本脚本）必须一致：漏一处就是「方块有 facing 但 blockstate
-  // 只有单变体」那种上线才炸的问题。
-  const directionalDecl = blocksSrc.slice(blocksSrc.indexOf('DIRECTIONAL_KEYS ='),
-    blocksSrc.indexOf('DIRECTIONAL_KEYS =') + 400);
+  // facing 三处必须一致：Java 端每件都带 FACING、生成器给每件写四个变体、本脚本核对四个变体。
+  // 漏一处就是「方块有 facing 但 blockstate 只有单变体」那种上线才炸的问题。
   const genSrc = fs.readFileSync(path.join(__dirname, 'gen-eyecandy-assets.js'), 'utf8');
-  for (const key of FACING_KEYS) {
-    if (!directionalDecl.includes(`"${key}"`)) {
-      fail(`EyecandyBlocks.DIRECTIONAL_KEYS is missing "${key}" (expected by the blockstates)`);
-    } else ok(`directional key ${key} in EyecandyBlocks`);
-    if (!new RegExp(`DIRECTIONAL_KEYS = new Set\\(\\[[^\\]]*'${key}'`).test(genSrc)) {
-      fail(`gen-eyecandy-assets.js DIRECTIONAL_KEYS is missing '${key}'`);
-    } else ok(`directional key ${key} in the generator`);
-  }
+  if (blocksSrc.includes('DIRECTIONAL_KEYS')) {
+    fail('EyecandyBlocks still keys the facing off a DIRECTIONAL_KEYS set (all 59 rotate now)');
+  } else ok('EyecandyBlocks has no DIRECTIONAL_KEYS (every eyecandy rotates)');
+  if (genSrc.includes('DIRECTIONAL_KEYS')) {
+    fail('gen-eyecandy-assets.js still keys the blockstate off a DIRECTIONAL_KEYS set');
+  } else ok('generator has no DIRECTIONAL_KEYS');
+  if (!genSrc.includes("const FACINGS = ['north', 'east', 'south', 'west']")) {
+    fail('gen-eyecandy-assets.js: FACINGS list missing (it should write the four facing variants for every key)');
+  } else ok('generator writes the four facing variants for every key');
+  if (fs.existsSync(path.join(src, 'xiamen', 'eyecandy', 'EyecandyDirectionalBlock.java'))) {
+    fail('EyecandyDirectionalBlock.java still exists (it should be merged into EyecandyBlock)');
+  } else ok('EyecandyDirectionalBlock merged into EyecandyBlock');
+  if (blocksSrc.includes('EyecandyDirectionalBlock')) fail('EyecandyBlocks still refers to EyecandyDirectionalBlock');
+  else ok('EyecandyBlocks uses one block class for all 59');
+
   const blockSrc = fs.readFileSync(path.join(src, 'xiamen', 'eyecandy', 'EyecandyBlock.java'), 'utf8');
+  if (!blockSrc.includes('Properties.HORIZONTAL_FACING')) {
+    fail('EyecandyBlock does not declare facing (Properties.HORIZONTAL_FACING)');
+  } else ok('EyecandyBlock declares facing');
+  if (!blockSrc.includes('builder.add(FACING)')) {
+    fail('EyecandyBlock does not register FACING in appendProperties');
+  } else ok('FACING registered in appendProperties');
+  const placeIdx = blockSrc.indexOf('getPlacementState');
+  const placeBody = placeIdx >= 0 ? blockSrc.slice(placeIdx, placeIdx + 600) : '';
+  if (!placeBody.includes('getHorizontalPlayerFacing().getOpposite()')) {
+    fail('EyecandyBlock#getPlacementState does not use getHorizontalPlayerFacing().getOpposite()');
+  } else ok('placement takes the player facing opposite (piece lands on the far edge)');
+  if (!blockSrc.includes('blockRotation(state.get(FACING))')) {
+    fail('EyecandyBlock#shapeFor does not index the pre-baked shapes by FACING');
+  } else ok('shapeFor indexes the four pre-baked shapes by facing');
   if (blockSrc.includes('EnumProperty.of("rotation"')) {
     fail('EyecandyBlock still exposes the retired 4-way "rotation" property');
   } else ok('EyecandyBlock has no rotation property');
   if (blockSrc.includes('rotateYClockwise')) fail('EyecandyBlock still cycles ROTATION on use');
   else ok('EyecandyBlock has no brush rotation');
+  if (blockSrc.includes('onUse(')) {
+    fail('EyecandyBlock still overrides onUse (no brush interaction is wanted)');
+  } else ok('EyecandyBlock has no onUse (no brush, no tooltip)');
+
+  const rendererSrc = fs.readFileSync(path.join(src, 'xiamen', 'eyecandy', 'EyecandyRenderer.java'), 'utf8');
+  if (!rendererSrc.includes('EyecandyBlock.FACING')) fail('EyecandyRenderer does not read EyecandyBlock.FACING');
+  else ok('renderer reads EyecandyBlock.FACING');
+  if (!rendererSrc.includes('EyecandyBlock.blockRotation(')) {
+    fail('EyecandyRenderer does not use EyecandyBlock.blockRotation (model would not follow facing)');
+  } else ok('renderer rotates the mesh by blockRotation');
+
   const serverSrc = fs.readFileSync(path.join(src, 'server', 'LteServer.java'), 'utf8');
   if (!serverSrc.includes('EyecandyBlocks.register()')) fail('LteServer does not call EyecandyBlocks.register()');
   else ok('LteServer calls EyecandyBlocks.register()');
   const clientSrc = fs.readFileSync(path.join(src, 'xiamen', 'XiamenClient.java'), 'utf8');
   if (!clientSrc.includes('EyecandyClient.register()')) fail('XiamenClient does not call EyecandyClient.register()');
   else ok('XiamenClient calls EyecandyClient.register()');
+
+  // 59 × 4 = 236 个 blockstate 变体（只数 eyecandy_*，别的资源一概不碰）。
+  let bsFiles = 0;
+  let variantCount = 0;
+  for (const name of fs.readdirSync(BLOCKSTATES)) {
+    if (!name.startsWith('eyecandy_') || !name.endsWith('.json')) continue;
+    bsFiles++;
+    variantCount += Object.keys(JSON.parse(fs.readFileSync(path.join(BLOCKSTATES, name), 'utf8')).variants || {}).length;
+  }
+  if (bsFiles !== 59) fail(`${bsFiles} eyecandy blockstate file(s), expected 59`);
+  else ok('59 eyecandy blockstates');
+  if (variantCount !== 59 * 4) {
+    fail(`eyecandy blockstates hold ${variantCount} variants, expected ${59 * 4} (59 × facing=north/east/south/west)`);
+  } else ok(`${variantCount} blockstate variants (59 × 4 facings)`);
 
   // 汇总表
   console.log('\nkey                                   id                                               size (blocks)          min corner            name');
@@ -554,7 +817,15 @@ function main() {
   }
 
   console.log(`\n${checks} checks passed, ${failures} failure(s)`);
+  if (sharedModels.length) console.log(`shared .obj: ${sharedModels.join(', ')}`);
+  const symmetric = rows.filter((r) => !r.varied).map((r) => r.key);
+  console.log(`facing: all ${rows.length} keys carry facing ×4 variants; `
+    + `${rows.length - symmetric.length} change footprint across the four facings`
+    + (symmetric.length ? `, ${symmetric.length} are rotation-symmetric (still rotate): ${symmetric.join(', ')}` : ''));
   if (failures > 0) process.exit(1);
 }
+
+module.exports = { footprint, cornerBoxes, boxesFor, rot90, rotBox, rotPoints, boundsOf, boxOf,
+  FACINGS, OPPOSITE };
 
 if (require.main === module) main();

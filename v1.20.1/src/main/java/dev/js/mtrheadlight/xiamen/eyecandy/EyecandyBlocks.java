@@ -84,12 +84,17 @@ import net.minecraft.util.shape.VoxelShape;
  *       的顶面 = 上方桥面的底面，玩家贴着桥面底部放就是一条完整的墩。</li>
  * </ol>
  *
- * <h2>朝向：只有一部分物件有</h2>
- * <p>绝大多数方块只有一种状态（blockstate 单变体 {@code ""}）：没有 {@code facing}、没有刷子旋转、
- * 也没有「四向各一份碰撞盒」。模型烘在 {@code .obj} 里，放下去是什么样子就一直是什么样子。
- * 例外是 {@link #DIRECTIONAL_KEYS} 那几件（BRT 屏蔽门左右两扇、BRT 栏杆 4 段、两个转角栏杆）：
- * 它们有 {@code facing} 属性，<b>放置时按玩家朝向定一次</b>，模型与碰撞盒一起转，
- * 之后<b>没有任何旋转手段</b>（用户原话：「刷子旋转也没什么用，玩家放置的时候自然就转向了」）。
+ * <h2>朝向：59 件全都有</h2>
+ * <p>每一件都带 {@code facing}（{@link EyecandyBlock#FACING}），blockstate 是
+ * {@code facing=north/east/south/west} 四个变体，<b>放置时按玩家朝向定一次</b>：
+ * {@code facing = 玩家朝向的反方向}（{@link EyecandyBlock#getPlacementState}），
+ * 所以「朝北放 → 整件落到北边（玩家对面那条边）」，与屏蔽门 / 栏杆同一套手感。
+ * 模型与碰撞盒一起转（{@link EyecandyBlock#shapeFor} 与 {@link EyecandyRenderer} 用同一个角度），
+ * 转角栏杆的 L 形盒子也整组转。之后<b>没有任何旋转手段</b>（用户原话：「刷子旋转也没什么用，
+ * 玩家放置的时候自然就转向了」—— 不要加刷子右键循环，也不要加 tooltip）。
+ *
+ * <p>没有例外物件：连 20 格高的桥墩（{@code bridge_pier_20}）也走同一条路径（它的 1×1×1 框选是
+ * 旋转不变的，转了看不出差别，但代码里不为它开分支）。
  *
  * <h2>为什么注册期就要读 OBJ</h2>
  * <p>碰撞箱是方块属性，服务端也得有 —— 所以这里在主线程（两端）读 59 个 obj 的顶点算盒子，
@@ -126,27 +131,21 @@ public final class EyecandyBlocks {
     private static final Set<String> NO_COLLISION_KEYS = new LinkedHashSet<>(List.of("bridge_pier_20"));
 
     /**
-     * 放置时按玩家朝向转的 key（BRT 屏蔽门左右两扇 + BRT 栏杆 4 段 + 两个转角栏杆）。
+     * 放置时按玩家朝向转（全部 59 件都是；这里不留任何 key 集合，也没有「不转」的例外）。
      *
-     * <p>这些物件的几何是「一条长条横在方块里」或者「一扇贴在格子边上」，单看模型分不出东西南北，
-     * 只有在世界里按玩家朝向转才有意义：几何原始贴<b>南</b>边，放置时 {@code facing} 取玩家朝向的
-     * <b>反方向</b>（{@link EyecandyDirectionalBlock#getPlacementState}），所以朝北放 → 整件落到
-     * <b>北边</b>（玩家对面那条边），背对玩家。
+     * <p>物件的几何是烘在 {@code .obj} 里的：长条横在方块里、半扇贴在格子边上、标牌正面朝一侧、
+     * 单车朝向车头 —— 单看模型分不出东西南北，只有在世界里按玩家朝向摆才有意义。放置时
+     * {@code facing} 取玩家朝向的<b>反方向</b>（{@link EyecandyBlock#getPlacementState}），
+     * 几何原始贴<b>南</b>边，所以朝北放 → 整件落到<b>北边</b>（玩家对面那条边），背对玩家。
      * 转的是<b>模型和碰撞盒两份</b>（{@link EyecandyBlock#shapeFor} 与 {@link EyecandyRenderer}
-     * 用同一个角度）。
+     * 用同一个角度），转角栏杆的 L 形盒子整组转。
      *
-     * <p>其余物件（标牌 / 垃圾桶 / 单车 / 桥墩 …）都是「正面朝人看」的独立摆件，保持原样不转 ——
-     * 用户说过刷子旋转没用，所以这里<b>只按放置时的玩家朝向定一次，不提供任何后续旋转手段</b>
-     * （BRT 屏蔽门那两扇也一样：放置时定朝向，<b>没有刷子右键循环</b>）。
+     * <p><b>没有刷子右键循环、没有 tooltip</b>：朝向只在放置那一刻定一次
+     * （用户原话：「刷子旋转也没什么用，玩家放置的时候自然就转向了」）。
      *
      * <p>{@code xiamen_brt_psd_right / xiamen_brt_psd_left}（BRT 屏蔽门右 / 左半扇）是「左 / 右」成对的半扇门：转的是<b>整扇</b>
      * （rigid rotation），左仍然是左、右仍然是右 —— 不做任何镜像 / 互换，四向里两扇配对关系不变。
      */
-    private static final Set<String> DIRECTIONAL_KEYS = new LinkedHashSet<>(List.of(
-            "xiamen_brt_psd_right", "xiamen_brt_psd_left",
-            "xiamen_brt_railing_middle", "xiamen_brt_railing_left", "xiamen_brt_railing_right",
-            "xiamen_brt_railing_middle_plain",
-            "msd_corner_railing", "xiamen_brt_railing_corner"));
 
     /** 抹零阈值（模型单位）：比 2.5 单位（≈2px）更小的负数当作浮点噪声。 */
     private static final double NUDGE_UNITS = 2.5D;
@@ -203,11 +202,6 @@ public final class EyecandyBlocks {
     /** 某个 key 是不是「转角栏杆」（L 形碰撞箱）。 */
     public static boolean isCorner(final String key) {
         return CORNER_KEYS.contains(key);
-    }
-
-    /** 某个 key 放置时要不要按玩家朝向转（栏杆）。 */
-    public static boolean isDirectional(final String key) {
-        return DIRECTIONAL_KEYS.contains(key);
     }
 
     /** 某个 key 是不是「只有轮廓没有碰撞」（桥墩）。 */
@@ -281,7 +275,7 @@ public final class EyecandyBlocks {
         return out;
     }
 
-    /** 某个物件的轮廓形状（{@code north} 那一份；{@code register()} 之后才有）。 */
+    /** 某个物件的北向轮廓（{@code facing=north} 那一份；另外三个方向见 {@link EyecandyBlock#shapeFor}）。 */
     public static VoxelShape shapeOf(final EyecandyEntry entry) {
         final EyecandyBlock block = BLOCKS.get(entry.key());
         if (block != null) {
@@ -464,17 +458,11 @@ public final class EyecandyBlocks {
         for (int i = 0; i < ENTRIES.size(); i++) {
             final EyecandyEntry entry = ENTRIES.get(i);
             final List<double[]> boxes = boxesOf(entry);
-            final EyecandyBlock block = isDirectional(entry.key())
-                    ? new EyecandyDirectionalBlock(AbstractBlock.Settings.create()
-                            .mapColor(MapColor.GRAY)
-                            .strength(0.8F)
-                            .sounds(BlockSoundGroup.STONE)
-                            .nonOpaque(), entry, boxes, !hasNoCollision(entry.key()))
-                    : new EyecandyBlock(AbstractBlock.Settings.create()
-                            .mapColor(MapColor.GRAY)
-                            .strength(0.8F)
-                            .sounds(BlockSoundGroup.STONE)
-                            .nonOpaque(), entry, boxes, !hasNoCollision(entry.key()));
+            final EyecandyBlock block = new EyecandyBlock(AbstractBlock.Settings.create()
+                    .mapColor(MapColor.GRAY)
+                    .strength(0.8F)
+                    .sounds(BlockSoundGroup.STONE)
+                    .nonOpaque(), entry, boxes, !hasNoCollision(entry.key()));
             Registry.register(Registries.BLOCK, entry.blockId(), block);
             // 方块与物品同一个 id（本模组厦门物件的一贯做法）。
             final Item item = Registry.register(Registries.ITEM, entry.blockId(),

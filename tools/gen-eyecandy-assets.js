@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 生成 eyecandy 的资源样板：blockstate（单变体，无朝向）/ 物品模型 / 掉落表 / lang 条目。
+// 生成 eyecandy 的资源样板：blockstate（facing 四变体）/ 物品模型 / 掉落表 / lang 条目。
 //
 // 两套素材 = 两份描述文件：
 //   · first.json     厦门风格物件包 25 件 → 物品进 mtrlte:core「厦门风格物件」（不新建页签）
@@ -25,20 +25,10 @@ const LOOT = path.join(RES, 'data', 'mtrlte', 'loot_tables', 'blocks');
 const LANG = path.join(RES, 'assets', 'mtrlte', 'lang');
 const ITEM_TEX = path.join(RES, 'assets', 'mtrlte', 'textures', 'item');
 
-// 方块默认没有朝向属性，blockstate 只有一个变体（键是空串）。
-// 例外：BRT 屏蔽门左右两扇 + 栏杆那几个 key 有 facing 属性（放置时按玩家朝向定），
-// blockstate 要写满四个变体。
-// 这张表和 Java 端 EyecandyBlocks.DIRECTIONAL_KEYS 必须一致。
-const DIRECTIONAL_KEYS = new Set([
-  'xiamen_brt_psd_right', 'xiamen_brt_psd_left',
-  'xiamen_brt_railing_middle', 'xiamen_brt_railing_left', 'xiamen_brt_railing_right',
-  'xiamen_brt_railing_middle_plain',
-  'msd_corner_railing', 'xiamen_brt_railing_corner',
-]);
+// 方块全都有 facing 属性（放置时按玩家朝向定、模型与碰撞一起转），blockstate 必须写满四个变体
+// （少一个变体原版会把状态判成「未知」直接报错）。59 件全都要，没有例外、也没有 key 集合。
+const FACINGS = ['north', 'east', 'south', 'west'];
 
-function isDirectional(key) {
-  return DIRECTIONAL_KEYS.has(key);
-}
 
 // 厦门包英文名（key = 中文名的英译，这张表只给 en_us 的显示名）。
 const EN_XIAMEN = {
@@ -146,12 +136,10 @@ function main() {
       const blockId = 'mtrlte:' + id;
 
       // 1) blockstate：几何由 BER 画，方块模型是空的（和闸机 / 售票机同一套做法）；
-      //    栏杆那几个 key 有 facing 属性（放置时按玩家朝向定、之后不能转），所以要写满四个变体，
-      //    少一个变体原版会把状态判成「未知」直接报错；其余物件只有一个变体 ""。
-      const variants = isDirectional(key)
-        ? Object.fromEntries(['north', 'east', 'south', 'west']
-            .map((f) => ['facing=' + f, { model: 'mtrlte:block/empty' }]))
-        : { '': { model: 'mtrlte:block/empty' } };
+      //    每件都有 facing 属性（放置时按玩家朝向定、之后不能转），所以要写满四个变体，
+      //    少一个变体原版会把状态判成「未知」直接报错。
+      const variants = Object.fromEntries(FACINGS
+        .map((f) => ['facing=' + f, { model: 'mtrlte:block/empty' }]));
       if (writeIfChanged(path.join(BLOCKSTATES, id + '.json'), JSON.stringify({ variants }, null, 2) + '\n')) written++;
 
       // 2) 物品模型：item/generated + layer0 = 离线渲染出来的 128×128 等轴测图标。

@@ -11,12 +11,21 @@
 // 所以描述文件里的 translation 是在**转过之后**的方块坐标轴上生效的（不是模型自己的轴）。
 //
 // 用法：node tools/preview-eyecandy-plan.js [key…] [--out DIR] [--descriptor first.json]
+//        [--facing north,east]   （只画这几个 facing）
+//        [--look]                （= 放置视角：四个「玩家朝向」各画一张，facing 取反 → 落点）
+//        [--collision]           （再打印碰撞盒，转角栏杆是 L 形的那几只盒子）
 // 输出：<out>/<key>.png（默认 temp/eyecandy-plan/），并打印每个 key 的 AABB（格）。
+//
+// 碰撞盒由 tools/verify-eyecandies.js 的 boxesFor / rotBox 算（与 Java 端
+// EyecandyBlocks.boxesOf + EyecandyBlock.rotateBox 同构），所以这里打印出来的
+// 「转过去的落点」和游戏里真正挡人的形状是同一份。
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
 const { writePng } = require('./preview-rawmodels');
+const { boxesFor, rotBox, rotPoints, boundsOf, FACINGS, OPPOSITE } =
+  require('./verify-eyecandies.js');
 
 const RES = path.resolve(__dirname, '..', 'v1.20.1', 'src', 'main', 'resources');
 const EYECANDY = path.join(RES, 'assets', 'mtrlte', 'eyecandies');
@@ -200,8 +209,9 @@ function main() {
   const descIdx = args.indexOf('--descriptor');
   const descriptor = descIdx >= 0 ? args[descIdx + 1] : 'first.json';
   const facingIdx = args.indexOf('--facing');
-  const FACINGS = ['north', 'east', 'south', 'west'];
   const facingList = facingIdx >= 0 ? args[facingIdx + 1].split(',') : null;
+  const lookMode = args.includes('--look');
+  const showCollision = args.includes('--collision');
   if (facingList) {
     const bad = facingList.filter((f) => !FACINGS.includes(f));
     if (bad.length) {
@@ -223,34 +233,54 @@ function main() {
   }
 
   console.log(`# ${descriptor}  —  顶视 AABB（单位：格；x/z = 左下角起算的方块内坐标）`);
-  console.log('key        facing    x[min,max]        z[min,max]        厚轴(最薄)  ');
+  console.log('key                                  look  facing  x[min,max]        z[min,max]        厚轴(最薄)');
   let pngs = 0;
+  const fmtBox = (b) => `[${b.map((v) => (Math.round(v * 100) / 100)).join(', ')}]`;
   for (const key of targets) {
     const entry = json[key];
     const objName = entry.model.replace(/^.*\//, '');
     const file = path.join(EYECANDY, objName);
     const { verts, tris } = objGeometry(file);
     const placed = place(verts, entry);
+    // 碰撞盒（模型空间单位，北向那一份）：与 Java 注册期算的是同一组。
+    const northBoxes = showCollision
+      ? boxesFor(key, entry, file, boxOf(boundsOf(placed)).map((v) => v * 16))
+      : null;
+    // 方向见证点：北向时「最靠南（+z）的那个顶点」—— 转完之后它跑到哪，一眼能看出整件转了
+    // （AABB 往往是对称的，光看包围盒分不出朝北还是朝南）。
+    let witness = 0;
+    for (let i = 1; i < placed.length; i++) {
+      if (placed[i][2] > placed[witness][2] + 1e-9) witness = i;
+    }
+    const witnessNorth = placed[witness];
 
-    // 不带 --facing 时只画「模型原始朝向」（= facing=north，0°）。
-    const views = facingList
-      ? facingList.map((f) => ({ facing: f, steps: FACINGS.indexOf(f) }))
-      : [{ facing: null, steps: 0 }];
+    // --look：四个「玩家朝向」各一份（facing = 玩家朝向的反方向 → 落点在玩家对面）；
+    // 否则按 --facing；都没有就只画「模型原始朝向」（= facing=north，0°）。
+    const views = lookMode
+      ? FACINGS.map((look) => ({ look, facing: OPPOSITE[look], steps: FACINGS.indexOf(OPPOSITE[look]) }))
+      : facingList
+        ? facingList.map((f) => ({ look: null, facing: f, steps: FACINGS.indexOf(f) }))
+        : [{ look: null, facing: null, steps: 0 }];
 
     for (const view of views) {
       const v = view.steps === 0 ? placed : rotateFacing(placed, view.steps);
-      const raw = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
-      for (const p of v) {
-        for (let i = 0; i < 3; i++) { raw[i] = Math.min(raw[i], p[i]); raw[i + 3] = Math.max(raw[i + 3], p[i]); }
-      }
-      const box = boxOf(raw);
+      const box = boxOf(boundsOf(v));
       const size = [box[3] - box[0], box[4] - box[1], box[5] - box[2]];
       const thin = size[0] < size[2] ? 'x' : 'z';
 
       console.log(
-        `${key.padEnd(10)} ${(view.facing || '-').padEnd(7)} ` +
+        `${key.padEnd(36)} ${(view.look || '-').padEnd(5)} ${(view.facing || '-').padEnd(7)} ` +
         `[${box[0].toFixed(3).padStart(6)},${box[3].toFixed(3).padStart(6)}]  ` +
         `[${box[2].toFixed(3).padStart(6)},${box[5].toFixed(3).padStart(6)}]  ${thin} (${size[thin === 'x' ? 0 : 2].toFixed(3)})`);
+
+      if (showCollision) {
+        const boxes = northBoxes.map((b) => rotBox(b, view.steps));
+        console.log(`    collision (1/16 格) ×${boxes.length}: ${boxes.map(fmtBox).join('  ')}`);
+      }
+      // 见证点（模型 +z 最外侧那个顶点）转完落在哪：证明「模型跟着 facing 转」，不只是碰撞盒。
+      const w = rotPoints([witnessNorth], view.steps)[0];
+      console.log(`    front vertex (1/16 格): (${witnessNorth[0].toFixed(1)}, ${witnessNorth[2].toFixed(1)}) `
+        + `→ (${w[0].toFixed(1)}, ${w[2].toFixed(1)})`);
 
       const buf = makeCanvas();
       for (const tri of tris) {
@@ -259,7 +289,8 @@ function main() {
       }
       drawGrid(buf);
       drawBox(buf, box, 255, 230, 120);
-      writePng(path.join(outDir, view.facing ? `${key}_facing_${view.facing}.png` : `${key}.png`),
+      const suffix = view.look ? `look_${view.look}` : view.facing ? `facing_${view.facing}` : null;
+      writePng(path.join(outDir, suffix ? `${key}_${suffix}.png` : `${key}.png`),
         SIZE, SIZE, buf);
       pngs++;
     }

@@ -54,8 +54,9 @@ import net.minecraft.util.Identifier;
  * （{@code rotation} 90°、长条沿 x）写 {@code translation: [0,0,0.4531]} 才会贴到 z = 1 那条边；
  * 写 {@code [-0.45,0,0]} 只会在长条方向上平移，薄面仍然压在格子中线上。
  *
- * <p>朝向只有一部分物件有（见 {@code EyecandyBlocks.DIRECTIONAL_KEYS}）：那些方块带 {@code facing}，
- * 放置时按玩家朝向定一次，其余物件没有朝向属性、放置时不会转。
+ * <p>朝向：<b>全部物件都有 {@code facing}</b>（{@link EyecandyBlock#FACING}，blockstate 四个变体），
+ * 放置时按玩家朝向定一次（{@code facing = 玩家朝向的反方向}，见
+ * {@link EyecandyBlock#getPlacementState}），模型与碰撞盒一起转；之后没有任何旋转手段（没有刷子）。
  *
  * <h2>命名空间改写</h2>
  * <p>素材是 MTR 的 Steam Loco 扩展（{@code mtrsteamloco}）的，路径 {@code eyecandies/*} 原样保留，

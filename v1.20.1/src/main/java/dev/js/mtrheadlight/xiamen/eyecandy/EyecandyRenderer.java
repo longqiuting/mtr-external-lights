@@ -1,4 +1,4 @@
-// eyecandy 的渲染器：按方块实例上的描述取 OBJ 网格，原样画在方块位置（没有朝向 / 没有旋转）。
+// eyecandy 的渲染器：按方块实例上的描述取 OBJ 网格，按 facing 绕方块中心转 −blockRotation 度后画出。
 package dev.js.mtrheadlight.xiamen.eyecandy;
 
 import dev.js.mtrheadlight.rawmodel.RawMesh;
@@ -20,12 +20,15 @@ import net.minecraft.world.World;
  * <h2>画什么</h2>
  * <p>方块实例上的 {@link EyecandyEntry} → {@link EyecandyBlocks#mesh} → {@code assets/mtrlte/eyecandies/*.obj}
  * 解析出来的 {@link RawMesh}。{@code scale / rotation / translation} 已经在解析期烘进顶点
- * （见 {@code RawObjParser}），方块本身默认没有朝向属性，所以这里通常<b>什么矩阵都不用动</b>：
- * BER 的 {@code matrices} 原点就是方块西北下角，网格本身在模型空间 0..16 里摆好了。
+ * （见 {@code RawObjParser}），BER 的 {@code matrices} 原点就是方块西北下角，网格本身在模型空间
+ * 0..16 里摆好了。
  *
- * <p>唯一的例外是栏杆（{@link EyecandyDirectionalBlock}，有 {@code facing}）：它要按放置时的
- * 玩家朝向绕方块中心转 −{@code blockRotation} 度 —— 和 {@link EyecandyBlock#shapeFor} 转碰撞盒用的
- * 是同一个角度，否则模型转了盒子不转。
+ * <h2>朝向：59 件全部跟着 {@code facing} 转</h2>
+ * <p>每一件都有 {@link EyecandyBlock#FACING}（放置时按玩家朝向定，见
+ * {@link EyecandyBlock#getPlacementState}），这里按 {@code facing} 绕方块中心
+ * （{@code 0.5, 0, 0.5}）转 −{@link EyecandyBlock#blockRotation} 度 —— 和
+ * {@link EyecandyBlock#shapeFor} 转碰撞盒用的是<b>同一个角度</b>（同一个 {@code (x, z) → (16 − z, x)}
+ * 方向），否则模型转了盒子不转。{@code facing=north} = 模型原始朝向 = 0°，矩阵一次都不动。
  *
  * <h2>渲染层</h2>
  * <p>{@code RenderLayer.getEntityCutout(texture)}（{@link RawModelRenderer#cutoutLayer} 按贴图缓存了
@@ -60,10 +63,9 @@ public class EyecandyRenderer implements BlockEntityRenderer<EyecandyBlockEntity
         }
         final RenderLayer layer = RawModelRenderer.cutoutLayer(mesh);
         final VertexConsumer consumer = vertexConsumers.getBuffer(layer);
-        // 栏杆那几个 key 有 facing：绕方块中心转 −angle（与 shapeFor 的 (x,z)→(16−z,x) 同一方向）。
-        // 其余物件没有这个属性 → 恒为 north/0°，矩阵一次都不动。
-        final Direction facing = state.contains(EyecandyDirectionalBlock.FACING)
-                ? state.get(EyecandyDirectionalBlock.FACING) : Direction.NORTH;
+        // 全部物件都有 facing（兜底 NORTH 只防「状态里没这个属性」的老数据）。
+        final Direction facing = state.contains(EyecandyBlock.FACING)
+                ? state.get(EyecandyBlock.FACING) : Direction.NORTH;
         final int degrees = EyecandyBlock.blockRotation(facing);
         if (degrees == 0) {
             RawModelRenderer.render(matrices, consumer, mesh, light, overlay);

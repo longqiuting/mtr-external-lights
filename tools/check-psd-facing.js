@@ -14,7 +14,7 @@
 //   · 方速门（FangsuPsdDoorBlock）：碰撞 shape.close 烘成 4 份，每份 = shapeQuarterTurns 步
 //       (x,z)→(16-z,x)；模型 = RotationAxis.NEGATIVE_Y × blockRotation 度（块中心为轴）。
 //       shapeQuarterTurns：NORTH 2 / SOUTH 0 / WEST 1 / EAST 3（= blockRotation + 180°）。
-//   · eyecandy 栏杆（EyecandyDirectionalBlock）：同一套 rot90 与 blockRotation。
+//   · eyecandy（EyecandyBlock，59 件全都有 facing）：同一套 rot90 与 blockRotation。
 //
 // 用法：node tools/check-psd-facing.js
 'use strict';
