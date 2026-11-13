@@ -1,37 +1,34 @@
-// 闸机的客户端部分：只挂渲染层（贴图里有大片 alpha=0，必须 cutout）。
+// 闸机的客户端部分：注册方块实体渲染器（几何是运行时画的，没有方块模型要挂渲染层）。
 package dev.js.mtrheadlight.xiamen.ticket;
 
 import dev.js.mtrheadlight.LteLog;
-import net.fabricmc.fabric.api.blockrenderlayer.v1.BlockRenderLayerMap;
-import net.minecraft.client.render.RenderLayer;
+import net.fabricmc.fabric.api.client.rendering.v1.BlockEntityRendererRegistry;
 
 /**
- * 闸机方块在客户端的渲染层：{@code cutout}。
+ * 闸机方块的客户端接线：只注册 {@link XiamenTicketGateRenderer}。
  *
- * <h2>为什么必须挂 cutout</h2>
- * <p>{@code assets/mtrlte/textures/block/ticket_barrier.png}（与 {@code brt_barrier.png}）是
- * 4 通道贴图，透明像素约占一半（玻璃 / 镂空 / 未使用的区域 alpha = 0）。方块模型默认走
- * {@code solid} 层，那条管线<b>不丢弃</b> alpha=0 的像素，会把这些地方画成纯黑；
- * 挂到 {@code cutout} 上之后 alpha &lt; 0.1 的像素直接裁掉，剩下的还是硬边（不混合），
- * 不会出现排序问题。这也是本模组屏蔽门那一族的做法（见 {@code XiamenClient}）。
+ * <h2>为什么这里没有 {@code BlockRenderLayerMap}</h2>
+ * <p>闸机已经没有方块模型了（blockstate 全部指向 {@code mtrlte:block/empty}），
+ * 也就不存在「这张图该走 solid 还是 cutout」的问题 —— 渲染层由渲染器自己取
+ * {@code RenderLayer.getEntityCutoutNoCull(texture)}（贴图直绑，不进方块图集，
+ * alpha 裁掉、背面不剔除）。渲染层挂在方块上对 BER 没有作用，所以上一版的
+ * {@code putBlock(gate, RenderLayer.getCutout())} 一并去掉了。
  *
- * <p>几何全部来自 blockstate + 原版模型（没有方块实体、没有 BER）：模型由
- * {@code tools/gen-ticket-gate-models.js} 生成，所以这里除了渲染层没有别的事可做。
+ * <p>失败只记一行日志、不抛出去：渲染器没注册的症状是「闸机整块透明」，日志里能直接看到。
  */
 public final class XiamenTicketGateClient {
 
     private XiamenTicketGateClient() {
     }
 
-    /** 给四个闸机方块挂 cutout 层；每个方块单独 try/catch，一个失败不影响其它。 */
-    public static void registerRenderLayers() {
-        for (final XiamenTicketGates.Gate gate : XiamenTicketGates.gates()) {
-            try {
-                BlockRenderLayerMap.INSTANCE.putBlock(gate.block(), RenderLayer.getCutout());
-            } catch (Throwable t) {
-                LteLog.LOGGER.warn("[lte] could not set the cutout layer for the ticket gate {}", gate.id, t);
-            }
+    /** 注册闸机的 BER；由 {@code XiamenClient} 在客户端初始化时调一次。 */
+    public static void register() {
+        try {
+            BlockEntityRendererRegistry.register(XiamenTicketGates.entityType(), XiamenTicketGateRenderer::new);
+            LteLog.LOGGER.info("[lte] ticket gate renderer registered: {} ({} blocks, rawmodels)",
+                    XiamenTicketGateRenderer.class.getSimpleName(), XiamenTicketGates.gates().size());
+        } catch (Throwable t) {
+            LteLog.LOGGER.error("[lte] could not register the ticket gate renderer", t);
         }
-        LteLog.LOGGER.info("[lte] ticket gate render layers: cutout x{}", XiamenTicketGates.gates().size());
     }
 }

@@ -1,5 +1,5 @@
 {
-  "parent": "mtrlte:block/ticket_gate_xiamen_closed",
+  "parent": "mtrlte:block/ticket_gate_xiamen_item",
   "display": {
     "gui": { "rotation": [30, 225, 0], "translation": [0, 0, 0], "scale": [0.625, 0.625, 0.625] },
     "ground": { "rotation": [0, 0, 0], "translation": [0, 3, 0], "scale": [0.25, 0.25, 0.25] },

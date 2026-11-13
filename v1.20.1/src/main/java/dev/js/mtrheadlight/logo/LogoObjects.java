@@ -1,6 +1,8 @@
 // 标志方块的注册：LTE 自己的 logo（工具页） + 角美地铁 logo（厦门页）。
 package dev.js.mtrheadlight.logo;
 
+import java.util.List;
+
 import dev.js.mtrheadlight.LteLog;
 import dev.js.mtrheadlight.signal.LteCoreItems;
 import dev.js.mtrheadlight.xiamen.XiamenObjects;
@@ -9,6 +11,7 @@ import net.minecraft.block.AbstractBlock;
 import net.minecraft.block.MapColor;
 import net.minecraft.item.BlockItem;
 import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
 import net.minecraft.registry.Registry;
 import net.minecraft.registry.RegistryKey;
@@ -93,18 +96,28 @@ public final class LogoObjects {
         lteItem = registerItem(LTE_ID, lteLogo);
         jiaomeiItem = registerItem(JIAOMEI_ID, jiaomeiLogo);
 
-        // LTE 标志进「LTE 工具」页签（排在连接器 / 编辑器那几件之后，logo 是装饰品）。
+        // LTE 标志进「LTE 工具」页签，排在最前面（用户要求：装饰性 logo 先看到）。
         try {
             ItemGroupEvents.modifyEntriesEvent(RegistryKey.of(RegistryKeys.ITEM_GROUP, LteCoreItems.TOOLS_TAB_ID))
-                    .register(entries -> entries.add(lteItem));
+                    .register(entries -> {
+                        final List<ItemStack> stacks = entries.getDisplayStacks();
+                        stacks.removeIf(s -> s.isOf(lteItem));
+                        stacks.add(0, new ItemStack(lteItem));
+                    });
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] lte logo: could not add the tools tab entry", t);
         }
 
-        // 角美地铁标志进「厦门风格物件」页签（和厦门地铁标志同一页）。
+        // 厦门 / 角美两个标志进「厦门风格物件」页签的**最前面**，厦门在前、角美紧跟其后。
         try {
             ItemGroupEvents.modifyEntriesEvent(RegistryKey.of(RegistryKeys.ITEM_GROUP, XiamenObjects.CORE_TAB_ID))
-                    .register(entries -> entries.add(jiaomeiItem));
+                    .register(entries -> {
+                        final Item xiamenItem = XiamenObjects.logo().asItem();
+                        final List<ItemStack> stacks = entries.getDisplayStacks();
+                        stacks.removeIf(s -> s.isOf(xiamenItem) || s.isOf(jiaomeiItem));
+                        stacks.add(0, new ItemStack(jiaomeiItem));
+                        stacks.add(0, new ItemStack(xiamenItem));
+                    });
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] jiaomei logo: could not add the core tab entry", t);
         }

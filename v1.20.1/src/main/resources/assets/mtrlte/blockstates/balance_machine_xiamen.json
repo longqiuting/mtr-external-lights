@@ -1,12 +1,12 @@
 {
   "variants": {
-    "facing=north,half=lower": { "model": "mtrlte:block/balance_machine_xiamen_bottom", "y": 180 },
-    "facing=north,half=upper": { "model": "mtrlte:block/balance_machine_xiamen_top", "y": 180 },
-    "facing=east,half=lower": { "model": "mtrlte:block/balance_machine_xiamen_bottom", "y": 270 },
-    "facing=east,half=upper": { "model": "mtrlte:block/balance_machine_xiamen_top", "y": 270 },
-    "facing=south,half=lower": { "model": "mtrlte:block/balance_machine_xiamen_bottom" },
-    "facing=south,half=upper": { "model": "mtrlte:block/balance_machine_xiamen_top" },
-    "facing=west,half=lower": { "model": "mtrlte:block/balance_machine_xiamen_bottom", "y": 90 },
-    "facing=west,half=upper": { "model": "mtrlte:block/balance_machine_xiamen_top", "y": 90 }
+    "facing=north,half=lower": { "model": "mtrlte:block/empty" },
+    "facing=north,half=upper": { "model": "mtrlte:block/empty" },
+    "facing=east,half=lower": { "model": "mtrlte:block/empty" },
+    "facing=east,half=upper": { "model": "mtrlte:block/empty" },
+    "facing=south,half=lower": { "model": "mtrlte:block/empty" },
+    "facing=south,half=upper": { "model": "mtrlte:block/empty" },
+    "facing=west,half=lower": { "model": "mtrlte:block/empty" },
+    "facing=west,half=upper": { "model": "mtrlte:block/empty" }
   }
 }

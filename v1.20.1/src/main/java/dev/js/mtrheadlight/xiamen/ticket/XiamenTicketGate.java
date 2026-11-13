@@ -4,7 +4,9 @@ package dev.js.mtrheadlight.xiamen.ticket;
 import mtr.block.BlockTicketBarrier;
 import mtr.data.TicketSystem;
 import mtr.mappings.Utilities;
+import net.minecraft.block.BlockEntityProvider;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.math.BlockPos;
@@ -52,21 +54,48 @@ import net.minecraft.world.World;
  * <h2>进出站的区别只有一处</h2>
  * <p>{@code isEntrance} → {@code passThrough(..., isEntrance = true, isExit = false, ...)}：
  * 进站走 {@code onEnter}（扣费、记入口区），出站走 {@code onExit}（清入口区、按里程扣）。模型、
- * 贴图、方块实体全一样 —— 两个方块用同一套 blockstate 模型。
+ * 贴图、方块实体全一样 —— 两个方块用同一套模型（{@code rawmodels/ticket_barrier_*}）。
+ *
+ * <h2>几何从哪来</h2>
+ * <p>方块本身只剩一份空模型（{@code mtrlte:block/empty}），几何由 {@link XiamenTicketGateRenderer}
+ * 在运行时按 {@code assets/mtrlte/rawmodels/*.json}（Blockbench 原样导出）逐元素画 ——
+ * 素材里的任意旋转角（{@code -11.5 / 3.25 / 44 …}）和三轴旋转原版模型格式都表达不了。
+ * 碰撞 / 轮廓仍然直接用 MTR {@code BlockTicketBarrier} 那一份，<b>没有改</b>。
  */
-public class XiamenTicketGate extends BlockTicketBarrier {
+public class XiamenTicketGate extends BlockTicketBarrier implements BlockEntityProvider {
 
     /** 进站（{@code true}）还是出站。{@code BlockTicketBarrier} 把它存成了私有字段，这里自己留一份。 */
     private final boolean entrance;
 
-    public XiamenTicketGate(final boolean isEntrance) {
+    /** 用哪一套原始模型（{@code ticket_barrier} = 厦门地铁，{@code brt_barrier} = 厦门BRT）。 */
+    private final String rawModel;
+
+    public XiamenTicketGate(final boolean isEntrance, final String rawModel) {
         super(isEntrance);
         this.entrance = isEntrance;
+        this.rawModel = rawModel;
     }
 
     /** 进站闸机？ */
     public boolean entrance() {
         return this.entrance;
+    }
+
+    /** {@code ticket_barrier} / {@code brt_barrier}：{@link XiamenTicketGateRenderer} 拼 {@code _open / _closed} 用。 */
+    public String rawModel() {
+        return this.rawModel;
+    }
+
+    /**
+     * 方块实体（纯锚点，见 {@link XiamenTicketGateBlockEntity}）。
+     *
+     * <p>几何由 {@link XiamenTicketGateRenderer} 在运行时按 rawmodels 里的 Blockbench 原始 JSON 画，
+     * 不再有任何 blockstate 模型 —— 因为素材里的旋转角（-11.5 / 3.25 / 44 …）和三轴旋转
+     * 原版模型格式表达不了。
+     */
+    @Override
+    public BlockEntity createBlockEntity(final BlockPos pos, final BlockState state) {
+        return new XiamenTicketGateBlockEntity(pos, state);
     }
 
     @Override

@@ -31,7 +31,16 @@ import net.minecraft.world.WorldView;
 
 /**
  * 厦门售票机 / 余额查询机的基类：<b>一个方块 id、两格高</b>（{@code half=lower|upper}），
- * 下段是物品形态、上段没有物品。两段的几何完全不同，靠 blockstate 的 {@code half} 各指一份模型。
+ * 下段是物品形态、上段没有物品。
+ *
+ * <h2>两段各画各的</h2>
+ * <ul>
+ *   <li><b>售票机</b>：两段的几何完全不同，靠 blockstate 的 {@code half} 各指一份原版模型
+ *       （{@code block/ticket_machine_xiamen_bottom} / {@code _top}）；</li>
+ *   <li><b>余额查询机</b>：同样是两段各一份，但改由 {@code XiamenBalanceMachineRenderer} 在运行时画
+ *       {@code rawmodels/balance_machine_{bottom,top}.json}（素材里屏幕是 {@code x:-12.5} 的斜面，
+ *       原版模型格式的一个元素只能单轴旋转，而且上段局部坐标最高 16.91）。</li>
+ * </ul>
  *
  * <h2>为什么是「一个 id + HALF」而不是「两个 id」</h2>
  * <p>这既和 MTR 的 {@code BlockTicketMachine} / 方速的 {@code com.fangsu.blocks.BlockTicketMachine}
@@ -122,8 +131,12 @@ public abstract class XiamenMachineBlock extends HorizontalFacingBlock {
     }
 
     /**
-     * facing → blockstate {@code y}。必须与
-     * {@code assets/mtrlte/blockstates/*_xiamen.json} 里的四个变体一模一样。
+     * facing → blockstate {@code y}。
+     *
+     * <p>售票机仍然是原版 blockstate 模型（{@code assets/mtrlte/blockstates/ticket_machine_xiamen.json}），
+     * 那边的四个变体必须与这里一模一样；
+     * 余额查询机改走方块实体渲染器（{@code XiamenBalanceMachineRenderer}），它用的是同一套映射
+     * （{@code rotationDegrees(-FACING.asRotation())} = 原版 {@code "y"} 的等价写法）。
      */
     public static int blockRotation(final Direction facing) {
         return switch (facing) {
@@ -142,6 +155,11 @@ public abstract class XiamenMachineBlock extends HorizontalFacingBlock {
     @Override
     protected void appendProperties(final StateManager.Builder<Block, BlockState> builder) {
         super.appendProperties(builder);
+        // HorizontalFacingBlock 的属性在 1.20.1 是由它自己的 appendProperties（静态工具方法）加的，
+        // 走 super 调用不一定落上，这里显式补一次，否则状态里没有 facing，
+        // 放置时 `state.with(FACING, …)` 直接抛
+        // IllegalArgumentException: Cannot set property facing as it does not exist。
+        builder.add(FACING);
         builder.add(HALF);
     }
 

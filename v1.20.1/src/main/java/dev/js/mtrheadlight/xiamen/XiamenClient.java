@@ -110,8 +110,8 @@ public final class XiamenClient implements ClientModInitializer {
             put(entry.block(), "station sign " + entry.id());
         }
 
-        // 7) 闸机（4 个）：贴图一半是 alpha=0（玻璃 / 镂空），同样必须 cutout。
-        dev.js.mtrheadlight.xiamen.ticket.XiamenTicketGateClient.registerRenderLayers();
+        // 7) 闸机（4 个）：几何改由 BER 运行时画（rawmodels），这里只注册渲染器。
+        dev.js.mtrheadlight.xiamen.ticket.XiamenTicketGateClient.register();
     }
 
     private static void put(net.minecraft.block.Block block, String what) {

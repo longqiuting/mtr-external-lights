@@ -4,9 +4,11 @@ package dev.js.mtrheadlight.xiamen.machine;
 import dev.js.mtrheadlight.LteLog;
 import dev.js.mtrheadlight.xiamen.XiamenObjects;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
+import net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder;
 import net.minecraft.block.AbstractBlock;
 import net.minecraft.block.Block;
 import net.minecraft.block.MapColor;
+import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.item.BlockItem;
 import net.minecraft.item.Item;
 import net.minecraft.registry.Registries;
@@ -22,6 +24,11 @@ import net.minecraft.util.Identifier;
  *
  * <p>两台都是<b>一个 id 两格高</b>（{@code half=lower|upper}），上段没有物品 —— 见
  * {@link XiamenMachineBlock}。方块与物品用同一个 id，这是本模组厦门物件的一贯做法。
+ *
+ * <p>几何来源分两种：售票机仍是原版 blockstate 模型（`block/ticket_machine_xiamen_{bottom,top}`，
+ * 它的角度都是 ±22.5°，原版能表达）；余额查询机改由 {@link XiamenBalanceMachineRenderer}
+ * 运行时画 {@code rawmodels/balance_machine_{bottom,top}.json}（素材里屏幕是 x:-12.5 的斜面），
+ * 所以它多一个方块实体类型 {@link #BALANCE_ENTITY_ID}。
  *
  * <h2>属性</h2>
  * <ul>
@@ -46,8 +53,12 @@ public final class XiamenMachines {
     /** 余额查询机（两格高）。 */
     public static final Identifier BALANCE_ID = new Identifier(NAMESPACE, "balance_machine_xiamen");
 
+    /** 余额查询机的方块实体类型（上下两段共用，渲染器按 HALF 选模型）。 */
+    public static final Identifier BALANCE_ENTITY_ID = new Identifier(NAMESPACE, "balance_machine");
+
     private static XiamenTicketMachineBlock ticket;
     private static XiamenBalanceMachineBlock balance;
+    private static BlockEntityType<XiamenBalanceMachineBlockEntity> balanceEntityType;
     private static Item ticketItem;
     private static Item balanceItem;
     private static boolean registered;
@@ -63,6 +74,11 @@ public final class XiamenMachines {
         return balance;
     }
 
+    /** 余额查询机的方块实体类型（{@link XiamenBalanceMachineBlockEntity} 构造器要用）。 */
+    public static BlockEntityType<XiamenBalanceMachineBlockEntity> balanceEntityType() {
+        return balanceEntityType;
+    }
+
     /** 方块 + 物品 + 创造页签条目。 */
     public static void register() {
         if (registered) {
@@ -75,6 +91,10 @@ public final class XiamenMachines {
 
         balance = Registry.register(Registries.BLOCK, BALANCE_ID, new XiamenBalanceMachineBlock(settings()));
         balanceItem = Registry.register(Registries.ITEM, BALANCE_ID, new BlockItem(balance, new Item.Settings()));
+
+        // 余额查询机的方块实体类型（服务端也要注册；上下两段是同一个类型的两个实例）。
+        balanceEntityType = Registry.register(Registries.BLOCK_ENTITY_TYPE, BALANCE_ENTITY_ID,
+                FabricBlockEntityTypeBuilder.create(XiamenBalanceMachineBlockEntity::new, balance).build());
 
         try {
             ItemGroupEvents.modifyEntriesEvent(RegistryKey.of(RegistryKeys.ITEM_GROUP, XiamenObjects.CORE_TAB_ID))

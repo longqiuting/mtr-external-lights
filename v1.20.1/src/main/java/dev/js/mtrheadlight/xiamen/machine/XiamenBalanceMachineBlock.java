@@ -2,7 +2,9 @@
 package dev.js.mtrheadlight.xiamen.machine;
 
 import net.minecraft.block.AbstractBlock;
+import net.minecraft.block.BlockEntityProvider;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.scoreboard.Scoreboard;
 import net.minecraft.scoreboard.ScoreboardObjective;
@@ -30,7 +32,7 @@ import net.minecraft.world.World;
  * <p>玩家从没坐过车时 {@code mtr_balance} 这个 objective 往往根本不存在。这里先
  * {@code getNullableObjective} 再取分，任何一步缺东西都按 <b>0</b> 报，不会 NPE。
  */
-public class XiamenBalanceMachineBlock extends XiamenMachineBlock {
+public class XiamenBalanceMachineBlock extends XiamenMachineBlock implements BlockEntityProvider {
 
     /** 查询机的外形包围盒：机身宽 14（x 1..15），屏幕与读卡区向前伸出到 z≈13.4 / 11.7。 */
     private static final double[] LOWER_BOX = {1.0D, 15.0D, 0.0D, 13.42D};
@@ -39,6 +41,17 @@ public class XiamenBalanceMachineBlock extends XiamenMachineBlock {
     public XiamenBalanceMachineBlock(final AbstractBlock.Settings settings) {
         super(settings, LOWER_BOX, UPPER_BOX, "tooltip.mtrlte.balance_machine_xiamen");
 
+    }
+
+    /**
+     * 方块实体（纯锚点，见 {@link XiamenBalanceMachineBlockEntity}）：上下两段各一个。
+     *
+     * <p>几何由 {@link XiamenBalanceMachineRenderer} 运行时读 rawmodels 里的 Blockbench 原始 JSON 画
+     * —— 屏幕是 {@code x:-12.5} 的斜面，原版模型格式写不出来（单元素只能单轴，也不能跨格）。
+     */
+    @Override
+    public BlockEntity createBlockEntity(final BlockPos pos, final BlockState state) {
+        return new XiamenBalanceMachineBlockEntity(pos, state);
     }
 
     @Override
