@@ -113,15 +113,14 @@ abstract class ConfigWriteTarget {
     };
 
     /**
-     * The switch hierarchy: master -> (dynamic light | light band | beam cone), plus the
+     * The switch hierarchy: master -> (real block light | lamp flare), plus the
      * game-wide switches (built-in train filter) that only the global screen shows.
      */
     static final int MASTER = 0;
     static final int DYNAMIC_LIGHT = 1;
-    /** 光带（{@link HeadlightConfig#beamGlow}）：贴地的加色光带。 */
+    /** 灯晕（{@link HeadlightConfig#beamFlare}）：每个物理灯位一张面向相机的加色贴图。 */
     static final int LIGHT_BAND = 2;
-    /** 光柱（{@link HeadlightConfig#beamCone}）：车头前方的体积光锥，和光带各自独立。侧线可覆盖。 */
-    static final int BEAM_CONE = 3;
+    // 3 号曾是光柱（beamCone）；光柱已整体移除，号段保留、不重用。
     /** 雨天水雾粒子（{@link HeadlightConfig#rainSpray}）；侧线可覆盖。 */
     static final int RAIN_SPRAY = 4;
     /** 隐藏 MTR 内置车型（{@link HeadlightConfig#disableBuiltInTrains}），全局开关。 */
@@ -142,7 +141,7 @@ abstract class ConfigWriteTarget {
      */
     static final int DAMAGE_IN_CREATIVE = 11;
     static final int[] ALL_TOGGLES = {
-            MASTER, DYNAMIC_LIGHT, LIGHT_BAND, BEAM_CONE, RAIN_SPRAY, BUILTIN_TRAINS,
+            MASTER, DYNAMIC_LIGHT, LIGHT_BAND, RAIN_SPRAY, BUILTIN_TRAINS,
             TRAIN_COLLISION, TRACKBED, TRAIN_DAMAGE, TRAIN_MOBS, RAIN_HUSH, DAMAGE_IN_CREATIVE,
     };
 
@@ -481,8 +480,8 @@ abstract class ConfigWriteTarget {
                     return eff.enabled;
                 case DYNAMIC_LIGHT:
                     return eff.dynamicLight;
-                case BEAM_CONE:
-                    return eff.beamCone;
+                case LIGHT_BAND:
+                    return eff.beamFlare;
                 case RAIN_SPRAY:
                     return eff.rainSpray;
                 case BUILTIN_TRAINS:
@@ -500,7 +499,7 @@ abstract class ConfigWriteTarget {
                 case RAIN_HUSH:
                     return eff.rainHush;
                 default:
-                    return eff.beamGlow;
+                    return eff.beamFlare;
             }
         }
 
@@ -513,8 +512,8 @@ abstract class ConfigWriteTarget {
                 case DYNAMIC_LIGHT:
                     config().dynamicLight = on;
                     break;
-                case BEAM_CONE:
-                    config().beamCone = on;
+                case LIGHT_BAND:
+                    config().beamFlare = on;
                     break;
                 case RAIN_SPRAY:
                     config().rainSpray = on;
@@ -541,7 +540,7 @@ abstract class ConfigWriteTarget {
                     config().rainHush = on;
                     break;
                 default:
-                    config().beamGlow = on;
+                    config().beamFlare = on;
                     break;
             }
         }
@@ -706,8 +705,8 @@ abstract class ConfigWriteTarget {
                 case DYNAMIC_LIGHT:
                     c.dynamicLight = d.dynamicLight;
                     break;
-                case BEAM_CONE:
-                    c.beamCone = d.beamCone;
+                case LIGHT_BAND:
+                    c.beamFlare = d.beamFlare;
                     break;
                 case RAIN_SPRAY:
                     c.rainSpray = d.rainSpray;
@@ -735,6 +734,7 @@ abstract class ConfigWriteTarget {
                     break;
                 default:
                     c.beamGlow = d.beamGlow;
+            c.beamFlare = d.beamFlare;
                     break;
             }
         }
@@ -763,7 +763,7 @@ abstract class ConfigWriteTarget {
             c.enabled = d.enabled;
             c.dynamicLight = d.dynamicLight;
             c.beamGlow = d.beamGlow;
-            c.beamCone = d.beamCone;
+            c.beamFlare = d.beamFlare;
             c.rainSpray = d.rainSpray;
             c.rainSprayMinSpeedKmh = d.rainSprayMinSpeedKmh;
             c.disableBuiltInTrains = d.disableBuiltInTrains;
@@ -990,8 +990,8 @@ abstract class ConfigWriteTarget {
                     return eff.enabled;
                 case DYNAMIC_LIGHT:
                     return eff.dynamicLight;
-                case BEAM_CONE:
-                    return eff.beamCone;
+                case LIGHT_BAND:
+                    return eff.beamFlare;
                 case RAIN_SPRAY:
                     return eff.rainSpray;
                 case TRAIN_DAMAGE:
@@ -1006,7 +1006,7 @@ abstract class ConfigWriteTarget {
                     ignored(which);
                     return false;
                 default:
-                    return eff.beamGlow;
+                    return eff.beamFlare;
             }
         }
 
@@ -1020,8 +1020,8 @@ abstract class ConfigWriteTarget {
                 case DYNAMIC_LIGHT:
                     o.dynamicLight = Boolean.valueOf(on);
                     break;
-                case BEAM_CONE:
-                    o.beamCone = Boolean.valueOf(on);
+                case LIGHT_BAND:
+                    o.beamFlare = Boolean.valueOf(on);
                     break;
                 case RAIN_SPRAY:
                     o.rainSpray = Boolean.valueOf(on);
@@ -1040,7 +1040,7 @@ abstract class ConfigWriteTarget {
                     ignored(which);
                     break;
                 default:
-                    o.beamGlow = Boolean.valueOf(on);
+                    o.beamFlare = Boolean.valueOf(on);
                     break;
             }
         }
@@ -1132,8 +1132,8 @@ abstract class ConfigWriteTarget {
                     return o.enabled == null;
                 case DYNAMIC_LIGHT:
                     return o.dynamicLight == null;
-                case BEAM_CONE:
-                    return o.beamCone == null;
+                case LIGHT_BAND:
+                    return o.beamFlare == null;
                 case RAIN_SPRAY:
                     return o.rainSpray == null;
                 case TRAIN_DAMAGE:
@@ -1148,7 +1148,7 @@ abstract class ConfigWriteTarget {
                     ignored(which);
                     return true;
                 default:
-                    return o.beamGlow == null;
+                    return o.beamFlare == null;
             }
         }
 
@@ -1268,8 +1268,8 @@ abstract class ConfigWriteTarget {
                 case DYNAMIC_LIGHT:
                     o.dynamicLight = null;
                     break;
-                case BEAM_CONE:
-                    o.beamCone = null;
+                case LIGHT_BAND:
+                    o.beamFlare = null;
                     break;
                 case RAIN_SPRAY:
                     o.rainSpray = null;
@@ -1288,7 +1288,7 @@ abstract class ConfigWriteTarget {
                     ignored(which);
                     break;
                 default:
-                    o.beamGlow = null;
+                    o.beamFlare = null;
                     break;
             }
             prune();

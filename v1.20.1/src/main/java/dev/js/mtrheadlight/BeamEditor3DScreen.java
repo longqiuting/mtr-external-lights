@@ -40,6 +40,8 @@ import java.util.TreeSet;
  * │        ║ │        右键拖动平移 / 滚轮缩放          │ 打开导出目录   │
  * │        ║ │                                        │ 关闭           │
  * │        ║ │                                        │ ── 颜色 ──     │
+ * │        ║ │                                        │ 预设色板 4×2   │
+ * │        ║ │                                        │ 自定义颜色…    │
  * │        ║ │                                        │ R/G/B 滑块     │
  * │        ║ │                                        │ ── 几何 ──     │
  * │        ║ │                                        │ 长 / 宽 / 透明 │
@@ -135,6 +137,24 @@ final class BeamEditor3DScreen extends Screen {
     private static final double ALP_MIN = 0.02D;
     private static final double ALP_MAX = 0.5D;
 
+    // --- 颜色页签的色板 ------------------------------------------------------------------------
+    /**
+     * 预设色（行优先，每行 {@link #PALETTE_COLS} 个）：白、暖白、黄、红、蓝、绿、紫、青。
+     *
+     * <p>点一下就写进<b>当前这束</b>（{@link #applyPalette}），与取色器、RGB 滑块走同一份数据
+     * （{@code Beam.color}，存进 {@link BeamSession} 的工作稿，导出时由 {@link BeamPackWriter}
+     * 写 {@code color} 字段）。想加色只管往数组里塞，布局按列数自动铺。
+     */
+    private static final int[] PALETTE = {
+            0xFFFFFF, 0xFFE9C4, 0xFFD24A, 0xFF3B30,
+            0x3B82F6, 0x34D399, 0xA855F7, 0x22D3EE,
+    };
+    /** 色板列数（右栏很窄，4 列 × 2 行正好放下 8 个预设）。 */
+    private static final int PALETTE_COLS = 4;
+    /** 单个色块的高度（宽度按栏宽均分）。 */
+    private static final int SWATCH_H = 14;
+    private static final int SWATCH_GAP = 2;
+
     private final Screen parent;
     private final TrainPreview.Camera camera = new TrainPreview.Camera();
 
@@ -180,6 +200,9 @@ final class BeamEditor3DScreen extends Screen {
 
     /** 右栏里滑块/分区的纵向位置，render 时画分区标题用。 */
     private int colorSectionY = -1;
+    /** 色板第一行的顶边、单个色块宽度（-1 / 0 = 这一版没画色板，命中检测直接跳过）。 */
+    private int paletteY = -1;
+    private int swatchW = 0;
     private int geometrySectionY = -1;
     private int propertiesY = -1;
     private int hintY = -1;
@@ -730,28 +753,43 @@ final class BeamEditor3DScreen extends Screen {
         this.geometrySectionY = -1;
         this.propertiesY = -1;
         this.hintY = -1;
+        this.paletteY = -1;
+        this.swatchW = 0;
         final Beam beam = selectedBeam();
         if (beam == null) {
             this.hintY = y + 4;
             return;
         }
         final int sliderH = 16;
-        final int colorBlock = 12 + 3 * (sliderH + 2);
-        if (y + colorBlock > bottom) {
-            // 窗口太矮（GUI 缩放很大）：动作按钮优先，滑块整块省略而不是画到屏幕外。
+        final int paletteH = 2 * SWATCH_H + SWATCH_GAP;
+        if (y + 12 + paletteH > bottom) {
+            // 窗口太矮（GUI 缩放很大）：连色板都放不下，只留动作按钮和提示。
             this.hintY = y + 4;
             return;
         }
+        // 颜色页签：预设色板（点一下即改色）→「自定义颜色…」（完整取色器：色块网格 + #RRGGBB
+        // 手输）→ R/G/B 滑块（同一份颜色的精确微调）。色板排在最前，窗口矮的时候先保住它。
         y += 12;
-        addBeamSlider(x, y, width, sliderH, SLIDER_R);
-        y += sliderH + 2;
-        addBeamSlider(x, y, width, sliderH, SLIDER_G);
-        y += sliderH + 2;
-        addBeamSlider(x, y, width, sliderH, SLIDER_B);
-        y += sliderH + 6;
+        this.paletteY = y;
+        this.swatchW = Math.max(8, (width - (PALETTE_COLS - 1) * SWATCH_GAP) / PALETTE_COLS);
+        y += paletteH + 4;
+
+        final boolean roomForSliders = y + ROW_H + 4 + 3 * (sliderH + 2) <= bottom;
+        if (roomForSliders) {
+            this.addDrawableChild(ButtonWidget.builder(tr("beam3d.color.custom"),
+                            b -> openColorPicker())
+                    .dimensions(x, y, width, ROW_H).build());
+            y += ROW_H + 4;
+            addBeamSlider(x, y, width, sliderH, SLIDER_R);
+            y += sliderH + 2;
+            addBeamSlider(x, y, width, sliderH, SLIDER_G);
+            y += sliderH + 2;
+            addBeamSlider(x, y, width, sliderH, SLIDER_B);
+            y += sliderH + 6;
+        }
 
         final int geometryBlock = 12 + 3 * (sliderH + 2);
-        if (this.height >= 320 && y + geometryBlock <= bottom) {
+        if (roomForSliders && this.height >= 320 && y + geometryBlock <= bottom) {
             this.geometrySectionY = y;
             y += 12;
             addBeamSlider(x, y, width, sliderH, SLIDER_LENGTH);
@@ -766,6 +804,108 @@ final class BeamEditor3DScreen extends Screen {
 
     private void addBeamSlider(final int x, final int y, final int w, final int h, final int kind) {
         this.addDrawableChild(new BeamSlider(x, y, w, h, kind));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // 颜色页签：预设色板 + 自定义（取色器 / RGB 滑块）
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * 预设色块 → {@link #PALETTE} 下标；{@code -1} = 没命中（没选中光束 / 这一版没画色板 /
+     * 鼠标不在任何一个色块上）。
+     *
+     * <p>色块是自绘的（不进 Widget 列表），几何与 {@link #drawPalette} 用同一份
+     * {@link #paletteY} / {@link #swatchW}，所以画到哪就点到哪。
+     */
+    private int swatchAt(final double mouseX, final double mouseY) {
+        if (this.paletteY < 0 || this.swatchW <= 0 || selectedBeam() == null) {
+            return -1;
+        }
+        final int x0 = this.width - rightW() + PAD;
+        for (int i = 0; i < PALETTE.length; i++) {
+            final int x = x0 + (i % PALETTE_COLS) * (this.swatchW + SWATCH_GAP);
+            final int y = this.paletteY + (i / PALETTE_COLS) * (SWATCH_H + SWATCH_GAP);
+            if (mouseX >= x && mouseX < x + this.swatchW && mouseY >= y && mouseY < y + SWATCH_H) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** 画预设色板：当前色描白框、悬停加一层亮光（深色底上都能看清）。 */
+    private void drawPalette(final DrawContext context, final int mouseX, final int mouseY) {
+        if (this.paletteY < 0 || this.swatchW <= 0) {
+            return;
+        }
+        final Beam beam = selectedBeam();
+        if (beam == null) {
+            return;
+        }
+        final int current = color(beam) & 0xFFFFFF;
+        final int x0 = this.width - rightW() + PAD;
+        for (int i = 0; i < PALETTE.length; i++) {
+            final int rgb = PALETTE[i] & 0xFFFFFF;
+            final int x = x0 + (i % PALETTE_COLS) * (this.swatchW + SWATCH_GAP);
+            final int y = this.paletteY + (i / PALETTE_COLS) * (SWATCH_H + SWATCH_GAP);
+            final boolean hover = mouseX >= x && mouseX < x + this.swatchW
+                    && mouseY >= y && mouseY < y + SWATCH_H;
+            context.fill(x, y, x + this.swatchW, y + SWATCH_H, 0xFF000000 | rgb);
+            if (rgb == current) {
+                // 当前颜色：外描一圈白框（框画在色块外面，白底色块也认得出）。
+                context.fill(x - 1, y - 1, x + this.swatchW + 1, y, 0xFFFFFFFF);
+                context.fill(x - 1, y + SWATCH_H, x + this.swatchW + 1, y + SWATCH_H + 1, 0xFFFFFFFF);
+                context.fill(x - 1, y, x, y + SWATCH_H, 0xFFFFFFFF);
+                context.fill(x + this.swatchW, y, x + this.swatchW + 1, y + SWATCH_H, 0xFFFFFFFF);
+            } else {
+                context.fill(x, y, x + this.swatchW, y + 1, hover ? 0xFFD0D0D0 : 0xFF505050);
+                context.fill(x, y + SWATCH_H - 1, x + this.swatchW, y + SWATCH_H, 0xFF2A2A2A);
+            }
+            if (hover) {
+                context.fill(x, y, x + this.swatchW, y + SWATCH_H, 0x30FFFFFF);
+            }
+        }
+    }
+
+    /**
+     * 点预设色：写进当前光束并立刻保存（{@link BeamSession#save()}，与滑块/取色器同一份数据，
+     * 导出时 {@link BeamPackWriter} 落 {@code color}）。三个 RGB 滑块是构造时读值，换色后
+     * 重建一次控件才会跟着动。
+     */
+    private void applyPalette(final int index) {
+        final Beam beam = selectedBeam();
+        if (beam == null || index < 0 || index >= PALETTE.length) {
+            return;
+        }
+        beam.color = Integer.valueOf(PALETTE[index] & 0xFFFFFF);
+        if (this.session != null) {
+            this.session.save();
+        }
+        this.status = tr("beam3d.color.applied", BeamSession.hex(beam.color)).getString();
+        rebuild();
+    }
+
+    /**
+     * 打开取色器页（{@link ColorPickerScreen}：8 × 5 色块网格 + {@code #RRGGBB} 手输）。
+     *
+     * <p>「完成」时把颜色写进<b>打开时选中那束</b>（按序号取，回来时选中项可能被改过）并保存；
+     * 关掉取色器会回到本页，{@code init()} 重跑一遍，滑块/色板按新颜色刷新。
+     */
+    private void openColorPicker() {
+        final Beam beam = selectedBeam();
+        if (beam == null || this.client == null) {
+            return;
+        }
+        final int index = this.selected;
+        this.client.setScreen(new ColorPickerScreen(this, tr("beam3d.section.color").getString(),
+                color(beam), rgb -> {
+                    final Beam target = this.session == null ? null : this.session.beam(index);
+                    if (target == null) {
+                        return;
+                    }
+                    target.color = Integer.valueOf(rgb & 0xFFFFFF);
+                    this.session.save();
+                    this.status = tr("beam3d.color.applied", BeamSession.hex(target.color)).getString();
+                }));
     }
 
     private void rebuild() {
@@ -987,6 +1127,12 @@ final class BeamEditor3DScreen extends Screen {
                 return true;
             }
         }
+        // 右栏的预设色块（自绘，不是 Widget）：点一下就把当前这束换成那个颜色。
+        final int swatch = swatchAt(mouseX, mouseY);
+        if (button == 0 && swatch >= 0) {
+            applyPalette(swatch);
+            return true;
+        }
         if (inViewport(mouseX, mouseY)) {
             this.pressX = mouseX;
             this.pressY = mouseY;
@@ -1017,6 +1163,11 @@ final class BeamEditor3DScreen extends Screen {
                     } else if (this.mode == MODE_ROTATE) {
                         this.drag = DRAG_BEAM_ROTATE;
                         this.status = tr("beam3d.dragRotate", Integer.valueOf(hit.index + 1)).getString();
+                    } else if (this.mode == MODE_COLOR) {
+                        // 颜色工具：点哪束就换哪束的颜色 —— 直接开取色器（色板 + #RRGGBB）。
+                        this.drag = DRAG_NONE;
+                        openColorPicker();
+                        return true;
                     } else {
                         this.drag = DRAG_ORBIT;
                     }
@@ -1446,6 +1597,7 @@ final class BeamEditor3DScreen extends Screen {
             context.drawTextWithShadow(this.textRenderer,
                     tr("beam3d.section.color"), this.width - rightW() + PAD, this.colorSectionY, 0xC0C0C0);
         }
+        drawPalette(context, mouseX, mouseY);
         if (this.geometrySectionY >= 0) {
             context.drawTextWithShadow(this.textRenderer,
                     tr("beam3d.section.geometry"), this.width - rightW() + PAD,
@@ -1625,6 +1777,17 @@ final class BeamEditor3DScreen extends Screen {
                         Text.literal(String.format(Locale.ROOT, "rot %.0f %.0f %.0f",
                                 Double.valueOf(axis(beam.rot, 0)), Double.valueOf(axis(beam.rot, 1)),
                                 Double.valueOf(axis(beam.rot, 2)))), x, this.propertiesY + 11, 0xE0E0E0);
+            } else {
+                // 右栏放不下「几何」这一段（窗口矮）：pos / rot 挪到视口里，数值照样看得到。
+                final int line = top + (this.mode == MODE_MOVE ? 36 : 24);
+                context.drawTextWithShadow(this.textRenderer,
+                        Text.literal(String.format(Locale.ROOT, "pos %.2f %.2f %.2f",
+                                Double.valueOf(axis(beam.pos, 0)), Double.valueOf(axis(beam.pos, 1)),
+                                Double.valueOf(axis(beam.pos, 2)))), left, line, 0xC8C8C8);
+                context.drawTextWithShadow(this.textRenderer,
+                        Text.literal(String.format(Locale.ROOT, "rot %.0f %.0f %.0f",
+                                Double.valueOf(axis(beam.rot, 0)), Double.valueOf(axis(beam.rot, 1)),
+                                Double.valueOf(axis(beam.rot, 2)))), left, line + 11, 0xC8C8C8);
             }
         } else if (this.session != null && this.session.size() > 0) {
             context.drawTextWithShadow(this.textRenderer, tr("beam3d.pickHint"), left, top + 12, 0x909090);

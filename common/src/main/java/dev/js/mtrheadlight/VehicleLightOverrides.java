@@ -84,6 +84,14 @@ public final class VehicleLightOverrides {
         public Double length;
         public Double width;
         public Double alpha;
+        /**
+         * Set on every entry that came from a <b>declared</b> source (pack file or editor edit)
+         * instead of from the automatic detection, and never written to disk. It is the only way a
+         * consumer can tell "the author chose this colour/length" from "this is the default the
+         * detection invented", which is what lets the config's beam length apply to automatic lamps
+         * while a hand-placed beam keeps the length its author typed.
+         */
+        public boolean declared;
 
         public Beam() {
         }
@@ -102,6 +110,7 @@ public final class VehicleLightOverrides {
             b.length = length;
             b.width = width;
             b.alpha = alpha;
+            b.declared = declared;
             return b;
         }
 
@@ -767,7 +776,7 @@ public final class VehicleLightOverrides {
         final List<Beam> out = new ArrayList<>(Math.max(base.size(), over.size()));
         if (base.isEmpty()) {
             for (final Beam d : over) {
-                out.add(d.copy());
+                out.add(declared(d));
             }
             return out;
         }
@@ -789,7 +798,7 @@ public final class VehicleLightOverrides {
             final int index = next.getOrDefault(type, 0);
             final int declaredIndex = nthIndexOfType(over, type, index);
             if (declaredIndex >= 0) {
-                out.add(over.get(declaredIndex).filled(a));
+                out.add(declared(over.get(declaredIndex).filled(a)));
                 used.set(declaredIndex, Boolean.TRUE);
                 next.put(type, index + 1);
             } else if (!declaredTypes.contains(type) || !explicitGeometry.contains(type)) {
@@ -799,9 +808,16 @@ public final class VehicleLightOverrides {
         }
         for (int i = 0; i < over.size(); i++) {
             if (!used.get(i)) {
-                out.add(over.get(i).copy());
+                out.add(declared(over.get(i).copy()));
             }
         }
+        return out;
+    }
+
+    /** A copy of {@code beam} flagged as coming from a declaration (pack file or editor edit). */
+    private static Beam declared(final Beam beam) {
+        final Beam out = beam.copy();
+        out.declared = true;
         return out;
     }
 
@@ -989,10 +1005,12 @@ public final class VehicleLightOverrides {
         public final double width;
         public final double alpha;
         public final double[] rot;
+        /** {@code true} when this lamp came from a pack file or an editor edit, not from detection. */
+        public final boolean declared;
 
         private Resolved(final String type, final int color, final double lateral, final double height,
                          final double inset, final double length, final double width,
-                         final double alpha, final double[] rot) {
+                         final double alpha, final double[] rot, final boolean declared) {
             this.type = type;
             this.color = color;
             this.lateral = lateral;
@@ -1002,6 +1020,7 @@ public final class VehicleLightOverrides {
             this.width = width;
             this.alpha = alpha;
             this.rot = rot;
+            this.declared = declared;
         }
 
         static Resolved of(final Beam b, final VehicleLights.Layout layout) {
@@ -1035,7 +1054,16 @@ public final class VehicleLightOverrides {
             final double width = b.width != null ? b.width : DEFAULT_WIDTH;
             final double alpha = b.alpha != null ? b.alpha : DEFAULT_ALPHA;
             return new Resolved(type, color & 0xFFFFFF, lateral, height, inset, length, width, alpha,
-                    b.rot == null ? null : b.rot.clone());
+                    b.rot == null ? null : b.rot.clone(), b.declared);
+        }
+
+        /**
+         * {@link #of} for callers outside this class (the estimated pair in {@code TrainLamps}).
+         * Same numbers, same defaults - one implementation, so an estimated lamp and a detected one
+         * can never disagree about what a {@code pos} means.
+         */
+        public static Resolved ofPublic(final Beam b, final VehicleLights.Layout layout) {
+            return of(b, layout);
         }
 
         public boolean isHead() {

@@ -220,7 +220,7 @@ public final class ConfigScreen extends Screen {
 
         final HeadlightConfig cfg = MtrHeadlightClient.config();
         final MutableText status = tr("config.status",
-                        onOff(cfg.enabled), onOff(cfg.dynamicLight), onOff(cfg.beamGlow))
+                        onOff(cfg.enabled), onOff(cfg.dynamicLight), onOff(cfg.beamFlare))
                 .append(Text.literal(cfg.disableBuiltInTrains
                         ? tr("main.builtinHidden").getString() : ""));
         context.drawCenteredTextWithShadow(this.textRenderer, status, this.width / 2, 38,

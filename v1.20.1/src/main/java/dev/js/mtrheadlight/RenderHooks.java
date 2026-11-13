@@ -41,35 +41,27 @@ public final class RenderHooks {
             MtrHeadlightClient.LOGGER.warn("[lte] could not register the debug probe tick", t);
         }
 
-        // The beam sheets are our own geometry and completely independent of the relight
-        // scheduler: they draw themselves and never queue a chunk. The early/late pair exists so
-        // exactly one pass draws, depending on whether a shader pack composites after translucent.
+        // The lamp flares are our own geometry and completely independent of the relight scheduler:
+        // they draw themselves and never queue a chunk. The early/late pair exists so exactly one
+        // pass draws, depending on whether a shader pack composites after translucent.
+        //
+        // The volumetric cone (ProtoBeamCone) and the ground sheet (BeamGlow) used to be registered
+        // here as well; both were removed with the light rework - a train light is now a flare at the
+        // lamp plus real block light (BeamBlockLight), never a visible beam in mid-air.
         WorldRenderEvents.AFTER_ENTITIES.register(context -> {
             try {
-                BeamGlow.render(context, false);
+                LightFlare.render(context, false);
             } catch (Throwable t) {
-                MtrHeadlightClient.LOGGER.error("[lte] beam glow failed", t);
-            }
-            // PROTOTYPE: cone verification pass, same two-pass rule as the sheet.
-            try {
-                ProtoBeamCone.render(context, false);
-            } catch (Throwable t) {
-                MtrHeadlightClient.LOGGER.error("[lte-proto] cone failed", t);
+                MtrHeadlightClient.LOGGER.error("[lte] light flare failed", t);
             }
         });
         WorldRenderEvents.AFTER_TRANSLUCENT.register(context -> {
             try {
-                BeamGlow.render(context, true);
+                LightFlare.render(context, true);
             } catch (Throwable t) {
-                MtrHeadlightClient.LOGGER.error("[lte] beam glow (late pass) failed", t);
-            }
-            try {
-                ProtoBeamCone.render(context, true);
-            } catch (Throwable t) {
-                MtrHeadlightClient.LOGGER.error("[lte-proto] cone (late pass) failed", t);
+                MtrHeadlightClient.LOGGER.error("[lte] light flare (late pass) failed", t);
             }
         });
-        ProtoBeamCone.announce();
 
         // 手持任意一个连接器（信号 / 投影机 / PIDS）时在附近轨道节点上画轮廓（白色；
         // 信号连接器已选中的那颗青色）。三个物品共用同一个绘制回调，一帧一次 draw。纯粹是辅助显示。

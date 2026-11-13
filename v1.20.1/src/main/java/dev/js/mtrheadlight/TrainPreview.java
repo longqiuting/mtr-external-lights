@@ -537,7 +537,8 @@ final class TrainPreview {
             final double[] pos = beam.pos;
             final double[] dir = direction(beam);
             final double length = beam.length == null ? 8.0D : beam.length.doubleValue();
-            final double radius = beam.width == null ? 0.4D : beam.width.doubleValue() * 0.5D;
+            final double dot = Math.max(0.18D, Math.min(0.45D,
+                    (beam.width == null ? 1.0D : beam.width.doubleValue()) * 0.22D));
             final int rgb = beam.color == null ? 0xFFFFFF : beam.color.intValue() & 0xFFFFFF;
             final float r = ((rgb >> 16) & 0xFF) / 255.0F;
             final float g = ((rgb >> 8) & 0xFF) / 255.0F;
@@ -547,34 +548,44 @@ final class TrainPreview {
             final double ex = pos[0] + dir[0] * length;
             final double ey = pos[1] + dir[1] * length;
             final double ez = pos[2] + dir[2] * length;
+            // Direction arrow: the shaft, then a four-line arrowhead at the tip. This replaced the
+            // old wire cone (a ring at the tip plus four generatrices) - the renderer no longer draws
+            // a cone, so the preview must not suggest one.
             line(lines, matrix, pos[0], pos[1], pos[2], ex, ey, ez, r, g, b, alpha);
 
             final double[] up = Math.abs(dir[1]) > 0.95D
                     ? new double[]{1.0D, 0.0D, 0.0D} : new double[]{0.0D, 1.0D, 0.0D};
             final double[] right = normalise(cross(dir, up));
             final double[] realUp = normalise(cross(right, dir));
-            final int steps = 10;
-            double px = 0.0D;
-            double py = 0.0D;
-            double pz = 0.0D;
-            for (int step = 0; step <= steps; step++) {
-                final double angle = Math.PI * 2.0D * step / steps;
-                final double cx = ex + (right[0] * Math.cos(angle)
-                        + realUp[0] * Math.sin(angle)) * radius;
-                final double cy = ey + (right[1] * Math.cos(angle)
-                        + realUp[1] * Math.sin(angle)) * radius;
-                final double cz = ez + (right[2] * Math.cos(angle)
-                        + realUp[2] * Math.sin(angle)) * radius;
-                if (step > 0) {
-                    line(lines, matrix, px, py, pz, cx, cy, cz, r, g, b, alpha);
-                }
-                if (step == 0 || step == 2 || step == 5 || step == 7) {
-                    line(lines, matrix, pos[0], pos[1], pos[2], cx, cy, cz, r, g, b, alpha * 0.55F);
-                }
-                px = cx;
-                py = cy;
-                pz = cz;
+            final double arrow = Math.min(0.9D, Math.max(0.35D, length * 0.12D));
+            final double wing = arrow * 0.55D;
+            for (int k = 0; k < 4; k++) {
+                final double sa = k == 0 ? 1.0D : (k == 1 ? -1.0D : 0.0D);
+                final double sb = k == 2 ? 1.0D : (k == 3 ? -1.0D : 0.0D);
+                final double bx = ex - dir[0] * arrow + (right[0] * sa + realUp[0] * sb) * wing;
+                final double by = ey - dir[1] * arrow + (right[1] * sa + realUp[1] * sb) * wing;
+                final double bz = ez - dir[2] * arrow + (right[2] * sa + realUp[2] * sb) * wing;
+                line(lines, matrix, ex, ey, ez, bx, by, bz, r, g, b, alpha);
             }
+
+            // The lamp itself: a small three-axis cross (a "光点"), so the point the flare will be
+            // drawn at is visible on the model instead of only at the end of a beam.
+            final double[] sx = normalise(cross(right, realUp));
+            final float dotAlpha = Math.max(0.75F, alpha);
+            line(lines, matrix,
+                    pos[0] - right[0] * dot, pos[1] - right[1] * dot, pos[2] - right[2] * dot,
+                    pos[0] + right[0] * dot, pos[1] + right[1] * dot, pos[2] + right[2] * dot,
+                    r, g, b, dotAlpha);
+            line(lines, matrix,
+                    pos[0] - realUp[0] * dot, pos[1] - realUp[1] * dot, pos[2] - realUp[2] * dot,
+                    pos[0] + realUp[0] * dot, pos[1] + realUp[1] * dot, pos[2] + realUp[2] * dot,
+                    r, g, b, dotAlpha);
+            line(lines, matrix,
+                    pos[0] - sx[0] * dot * 0.6D, pos[1] - sx[1] * dot * 0.6D,
+                    pos[2] - sx[2] * dot * 0.6D,
+                    pos[0] + sx[0] * dot * 0.6D, pos[1] + sx[1] * dot * 0.6D,
+                    pos[2] + sx[2] * dot * 0.6D,
+                    r, g, b, dotAlpha * 0.7F);
         }
         immediate.draw();
     }

@@ -25,26 +25,15 @@ import net.minecraft.text.Text;
  * next 5-second {@code auto light:} line confirms it. It writes {@code config/mtrlte.json} straight
  * away, exactly like the config screen.
  *
- * <p>{@code /mtr_lte debug cone|spray on|off} - the two <b>visible probes</b> (a fixed white cone in
- * front of the player, a fixed particle burst at the feet). They ignore trains, models, siding
- * overrides and the master switch, so a probe that fails to appear localises the fault to the
- * render path itself instead of the lamp binding.
+ * <p>{@code /mtr_lte debug spray on|off} - the visible particle probe (a fixed burst at the feet).
+ * It ignores trains, models, siding overrides and the master switch, so a probe that fails to appear
+ * localises the fault to the particle path itself instead of the weather gate.
  *
- * <p>{@code /mtr_lte debug coneSource model|glow|status} - the cone's <b>geometry source</b>.
- * {@code model} (default) binds the cone to the train model's lamp slots ({@link VehicleLights});
- * {@code glow} makes it take the very geometry the visible light sheet draws
- * ({@link BeamGeom} + {@link BeamGlow#startHeight}) and read no lamp data at all. Cone visible in
- * {@code glow} = the binding was wrong; cone still invisible = the cone's own draw path cannot
- * render a real beam. Live, persisted to {@code config/mtrlte.json}.
- *
- * <p>{@code /mtr_lte cone volume on|off} - the cone's <b>render path</b>. {@code off} (default) =
- * every real beam is built as the additive four-shell cone and drawn through
- * {@link GlowCompat#draw}, the same function {@code /mtr_lte debug cone} proved visible;
- * {@code on} = the 1.20.1 raymarch volume (occlusion-aware). Live, persisted.
- *
- * <p>{@code /mtr_lte cone tail on|off} - whether the cone is also drawn out of the <b>tail</b> end.
- * {@code off} (default) = head lamp only; the tail slot is still resolved for the dynamic light and
- * the ground sheet. Live, persisted.
+ * <p>{@code /mtr_lte flare [status]} - 车灯现在由什么点亮：灯晕（{@code LightFlare}，每个物理灯位
+ * 一张面向相机的加色贴图）+ 真实方块光照（{@code BeamBlockLight}）。灯位来自
+ * {@link TrainLamps}（模型 LIGHT 部件 → {@code builtin_lights.json} → 尺寸兜底），所以这一行
+ * 顺带报告灯位诊断线与方块光照挂钩是否在运行。光柱（体积锥 / raymarch 体积光）已整体移除，
+ * 对应的 {@code /mtr_lte cone …} 与 {@code /mtr_lte debug cone…} 子命令一并删除。
  *
  * <p>{@code /mtr_lte dep [status|next|normal|mirror|flip|rotate]} - 挂墙发车倒数器
  * （{@code mtrlte:dep_on_wall}）的<b>读数方向</b>。四档都是绕屏幕正中的 {@code scale(±1,±1,1)}：
@@ -175,94 +164,15 @@ public final class Commands {
                                 .executes(context -> setBuiltInTrains(context.getSource(), false)))
                         .then(ClientCommandManager.literal("reload")
                                 .executes(context -> reloadTrains(context.getSource()))))
-                .then(ClientCommandManager.literal("cone")
-                        .executes(context -> coneStatus(context.getSource()))
+                // 车灯现状：灯晕 + 真实方块光照（光柱已移除）。
+                .then(ClientCommandManager.literal("flare")
+                        .executes(context -> flareStatus(context.getSource()))
                         .then(ClientCommandManager.literal("status")
-                                .executes(context -> coneStatus(context.getSource())))
-                        .then(ClientCommandManager.literal("volume")
-                                .executes(context -> coneStatus(context.getSource()))
-                                .then(ClientCommandManager.argument("state",
-                                                StringArgumentType.word())
-                                        .suggests((context, builder) -> builder
-                                                .suggest("on")
-                                                .suggest("off")
-                                                .buildFuture())
-                                        .executes(context -> setConeVolume(context.getSource(),
-                                                "on".equalsIgnoreCase(
-                                                        StringArgumentType.getString(context,
-                                                                "state"))))))
-                        .then(ClientCommandManager.literal("occl")
-                                .then(ClientCommandManager.argument("state", StringArgumentType.word())
-                                        .suggests((context, builder) -> builder
-                                                .suggest("on")
-                                                .suggest("off")
-                                                .buildFuture())
-                                        .executes(context -> setConeOcclusion(context.getSource(),
-                                                !"off".equalsIgnoreCase(
-                                                        StringArgumentType.getString(context,
-                                                                "state"))))))
-                        // 尾灯光柱：默认关（只给头灯），这里是显式打开的唯一入口之一。
-                        .then(ClientCommandManager.literal("tail")
-                                .executes(context -> coneStatus(context.getSource()))
-                                .then(ClientCommandManager.argument("state", StringArgumentType.word())
-                                        .suggests((context, builder) -> builder
-                                                .suggest("on")
-                                                .suggest("off")
-                                                .buildFuture())
-                                        .executes(context -> setConeTail(context.getSource(),
-                                                "on".equalsIgnoreCase(
-                                                        StringArgumentType.getString(context,
-                                                                "state"))))))
-                        .then(ClientCommandManager.literal("steps")
-                                .then(ClientCommandManager.argument("count",
-                                                StringArgumentType.word())
-                                        .executes(context -> setConeSteps(context.getSource(),
-                                                StringArgumentType.getString(context, "count"))))))
+                                .executes(context -> flareStatus(context.getSource()))))
                 // 可见探针：先回答"管道通不通"，再谈绑定。两个开关都只在内存里，不写 config，
                 // 退出游戏/换世界即失效（它们不是玩家的设置项）。
                 .then(ClientCommandManager.literal("debug")
                         .executes(context -> debugStatus(context.getSource()))
-                        // 光柱几何源对照：model = 车型灯位（原有行为），glow = 光带几何（不读灯位）。
-                        .then(ClientCommandManager.literal("coneSource")
-                                .executes(context -> coneSourceStatus(context.getSource()))
-                                .then(ClientCommandManager.literal("status")
-                                        .executes(context -> coneSourceStatus(context.getSource())))
-                                .then(ClientCommandManager.literal("model")
-                                        .executes(context -> setConeSource(context.getSource(),
-                                                HeadlightConfig.CONE_SOURCE_MODEL)))
-                                .then(ClientCommandManager.literal("glow")
-                                        .executes(context -> setConeSource(context.getSource(),
-                                                HeadlightConfig.CONE_SOURCE_GLOW)))
-                                .then(ClientCommandManager.argument("mode",
-                                                StringArgumentType.word())
-                                        .suggests((context, builder) -> builder
-                                                .suggest("model")
-                                                .suggest("glow")
-                                                .buildFuture())
-                                        .executes(context -> setConeSource(context.getSource(),
-                                                StringArgumentType.getString(context, "mode")))))
-                        .then(ClientCommandManager.literal("cone")
-                                .executes(context -> debugStatus(context.getSource()))
-                                .then(ClientCommandManager.argument("state", StringArgumentType.word())
-                                        .suggests((context, builder) -> builder
-                                                .suggest("on")
-                                                .suggest("off")
-                                                .buildFuture())
-                                        .executes(context -> setDebugCone(context.getSource(),
-                                                "on".equalsIgnoreCase(StringArgumentType.getString(
-                                                        context, "state"))))))
-                        // 真实光柱的提亮对照：0.45 平铺、关掉全部衰减 = 探针参数。
-                        // 开着的瞬间就看得见 → 原来是太淡；仍然看不见 → 问题不在 alpha。
-                        .then(ClientCommandManager.literal("coneBoost")
-                                .executes(context -> debugStatus(context.getSource()))
-                                .then(ClientCommandManager.argument("state", StringArgumentType.word())
-                                        .suggests((context, builder) -> builder
-                                                .suggest("on")
-                                                .suggest("off")
-                                                .buildFuture())
-                                        .executes(context -> setDebugConeBoost(context.getSource(),
-                                                "on".equalsIgnoreCase(StringArgumentType.getString(
-                                                        context, "state"))))))
                         .then(ClientCommandManager.literal("spray")
                                 .executes(context -> debugStatus(context.getSource()))
                                 .then(ClientCommandManager.argument("state", StringArgumentType.word())
@@ -401,139 +311,44 @@ public final class Commands {
     }
 
     /**
-     * {@code /mtr_lte cone} - state of the depth-aware cone and its two knobs.
+     * {@code /mtr_lte flare} - 车灯现在由什么点亮：灯晕（billboard flash）+ 真实方块光照。
      *
-     * <p>{@code volume=} is the live answer, not the config: it is {@code shaderpack} when Iris
-     * switched the effect off, {@code shader-missing} when the core shader did not load, and
-     * {@code failed(...)} when a GL step was rejected - in all three cases the shell cone draws.
+     * <p>光柱（体积锥 / raymarch 体积光 / 加粗壳层）已经整体移除：先按车型灯位算出每盏灯的世界坐标
+     * （{@link TrainLamps}：模型 LIGHT 部件 → 内置灯位表 → 尺寸兜底），再在灯位画一张面向相机的
+     * 光晕贴图，地面/墙上的亮光由 {@link BeamBlockLight} 写进区块网格的真实方块光照提供。
+     * 所以这一行报告的是"灯位从哪来"和"方块光照有没有在工作"，不再是光柱的渲染路径。
      */
-    private static int coneStatus(final FabricClientCommandSource source) {
+    private static int flareStatus(final FabricClientCommandSource source) {
         final HeadlightConfig cfg = MtrHeadlightClient.config();
-        source.sendFeedback(Text.literal("LTE：cone path=" + ProtoBeamCone.pathName()
-                + "（" + (cfg.beamConeVolume
-                        ? "raymarch 体积光，配置已打开"
-                        : "加色壳层锥，默认：和 debug cone 探针同一条管道")
-                + "） occlusion=" + cfg.beamConeOcclusion
-                + " steps=" + cfg.beamConeSteps()
-                + " alpha=" + String.format(java.util.Locale.ROOT, "%.2f", cfg.beamConeAlpha)
-                + " coneBoost=" + (DebugProbe.coneBoostEnabled() ? "on" : "off")
-                + " tail=" + (cfg.coneOnTail ? "on" : "off")
-                + " volume=" + ConeVolumeRenderer.status(cfg)));
-        return 1;
-    }
-
-    /**
-     * {@code /mtr_lte cone volume on|off} - 光柱的渲染路径。
-     *
-     * <p>{@code off}（默认）= 真实光束全部走加色壳层锥：四层同心壳、纵向/径向/视角衰减，
-     * {@code GlowCompat.draw} 加色混合，和 {@code /mtr_lte debug cone} 探针同一个函数
-     * （{@code ProtoBeamCone.cone()} → {@code quad()} → {@code GlowCompat.draw}）。<b>没有</b>深度遮挡。
-     * {@code on} = 1.20.1 的 raymarch 体积光（可被墙/车体截断），shader pack / GL 失败时仍自动退回壳层。
-     */
-    private static int setConeVolume(final FabricClientCommandSource source, final boolean on) {
-        final HeadlightConfig cfg = MtrHeadlightClient.config();
-        cfg.beamConeVolume = on;
-        cfg.save();
-        source.sendFeedback(Text.literal("LTE：beamConeVolume = " + on
-                + (on ? "（raymarch；若不可用/被 shader pack 关闭则自动退回壳层）"
-                        : "（加色壳层锥 = 默认，与探针同一条管道）")
-                + " path=" + ProtoBeamCone.pathName()));
-        return 1;
-    }
-
-    /** A/B switch for the occlusion test - this is what the screenshot comparison flips. */
-    private static int setConeOcclusion(final FabricClientCommandSource source, final boolean on) {
-        final HeadlightConfig cfg = MtrHeadlightClient.config();
-        cfg.beamConeOcclusion = on;
-        cfg.save();
-        source.sendFeedback(Text.literal("LTE：beamConeOcclusion = " + on
-                + (on ? "（深度感知：光锥被墙截断）" : "（旧效果：不遮挡）")
-                + " volume=" + ConeVolumeRenderer.status(cfg)));
-        return 1;
-    }
-
-    /**
-     * {@code /mtr_lte cone tail on|off} - 尾灯光柱的显式开关（默认 {@code off}）。
-     *
-     * <p>关：光柱只从<b>头灯</b>射出。车辆模型上的尾灯位照旧解析（动态尾灯 / 地面光带要用），
-     * 所以改这一个开关不会让尾部的动态光或光带消失。
-     */
-    private static int setConeTail(final FabricClientCommandSource source, final boolean on) {
-        final HeadlightConfig cfg = MtrHeadlightClient.config();
-        cfg.coneOnTail = on;
-        cfg.save();
-        source.sendFeedback(Text.literal("LTE：coneOnTail = " + on
-                + (on ? "（尾灯也画光柱）" : "（只给头灯；尾灯位仍用于动态光/光带）")));
-        return 1;
-    }
-
-    private static int setConeSteps(final FabricClientCommandSource source, final String raw) {
-        final HeadlightConfig cfg = MtrHeadlightClient.config();
-        final int value;
-        try {
-            value = Integer.parseInt(raw.trim());
-        } catch (NumberFormatException e) {
-            source.sendFeedback(Text.literal("LTE：steps 需要 4-16 的整数"));
-            return 0;
+        final HeadlightConfig.Effective eff = cfg.effectiveFor(0L);
+        source.sendFeedback(Text.literal("LTE：light = flare"
+                + (eff.beamFlare ? "+block" : "(flare 关)")
+                + " flareSize=" + String.format(java.util.Locale.ROOT, "%.2f",
+                        cfg.flareSizeClamped())
+                + " minPx=" + cfg.flareMinPxClamped()
+                + " alpha=" + String.format(java.util.Locale.ROOT, "%.2f", cfg.beamAlpha)
+                + " blockLight=" + (cfg.beamBlockLight ? "on" : "off")
+                + " radius=" + cfg.beamBlockLightRadius
+                + " — 灯位：模型 LIGHT 部件 / builtin_lights.json / 尺寸兜底，"
+                + "逐车型诊断行见 [lte] lights:，每 5 秒汇总见 [lte] flare:"));
+        if (!BeamBlockLight.alive()) {
+            source.sendFeedback(Text.literal("LTE：方块光照挂钩没有运行（"
+                    + (BeamRelight.available() ? "区块网格重建被别的模组接管" : "Sodium/Embeddium 在线")
+                    + "）—— 灯晕照常画，地面的亮斑不会出现"));
         }
-        cfg.beamConeSteps = value;
-        cfg.save();
-        source.sendFeedback(Text.literal("LTE：beamConeSteps = " + cfg.beamConeSteps()
-                + (value == cfg.beamConeSteps() ? "" : "（已钳制到 4-16）")));
         return 1;
     }
 
     /**
-     * {@code /mtr_lte debug coneSource [model|glow|status]} - 光柱的几何来源状态。
+     * {@code /mtr_lte debug} - 可见探针的状态。
      *
-     * <p>这一行只说"当前按哪套几何出光柱"，和 5 秒诊断行里的 {@code source=} 是同一个值
-     * （{@link ProtoBeamCone#sourceName()}），所以聊天栏和日志不会各说一套。
-     */
-    private static int coneSourceStatus(final FabricClientCommandSource source) {
-        final HeadlightConfig cfg = MtrHeadlightClient.config();
-        final boolean glow = cfg.coneSourceGlow();
-        source.sendFeedback(Text.literal("LTE：beamConeSource = " + cfg.resolvedConeSource()
-                + (glow
-                        ? "（光柱用光带的几何：base/axis/len/颜色同一来源，不读 VehicleLights）"
-                        : "（光柱按车型灯位 VehicleLights，原有行为）")
-                + " — 诊断行 source=" + ProtoBeamCone.sourceName()
-                + "，切换：/mtr_lte debug coneSource model|glow"));
-        return 1;
-    }
-
-    /**
-     * 切到 {@code MODEL} / {@code GLOW}：写活配置并落盘（和配置界面一致，下一帧就生效），并清掉
-     * "每列车已打过一行"的记录，让下一帧重新逐车打印 {@code [lte] coneSource glow:} 对照行。
-     *
-     * <p>{@code GLOW} 不改任何别的参数：光柱仍然走原来的渲染路径（raymarch / 壳层），只是灯位
-     * 来源换成光带那一套。这样"看得见/看不见"的差别只可能来自几何绑定。
-     */
-    private static int setConeSource(final FabricClientCommandSource source, final String raw) {
-        final HeadlightConfig cfg = MtrHeadlightClient.config();
-        final String mode = HeadlightConfig.normalizeConeSource(raw);
-        cfg.beamConeSource = mode;
-        cfg.save();
-        ProtoBeamCone.clearGlowLogged();
-        final boolean accepted = mode.equalsIgnoreCase(raw.trim());
-        final boolean glow = HeadlightConfig.CONE_SOURCE_GLOW.equals(mode);
-        source.sendFeedback(Text.literal("LTE：beamConeSource = " + mode
-                + (accepted ? "" : "（\"" + raw + "\" 不是合法值，已回落 MODEL）")
-                + (glow
-                        ? "（光柱改用光带几何：应与光带逐像素重合；仍看不到 = 光柱渲染路径问题）"
-                        : "（光柱按车型灯位；原有行为）")));
-        return accepted ? 1 : 0;
-    }
-
-    /**
-     * {@code /mtr_lte debug} - 两个可见探针的状态。
-     *
-     * <p>这一行是"先定位再修"的入口：{@code cone=on} 却看不到 = 渲染管道问题；{@code cone=on}
-     * 看得见 = 管道没问题，去查 {@code beams=} / {@code slots=}（见 5 秒一行的 {@code [lte] debug:}）。
+     * <p>探针只服务于雨雾粒子（{@code /mtr_lte debug spray}）：车灯这一侧现在没有需要探针的
+     * 渲染路径了 —— 灯晕是一张加色四边形，方块光照走原版区块网格，两者都没有"能不能画出来"
+     * 的中间层。灯位对不对看 5 秒一行的 {@code [lte] flare:} 与每车型一次的 {@code [lte] lights:}。
      */
     private static int debugStatus(final FabricClientCommandSource source) {
         source.sendFeedback(Text.literal("LTE：debug " + DebugProbe.status()
-                + " — cone 探针：玩家前方 6 格的大白光锥；coneBoost：真实光柱改用探针参数"
-                + "（0.45 平铺、无衰减，用来判定\"是不是太淡\"）；spray 探针：眼前 2 格眼平的一圈 FLAME，5 秒"
+                + " — spray 探针：眼前 2 格眼平的一圈 FLAME，5 秒"
                 + culledHint()));
         return 1;
     }
@@ -542,44 +357,6 @@ public final class Commands {
     private static String culledHint() {
         final String reason = ParticleCull.reason();
         return reason == null ? "" : "；⚠ " + reason;
-    }
-
-    /**
-     * {@code /mtr_lte debug cone on|off} - 固定位置的亮光锥（玩家水平前方 6 格、与眼平齐，长 12、
-     * 半角 20°、每层 alpha 0.45、纯白）。它不读列车 / 车型 / 侧线 / 配置开关，只走和真实光柱
-     * 相同的加色壳层管道，所以"看不看得见"直接就是管道通不通的答案。
-     */
-    private static int setDebugCone(final FabricClientCommandSource source, final boolean on) {
-        DebugProbe.setCone(on);
-        source.sendFeedback(Text.literal("LTE：cone probe = " + (on ? "on" : "off")
-                + (on ? "（前方 6 格 · 眼平齐 · 长 12 · 半角 20° · alpha 0.45 · 纯白；"
-                        + "不受任何列车/配置开关影响）" : "")));
-        return 1;
-    }
-
-    /**
-     * {@code /mtr_lte debug coneBoost on|off} - 把<b>真实光束</b>画成探针那套参数：峰值 alpha
-     * 强制 0.45，纵向 / 径向 / 视角 / 地面四种衰减全部关掉（每层壳 0.45 平铺）。
-     *
-     * <p>它回答的是这次报告里唯一还没分开的两个可能：<b>太淡</b>还是<b>管道/几何不对</b>。
-     * 打开后立刻看得见 = 之前是衰减把 alpha 乘没了（默认值已提到 0.30 并加了 0.25 下限）；
-     * 依旧看不见 = 和 alpha 无关，去查 5 秒诊断行的 {@code path=} / {@code g7}（距离）和
-     * {@code [lte] cone beam:} 那几行的 {@code apex}/{@code len}/{@code radius}。
-     *
-     * <p>只在内存里，不写配置；关掉即恢复真实参数。切换时 {@link ProtoBeamCone} 会清空每束
-     * 一次的日志记录，所以开/关各会重新打一遍 {@code [lte] cone beam:}。
-     */
-    private static int setDebugConeBoost(final FabricClientCommandSource source, final boolean on) {
-        DebugProbe.setConeBoost(on);
-        final HeadlightConfig cfg = MtrHeadlightClient.config();
-        final double peak = cfg == null ? 0.30D : cfg.beamConeAlpha;
-        source.sendFeedback(Text.literal("LTE：coneBoost = " + (on ? "on" : "off")
-                + (on
-                        ? "（真实光束：alpha 0.45 平铺 · 无纵向/径向/视角/地面衰减 = 探针参数；"
-                                + "看得见 = 之前太淡，看不见 = 与 alpha 无关）"
-                        : "（恢复真实参数：beamConeAlpha=" + String.format(java.util.Locale.ROOT,
-                                "%.2f", peak) + " · 衰减下限 0.25）")));
-        return 1;
     }
 
     /**

@@ -26,8 +26,8 @@ public interface LightBackend {
     /**
      * Once per client tick, from the tick thread - deliberately <em>outside</em> any engine
      * callback, so diagnostics may query the light engine here without re-entering a lock the
-     * engine already holds (see Ldl2Backend#tick on 1.19.4: doing that from inside
-     * {@code updateAll} deadlocks LDL's read/write lock).
+     * engine already holds (see the 1.18.2 / 1.19.x backend's {@code tick}: doing that from inside
+     * its {@code updateAll} deadlocks the engine's read/write lock).
      *
      * <p>No-op by default; only the backends that need it override this.
      */

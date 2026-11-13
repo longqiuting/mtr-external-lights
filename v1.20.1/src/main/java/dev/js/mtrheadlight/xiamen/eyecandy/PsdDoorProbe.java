@@ -1,7 +1,9 @@
-// 「这块装饰方块旁边有没有开着的屏蔽门」—— 给 BRT 屏蔽门收纳机的警示灯用。
+// 「这块装饰方块旁边有没有门、门正开到什么程度」—— 给 BRT 屏蔽门收纳机的警示灯用。
 package dev.js.mtrheadlight.xiamen.eyecandy;
 
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 
 import mtr.block.BlockPSDAPGDoorBase;
 import mtr.block.BlockPSDAPGDoorBase.TileEntityPSDAPGDoorBase;
@@ -12,7 +14,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 
 /**
- * 扫一眼方块周围 {@code 3 × 3 × 3}（去掉自己），回答「有没有开着的屏蔽门」。
+ * 扫一眼方块周围 {@code 3 × 3 × 3}（去掉自己），回答「有没有门、开着没有、<b>是不是正在关</b>」。
  *
  * <h2>为什么不硬编码某一家的方块类</h2>
  * <p>收纳机旁边站着的门可能是：
@@ -24,11 +26,25 @@ import net.minecraft.world.World;
  *       {@code opened}（布尔、整型、枚举都认）就能自动接上，不用改这里。</li>
  * </ul>
  * 所以顺序是：<b>先看 blockstate 上的「open 类」属性</b>（便宜、跨方块类），
- * <b>再看 MTR 的方块实体</b>（MTR 的 PSD 门只有这一条路）。两条都不成立 = 这个邻居不是门。
+ * <b>再看 MTR 的方块实体</b>（MTR 的 PSD 门只有这一条路）。
+ *
+ * <h2>「门正在关」怎么判（关门提前闪的依据）</h2>
+ * <p>MTR 的 {@link TileEntityPSDAPGDoorBase} 里 {@code open} 是 {@code 0..32} 的<b>整数中间态</b>
+ * （服务端按 {@code doorValue × 64} 夹到 {@code 0..32} 逐 tick 写进去，客户端同步；
+ * {@code isOpen()} 只是 {@code open > 0}）。所以关门动画的整段时间里 {@code isOpen()} 还是
+ * {@code true} —— 只看布尔值只能等门<b>完全合上</b>才拿到「关」，警示灯自然就晚了。
+ *
+ * <p>这里改用 {@link TileEntityPSDAPGDoorBase#getOpenValue()} 记下每扇门上一次的 open 值：
+ * <b>值在变小 = 正在关</b>（{@link Scan#closing}）。拿到中间态就能在门刚开始动的那一 tick 起闪。
+ * 只认「变小」，不需要知道满值是不是 32，也不依赖某一版 MTR 的常量。
+ *
+ * <p>拿不到中间态的门（只有 blockstate 布尔属性的端门）退化成<b>边沿</b>：{@code 1 → 0} 也是
+ * 「变小」，所以它翻成关的那一 tick 同样算 {@code closing} —— 立即起闪，不额外等一个扫描周期
+ * （扫描周期见 {@code EyecandyBlockEntity#SCAN_INTERVAL_TICKS}）。
  *
  * <h2>三态返回</h2>
- * <p>{@code null} 表示周围<b>一个门都没找到</b>（比如门还没放、门被拆了），调用方据此「保持上一次状态」，
- * 而不是把灯硬判成「关」；{@code TRUE} / {@code FALSE} 才是「找到了门，且它开着 / 关着」。
+ * <p>{@link Scan#anyDoor} 为 {@code false} 表示周围<b>一个门都没找到</b>（门还没放 / 被拆了），
+ * 调用方据此「保持上一次状态」，而不是把灯硬判成「关」。
  */
 public final class PsdDoorProbe {
 
@@ -39,47 +55,110 @@ public final class PsdDoorProbe {
     }
 
     /**
-     * 周围有没有开着的门。
+     * 一次扫描的结果。
      *
-     * @return {@code TRUE} 有开着的门 / {@code FALSE} 有门但全关着 / {@code null} 周围没有门（或方块未加载）
+     * <p>{@link #open} 与 {@link #closing} 可以同时为真：关门动画途中门还是「开着」的
+     * （open 值 {@code > 0}），但已经在往关上走 —— 那正是要提前闪的时刻。
      */
-    public static Boolean anyDoorOpen(final World world, final BlockPos center) {
-        if (world == null) {
-            return null;
+    public static final class Scan {
+
+        /** 周围一个门都没有（方块未加载 / 门被拆了）—— 调用方保持上一次状态。 */
+        public static final Scan NONE = new Scan(false, false, false);
+
+        /** 周围至少有一扇门。 */
+        public final boolean anyDoor;
+
+        /** 至少一扇门的 open 值 {@code > 0}（或 blockstate 属性为真）。 */
+        public final boolean open;
+
+        /** 至少一扇门的 open 值在变小 = 正在关。 */
+        public final boolean closing;
+
+        private Scan(final boolean anyDoor, final boolean open, final boolean closing) {
+            this.anyDoor = anyDoor;
+            this.open = open;
+            this.closing = closing;
         }
-        boolean found = false;
-        for (int dy = -1; dy <= 1; dy++) {
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    if (dx == 0 && dy == 0 && dz == 0) {
-                        continue;
-                    }
-                    final BlockPos pos = center.add(dx, dy, dz);
-                    // 跨区块时不把邻居区块强行读进来（未加载的区块里没有门可看）。
-                    if (!world.isChunkLoaded(pos)) {
-                        continue;
-                    }
-                    final BlockState state = world.getBlockState(pos);
-                    if (state.isAir()) {
-                        continue;
-                    }
-                    final Boolean open = openOf(world, pos, state);
-                    if (open == null) {
-                        continue;
-                    }
-                    if (open) {
-                        return Boolean.TRUE;
-                    }
-                    found = true;
-                }
-            }
-        }
-        return found ? Boolean.FALSE : null;
     }
 
-    /** 这一个方块的开关状态；{@code null} = 它不是门。 */
-    private static Boolean openOf(final World world, final BlockPos pos, final BlockState state) {
-        final Boolean fromProperties = openFromProperties(state);
+    /**
+     * 带「上一次读数」的扫描器：想判出「正在关」就必须有前后两帧的对比，所以状态挂在
+     * 调用方（每个方块实体一个实例），而不是塞进静态表 —— 方块被拆 / 区块卸载时一起丢掉，
+     * 不会留下永远清不掉的 {@link BlockPos}。
+     *
+     * <p>两张 map 每轮互换内容，最多 26 项，不随游戏时间增长。
+     */
+    public static final class Tracker {
+
+        /** 上一轮每扇门的 open 值。 */
+        private final Map<BlockPos, Integer> previous = new HashMap<>(8);
+
+        /** 本轮每扇门的 open 值（扫完拷进 {@link #previous}）。 */
+        private final Map<BlockPos, Integer> current = new HashMap<>(8);
+
+        /**
+         * 扫周围一圈。
+         *
+         * @param world  方块所在世界（{@code null} → {@link Scan#NONE}）
+         * @param center 收纳机自己的位置（不参与判定）
+         */
+        public Scan scan(final World world, final BlockPos center) {
+            if (world == null || center == null) {
+                return Scan.NONE;
+            }
+            this.current.clear();
+            boolean open = false;
+            boolean closing = false;
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    for (int dz = -1; dz <= 1; dz++) {
+                        if (dx == 0 && dy == 0 && dz == 0) {
+                            continue;
+                        }
+                        final BlockPos pos = center.add(dx, dy, dz);
+                        // 跨区块时不把邻居区块强行读进来（未加载的区块里没有门可看）。
+                        if (!world.isChunkLoaded(pos)) {
+                            continue;
+                        }
+                        final BlockState state = world.getBlockState(pos);
+                        if (state.isAir()) {
+                            continue;
+                        }
+                        final Integer value = openValueOf(world, pos, state);
+                        if (value == null) {
+                            continue;
+                        }
+                        final int now = value.intValue();
+                        this.current.put(pos, Integer.valueOf(now));
+                        if (now > 0) {
+                            open = true;
+                        }
+                        final Integer before = this.previous.get(pos);
+                        if (before != null && now < before.intValue()) {
+                            // open 值在变小：门正在关（MTR 0..32 的中间态，或布尔门的 1 → 0 沿）。
+                            closing = true;
+                        }
+                    }
+                }
+            }
+            this.previous.clear();
+            this.previous.putAll(this.current);
+            if (this.current.isEmpty()) {
+                return Scan.NONE;
+            }
+            return new Scan(true, open, closing);
+        }
+    }
+
+    /**
+     * 这一扇门的 open 值；{@code null} = 它不是门。
+     *
+     * <p>blockstate 属性那条路只能是 0 / 1（布尔门没有中间态）；MTR 的方块实体那条路是
+     * 真正的 {@code 0..32} 整数。
+     */
+    private static Integer openValueOf(final World world, final BlockPos pos,
+                                       final BlockState state) {
+        final Integer fromProperties = openFromProperties(state);
         if (fromProperties != null) {
             return fromProperties;
         }
@@ -87,20 +166,20 @@ public final class PsdDoorProbe {
         if (state.getBlock() instanceof BlockPSDAPGDoorBase) {
             final BlockEntity entity = world.getBlockEntity(pos);
             if (entity instanceof TileEntityPSDAPGDoorBase door) {
-                return door.isOpen();
+                return Integer.valueOf(door.getOpenValue());
             }
-            return Boolean.FALSE;
+            return Integer.valueOf(0);
         }
         return null;
     }
 
     /**
-     * 从 blockstate 上找「open 类」属性。
+     * 从 blockstate 上找「open 类」属性，归一成 0 / 1。
      *
      * @return 找到时返回它的值；没有这类属性返回 {@code null}
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private static Boolean openFromProperties(final BlockState state) {
+    private static Integer openFromProperties(final BlockState state) {
         for (final Property<?> property : state.getProperties()) {
             final String name = property.getName().toLowerCase(Locale.ROOT);
             boolean matches = false;
@@ -115,15 +194,16 @@ public final class PsdDoorProbe {
             }
             final Comparable<?> value = state.get((Property) property);
             if (value instanceof Boolean bool) {
-                return bool;
+                return Integer.valueOf(bool.booleanValue() ? 1 : 0);
             }
             if (value instanceof Integer number) {
-                return number != 0;
+                return Integer.valueOf(Math.max(0, number.intValue()));
             }
             if (value instanceof Enum<?> constant) {
                 final String constantName = constant.name().toLowerCase(Locale.ROOT);
-                return !constantName.equals("closed") && !constantName.equals("false")
-                        && !constantName.equals("none");
+                final boolean closed = constantName.equals("closed") || constantName.equals("false")
+                        || constantName.equals("none");
+                return Integer.valueOf(closed ? 0 : 1);
             }
         }
         return null;

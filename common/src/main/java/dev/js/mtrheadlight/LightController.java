@@ -248,8 +248,15 @@ public final class LightController {
             // 所以日志只描述玩家看得见的车，不会把装包里 300 多个车型全打一遍。
             VehicleLights.announce(train);
 
-            final EndLight head = headSegment(pose, cfg, eff);
-            final EndLight tail = tailSegment(pose, cfg, eff);
+            /*
+             * The lamps themselves, from the model's own lamp boxes (see TrainLamps): the flare
+             * renderer draws exactly this list and the block-light wedges below are built from the
+             * same points, so the glow you see and the light on the ground cannot come from two
+             * different places. Empty only when the train has no usable heading this tick.
+             */
+            final List<TrainLamps.Lamp> lamps = TrainLamps.of(train, pose, cfg, eff);
+            final EndLight head = endSegment(lamps, true);
+            final EndLight tail = endSegment(lamps, false);
 
             tracked.update(backend, key, head, tail,
                     weatherLit && frontDistance <= viewLimit,
@@ -394,31 +401,23 @@ public final class LightController {
     }
 
     /**
-     * Head light: on the leading face of the front car, along that car's own tangent. The end and
-     * the heading both come from {@link TrainPose}, which resolved reversal and {@code swapEnds}
-     * already - so this is the same geometry {@link BeamGlow} draws and the rail bake bakes.
+     * One end of the train as a light segment: the mean of that end's lamps, along their mean
+     * heading, {@code length} blocks long. The points come from {@link TrainLamps}, i.e. from the
+     * model's lamp geometry - never from the rail point under the nose (that was the old bug: the
+     * "lamp" sat on the rails and on a model whose lamp is 1.5 blocks up it belonged to the coupler).
+     *
+     * <p>{@link EndLight#ofSegment} is used rather than {@link EndLight#of} because the lamp's height
+     * is already known here; re-deriving it from {@code heightOffset} would move the light off the
+     * lamp again.
      */
-    private static EndLight headSegment(final TrainPose pose, final HeadlightConfig cfg,
-                                        final HeadlightConfig.Effective eff) {
-        return endSegment(pose.front(), pose.forward(), cfg.headOffsetClamped(), eff.headLength,
-                HeadlightConfig.HEAD_TIP_DROP, cfg.heightOffset);
-    }
-
-    /** Tail light: on the trailing face of the last car, along that car's tangent, reversed. */
-    private static EndLight tailSegment(final TrainPose pose, final HeadlightConfig cfg,
-                                        final HeadlightConfig.Effective eff) {
-        return endSegment(pose.rear(), pose.backward(), cfg.tailOffsetClamped(), eff.tailLength,
-                HeadlightConfig.TAIL_TIP_DROP, cfg.heightOffset);
-    }
-
-    /** One lamp; {@link EndLight} owns the arithmetic, this only rejects a degenerate heading. */
-    private static EndLight endSegment(final Vec3d base, final Vec3d dir, final double offset,
-                                       final double length, final double tipDrop,
-                                       final double height) {
-        if (dir == Vec3d.ZERO) {
+    private static EndLight endSegment(final List<TrainLamps.Lamp> lamps, final boolean head) {
+        final Vec3d centre = TrainLamps.centre(lamps, head);
+        final Vec3d dir = TrainLamps.heading(lamps, head);
+        if (centre == Vec3d.ZERO || dir == Vec3d.ZERO) {
             return null;
         }
-        return EndLight.of(base, dir, offset, length, tipDrop, height);
+        final double length = Math.max(1.0D, TrainLamps.wedgeLength(lamps, head));
+        return EndLight.ofSegment(centre, centre.add(dir.multiply(length)));
     }
 
     /**

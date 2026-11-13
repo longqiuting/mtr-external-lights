@@ -152,7 +152,17 @@ public final class BuiltinLights {
         }
         final double height = sy / lamps.length;
         final double zMean = sz / lamps.length;
-        final double inset = clamp(face - zMean, 0.0D, MAX_INSET);
+        /*
+         * The lamp's own distance from the car's centre, against the car's half length.
+         *
+         * <p>Negative on purpose. MTR's car face comes from `spacing`, but a bbmodel's nose often
+         * overhangs the pitch (the measured A-train lamp sits 14.06 blocks from the centre while a
+         * 24-block car's face is at 12), and clamping that to 0 put the flare *inside* the nose -
+         * drawn with depth test on, i.e. invisible. A negative inset means "the lamp is this far in
+         * FRONT of the face", which is where the model says it is, and a flare slightly ahead of the
+         * car is always visible. Bounded at -2 blocks so a wild table entry cannot shoot it off.
+         */
+        final double inset = clamp(face - zMean, -2.0D, MAX_INSET);
         final double faceDist = Math.max(0.0D, face - zMean);
         return new VehicleLights.Slot(group, 1, "builtin", lateral, clamp(height, 0.2D, 3.4D),
                 inset, faceDist);

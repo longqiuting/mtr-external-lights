@@ -801,11 +801,15 @@ function main() {
     const probe = fs.readFileSync(probeSrc, 'utf8');
     if (!probe.includes('TileEntityPSDAPGDoorBase')) fail('PsdDoorProbe does not read the MTR PSD door block entity');
     else ok('PsdDoorProbe reads the MTR PSD door state');
+    if (!probe.includes('getOpenValue()')) {
+      fail('PsdDoorProbe does not read getOpenValue (closing cannot be detected before the door shuts)');
+    } else ok('PsdDoorProbe reads the 0..32 open value (closing lead)');
     if (!probe.includes('"door_open"')) fail('PsdDoorProbe does not look for the generic door_open property');
     else ok('PsdDoorProbe also accepts generic open / door_open properties');
   }
   const beSrc = fs.readFileSync(path.join(src, 'xiamen', 'eyecandy', 'EyecandyBlockEntity.java'), 'utf8');
-  for (const needle of ['BLINK_PHASE_TICKS', 'BLINK_FLASHES', 'PsdDoorProbe.anyDoorOpen(', 'public boolean isLit()']) {
+  for (const needle of ['BLINK_PHASE_TICKS', 'BLINK_FLASHES', 'PsdDoorProbe.Tracker', 'scan.closing',
+    'public boolean isLit()']) {
     if (!beSrc.includes(needle)) fail(`EyecandyBlockEntity: ${needle} is missing (blink state machine)`);
     else ok(`EyecandyBlockEntity has ${needle}`);
   }

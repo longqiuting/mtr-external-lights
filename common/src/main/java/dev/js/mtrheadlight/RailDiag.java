@@ -138,8 +138,8 @@ public final class RailDiag {
     private static int loggedLdl2Relight = -1;
 
     /**
-     * Ldl2Backend (MC 1.18.2 / 1.19.2 / 1.19.4) proof-of-life line:
-     * {@code sources} is how many point lights are registered with LambDynamicLights,
+     * Proof-of-life line for the 1.18.2 / 1.19.x dynamic-light backend:
+     * {@code sources} is how many point lights are registered with that engine,
      * {@code moved} how many reported a position or luminance change in the window, and
      * {@code relight} how many chunk-section rebuilds we asked LDL for. A train that is visibly
      * moving must show {@code moved > 0} and {@code relight > 0}; if {@code relight} stays 0 the

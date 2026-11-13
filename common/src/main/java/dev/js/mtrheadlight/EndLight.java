@@ -47,4 +47,16 @@ final class EndLight {
                 start.z + dir.z * length);
         return new EndLight(start, end);
     }
+
+    /**
+     * A segment from two already-known world points - what {@link TrainLamps} produces.
+     *
+     * <p>The {@code of(...)} factory above derives the start from a <em>rail</em> point plus
+     * {@code headOffset} and {@code heightOffset}; that is exactly what put the light on the rails
+     * instead of on the lamp. When the lamp position is known (it is: it was read from the model's
+     * own lamp box), the only correct thing is to use it verbatim.
+     */
+    static EndLight ofSegment(final Vec3d start, final Vec3d end) {
+        return new EndLight(start, end);
+    }
 }

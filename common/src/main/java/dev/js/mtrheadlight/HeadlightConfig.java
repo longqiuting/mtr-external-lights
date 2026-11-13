@@ -62,17 +62,13 @@ public final class HeadlightConfig {
     public boolean dynamicLight = true;
 
     /**
-     * A/B switch: whether our sources are handed to LambDynamicLights at all
-     * (MC 1.19.4 / LDL 2.3.1 only - the other versions' backends ignore it for now).
+     * Legacy A/B switch for the removed third-party light engine (MC 1.19.4 only; it gates whether
+     * that module's backend registered our point sources at all).
      *
-     * <p>It exists to answer one question and nothing else: <b>is it us?</b> Turn it off and the
-     * mod stops calling {@code LambDynLights#addLightSource} entirely - zero sources of ours in
-     * LDL's set - while the beam band, the rail bake and everything else keep running. If the
-     * player's torch/held light starts working in that state, our registration is what broke LDL;
-     * if it does not, the cause is upstream of LDL and this switch proves it in one step.
-     *
-     * <p>Flippable in game - {@code /mtr_lte ldlreg off} - so the comparison needs no
-     * restart and no world reload. Default {@code true} (normal operation).
+     * <p>1.20.1 has no third-party light engine to hand sources to, so nothing on this version reads
+     * the field; it is kept so a config written by an older build still round-trips. The switch it
+     * described ("is it us?") is still answered, better, by {@link #beamBlockLight}: that path is
+     * entirely ours, so turning it off proves the same thing without a foreign engine in the way.
      */
     public boolean ldlRegisterSources = true;
 
@@ -441,6 +437,34 @@ public final class HeadlightConfig {
     public boolean beamGlow = true;
 
     /**
+     * Draw the lamp <b>flare</b> - the billboard glow drawn at the lamp itself (1.20.1 and newer).
+     *
+     * <p>This replaced the volumetric beam cone (<code>ProtoBeamCone</code>) and the ground sheet
+     * (<code>BeamGlow</code>) as the visible part of a train light. It is deliberately the cheapest
+     * possible thing that reads as "a lamp": one camera-facing quad per physical lamp, at the
+     * position {@link TrainLamps} computed from the model's own lamp boxes, with a radial falloff
+     * texture we generate ourselves. The light on the ground does not come from this; it comes from
+     * {@link #dynamicLight} (real block light, {@code BeamBlockLight}).
+     *
+     * <p>Independent of {@link #beamGlow} in both directions, and a child of {@link #enabled}: the
+     * master switch off means neither draws.
+     */
+    public boolean beamFlare = true;
+
+    /**
+     * Base size of one flare in blocks (before the facing/distance terms), clamped to [0.2, 4].
+     *
+     * <p>The drawn size is {@code base * (0.45 + 1.4 * facing^3)} where {@code facing} is how
+     * squarely the lamp points at the camera, then scaled up if it would project to fewer than
+     * {@link #beamFlareMinPx} pixels - a lamp 150 blocks away still has to be a visible dot, which
+     * is the whole point of a marker light.
+     */
+    public double beamFlareSize = 0.9D;
+
+    /** Minimum on-screen height of one flare, in GUI pixels. Below this the quad is scaled up. */
+    public int beamFlareMinPx = 6;
+
+    /**
      * Draw the head <b>beam cone</b> ({@code ProtoBeamCone}) - the volumetric light cone out of the
      * nose, on its own switch since it and the flat {@link #beamGlow} sheet are two different
      * effects (one is a soft ground sheet, the other a see-through cone).
@@ -456,7 +480,15 @@ public final class HeadlightConfig {
      * migrated to {@code false} by {@link #migrate()} - {@code true} was the default, so an old
      * {@code true} cannot be told apart from "never touched" and is treated as untouched. From
      * version 21 on a hand-set {@code true} stays {@code true}.
+     *
+     * <p><b>Retired in 1.20.1.</b> The light cone was removed from the render
+     * loop in favour of the billboard flare ({@link #beamFlare}) plus real block light
+     * ({@link #beamBlockLight}); this switch is kept only so a config file that still carries it
+     * round-trips, and the 1.18.2 / 1.19.x modules still read it.
+     *
+     * @deprecated the cone is no longer drawn on 1.20.1; use {@link #beamFlare}.
      */
+    @Deprecated
     public boolean beamCone = false;
 
     /** {@link #beamConeSource}：光柱用车型灯位（{@link VehicleLights}），默认。 */
@@ -649,8 +681,13 @@ public final class HeadlightConfig {
      *
      * <p>Vanilla render path only. With Sodium or an Iris/OptiFine shader pack the prototype logs
      * why it does nothing and stays out of the way.
+     *
+     * <p><b>On by default since the light rework.</b> It used to be an optional prototype behind a
+     * second switch while LambDynamicLights did the "real" lighting; LDL is gone, so this <em>is</em>
+     * the real lighting now and it defaults on. The section-rebuild budget ({@code BeamRelight}) is
+     * what keeps it affordable, and {@link #dynamicLight} is the switch the player sees.
      */
-    public boolean beamBlockLight = false;
+    public boolean beamBlockLight = true;
     /**
      * Radius of the beam as a <em>block light source</em>, in blocks, clamped to [4, 32].
      *
@@ -1502,6 +1539,8 @@ public final class HeadlightConfig {
         public Boolean railLight;
         /** Draw the head/tail light beams for this siding's trains; {@code null} = follow the global switch. */
         public Boolean beamGlow;
+        /** Draw the lamp flares for this siding's trains; {@code null} = follow the global switch. */
+        public Boolean beamFlare;
         public Double beamDistance;
         public Double beamHeadLength;
         public Double beamTailLength;
@@ -1571,7 +1610,8 @@ public final class HeadlightConfig {
             return enabled == null && dynamicLight == null && maxDistance == null
                     && headLuminance == null
                     && tailLuminance == null && headLength == null && tailLength == null
-                    && railLight == null && beamGlow == null && beamDistance == null
+                    && railLight == null && beamGlow == null && beamFlare == null
+                    && beamDistance == null
                     && beamHeadLength == null && beamTailLength == null && beamWidth == null
                     && beamHeadColor == null && beamTailColor == null
                     && beamHeadHeight == null && beamTailHeight == null
@@ -1603,6 +1643,8 @@ public final class HeadlightConfig {
         public final boolean railLight;
         /** Draw the light beams for this train at all. */
         public final boolean beamGlow;
+        /** Draw the billboard lamp flares for this train (1.20.1+); independent of {@link #beamGlow}. */
+        public final boolean beamFlare;
         /** Distance from the player beyond which no beam is generated (own range). */
         public final double beamDistance;
         public final double beamHeadLength;
@@ -1659,7 +1701,8 @@ public final class HeadlightConfig {
         Effective(final boolean enabled, final boolean dynamicLight, final double maxDistance,
                   final int headLuminance,
                   final int tailLuminance, final double headLength, final double tailLength,
-                  final boolean railLight, final boolean beamGlow, final double beamDistance,
+                  final boolean railLight, final boolean beamGlow, final boolean beamFlare,
+                  final double beamDistance,
                   final double beamHeadLength, final double beamTailLength, final double beamWidth,
                   final int beamHeadColor, final int beamTailColor,
                   final double beamHeadHeight, final double beamTailHeight,
@@ -1682,6 +1725,7 @@ public final class HeadlightConfig {
             this.tailLength = tailLength;
             this.railLight = railLight;
             this.beamGlow = beamGlow;
+            this.beamFlare = beamFlare;
             this.beamDistance = beamDistance;
             this.beamHeadLength = beamHeadLength;
             this.beamTailLength = beamTailLength;
@@ -1720,7 +1764,8 @@ public final class HeadlightConfig {
                 ? null : sidingSettings.get(Long.valueOf(sidingId));
         if (o == null) {
             return new Effective(enabled, dynamicLight, maxDistance, headLuminance, tailLuminance,
-                    headLength, tailLength, railLight, beamGlow, beamDistance, beamHeadLength,
+                    headLength, tailLength, railLight, beamGlow, beamFlare, beamDistance,
+                    beamHeadLength,
                     beamTailLength, beamWidth, parseColor(beamHeadColor, DEFAULT_HEAD_BEAM),
                     parseColor(beamTailColor, DEFAULT_TAIL_BEAM),
                     beamHeadHeight, beamTailHeight,
@@ -1742,6 +1787,7 @@ public final class HeadlightConfig {
                 o.tailLength != null ? o.tailLength.doubleValue() : tailLength,
                 o.railLight != null ? o.railLight.booleanValue() : railLight,
                 o.beamGlow != null ? o.beamGlow.booleanValue() : beamGlow,
+                o.beamFlare != null ? o.beamFlare.booleanValue() : beamFlare,
                 o.beamDistance != null ? o.beamDistance.doubleValue() : beamDistance,
                 o.beamHeadLength != null ? o.beamHeadLength.doubleValue() : beamHeadLength,
                 o.beamTailLength != null ? o.beamTailLength.doubleValue() : beamTailLength,
@@ -1818,6 +1864,35 @@ public final class HeadlightConfig {
             }
         }
         return false;
+    }
+
+    /**
+     * True when a flare may be drawn for at least one siding: the global switch is on, or a siding
+     * turns it on while the global one is off. Same shape as {@link #beamAnySiding()} - the renderer
+     * asks this <em>before</em> iterating trains, so a globally-off feature costs one boolean.
+     */
+    public boolean flareAnySiding() {
+        if (beamFlare) {
+            return true;
+        }
+        if (sidingSettings != null) {
+            for (final SidingSettings o : sidingSettings.values()) {
+                if (o != null && Boolean.TRUE.equals(o.beamFlare)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** {@link #beamFlareSize} clamped to [0.2, 4] blocks. */
+    public double flareSizeClamped() {
+        return clamp(beamFlareSize, 0.2D, 4.0D);
+    }
+
+    /** {@link #beamFlareMinPx} clamped to [1, 24] pixels. */
+    public int flareMinPxClamped() {
+        return beamFlareMinPx < 1 ? 1 : Math.min(beamFlareMinPx, 24);
     }
 
     /**

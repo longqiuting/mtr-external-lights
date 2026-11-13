@@ -50,31 +50,45 @@ import java.util.Map;
  * {@code super.move(...)} 再发包，所以挂在父类上天然在发包之前；而 {@code Entity#move} 对所有实体
  * 只挂一次，处理器开头一个 {@code entity == client.player} 就挡掉了全部其它实体（含服务端线程）。
  *
- * <h2>车厢碰撞箱：分段近似 OBB</h2>
- * 每节车厢从 {@link TrainPose} 拿到两个端点 a（车头面）和 b（车尾面），沿车厢轴线把它切成若干
- * 短段，<b>每段是一小段 OBB</b>（有中心、轴、法向、半长、半宽），推出在段的局部坐标系里算：
+ * <h2>车厢碰撞带：沿轨道弧长连续采样</h2>
+ * 每节车厢从 {@link TrainPose} 拿到两个端点 a（车头面）和 b（车尾面），但碰撞体<b>不再</b>沿弦等分：
+ * 它是一条沿<strong>轨道路径</strong>按弧长采样出来的带（{@link CarBand}），每段是一小段 OBB
+ * （有中心、轴、法向、半长、半宽），推出在段的局部坐标系里算：
  *
  * <pre>
- * u  = normalize(b - a)（只看水平分量）            n = (-u.z, 0, u.x)
- * segCount = clamp(ceil(len / 2.0), 1, min(32, floor(len / 1.5)))     // 段长落在 1.5–2.0 格
- * seg[i] 覆盖 s ∈ [i·segLen - 0.15, (i+1)·segLen + 0.15] ∩ [0, len]   // 段间重叠 0.3 格
+ * P_k     = positionAt(s0 + k·step)                 k = 0..n，真·轨道位置（含坡道 y）
+ * 第 k 段  = 弦(P_k, P_k+1)，两端各外扩 ov          n ≥ 1，直道 n = ceil(弧长 / 2.5)
+ * step    = clamp(√(8·R·SAG_TOL), 0.4, 2.5)         直道 R = ∞ → 2.5；弯道按 R 变细
+ * ov      = max(0.15, halfW·sin(step / 2R) + 0.02)  弯道外侧的楔形缺口由它填满
  * 段内判定：pen_n = halfW + proj_n − |lat|      pen_u = halfLen + proj_u − |along|
  *           pen_n ≤ 0 或 pen_u ≤ 0 → 分离（不碰）
  * </pre>
  *
- * <p><b>为什么不再是「两端点的轴对齐包围盒」</b>：旧方案用一个 AABB 包住整节倾斜的车厢，弯道上
- * 那个盒子在 X/Z 方向各要多出 {@code (len/2 + w)·|u| − len/2} 格；20 格长的车厢斜置 45° 时，
- * 盒子的角比车体角远出约 {@code (len/2 + w)(√2 − 1) ≈ 3.4} 格 —— 玩家一碰到就被推到 3 格开外，
- * 这就是「过弯被撞飞」。现在推出的方向是<b>段自身的法向</b>（或端盖的轴向），穿透量只有真实的
- * {@code halfW + 玩家半宽 − |lat|}，与车厢相对世界坐标的朝向<b>无关</b>：车厢转 0°/45°/90°，
- * 推出距离完全一样。分段的意义是：(a) 让粗筛用的 AABB 贴着车体（每段只有 2 格长，AABB 在 45° 时
- * 只比车体角远 0.66 格，而整节车是 3.4 格）；(b) 让「最近几段」的局部检测成为可能（每 tick 每节车
- * 只测 3 段）；(c) 让每段的竖直范围跟着坡度走。
+ * <p><b>为什么不再是「沿弦等分」</b>：弦是直的，相邻两节车的碰撞体于是是两个直盒子在接缝处对折，
+ * 弯道外侧留一个张角 {@code Δθ = 车长/R} 的楔形缺口（{@code 2·halfW·tan(Δθ/2)}：R=100 → 0.26 格，
+ * R=20 → 1.1 格）。玩家站在车顶走过这个缺口时弦盒判定落空、没有支撑 —— 就是「弯道上掉下去」。
+ * 短段切得再细也没用：它们仍然贴在同一条弦上，缺口在车与车之间。
  *
- * <p><b>残差</b>：一段的 AABB 仍然比这段 OBB 大（45° 时单段角上多 0.66 格），但推进量不再取自
- * AABB，所以这个残差只影响粗筛，不会变成位移。真正的误差只剩「车厢是弦、轨道是弧」的矢高
- * {@code len²/(8R)}（R = 100 时约 0.5 格）—— 那是 MTR 自己画车厢的方式（每节车一个直的盒子），
- * 也就是玩家看到的形状，属于「对得上画面」而不是误差。
+ * <p>现在采样点落在轨道上：相邻两段共用一个采样点、车与车的接缝两边采的是同一条弧上的点，
+ * 于是带是连续的；每段两端再外扩 {@code ov}，把「两段方向差 θ」张开的楔形（{@code 2·halfW·sin(θ/2)}）
+ * 填满 —— {@code ov ≥ halfW·sin(θ/2)} 时横向缺口恒为 0（证明与仿真见
+ * {@code tools/CurveBandSim.java}）。车顶判定因此保留弦盒（对得上画面）并额外接受带内命中
+ * （{@link CarHit#covers}）。
+ *
+ * <p><b>残差</b>：带是「绕轨道中心线半径 halfW 的管子」，画出来的车厢是弦盒，两者在中段差一个矢高
+ * {@code len²/(8R)}（20 格车、R=100 → 0.5 格）。偏差落在弯道外侧（带略宽）与内侧（略窄），
+ * 比留缝安全：多出来那半格只是「稍早被挡住」，缺口是「直接掉下去」。
+ * 真正的形状差异在 MTR 自己：它每节车就是一个直的盒子，玩家看到的是盒子。
+ *
+ * <p><b>推出的方向与穿透量</b>：现在的推出方向是<b>段自身的法向</b>（或端盖的轴向），穿透量只有真实
+ * 的 {@code halfW + 玩家半宽 − |lat|}，与车厢相对世界坐标的朝向<b>无关</b>：车厢转 0°/45°/90°，
+ * 推出距离完全一样。采样段的意义是：(a) 每段的 AABB 贴着这一小段车体（旧方案用整节倾斜车厢的
+ * 一个大 AABB，20 格车斜置 45° 时角上多出 {@code (len/2 + w)(√2 − 1) ≈ 3.4} 格，玩家一碰就被
+ * 推到 3 格开外 —— 那是更早的「过弯被撞飞」）；(b) 让「最近几段」的局部检测成为可能（每 tick
+ * 每节车只测 3 段）；(c) 让每段的竖直范围跟着坡度走（采样点的 y 直接取自轨道）。
+ *
+ * <p>段级 AABB 仍然比这一段的 OBB 大（斜置时角上多一点），但推进量不再取自 AABB，所以这个残差只
+ * 影响粗筛，不会变成位移。
  *
  * <h2>车头车尾外扩与连接处</h2>
  * 每节车两端各有一个<b>端盖</b>：从 car 端面沿轴向向外 {@code trainCollisionEndPad}（默认 1.0 格，
@@ -221,15 +235,11 @@ public final class CollisionSystem {
      */
     private static final float DOOR_VALUE_EPS = 0.02F;
 
-    /** 相邻分段之间的重叠量（格），前后各分一半。 */
-    private static final double SEG_OVERLAP = 0.3D;
-
-    /** 目标段长（格）：段数 = ceil(len / 2)，但段长不低于 1.5 格。 */
-    private static final double SEG_TARGET_LEN = 2.0D;
-    private static final double SEG_MIN_LEN = 1.5D;
-
-    /** 段数上限：异常 pose（车厢长度离谱）时不至于生成几百个盒子。 */
-    private static final int SEG_MAX = 32;
+    /**
+     * 相邻采样段之间的重叠、步长、段数上限 —— 全部搬到了 {@link CarBand}
+     * （{@code SAG_TOL} / {@code DS_MIN} / {@code DS_MAX} / {@code OVERLAP} / {@code PIECE_MAX}）。
+     * 客户端与服务端用同一份常量，不再各写一套。
+     */
 
     /** 每节车每 tick 最多检测的段数（以玩家投影位置为中心）。 */
     private static final int SEG_WINDOW = 1;
@@ -338,6 +348,10 @@ public final class CollisionSystem {
 
     private static int diagCars;
     private static int diagSegs;
+    /** 本窗口内最多的弧长采样段数（车身，不含端盖）：与 {@code segs=} 对比看采样密度。 */
+    private static int diagSamples;
+    /** 本窗口内最细的采样步长（格，峰值）：{@code 2.50} = 全程直道，弯道会自动变小。 */
+    private static double diagStep = Double.NaN;
     private static int diagHits;
     private static double diagDamage;
     private static int diagPushed;
@@ -640,11 +654,21 @@ public final class CollisionSystem {
             // 5) 记下这一 tick 的车厢中心，下一 tick 算载人位移用。
             remember(cars);
             int segs = 0;
+            int samples = 0;
+            double step = Double.POSITIVE_INFINITY;
             for (final CarHit car : cars) {
                 segs += car.body.length + car.caps.length;
+                samples += car.samples;
+                if (car.sampleStep < step) {
+                    step = car.sampleStep;
+                }
             }
             diagCars = Math.max(diagCars, cars.size());
             diagSegs = Math.max(diagSegs, segs);
+            diagSamples = Math.max(diagSamples, samples);
+            if (Double.isFinite(step)) {
+                diagStep = Double.isNaN(diagStep) ? step : Math.min(diagStep, step);
+            }
         } catch (Throwable t) {
             warnOnce(t);
         }
@@ -679,6 +703,8 @@ public final class CollisionSystem {
         }
         final int cars = diagCars;
         final int segs = diagSegs;
+        final int samples = diagSamples;
+        final double step = diagStep;
         final int hits = diagHits;
         final double damage = diagDamage;
         final int pushed = diagPushed;
@@ -693,11 +719,14 @@ public final class CollisionSystem {
         resetDiag();
         try {
             MtrHeadlightClient.LOGGER.info(
-                    "[lte] collision: cars={} segs={} hits={} damage={} trackbed={} pushed={}"
-                            + " impulses={} vel={} hurt={} head=+{} tail=+{} pad={} riding={}"
-                            + " creativeDmg={}",
+                    "[lte] collision: cars={} segs={} samples={} step={} hits={} damage={} trackbed={}"
+                            + " pushed={} impulses={} vel={} hurt={} head=+{} tail=+{} pad={}"
+                            + " riding={} creativeDmg={}",
                     Integer.valueOf(cars),
                     Integer.valueOf(segs),
+                    Integer.valueOf(samples),
+                    Double.isNaN(step) ? "-" : String.format(Locale.ROOT, "%.2f",
+                            Double.valueOf(step)),
                     Integer.valueOf(hits),
                     String.format(Locale.ROOT, "%.1f", Double.valueOf(damage)),
                     bed == bed ? String.format(Locale.ROOT, "%.2f", Double.valueOf(bed)) : "-",
@@ -772,57 +801,12 @@ public final class CollisionSystem {
     // 车厢盒
     // ---------------------------------------------------------------------------------------------
 
-    /** 一段车厢（车身段或端盖）：一段小 OBB + 粗筛用的 AABB。 */
-    private static final class Seg {
-        /** 中心（水平）。 */
-        final double cx;
-        final double cz;
-        /** 轴向单位向量（a → b）与法向单位向量（水平左手侧）。 */
-        final double ux;
-        final double uz;
-        final double nx;
-        final double nz;
-        /** 半长（沿轴）与半宽（沿法向）。 */
-        final double halfLen;
-        final double halfW;
-        /** 竖直范围：本段轨面最低点 / 车顶最高点。 */
-        final double yLo;
-        final double yHi;
-        /** 粗筛 AABB（包含本段 OBB）。 */
-        final double minX;
-        final double maxX;
-        final double minZ;
-        final double maxZ;
-        /** 是不是端盖（车头/车尾外扩段）。只有端盖允许轴向推出。 */
-        final boolean cap;
-        /** 端盖的向外方向在轴上的符号：车头 -1、车尾 +1；车身段为 0。 */
-        final int side;
-
-        Seg(final double cx, final double cz, final double ux, final double uz,
-            final double halfLen, final double halfW, final double yLo, final double yHi,
-            final boolean cap, final int side) {
-            this.cx = cx;
-            this.cz = cz;
-            this.ux = ux;
-            this.uz = uz;
-            this.nx = -uz;
-            this.nz = ux;
-            this.halfLen = halfLen;
-            this.halfW = halfW;
-            this.yLo = yLo;
-            this.yHi = yHi;
-            final double ex = Math.abs(ux) * halfLen + Math.abs(this.nx) * halfW;
-            final double ez = Math.abs(uz) * halfLen + Math.abs(this.nz) * halfW;
-            this.minX = cx - ex;
-            this.maxX = cx + ex;
-            this.minZ = cz - ez;
-            this.maxZ = cz + ez;
-            this.cap = cap;
-            this.side = side;
-        }
-    }
-
-    /** 一节车厢的碰撞几何 + 这一 tick 的位移。 */
+    /**
+     * 一节车厢的碰撞几何 + 这一 tick 的位移。
+     *
+     * <p>{@link #body} 不再是「沿弦等分的短段」，而是 {@link CarBand} 沿轨道弧长采样出来的一条带
+     * （见 {@link CarBand} 的类注释）；{@link #caps} 仍是车头 / 车尾的轴向外扩段。
+     */
     private static final class CarHit {
         final String key;
         final int index;
@@ -851,10 +835,14 @@ public final class CollisionSystem {
         final long sidingId;
         /** 这节车所在轨道的曲率半径（格）；直道 / 拿不到轨道 = 无穷大。 */
         final double radiusM;
-        /** 车身分段（按轴向顺序）。 */
-        final Seg[] body;
+        /** 车身采样带（沿弧长顺序，{@link CarBand} 生成）。 */
+        final CarGeometry.Seg[] body;
         /** 车头 / 车尾外扩段，[0] = 车头、[1] = 车尾。 */
-        final Seg[] caps;
+        final CarGeometry.Seg[] caps;
+        /** 车身采样段数（诊断用：与 {@code segs=} 对比看采样密度的变化）。 */
+        final int samples;
+        /** 这一节车的实际采样步长（格，弧长 / 段数）。 */
+        final double sampleStep;
         /** 这一 tick 的水平位移（由上一 tick 的中心算出）。 */
         double deltaX;
         double deltaZ;
@@ -865,93 +853,31 @@ public final class CollisionSystem {
         double moveZ;
         double moveSpeed;
 
-        CarHit(final String key, final int index, final Vec3d a, final Vec3d b, final double ux,
-               final double uz, final double len, final double halfW, final double height,
+        CarHit(final String key, final int index, final double halfW, final double height,
                final boolean doorsOpen, final double speedKmh, final double radiusM,
-               final double capA, final double capB, final long sidingId) {
+               final long sidingId, final CarBand.Band band) {
             this.key = key;
             this.index = index;
-            this.a = a;
-            this.b = b;
-            this.ux = ux;
-            this.uz = uz;
-            this.len = len;
+            this.a = band.a;
+            this.b = band.b;
+            this.ux = band.ux;
+            this.uz = band.uz;
+            this.len = band.len;
             this.halfW = halfW;
-            this.roofA = a.y + height;
-            this.roofB = b.y + height;
-            this.floorA = a.y;
-            this.floorB = b.y;
+            this.roofA = band.a.y + height;
+            this.roofB = band.b.y + height;
+            this.floorA = band.a.y;
+            this.floorB = band.b.y;
             this.doorsOpen = doorsOpen;
             this.speedKmh = speedKmh;
             this.radiusM = radiusM;
             this.sidingId = sidingId;
-            this.cx = (a.x + b.x) * 0.5D;
-            this.cz = (a.z + b.z) * 0.5D;
-            this.body = buildBody(height);
-            this.caps = buildCaps(height, capA, capB);
-        }
-
-        /** 车身分段：段长 = len / segCount（1.5–2.0 格），相邻段各重叠 0.15 格。 */
-        private Seg[] buildBody(final double height) {
-            int count = (int) Math.ceil(len / SEG_TARGET_LEN);
-            final int upper = Math.max(1, (int) Math.floor(len / SEG_MIN_LEN));
-            count = Math.max(1, Math.min(Math.min(count, upper), SEG_MAX));
-            final double segLen = len / count;
-            final Seg[] out = new Seg[count];
-            final double half = SEG_OVERLAP * 0.5D;
-            for (int i = 0; i < count; i++) {
-                double s0 = i * segLen - half;
-                double s1 = (i + 1) * segLen + half;
-                if (i == 0) {
-                    s0 = 0.0D;
-                }
-                if (i == count - 1) {
-                    s1 = len;
-                }
-                out[i] = seg(s0, s1, height, false, 0);
-            }
-            return out;
-        }
-
-        /**
-         * 车头 / 车尾外扩段：只加长轴向长度，宽度不变。
-         *
-         * <p>{@code capA} 是本车 a 端（行进方向前端）的外扩量，{@code capB} 是 b 端（后端）。
-         * 头车的 a 端、尾车的 b 端已经由调用方取过 {@code max(endPad, headExtra/tailExtra)}，
-         * 所以这里只负责画，不再判断是哪一端。某一端为 0 就只留另一端。
-         */
-        private Seg[] buildCaps(final double height, final double capA, final double capB) {
-            final boolean head = capA > 0.0D;
-            final boolean tail = capB > 0.0D;
-            if (head && tail) {
-                return new Seg[]{
-                        seg(-capA, 0.0D, height, true, -1),
-                        seg(len, len + capB, height, true, 1)
-                };
-            }
-            if (head) {
-                return new Seg[]{seg(-capA, 0.0D, height, true, -1)};
-            }
-            if (tail) {
-                return new Seg[]{seg(len, len + capB, height, true, 1)};
-            }
-            return new Seg[0];
-        }
-
-        /**
-         * 在轴向距离区间 {@code [s0, s1]}（从 a 端起算，格）上生成一段。
-         * 竖直范围按坡度线性插值：轨面在两端的 y 到两端车顶 y。
-         */
-        private Seg seg(final double s0, final double s1, final double height,
-                        final boolean cap, final int side) {
-            final double mid = (s0 + s1) * 0.5D;
-            final double halfLen = Math.max(1.0E-4D, (s1 - s0) * 0.5D);
-            final double t0 = len < 1.0E-4D ? 0.0D : s0 / len;
-            final double t1 = len < 1.0E-4D ? 1.0D : s1 / len;
-            final double y0 = floorA + (floorB - floorA) * t0;
-            final double y1 = floorA + (floorB - floorA) * t1;
-            return new Seg(a.x + ux * mid, a.z + uz * mid, ux, uz, halfLen, halfW,
-                    Math.min(y0, y1), Math.max(y0, y1) + height, cap, side);
+            this.cx = (band.a.x + band.b.x) * 0.5D;
+            this.cz = (band.a.z + band.b.z) * 0.5D;
+            this.body = band.body;
+            this.caps = band.caps;
+            this.samples = band.samples;
+            this.sampleStep = band.step;
         }
 
         /** 玩家在车厢轴上的投影，0 = a 端，1 = b 端。 */
@@ -1008,30 +934,42 @@ public final class CollisionSystem {
             return (x - a.x) * (-uz) + (z - a.z) * ux;
         }
 
-        /** 该点的车顶高度；不在车厢水平投影内（含一点余量）时返回 NaN。 */
-        double roofAt(final double x, final double z, final double height) {
+        /**
+         * 这个水平位置还算「在这节车上面」吗：<b>弦盒内</b>（画出来的直车厢，与视觉一致），
+         * 或者<b>碰撞带内</b>（{@link CarBand#inside}）。
+         *
+         * <p>第二半是弯道的修复。车与车的接缝在弯道外侧是一个张角 {@code Δθ = 车长/R} 的楔形缺口，
+         * 弦盒在缺口里落空 —— 以前这里直接返回 NaN：车顶没支撑、人掉下去。带是沿弧连续采样的，
+         * 缺口里仍然在带内（相邻两段各外扩 {@code ov} 把它填满），于是照样有支撑。
+         */
+        boolean covers(final double x, final double z) {
             final double t = along(x, z);
-            if (t < -0.02D || t > 1.02D) {
-                return Double.NaN;
+            if (t >= -0.02D && t <= 1.02D
+                    && Math.abs(lateral(x, z)) <= halfW + SIDE_INSET + 0.08D) {
+                return true;
             }
-            if (Math.abs(lateral(x, z)) > halfW + SIDE_INSET + 0.08D) {
-                return Double.NaN;
+            if (t < -0.04D || t > 1.04D) {
+                // 已经越过车头 / 车尾：端盖负责挡人，不负责给车顶。
+                return false;
             }
-            final double tc = t < 0.0D ? 0.0D : (t > 1.0D ? 1.0D : t);
-            return floorA + (floorB - floorA) * tc + height;
+            return CarBand.inside(body, x, z, SIDE_INSET + 0.08D);
         }
 
-        /** 该点的车底板（轨面）高度；不在车厢水平投影内时返回 NaN。 */
-        double floorAt(final double x, final double z) {
+        /** 车顶 / 车底平面在弦参数 {@code t} 上的高度（沿坡度线性插值）。 */
+        private double surface(final double x, final double z) {
             final double t = along(x, z);
-            if (t < -0.02D || t > 1.02D) {
-                return Double.NaN;
-            }
-            if (Math.abs(lateral(x, z)) > halfW + SIDE_INSET + 0.08D) {
-                return Double.NaN;
-            }
             final double tc = t < 0.0D ? 0.0D : (t > 1.0D ? 1.0D : t);
             return floorA + (floorB - floorA) * tc;
+        }
+
+        /** 该点的车顶高度；水平投影不覆盖这个点时返回 NaN。 */
+        double roofAt(final double x, final double z, final double height) {
+            return covers(x, z) ? surface(x, z) + height : Double.NaN;
+        }
+
+        /** 该点的车底板（轨面）高度；水平投影不覆盖这个点时返回 NaN。 */
+        double floorAt(final double x, final double z) {
+            return covers(x, z) ? surface(x, z) : Double.NaN;
         }
 
         /** 高速急弯才把车顶上的人甩下去（其余情况继续载人）。 */
@@ -1136,29 +1074,26 @@ public final class CollisionSystem {
                 if (dx * dx + dy * dy + dz * dz > rangeSq) {
                     continue;
                 }
-                double ax = b.x - a.x;
-                double az = b.z - a.z;
-                double len = Math.sqrt(ax * ax + az * az);
-                if (len < 1.0E-3D) {
-                    // 竖直方向或退化的车厢：用自身的朝向投影到水平面兜底。
-                    final Vec3d fwd = pose.carForward(i);
-                    ax = fwd.x;
-                    az = fwd.z;
-                    len = Math.sqrt(ax * ax + az * az);
-                    if (len < 1.0E-4D) {
-                        continue;
-                    }
+                // 碰撞带：沿轨道弧长采样（见 CarBand）。步长按曲率自适应，相邻段重叠，
+                // 所以弯道接缝处不再有「两个直盒子对折」的楔形缺口。
+                final CarBand.Band band;
+                try {
+                    band = CarBand.build(train, i, pose, reversed, halfW, height,
+                            i == 0 ? noseExtra : endPad,
+                            i == carCount - 1 ? rearExtra : endPad);
+                } catch (Throwable t) {
+                    warnOnce(t);
+                    continue;
                 }
-                final double ux = ax / len;
-                final double uz = az / len;
+                if (band == null) {
+                    // 车厢几何退化（端面重合且没有可用朝向）：这一节跳过。
+                    continue;
+                }
                 final double midProgress = carProgress(progress, spacing, carCount, reversed, i);
                 final double radius = curveNeeded && total > 0.0D
                         ? radiusAt(train, midProgress) : Double.POSITIVE_INFINITY;
-                out.add(new CarHit(key, i, a, b, ux, uz, len, halfW, height, doorsOpen,
-                        speed, radius,
-                        i == 0 ? noseExtra : endPad,
-                        i == carCount - 1 ? rearExtra : endPad,
-                        train.sidingId));
+                out.add(new CarHit(key, i, halfW, height, doorsOpen, speed, radius,
+                        train.sidingId, band));
             }
         }
         for (final CarHit car : out) {
@@ -1303,17 +1238,17 @@ public final class CollisionSystem {
     }
 
     /**
-     * 车身段：以玩家在轴上的投影为中心取 {@code 2 * SEG_WINDOW + 1} 段（「只与最近几段做检测」），
+     * 车身采样带：以玩家在轴上的投影为中心取 {@code 2 * SEG_WINDOW + 1} 段（「只与最近几段做检测」），
      * 一段命中就收工（同一节车的段共轴，推一次所有段都分离了）。
      */
     private static boolean pushBody(final PlayerEntity player, final CarHit car,
                                     final ClientWorld world) {
-        final Seg[] body = car.body;
+        final CarGeometry.Seg[] body = car.body;
         if (body.length == 0) {
             return false;
         }
         final double s = car.alongDistance(player.getX(), player.getZ());
-        final double segLen = car.len / body.length;
+        final double segLen = car.sampleStep > 1.0E-4D ? car.sampleStep : car.len / body.length;
         int centre = segLen < 1.0E-4D ? 0 : (int) Math.floor(s / segLen);
         if (centre < 0) {
             centre = 0;
@@ -1333,7 +1268,7 @@ public final class CollisionSystem {
     /** 车头 / 车尾两个端盖。 */
     private static boolean pushCaps(final PlayerEntity player, final CarHit car,
                                     final ClientWorld world) {
-        for (final Seg cap : car.caps) {
+        for (final CarGeometry.Seg cap : car.caps) {
             if (pushSegment(player, car, cap, world)) {
                 return true;
             }
@@ -1358,7 +1293,7 @@ public final class CollisionSystem {
      * 顶着往前走 = 「被推着走」；侧面（车从身边掠过）才推法向 + 沿行进方向带一点。
      */
     private static boolean pushSegment(final PlayerEntity player, final CarHit car,
-                                       final Seg seg, final ClientWorld world) {
+                                       final CarGeometry.Seg seg, final ClientWorld world) {
         final Box pb = player.getBoundingBox();
         // 粗筛：段的 AABB 包含段的 OBB，不与它相交就肯定不与 OBB 相交。
         if (pb.maxX <= seg.minX || pb.minX >= seg.maxX
@@ -1408,8 +1343,9 @@ public final class CollisionSystem {
      * 玩家是不是在车的<b>正前方</b>（车正朝着他开过来）：在运动方向的半侧、且轴向穿透没有比横向
      * 穿透大太多。端盖本身按「近端面」算正面。
      */
-    private static boolean isFrontal(final CarHit car, final Seg seg, final double px,
-                                     final double pz, final double penU, final double penN) {
+    private static boolean isFrontal(final CarHit car, final CarGeometry.Seg seg,
+                                     final double px, final double pz, final double penU,
+                                     final double penN) {
         if (!car.moving || !(car.moveSpeed > 0.02D)) {
             return seg.cap && penU < penN;
         }
@@ -2067,6 +2003,8 @@ public final class CollisionSystem {
     private static void resetDiag() {
         diagCars = 0;
         diagSegs = 0;
+        diagSamples = 0;
+        diagStep = Double.NaN;
         diagHits = 0;
         diagDamage = 0.0D;
         diagPushed = 0;

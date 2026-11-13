@@ -352,8 +352,11 @@ public final class ProtoBeamCone {
         // 渲染路径：默认壳层锥（{@code beamConeVolume=false}），和 {@code /mtr_lte debug cone}
         // 探针走同一条已被用户实机验证可见的管道。raymarch 只有在配置显式打开时才跑，而且它自己
         // 依旧可能在 shader pack / GL 失败时退回壳层（那时 volume=false，下面逐车判定）。
-        final boolean volume = cfg != null && cfg.beamConeVolume
-                && ConeVolumeRenderer.ready(cfg);
+        // Volume path removed. The raymarched cone (ConeVolumeRenderer) was deleted together with
+        // the rest of the light cone: 1.20.1 no longer draws a cone at all (see LightFlare), and
+        // this class is only kept for the 1.18.2 / 1.19.x modules, so the shell path is the only
+        // one left here.
+        final boolean volume = false;
         BEAMS.clear();
 
         vertexCount = 0;
@@ -520,15 +523,6 @@ public final class ProtoBeamCone {
             }
         }
 
-        if (volume) {
-            try {
-                ConeVolumeRenderer.render(BEAMS, matrices, cfg);
-            } catch (Throwable t) {
-                MtrHeadlightClient.LOGGER.error("[lte] cone volume failed", t);
-            }
-        }
-        // 关闭了深度遮挡的侧线这一帧走的是壳层锥：它们的顶点在 volume=true 时也会被收集，
-        // 所以两条路要在同一帧里各画各的（以前这里是 else if，壳层顶点会被丢掉）。
         if (vertexCount > 0) {
             try {
                 GlowCompat.draw(vertices, vertexCount, matrices);
@@ -544,13 +538,6 @@ public final class ProtoBeamCone {
             // Covers frames where nothing was drawn: render() never ran, so its own timer never
             // fired. Either way exactly one line per window comes out.
             //
-            // Reflective on purpose: only the 1.20.1 build has a real depth-cone statistics window
-            // to flush; the 1.18.2/1.19.2 stubs have no such method, and this file lives in common.
-            try {
-                ConeVolumeRenderer.class.getDeclaredMethod("logIfDue").invoke(null);
-            } catch (Throwable ignored) {
-                // No statistics window on this version - nothing to flush.
-            }
             String depth = "n/a";
             try {
                 depth = String.valueOf(client.getFramebuffer().getDepthAttachment());
@@ -572,7 +559,7 @@ public final class ProtoBeamCone {
                     pathName(), sourceName(), shaders, String.format(Locale.ROOT, "%.3f", peak),
                     String.format(Locale.ROOT, "%.2f", peak * MIN_ATTENUATION),
                     boost ? "on(0.45 flat)" : "off",
-                    depth, ConeVolumeRenderer.status(cfg));
+                    depth, "removed");
             cCalls = 0;
             cTrains = 0;
             cModels = 0;
@@ -824,11 +811,7 @@ public final class ProtoBeamCone {
      * {@code shell} —— 这正是"看到什么"与"配置写了什么"之间的差。
      */
     public static String pathName() {
-        final HeadlightConfig cfg = MtrHeadlightClient.config();
-        if (cfg != null && cfg.beamConeVolume && ConeVolumeRenderer.ready(cfg)) {
-            return "volume";
-        }
-        return "shell";
+        return "shell";                         // the volume path was removed with the cone
     }
 
     /**
@@ -1279,17 +1262,12 @@ public final class ProtoBeamCone {
 
     /** Startup fingerprint: proves the running jar contains this prototype. */
     public static void announce() {
-        try {
-            ConeVolumeRenderer.init();
-        } catch (Throwable t) {
-            MtrHeadlightClient.LOGGER.warn("[lte] cone volume init failed", t);
-        }
         final HeadlightConfig cfg = MtrHeadlightClient.config();
         MtrHeadlightClient.LOGGER.info(String.format(Locale.ROOT,
                 "[lte] cone active: halfAngle=%.0fdeg segments=%d rings=%d shells=%d"
                         + " probe=%s blend=additive path=%s volume=%s steps=%d source=%s",
                 HALF_ANGLE_DEG, SEGMENTS, RINGS.length, SHELLS.length, PROBE,
-                pathName(), ConeVolumeRenderer.status(cfg), cfg == null ? 10 : cfg.beamConeSteps(),
+                pathName(), "removed", cfg == null ? 10 : cfg.beamConeSteps(),
                 sourceName()));
     }
 }

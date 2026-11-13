@@ -19,19 +19,28 @@ import net.minecraft.world.World;
  *       渲染器每帧读 {@link #isLit()}。</li>
  * </ul>
  *
- * <h2>闪烁节奏（都可调）</h2>
+ * <h2>闪烁节奏（常量都在下面这一段，改数值即可）</h2>
  * <pre>
- *   一个亮相 / 灭相 = BLINK_PHASE_TICKS = 3 tick = 0.15s
- *   闪一下 = 亮 3 tick + 灭 3 tick = 0.3s
- *   闪三下 = 3 × 0.3s = 18 tick = 0.9s（BLINK_FLASHES × 2 × BLINK_PHASE_TICKS）
+ *   一个亮相 / 灭相 = BLINK_PHASE_TICKS = 12 tick = 0.6s
+ *   闪一下 = 亮 12 + 灭 12 = 24 tick = 1.2s
+ *   闪三下 = 3 × 24 tick = 72 tick = 3.6s（BLINK_FLASHES × 2 × BLINK_PHASE_TICKS）
  * </pre>
  * <p>开门（关→开）：亮–灭–亮–灭–亮–灭，然后<b>常亮</b>；
  * 关门（开→关）：同样的三下，然后<b>熄灭</b>。两种切换的波形一样，只是「闪完停在哪」不同 ——
  * 所以状态机只记 {@code doorOpen}（闪完的目标），相位完全由 {@code world.getTime()} 算。
  *
+ * <p>觉得 3.6s 还长就把 {@link #BLINK_FLASHES} 调成 2（2.4s）；只想改快慢就动
+ * {@link #BLINK_PHASE_TICKS}。两者相乘就是整段时长，别在别处再写死 12 / 3。
+ *
+ * <h2>关门为什么不等门合上</h2>
+ * <p>MTR 的 {@code isOpen()} 是 {@code open > 0}：<b>关门动画全程都还是 true</b>，等到它翻成
+ * false 门已经合拢了 —— 用户反馈「门都关上了才闪」就是这个原因。现在用
+ * {@link PsdDoorProbe.Scan#closing}（open 值在变小的那一 tick）当作「开始关门」的信号，
+ * 门刚动就起闪；只有布尔状态的端门也在翻成关的那一 tick 起闪（见 {@link PsdDoorProbe}）。
+ *
  * <h2>状态从哪来（不硬编码门类）</h2>
- * <p>{@link PsdDoorProbe#anyDoorOpen} 先看 blockstate 上的 {@code open} / {@code door_open} 类属性
- * （方速端门走这条），再看 MTR {@code BlockPSDAPGDoorBase} 方块实体的 {@code isOpen()}
+ * <p>{@link PsdDoorProbe.Tracker#scan} 先看 blockstate 上的 {@code open} / {@code door_open} 类属性
+ * （方速端门走这条），再看 MTR {@code BlockPSDAPGDoorBase} 方块实体的 {@code getOpenValue()}
  * （MTR 原版 / 方速滑动门走这条）。<b>找不到相邻门时保持上一次状态</b>（不改灯、不重启动画）。
  *
  * <h2>为什么两端都要 tick</h2>
@@ -47,17 +56,26 @@ import net.minecraft.world.World;
  */
 public class EyecandyBlockEntity extends BlockEntity {
 
-    /** 一个亮相 / 灭相持续多少 tick（3 tick = 0.15s）。 */
-    public static final int BLINK_PHASE_TICKS = 3;
+    /**
+     * 一个亮相 / 灭相持续多少 tick（12 tick = 0.6s）。<b>想调快慢就只改这一个数</b>：
+     * 一周期 = 2 × 本值，整段 = {@link #BLINK_FLASHES} × 2 × 本值。
+     */
+    public static final int BLINK_PHASE_TICKS = 12;
 
-    /** 闪几下（开门 / 关门都闪这么多下）。 */
+    /** 闪几下（开门 / 关门都闪这么多下）。3 × 24 tick = 3.6s；嫌长改 2（2.4s）。 */
     public static final int BLINK_FLASHES = 3;
 
-    /** 整段闪烁的时长：{@code 3 × 2 × 3 = 18} tick（0.9s）。 */
+    /** 整段闪烁的时长：{@code 3 × 2 × 12 = 72} tick（3.6s）。 */
     public static final int BLINK_TOTAL_TICKS = BLINK_PHASE_TICKS * 2 * BLINK_FLASHES;
 
-    /** 多久扫一次邻居（每 tick 扫 26 个方块没必要，2~3 tick 的延迟看不出来）。 */
-    static final int SCAN_INTERVAL_TICKS = 5;
+    /**
+     * 多久扫一次邻居。
+     *
+     * <p>2 tick（0.1s）：关门要「提前切入」，扫描间隔就是最坏情况下的提前量误差 ——
+     * 布尔状态的端门拿不到 open 中间态，只能等它翻成关的那一 tick，间隔越小越贴近「立刻」。
+     * 一次扫描 26 个方块的 {@code getBlockState} + 方块实体读，2 tick 的代价可以忽略。
+     */
+    static final int SCAN_INTERVAL_TICKS = 2;
 
     /** 最后一次看到门的开 / 关（闪完之后停在这个状态）。 */
     private boolean doorOpen;
@@ -73,6 +91,9 @@ public class EyecandyBlockEntity extends BlockEntity {
 
     /** 扫描倒计时（{@code 0} = 下一 tick 就扫）。 */
     private int scanCountdown;
+
+    /** 每个方块实体自己一份：判「门正在关」要对比上一轮的 open 值（{@link PsdDoorProbe.Tracker}）。 */
+    private final PsdDoorProbe.Tracker doorTracker = new PsdDoorProbe.Tracker();
 
     /** 当前这一 tick 的外观：亮 / 灭。渲染器读它。 */
     private boolean lit;
@@ -92,8 +113,9 @@ public class EyecandyBlockEntity extends BlockEntity {
     /**
      * 闪烁进行到第 {@code elapsed} tick 时该不该亮（{@code 0} = 切状态那一 tick = 亮相开始）。
      *
-     * <p>亮相 / 灭相各 {@link #BLINK_PHASE_TICKS} tick，偶数相亮、奇数相灭，于是
-     * {@code 亮亮亮灭灭灭 × 3}。整段（{@link #BLINK_TOTAL_TICKS} 之后）由调用方切成「常亮 / 熄灭」。
+     * <p>亮相 / 灭相各 {@link #BLINK_PHASE_TICKS}（12）tick，偶数相亮、奇数相灭，于是
+     * {@code 亮12 灭12 亮12 灭12 亮12 灭12}。整段（{@link #BLINK_TOTAL_TICKS} 之后）由调用方切成
+     * 「常亮 / 熄灭」。
      *
      * @param elapsed 距离闪烁开始的 tick 数
      */
@@ -122,23 +144,30 @@ public class EyecandyBlockEntity extends BlockEntity {
         }
         this.scanCountdown = SCAN_INTERVAL_TICKS;
 
-        final Boolean open = PsdDoorProbe.anyDoorOpen(world, pos);
-        if (open == null) {
+        final PsdDoorProbe.Scan scan = this.doorTracker.scan(world, pos);
+        if (!scan.anyDoor) {
             // 周围没有门（还没放 / 被拆了 / 区块没加载）：保持上一次状态，什么也不做。
             return;
         }
+        // 闪完停在哪个状态：门还在关（open 值在降）就已经算「关」—— 这就是提前切入的那一段。
+        final boolean target = scan.open && !scan.closing;
         if (!this.initialised) {
             // 第一次读数：直接对齐，不补闪（重进世界时不该闪一下）。
             this.initialised = true;
-            this.doorOpen = open;
-            this.lit = open;
+            this.doorOpen = target;
+            this.lit = target;
             return;
         }
-        if (open == this.doorOpen) {
+        if (target == this.doorOpen) {
             return;
         }
-        // 状态切换：进入闪烁，从亮相开始。
-        this.doorOpen = open;
+        // 状态切换：进入闪烁，从亮相开始。关门时这一 tick 就是「门刚动」的那一 tick。
+        this.doorOpen = target;
+        startBlink(now);
+    }
+
+    /** 从亮相开始一段新闪烁（{@link #BLINK_TOTAL_TICKS} 之后由 tick 切成常亮 / 熄灭）。 */
+    private void startBlink(final long now) {
         this.blinking = true;
         this.blinkStart = now;
         this.lit = true;

@@ -387,8 +387,8 @@ public final class ParameterScreen extends Screen {
     /**
      * The row table of THIS category only. Side-by-side comparison of the five partitions:
      * <pre>
-     *   光源  总开关|渲染距离 · 车灯模式(自动/常亮/关闭，全局页) · 光带|照射长度 · 光柱 ·
-     *         动态光源|车灯亮度 · 车头/车尾颜色 · 光束距离/车头长度/车尾长度/光束宽度/
+     *   光源  总开关|渲染距离 · 车灯模式(自动/常亮/关闭，全局页) · 灯晕|照射长度 ·
+     *         真实照亮|车灯亮度 · 车头/车尾颜色 · 光束距离/车头长度/车尾长度/光束宽度/
      *         车头高度/车尾高度 · 光束编辑
      *   碰撞  车体碰撞 · 碰撞高度 · 道床碰撞 · 车头延长 · 车尾延长 · 车顶掉落速度 · 车顶弯道半径
      *   粒子  雨天水雾|水雾起始速度 · 挡雨
@@ -397,7 +397,7 @@ public final class ParameterScreen extends Screen {
      * </pre>
      * 「车灯模式」放在光源分区第二行（用户要求：它决定灯什么时候亮，属于光源，不属于其他），
      * 并且只在全局页出现 —— 它没有侧线覆盖。三个「灯」开关连在一起：
-     * <b>光带 → 光柱 → 动态光源</b>（同一件事的三层：贴地光带 / 体积光锥 / 真实方块光照），
+     * <b>灯晕 → 真实照亮</b>（同一件事的两层：灯位上的加色光斑 / 写进区块网格的方块光照），
      * 动态光源那行右边仍然是车灯亮度滑块，改开关立刻能用滑块看到效果。
      * {@code isGlobal()} 为假时只留下侧线真能覆盖的行：光源全部（除车灯模式）、碰撞的两个端部延长、
      * 粒子的三项，以及伤害的开关 / 起点速度 / 上限。
@@ -413,12 +413,8 @@ public final class ParameterScreen extends Screen {
                     this.rows.add(Row.mode());
                 }
                 this.rows.add(Row.toggle(ConfigWriteTarget.LIGHT_BAND, ConfigWriteTarget.HEAD_LENGTH));
-                // 光柱是光带之外的另一件事（体积光锥 vs 贴地光带）：整行一个开关。它可按侧线覆盖，
-                // 所以侧线页也有这一行（alpha / 采样数 / 遮挡只在 JSON 里，见 SidingSettings）。
-                this.rows.add(Row.toggleWide(ConfigWriteTarget.BEAM_CONE));
-                // 动态光源 + 车灯亮度：和光带 / 光柱三个开关并排，紧跟在它们后面。
-                // 这三个是同一件事的三个层次（贴地光带 → 体积光锥 → 真实方块光照），
-                // 以前它在光源页最底下（要滚到底才看见），也在「其他」页出现过，现在归位到这里。
+                // 动态照亮 + 车灯亮度：灯晕（billboard）与真实方块光照是同一件事的两层，
+                // 所以两行挨着放。光柱那一行已随光柱一起删除（体积光锥不再绘制）。
                 this.rows.add(Row.toggle(ConfigWriteTarget.DYNAMIC_LIGHT, ConfigWriteTarget.LUMINANCE));
                 this.rows.add(Row.color(true));
                 this.rows.add(Row.color(false));
@@ -520,11 +516,6 @@ public final class ParameterScreen extends Screen {
                             // override; getting back to "follow" is the explicit 恢复为跟随全局 row.
                             reinit();
                         });
-                // 没有 LambDynamicLights 就没有动态光源可开关：这一行置灰 + 悬停说明，其余功能照常。
-                if (row.toggle == ConfigWriteTarget.DYNAMIC_LIGHT && !LightBackends.available()) {
-                    button.active = false;
-                    button.setTooltip(Tooltip.of(tr("hint.needsLdl")));
-                }
                 addDrawableChild(new NumberSlider(rightX(), y, this.rightW, ROW_H, row.value,
                         true, this.target.readValue(row.value)));
                 addResetButton(row, y);
@@ -541,10 +532,6 @@ public final class ParameterScreen extends Screen {
                             }
                             reinit();
                         });
-                if (row.toggle == ConfigWriteTarget.DYNAMIC_LIGHT && !LightBackends.available()) {
-                    button.active = false;
-                    button.setTooltip(Tooltip.of(tr("hint.needsLdl")));
-                }
                 if (row.toggle == ConfigWriteTarget.DAMAGE_IN_CREATIVE) {
                     button.setTooltip(Tooltip.of(tr("hint.damageInCreative")));
                 }
@@ -747,9 +734,9 @@ public final class ParameterScreen extends Screen {
             case ConfigWriteTarget.DYNAMIC_LIGHT:
                 return follow(this.target.readToggle(which)
                         ? tr("opt.dynamicLight.on") : tr("opt.dynamicLight.off"), which);
-            case ConfigWriteTarget.BEAM_CONE:
+            case ConfigWriteTarget.LIGHT_BAND:
                 return follow(this.target.readToggle(which)
-                        ? tr("opt.cone.on") : tr("opt.cone.off"), which);
+                        ? tr("opt.flare.on") : tr("opt.flare.off"), which);
             case ConfigWriteTarget.RAIN_SPRAY:
                 return follow(this.target.readToggle(which)
                         ? tr("opt.rainSpray.on") : tr("opt.rainSpray.off"), which);
