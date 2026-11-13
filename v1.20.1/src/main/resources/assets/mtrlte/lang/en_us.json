@@ -587,6 +587,8 @@
   "opt.flare.on": "Lamp glow: on",
   "opt.scatter.off": "Air scatter: off",
   "opt.scatter.on": "Air scatter: on",
+  "opt.scatterSurface.off": "Air scatter - light surfaces: off",
+  "opt.scatterSurface.on": "Air scatter - light surfaces: on",
   "opt.scatterStrength": "Haze strength %s",
   "opt.scatterRadius": "Haze radius %s blocks",
   "opt.damageInCreative.off": "Damage in Creative: off",

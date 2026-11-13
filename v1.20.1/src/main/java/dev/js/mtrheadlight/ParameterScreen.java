@@ -451,6 +451,9 @@ public final class ParameterScreen extends Screen {
                 if (isGlobal()) {
                     this.rows.add(Row.toggle(ConfigWriteTarget.SCATTER,
                             ConfigWriteTarget.SCATTER_STRENGTH));
+                    // 表面项（车灯真的照亮地面/墙面）单独一行：它和光雾是同一次 pass 的两层，
+                    // 关掉它只少「逐灯 spot + 法线 + N·L」那块数学，光雾照旧，所以值得一个开关。
+                    this.rows.add(Row.toggleWide(ConfigWriteTarget.SCATTER_SURFACE));
                     this.rows.add(Row.value(ConfigWriteTarget.SCATTER_RADIUS));
                 }
                 // 光束编辑：逐车型、逐束的几何 / 颜色 / 长度，入口放在光源分区最底部。
@@ -798,6 +801,10 @@ public final class ParameterScreen extends Screen {
                 // 全局开关，不走 follow()：侧线页根本不生成这一行。
                 return tr(this.target.readToggle(which)
                         ? "opt.scatter.on" : "opt.scatter.off");
+            case ConfigWriteTarget.SCATTER_SURFACE:
+                // 同上，全局开关；它只关「照亮表面」那一层，光雾留着。
+                return tr(this.target.readToggle(which)
+                        ? "opt.scatterSurface.on" : "opt.scatterSurface.off");
             default:
                 return follow(this.target.readToggle(which)
                         ? tr("opt.band.on") : tr("opt.band.off"), which);

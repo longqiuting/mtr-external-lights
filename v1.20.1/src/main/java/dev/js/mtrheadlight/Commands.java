@@ -425,20 +425,24 @@ public final class Commands {
     }
 
     /**
-     * {@code /mtr_lte scatter} - 屏幕空间散射（车灯在空气里的光雾）的状态。
+     * {@code /mtr_lte scatter} - 屏幕空间散射（车灯照在物体表面 + 空气里的光雾）的状态。
      *
-     * <p>这一行同时回答三个问题：开关开没开（{@code scatter on|off}）、shader 程序到底编译出来没有
-     * （{@code program=ok|missing|failed(...)}）、以及上一帧真的往 shader 里送了几盏灯
-     * （{@code lights=n/16}）。{@code program=failed(...)} 后面跟的就是加载失败的原因，和日志里那条
-     * WARN 是同一个字符串；{@code depth=none} 说明还没有任何一帧有灯（pass 不建深度拷贝）。
+     * <p>这一行同时回答四个问题：开关开没开（{@code scatter on|off}）、shader 程序到底编译出来没有
+     * （{@code program=ok|missing|failed(...)}）、上一帧真的往 shader 里送了几盏灯
+     * （{@code lights=n/16}），以及表面项（真照亮地面/墙面）这一层开没开（{@code surface=on|off}）。
+     * {@code program=failed(...)} 后面跟的就是加载失败的原因，和日志里那条 WARN 是同一个字符串；
+     * {@code depth=none / color=none} 说明还没有任何一帧有灯（pass 不建拷贝纹理）。
      *
-     * <p>开光影时这一行会多一句「shader pack active: pass skipped」—— 那不是故障，是设计：光影
-     * 自己拥有 framebuffer 与深度缓冲，我们再去读会拿到一张错的深度图。
+     * <p>{@code litPx≈N} 是「表面项实际点亮了多少像素」：着色器把逐像素的覆盖写进输出 alpha，本条
+     * 命令<b>让下一帧</b>把那一帧降采样（96x54，20 KB）读回来估算。所以第一次执行只会看到
+     * {@code measuring(run again)}，再执行一次就是数字。命令不会为了一个诊断值每帧回读整屏。
      */
     private static int scatterStatus(final FabricClientCommandSource source) {
         final HeadlightConfig cfg = MtrHeadlightClient.config();
-        source.sendFeedback(Text.literal("LTE：" + dev.js.mtrheadlight.sss.ScatterPass.status(cfg)
-                + " — /mtr_lte scatter on|off，强度/半径在 配置 → 光源 → 空气散射"));
+        source.sendFeedback(Text.literal("LTE：" + dev.js.mtrheadlight.sss.ScatterPass.status(cfg)));
+        dev.js.mtrheadlight.sss.ScatterPass.requestLitPixelProbe();
+        source.sendFeedback(Text.literal("LTE：— /mtr_lte scatter on|off，"
+                + "表面项/强度/半径在 配置 → 光源 → 空气散射"));
         return 1;
     }
 

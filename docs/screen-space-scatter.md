@@ -22,7 +22,8 @@
 | `sss/ScatterLights.java` | 收集灯：复用 `TrainLamps` + `HeadlightSwitch.isLit`，按到相机距离取最近 **16** 盏，池化候选以免每帧分配 |
 | `sss/ScatterProgram.java` | 手写 `new ShaderProgram(...)` 加载 core shader、取 uniform 句柄、失败一次即停用 |
 | `sss/DepthCopy.java` | 深度拷贝：查询源格式 → 建同格式深度纹理 + FBO → 每帧 blit |
-| `shaders/core/light_scatter.*` | 顶点阶段只把 NDC 四边形传下去；片元阶段做全部积分 |
+| `sss/ColorCopy.java` | 颜色拷贝（RGBA8）：表面项要乘的 albedo；同一帧 blit 一次，另带 96×54 降采样 + 回读的 `litPx` 探针 |
+| `shaders/core/light_scatter.*` | 顶点阶段只把 NDC 四边形传下去；片元阶段做表面项 + 体积项 + 合成 |
 
 不在 `common/`：深度附件 blit、`ShaderProgram`、`GlUniform` 都是 1.20.1 的类型，下沉没有意义
 （1.18.2 / 1.19.x 的 `ConeVolumeRenderer` 就是 20 行恒 `false` 的壳）。
@@ -48,8 +49,9 @@ Fabric 对 `LAST` 的定义正是这里需要的：「所有 framebuffer 写入�
   不一致 blit 会被驱动拒绝（本机实测 `0x1902 = GL_DEPTH_COMPONENT16`）。纹理必须显式
   `NEAREST` / `CLAMP` / `COMPARE_MODE=NONE`：默认 mipmap min filter 会让深度纹理**不完整**，
   采样恒 0，整幅画面会被判成"贴脸"。
-* **颜色附件从不读、从不拷**：pass 是加色的，读颜色附件就是 feedback；不需要它也能自限幅
-  （见 §5 的 `1-exp`）。
+* **颜色附件另外拷一份**（`ColorCopy`，RGBA8，NEAREST/CLAMP）：表面项要乘场景 albedo（见 §5.1），
+  而那就是我们正在写的那个附件，所以同样先 blit 到自建纹理再采样。深度一份、颜色一份，
+  两个附件、两张纹理，任何一次绘制都不读自己写的附件。
 
 ## 4. 深度重建用的矩阵
 
@@ -103,21 +105,58 @@ colour = 1 - exp( -Σ tau_i · gain )                  // 逐通道，gain = str
 * **为什么中点求一次**：这段弦通常只有几格，`cone/window/phase/trans/fall` 在弦上变化不大，
   取中点误差远小于视觉容忍度——换来的是每盏灯 ~40 次浮点、零次纹理采样。
 
-色彩上 `1 - exp(-x)` 让每个通道独立饱和：亮灯不会把画面推成白块，深色场景里的车灯也不会
-被场景色"吃掉"（因为根本不读场景色）。
+色彩上 `1 - exp(-x)` 让每个通道独立饱和：亮灯不会把画面推成白块。
+
+## 5.1 表面项（真照亮地面/墙面）与合成
+
+体积项的公式没变（上表就是它）。表面项是另加的一层，逐灯、逐像素：
+
+```
+P      = rd · tHit                                 // 这一像素自己的世界点（相机相对）
+N      = normalize(cross(dFdx(P), dFdy(P)))        // 面法线；dot(N,P)>0 时取反（朝向相机）
+        （天空像素 depth==1 → 没有表面，跳过表面项，只留体积项）
+
+L      = normalize(lamp - P)
+spot   = smooth( dot(axis, -L) ; cosOuter→cosInner )   // 光束锥门：灯只照它指的方向
+win    = 1 - smooth( (|lamp-P| - 0.6len) / 0.4len )    // 距离窗：光束末端之外不照
+att    = 1 / (1 + |lamp-P|² / 9)                       // ~1/d² 辐照度
+NdotL  = max(dot(N, L), 0)
+surface+= colour · I · spot · win · att · NdotL
+
+added  = Σ体积 · 1.6 + Σ表面 · (scene · 8.0 + 0.05)
+lit    = scene + (1 - exp(-added · strength)) · (1 - 0.5 · scene)
+```
+
+* **混合关闭、直接替换整屏颜色**：`light_scatter.json` 里**故意没有 `blend` 段**——1.20.1 的
+  `ShaderProgram.bind()` 会 apply json 里的 `GlBlendState`，没有这一段就是
+  `blendDisabled = true`，即 `dst = src`。手写 `RenderSystem.disableBlend()` 也做同一件事，
+  两边一致（**不能只靠手动设 blend**：bind() 会覆盖它）。
+* **为什么表面项要乘 `scene`**：`scene` 就是已经画好的像素颜色，也就是材质 albedo。
+  乘上它，深色站台暗着亮、白墙亮着亮，光斑才会「贴」在材质上而不是浮在屏幕前。
+  `+0.05` 是给几乎全黑的路面留的一点底，否则它乘出来恒等于 0。
+* **`added == 0` 时输出逐字等于 `scene`**：`tools/scatter-math-check.js` 里 identity 一段验证
+  过（delta = 0）。所以就算视图矩阵算错、或这一帧一盏灯都没有，这一 pass 也只能「什么都没加」，
+  不可能把屏幕涂黑——这是整屏替换这种做法的安全网。
+* **没有自阴影**：只有一层深度、只有正面法线，被别的物体挡住的表面拿不到光，也不会有
+  「车体自己挡住自己的灯」。RTE 同样如此，这是屏幕空间做法的固有边界。
+* **关掉表面项**：`scatterSurface=false` 时 `uSurface.z=0`，整段表面块在 uniform 分支里被跳过
+  （逐灯的 spot / 法线 / N·L 一次都不算），体积项与合成分毫不差。拷贝仍然每帧做两次，
+  因为合成无论如何都要读场景色。
 
 ---
 
 ## 6. GL 状态：这一段踩过坑，所以逐项还原
 
-进来：`setShader(ourProgram)`、`setShaderTexture(0, depthCopy)`、`enableBlend` +
-`blendFunc(SRC_ALPHA, ONE)`、**`disableDepthTest()`**、**`depthMask(false)`**、`disableCull()`。
-出去（`finally`，无论 draw 是否抛）：`depthMask(true)`、`enableDepthTest()`、`defaultBlendFunc()`、
-`enableCull()`、`setShader(GameRenderer::getPositionColorProgram)`、`setShaderTexture(0, 0)`、
-`setShaderColor(1,1,1,1)`。
+进来：`setShader(ourProgram)`、`setShaderTexture(0, depthCopy)`、`setShaderTexture(1, colorCopy)`、
+**`disableBlend()`**（json 里也是 blendDisabled，见 §5.1）、**`disableDepthTest()`**、
+**`depthMask(false)`**、`disableCull()`。
+出去（`finally`，无论 draw 是否抛）：`depthMask(true)`、`enableDepthTest()`、`enableBlend()`、
+`defaultBlendFunc()`、`enableCull()`、`setShader(GameRenderer::getPositionColorProgram)`、
+`setShaderTexture(0, 0)`、`setShaderTexture(1, 0)`、`setShaderColor(1,1,1,1)`。
 
 不还的后果是上一轮光锥工作里真实发生过的：**粒子集体消失**——之后画的东西继续用我们那个带深度
-采样的程序、0 号单元上绑着我们的深度纹理、depthMask 还是关着的。
+采样的程序、0 号单元上绑着我们的深度纹理、depthMask 还是关着的。1 号单元同理：`Sampler1`
+是我们独有的，但单元是全局状态，还回去比留给下一个人猜要好。
 
 ---
 
@@ -144,12 +183,18 @@ colour = 1 - exp( -Σ tau_i · gain )                  // 逐通道，gain = str
 
 ## 8. 性能
 
-* 灯数上限 **16**（着色器 `uLightPos[16]` 的硬上限，CPU 侧同样截断）。
-* 每帧一次全屏四边形 + **一次深度 blit**；灯循环里**没有纹理采样**，只有点积/指数。
-* **0 盏灯 → 直接 return**：不建 framebuffer、不拷深度、不绑程序、不设 uniform。空轨道开销为 0。
+* 灯数上限 **16**（着色器 `uLightPos[16]` 的硬上限，CPU 侧同样截断）。表面项与体积项共用**同一个**
+  灯循环，没有第二遍、没有第二段循环。
+* 每帧一次全屏四边形 + **一次深度 blit + 一次颜色 blit**（两张全屏 blit 都是 GPU 内部拷贝，
+  不跨 PCIe；1080p 下各约 8 MB，实测在噪声以内）。
+* **0 盏灯 → 直接 return**：不建 framebuffer、不拷深度/颜色、不绑程序、不设 uniform。空轨道开销为 0。
 * 收集阶段：先按 `eff.beamDistance` 和 96 格双重门限过滤，再对剩余候选插入排序取前 16。
   候选池是静态复用的，热路径不分配。
-* 品质旋钮是 `scatterRadius`（半径越小，球内像素越少）和 `scatterStrength`（只是指数上的增益）。
+* `scatterSurface=false` 时逐灯的 spot / 法线 / N·L 全部不执行（uniform 分支），只剩体积项；
+  两张 blit 仍在（合成要读场景色）。
+* `litPx` 探针只在 `scatter status` 后的那一帧跑：一次 96×54 降采样 blit + 20 KB 回读，平时为 0。
+* 品质旋钮是 `scatterRadius`（半径越小，球内像素越少）、`scatterStrength`（指数上的增益）
+  和 `scatterSurface`（要不要那层真照亮）。
 
 ## 9. 光影（Iris / OptiFine）
 
@@ -175,7 +220,28 @@ framebuffer 与深度缓冲，我们再去 blit 它的深度只会拿到一张�
 
 ## 11. 开关与命令
 
-* `config/mtrlte.json`：`scatterEnabled`（默认 `true`）、`scatterStrength`（0.1–3，默认 1.0）、
-  `scatterRadius`（1–24 格，默认 6.0）。
-* 界面：**配置 → 光源 → 空气散射**（开关 + 强度同一行，半径下一行；只有全局值）。
-* `/mtr_lte scatter` / `scatter status` / `scatter on|off`。
+* `config/mtrlte.json`：`scatterEnabled`（默认 `true`）、`scatterSurface`（默认 `true`，
+  只关表面项、保留光雾）、`scatterStrength`（0.1–3，默认 1.0）、`scatterRadius`（1–24 格，默认 6.0）。
+* 界面：**配置 → 光源 → 空气散射**（开关 + 强度同一行，「照亮表面」一整行，半径下一行；只有全局值）。
+* `/mtr_lte scatter` / `scatter status` / `scatter on|off`；`status` 里 `surface=` 是表面项开关，
+  `litPx≈N` 是它实际点亮的像素数（第一次执行会显示 `measuring(run again)`，因为它让下一帧测量）。
+
+## 12. 与光带 / 灯晕互不干扰
+
+三者在同一个 `LightStyle` 上互不读写，各管一段：
+
+| | 光带 `BeamGlow` / 灯晕 `LightFlare` | 散射 `ScatterPass` |
+|---|---|---|
+| 时机 | `AFTER_TRANSLUCENT`（几何层，会写/测深度） | `WorldRenderEvents.LAST`（世界画完之后） |
+| 几何 | 每盏灯一张/几片面 | **零顶点**，一个全屏四边形 |
+| 颜色 | 加色贴图，`depthMask(false)` + 深度测试 | 替换整屏颜色（`dst=src`），`disableDepthTest` + `depthMask(false)` |
+| 灯位 | `TrainLamps` 同一份 | `TrainLamps` 同一份（`ScatterLights` 复用同一个门与排序） |
+| 开关 | `lightStyle` / `beamGlow` / `beamFlare` | `scatterEnabled` / `scatterSurface` |
+
+* 散射在 `LAST`，此时光带/灯晕早已画进颜色附件；它读的是**拷贝**，所以既不会被它们的加色污染
+  （拷贝发生在它们之后，属于"看到的就是最终画面"），也不会把它们的像素改坏——它只在最后
+  一次性地把"场景 + 灯光"写成同一个值。
+* 散射**不写深度**（`depthMask(false)`，且 `LAST` 之后没人再用深度），所以不会影响 GUI/手；
+  它也不读 stencil/shadow。
+* 灯位来自同一份 `TrainLamps`，所以关掉散射不会让光带/灯晕的位置或颜色变；反之亦然。
+  三者唯一的共享量是灯位和颜色，没有共享的 GL 状态（各自的 `finally` 都还原到底）。

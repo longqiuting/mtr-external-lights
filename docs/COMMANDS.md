@@ -25,9 +25,24 @@
 | `/mtr_lte headlight off` | 常关 |
 | `/mtr_lte flare` / `/mtr_lte flare status` | 查看光样式 + 光带/灯晕各自画不画 + 灯位来源与方块光照状态 |
 | `/mtr_lte flare style band\|flare\|both` | 切换光样式：光带 / 灯晕 / 两者都画（写盘、立即生效，与面板「光样式」同一个键） |
-| `/mtr_lte scatter` / `scatter status` | 屏幕空间散射（车灯在空气里的光雾）：开关 / shader 程序状态 / 上一帧送进 shader 的灯数 |
+| `/mtr_lte scatter` / `scatter status` | 屏幕空间散射（车灯照亮地面/墙面 + 空气里的光雾）：开关 / shader 程序状态 / 送进 shader 的灯数 / 表面项开关 / `litPx≈N` |
 | `/mtr_lte scatter on` / `off` | 开关全屏散射 pass（写盘、下一帧生效；没灯时零开销） |
 | `/mtr_lte lighttest on` / `off` | **渲染路径取证**：洋红四边形（灯晕层）+ 左半屏红（散射 pass 自己画）+ 右半屏蓝（时机对照）。只在内存里，退出游戏失效 |
+
+### 散射状态一行怎么读（`/mtr_lte scatter status`）
+
+```
+scatter on program=ok strength=1.00 radius=6.0 lights=4/16 depth=1920x1080 surface=on color=1920x1080 litPx=≈184320(0s ago)
+```
+
+| 字段 | 含义 |
+|---|---|
+| `scatter on\|off` | `scatterEnabled`：整个全屏 pass 的总开关 |
+| `program=ok\|missing\|failed(…)` | 手加载的 `mtrlte:light_scatter` 程序是否编译成功；`failed(…)` 后面就是失败原因（和日志里那条 WARN 同一个字符串） |
+| `lights=n/16` | 上一帧真正送进 shader 的灯数（最近 16 盏）；`0` 时 pass 不做任何 GL 工作 |
+| `depth=` / `color=` | 深度 / 颜色拷贝纹理的尺寸；`none` = 还没有任何一帧有灯（pass 不建纹理） |
+| `surface=on\|off` | `scatterSurface`：表面项（真照亮地面/墙面）这一层开没开。关掉后只留空气光雾 |
+| `litPx≈N` | 表面项实际点亮了多少像素。**需要跑两次**：第一次是 `measuring(run again)`，本命令让下一帧把覆盖写进输出 alpha 并按 96×54 降采样读回来估算；为这一个诊断值不值得每帧回读整屏 |
 
 ### 车灯渲染路径取证（`/mtr_lte lighttest`）
 

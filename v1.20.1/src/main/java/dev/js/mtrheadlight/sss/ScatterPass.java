@@ -20,20 +20,27 @@ import org.joml.Matrix4f;
 import java.util.Locale;
 
 /**
- * <b>Full-screen screen-space scattering for the train lamps</b> - the "light in the air" that a
- * billboard flare cannot give.
+ * <b>Full-screen screen-space lamp lighting for the train lamps</b> - the two things a billboard
+ * flare cannot do: the light the lamps throw <em>onto</em> the ground, walls and car bodies
+ * (surface term) and the light they scatter <em>in the air</em> (volume term).
  *
  * <h2>Where the pass sits</h2>
  * {@code WorldRenderEvents.LAST}: every framebuffer write of the frame is finished (terrain,
  * entities, particles, weather, clouds) but the world has not been torn down, so the main
- * framebuffer is still bound and its depth attachment still describes the frame we are about to read.
- * The GUI and the hand come later, which is what makes this a scene-wide effect rather than an
- * overlay.
+ * framebuffer is still bound and its depth + colour attachments still describe the frame we are
+ * about to read. The GUI and the hand come later, which is what makes this a scene-wide effect
+ * rather than an overlay.
  *
- * <h2>The model</h2>
- * Each lamp is treated as a small glowing volume (a sphere of radius {@code scatterRadius}) that only
- * scatters the light it is aimed at, and the pass integrates the part of that volume the view ray
- * actually crosses, up to the first opaque surface:
+ * <h2>The two terms</h2>
+ * <b>Surface</b> - the lamps really light what is on screen. For the pixel's own surface point
+ * {@code P} (rebuilt from the depth copy) the normal comes from {@code dFdx(P) x dFdy(P)}, and each
+ * lamp contributes
+ * {@code spot(smoothstep of the cone) * distance window * 1/(1+d^2/9) * max(N.L, 0)}. Multiplied by
+ * the <b>albedo</b> of that pixel (the scene-colour copy) this is illumination, not a decal: a dark
+ * platform answers darkly and a white wall answers brightly, and both follow the geometry, because
+ * the normal is the real surface normal of the frame.
+ *
+ * <b>Volume</b> - "light in the air": the part of a lamp's glowing sphere the view ray crosses.
  *
  * <pre>
  *   per pixel:   p(t) = originNear + t*rd,  t in [0, sceneDepth],  rd from inverse(proj*view)
@@ -64,17 +71,35 @@ import java.util.Locale;
  *       the glow exactly where it cuts the view - the reason this is worth doing on the GPU at all.</li>
  * </ul>
  *
- * <h2>Why the colour attachment is never sampled</h2>
- * The pass writes into the main framebuffer's colour attachment with additive blending, so it cannot
- * read that attachment (that would be a read/write feedback loop on the same texture) and therefore
- * cannot do a "scene-aware" roll-off. It does not need to: every channel saturates at 1 independently
- * through {@code 1 - exp(-x)}, which self-limits a bright lamp against a dark scene and cannot produce
- * the blown-out white block a plain {@code scene + light} would.
+ * <h2>Why the colour attachment is copied, never sampled in place</h2>
+ * The surface term needs the albedo of the pixel it lights, and that pixel is <b>in the attachment
+ * this pass writes to</b> - sampling it directly is a read/write feedback loop on one texture. So the
+ * colour is blitted once per frame into our own RGBA8 texture ( {@link ColorCopy} ), exactly like the
+ * depth ({@link DepthCopy}): two different attachments, two different textures, and the shader only
+ * ever reads the copies.
+ *
+ * <h2>The composite</h2>
+ * Because the result depends on the scene colour, this is no longer an additive pass. The shader
+ * writes the whole screen and the json deliberately has <b>no {@code blend} section</b>, which is how
+ * a core shader says "blending disabled, dst = src" ( {@code GlBlendState#blendDisabled} ):
+ *
+ * <pre>
+ *   added = volumeSum * 1.6 + surfaceSum * (scene * 6.0 + 0.03)
+ *   lit   = scene + (1 - exp(-added * strength)) * (1 - 0.5 * scene)
+ * </pre>
+ *
+ * The exponential keeps a bright lamp from clipping to a white card, the {@code 1 - 0.5*scene}
+ * factor keeps already-bright pixels from being washed out twice, and {@code added == 0} reproduces
+ * {@code scene} exactly - so an empty lamp list or a wrong reconstruction matrix can only leave the
+ * frame as it was, never blank it.
  *
  * <h2>Cost</h2>
- * One full-screen quad, one depth blit, and at most {@value ScatterLights#MAX} lamps in the fragment
- * loop. No texture fetch inside the lamp loop, no per-lamp draw. Zero lamps means the method returns
- * before touching GL - no depth copy, no framebuffer, no program bind. A shader pack (Iris/OptiFine)
+ * One full-screen quad, one depth blit, one colour blit, and at most {@value ScatterLights#MAX} lamps
+ * in the fragment loop (the loop is shared by both terms - the surface term adds no second pass and
+ * no second lamp loop). No texture fetch inside the loop, no per-lamp draw. {@code scatterSurface}
+ * off skips the whole surface block (a uniform branch, so the per-lamp normal/spot/N-dot-L work is
+ * not executed at all) while the blits and the volume stay. Zero lamps means the method returns
+ * before touching GL - no copies, no framebuffer, no program bind. A shader pack (Iris/OptiFine)
  * owns the pipeline and the depth buffer, so the pass is skipped there with one log line.
  */
 public final class ScatterPass {
@@ -90,6 +115,18 @@ public final class ScatterPass {
     private static final float COS_OUTER = 0.55F;
     /** HG can spike hard head-on; cap it so a lamp staring at the camera does not bloom the screen. */
     private static final float PHASE_MAX = 4.0F;
+    /**
+     * Volume calibration: {@code uParams.x}. The user's {@code scatterStrength} is applied in the
+     * composite ({@link #strength}), so this stays a constant and the volume term keeps its old
+     * look at strength = 1.
+     */
+    private static final float VOLUME_GAIN = 1.6F;
+    /**
+     * Surface attenuation reference, blocks squared: the surface term uses
+     * {@code 1 / (1 + d^2 / 9)}, i.e. half strength at 3 blocks, a fifth at 6 - roughly the 1/d^2
+     * irradiance a lamp has, softened so the near field does not explode.
+     */
+    private static final float ATTENUATION_REF = 9.0F;
 
     private static final long LOG_INTERVAL_MS = 5000L;
 
@@ -101,6 +138,7 @@ public final class ScatterPass {
 
     private static boolean packWarned;
     private static boolean depthWarned;
+    private static boolean colorWarned;
     private static boolean startupLogged;
     private static String viewSource;
     private static long windowStart = System.currentTimeMillis();
@@ -109,6 +147,15 @@ public final class ScatterPass {
     private static int maxLights;
     private static double msSum;
     private static int msCount;
+    /**
+     * The lit-pixel probe: {@code /mtr_lte scatter status} arms it, the next frame writes the
+     * per-pixel coverage into the output alpha and reads back a downsampled copy. Off by default so
+     * a normal frame never pays for a readback. Client tick and render share the thread, so a plain
+     * field is enough.
+     */
+    private static boolean probeRequested;
+    private static int lastLitPixels = -1;
+    private static long lastProbeMs;
 
     private ScatterPass() {
     }
@@ -133,8 +180,9 @@ public final class ScatterPass {
                 // ever compile" even on a run that never entered a world (this is the evidence the
                 // title-screen probe produces).
                 MtrHeadlightClient.LOGGER.info("[lte] scatter: lights=0/{} program=ok depth=none "
-                        + "frames=0 candidates=0 (shader compiled; the pass runs once a world with "
-                        + "lit lamps is drawn)", Integer.valueOf(ScatterLights.MAX));
+                        + "surface={} frames=0 candidates=0 (shader compiled; the pass runs once a "
+                        + "world with lit lamps is drawn)", Integer.valueOf(ScatterLights.MAX),
+                        cfg.scatterSurface ? "on" : "off");
             }
         } catch (Throwable t) {
             MtrHeadlightClient.LOGGER.warn("[lte] scatter: shader probe failed", t);
@@ -208,6 +256,20 @@ public final class ScatterPass {
                 }
                 return;
             }
+            /*
+             * The colour copy is not optional any more: the composite writes
+             * scene + light * albedo, so without a copy of the scene there is nothing to write back
+             * (the pass would have to sample the attachment it is drawing into). Failing here means
+             * no pass at all - not a black screen.
+             */
+            if (!ColorCopy.update(framebuffer)) {
+                if (!colorWarned) {
+                    colorWarned = true;
+                    MtrHeadlightClient.LOGGER.warn("[lte] scatter: the scene colour could not be "
+                            + "copied this frame - the pass stays off (there is no albedo to light)");
+                }
+                return;
+            }
 
             /*
              * Depth reconstruction matrix: inverse(projection * view). Everything stays
@@ -218,10 +280,19 @@ public final class ScatterPass {
             VIEW_PROJ.set(RenderSystem.getProjectionMatrix()).mul(view);
             INVERSE.set(VIEW_PROJ).invert();
 
-            ScatterProgram.uniforms(INVERSE, gain(cfg), EXTINCTION, MAX_RAY, PHASE_G,
-                    COS_INNER, COS_OUTER, lights, LIGHT_POS, LIGHT_DIR, LIGHT_COLOR);
+            final boolean coverage = probeRequested;
+            ScatterProgram.uniforms(INVERSE, VOLUME_GAIN, EXTINCTION, MAX_RAY, PHASE_G,
+                    COS_INNER, COS_OUTER, strength(cfg), ATTENUATION_REF, cfg.scatterSurface,
+                    coverage, lights, LIGHT_POS, LIGHT_DIR, LIGHT_COLOR);
 
             draw();
+
+            if (coverage) {
+                // Blit + 20 KB readback, once - only on the frame the status command asked for.
+                probeRequested = false;
+                lastLitPixels = ColorCopy.probeLitPixels(framebuffer);
+                lastProbeMs = System.currentTimeMillis();
+            }
             lastLights = lights;
             maxLights = Math.max(maxLights, lights);
             frames++;
@@ -247,12 +318,19 @@ public final class ScatterPass {
         }
 
         RenderSystem.setShader(ScatterProgram::program);
-        // -1 = 这一帧还没有深度拷贝（只有 lighttest 会走到），绑 0 而不是把一个非法 id 交给 GL。
+        // -1 = 这一帧还没有拷贝（只有 lighttest 会走到），绑 0 而不是把一个非法 id 交给 GL。
         final int depth = DepthCopy.texture();
         RenderSystem.setShaderTexture(0, depth == -1 ? 0 : depth);
+        final int color = ColorCopy.texture();
+        RenderSystem.setShaderTexture(1, color == -1 ? 0 : color);
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
-        RenderSystem.enableBlend();
-        RenderSystem.blendFunc(GlStateManager.SrcFactor.SRC_ALPHA, GlStateManager.DstFactor.ONE);
+        /*
+         * Blending off, dst = src: the shader writes the *whole* screen colour (scene + lamp light),
+         * so it must replace the pixel, not add to it. The json has no "blend" section for the same
+         * reason - a core program applies its own GlBlendState on bind(), which would silently
+         * override anything set here. Disabling it here as well keeps the two in agreement.
+         */
+        RenderSystem.disableBlend();
         // The glow is already a function of the scene depth, so the depth buffer itself must neither
         // reject the quad nor be written by it.
         RenderSystem.disableDepthTest();
@@ -269,10 +347,14 @@ public final class ScatterPass {
              */
             RenderSystem.depthMask(true);
             RenderSystem.enableDepthTest();
+            // Back to what the rest of the frame expects: blending on, the vanilla additive-ish
+            // function, nothing of ours left on either texture unit.
+            RenderSystem.enableBlend();
             RenderSystem.defaultBlendFunc();
             RenderSystem.enableCull();
             RenderSystem.setShader(GameRenderer::getPositionColorProgram);
             RenderSystem.setShaderTexture(0, 0);
+            RenderSystem.setShaderTexture(1, 0);
             RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         }
     }
@@ -321,10 +403,12 @@ public final class ScatterPass {
         }
     }
 
-    /** Scatter strength, clamped, so a hand-edited json cannot turn the screen into a white card. */
-    private static float gain(final HeadlightConfig cfg) {
-        final double strength = cfg.scatterStrengthClamped();
-        return (float) (strength * 1.6D);
+    /**
+     * The user's {@code scatterStrength}, clamped, so a hand-edited json cannot turn the screen into
+     * a white card. It is the {@code k} of the composite {@code 1 - exp(-added * k)} for both terms.
+     */
+    private static float strength(final HeadlightConfig cfg) {
+        return (float) cfg.scatterStrengthClamped();
     }
 
     /**
@@ -413,12 +497,13 @@ public final class ScatterPass {
         final double avg = msCount == 0 ? 0.0D : msSum / msCount;
         MtrHeadlightClient.LOGGER.info(String.format(Locale.ROOT,
                 "[lte] scatter: lights=%d/%d program=%s candidates=%d frames=%d maxLights=%d "
-                        + "avgMs=%.2f strength=%.2f radius=%.1f",
+                        + "avgMs=%.2f strength=%.2f radius=%.1f surface=%s",
                 Integer.valueOf(lastLights), Integer.valueOf(ScatterLights.MAX),
                 ScatterProgram.status(), Integer.valueOf(ScatterLights.candidates()),
                 Integer.valueOf(frames), Integer.valueOf(maxLights), Double.valueOf(avg),
                 Double.valueOf(cfg.scatterStrengthClamped()),
-                Double.valueOf(cfg.scatterRadiusClamped())));
+                Double.valueOf(cfg.scatterRadiusClamped()),
+                cfg.scatterSurface ? "on" : "off"));
         windowStart = now;
         frames = 0;
         maxLights = 0;
@@ -426,9 +511,9 @@ public final class ScatterPass {
         msCount = 0;
     }
 
-    /** Status for {@code /mtr_lte scatter status}. */
+    /** Status for {@code /mtr_lte scatter status}. Arms the lit-pixel probe for the next frame. */
     public static String status(final HeadlightConfig cfg) {
-        final StringBuilder sb = new StringBuilder(128);
+        final StringBuilder sb = new StringBuilder(192);
         sb.append("scatter ").append(cfg.scatterEnabled ? "on" : "off");
         sb.append(" program=").append(ScatterProgram.status());
         sb.append(" strength=").append(String.format(Locale.ROOT, "%.2f",
@@ -438,6 +523,10 @@ public final class ScatterPass {
         sb.append(" lights=").append(lastLights).append('/').append(ScatterLights.MAX);
         sb.append(" depth=").append(DepthCopy.texture() == -1 ? "none"
                 : DepthCopy.width() + "x" + DepthCopy.height());
+        sb.append(" surface=").append(cfg.scatterSurface ? "on" : "off");
+        sb.append(" color=").append(ColorCopy.texture() == -1 ? "none"
+                : ColorCopy.width() + "x" + ColorCopy.height());
+        sb.append(" litPx=").append(litPixels(cfg));
         if (ScatterProgram.failure() != null) {
             sb.append(" failure=").append(ScatterProgram.failure());
         }
@@ -445,6 +534,39 @@ public final class ScatterPass {
             sb.append(" (shader pack active: pass skipped)");
         }
         return sb.toString();
+    }
+
+    /**
+     * The lit-pixel figure, and the reason it can lag by one frame.
+     *
+     * <p>Nothing can answer "how many pixels got surface light" without either a GPU counter or a
+     * readback, so the shader writes the per-pixel coverage into the output alpha and this arms a
+     * one-shot downsample + readback for the <b>next</b> frame ({@link ColorCopy#probeLitPixels}).
+     * A status command therefore fills the number for the next one; the alternative - reading back
+     * 8 MB on every frame - is not worth a diagnostic.
+     */
+    private static String litPixels(final HeadlightConfig cfg) {
+        if (!cfg.scatterSurface) {
+            return "n/a(surface off)";
+        }
+        if (lastLights == 0) {
+            // No lamps in the last drawn frame: there is nothing to measure, and the probe would
+            // stay armed until a frame with lamps exists.
+            return "n/a(no lit lamps)";
+        }
+        if (probeRequested) {
+            return "measuring(run again)";
+        }
+        if (lastLitPixels < 0) {
+            return "n/a(no frame)";
+        }
+        final long age = Math.max(0L, System.currentTimeMillis() - lastProbeMs);
+        return "≈" + lastLitPixels + "(" + (age / 1000L) + "s ago)";
+    }
+
+    /** {@code /mtr_lte scatter status}: asks the next frame to measure the lit-pixel count. */
+    public static void requestLitPixelProbe() {
+        probeRequested = true;
     }
 
     /** First line of a throwable's message, for a one-line log field. */
@@ -455,9 +577,10 @@ public final class ScatterPass {
         return head.length() > 120 ? head.substring(0, 120) : head;
     }
 
-    /** Releases the program and the depth target; called when the client stops. */
+    /** Releases the program and both copy targets; called when the client stops. */
     public static void shutdown() {
         DepthCopy.release();
+        ColorCopy.release();
         ScatterProgram.close();
     }
 }

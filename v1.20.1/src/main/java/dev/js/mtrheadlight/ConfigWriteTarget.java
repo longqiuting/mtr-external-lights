@@ -180,10 +180,19 @@ abstract class ConfigWriteTarget {
      * 观感时才在侧线页单独打开。37 是数值表（0–35、40）与 {@link #SCATTER}（36）之外第一个空位。
      */
     static final int RAIL_LIGHT = 37;
+    /**
+     * 散射的<b>表面项</b>（{@link HeadlightConfig#scatterSurface}）：车灯真的把地面 / 墙面 / 车体
+     * 照亮，而不是只在空气里留一层光雾。全局开关，理由同 {@link #SCATTER}（一次全屏 pass）。
+     *
+     * <p>两层的代价不同：表面项贵在「逐灯 spot + 法线 + N·L」，所以它单独一个开关 —— 关掉它只少
+     * 那一块数学，光雾与合成照旧。38 是数值表（0–35、40）之外、{@link #SCATTER}（36）与
+     * {@link #RAIL_LIGHT}（37）之后第一个空位。
+     */
+    static final int SCATTER_SURFACE = 38;
     static final int[] ALL_TOGGLES = {
             MASTER, DYNAMIC_LIGHT, LIGHT_BAND, RAIN_SPRAY, BUILTIN_TRAINS,
             TRAIN_COLLISION, TRACKBED, TRAIN_DAMAGE, TRAIN_MOBS, RAIN_HUSH, DAMAGE_IN_CREATIVE,
-            SCATTER, RAIL_LIGHT,
+            SCATTER, RAIL_LIGHT, SCATTER_SURFACE,
     };
 
     /**
@@ -562,6 +571,8 @@ abstract class ConfigWriteTarget {
                     return eff.rainHush;
                 case SCATTER:
                     return config().scatterEnabled;
+                case SCATTER_SURFACE:
+                    return config().scatterSurface;
                 case RAIL_LIGHT:
                     return config().railLight;
                 default:
@@ -617,6 +628,9 @@ abstract class ConfigWriteTarget {
                     break;
                 case SCATTER:
                     config().scatterEnabled = on;
+                    break;
+                case SCATTER_SURFACE:
+                    config().scatterSurface = on;
                     break;
                 case RAIL_LIGHT:
                     config().railLight = on;
@@ -828,6 +842,9 @@ abstract class ConfigWriteTarget {
                 case SCATTER:
                     c.scatterEnabled = d.scatterEnabled;
                     break;
+                case SCATTER_SURFACE:
+                    c.scatterSurface = d.scatterSurface;
+                    break;
                 case RAIL_LIGHT:
                     c.railLight = d.railLight;
                     break;
@@ -908,6 +925,7 @@ abstract class ConfigWriteTarget {
             c.rainHush = d.rainHush;
             c.headlightMode = d.headlightMode;
             c.scatterEnabled = d.scatterEnabled;
+            c.scatterSurface = d.scatterSurface;
             c.scatterStrength = d.scatterStrength;
             c.scatterRadius = d.scatterRadius;
             // Restoring the globals while a siding still overrode them would leave the world on the
@@ -1010,6 +1028,7 @@ abstract class ConfigWriteTarget {
                 case SCATTER_STRENGTH:
                 case SCATTER_RADIUS:
                 case SCATTER:
+                case SCATTER_SURFACE:
                     ignored(which);
                     return 0.0D;
                 default:
@@ -1084,6 +1103,7 @@ abstract class ConfigWriteTarget {
                 case SCATTER_STRENGTH:
                 case SCATTER_RADIUS:
                 case SCATTER:
+                case SCATTER_SURFACE:
                     ignored(which);
                     break;
                 default:
@@ -1116,6 +1136,7 @@ abstract class ConfigWriteTarget {
                 case TRAIN_MOBS:
                 case DAMAGE_IN_CREATIVE:
                 case SCATTER:
+                case SCATTER_SURFACE:
                     ignored(which);
                     return false;
                 default:
@@ -1154,6 +1175,7 @@ abstract class ConfigWriteTarget {
                 case TRAIN_MOBS:
                 case DAMAGE_IN_CREATIVE:
                 case SCATTER:
+                case SCATTER_SURFACE:
                     ignored(which);
                     break;
                 default:
@@ -1235,6 +1257,7 @@ abstract class ConfigWriteTarget {
                 case SCATTER_STRENGTH:
                 case SCATTER_RADIUS:
                 case SCATTER:
+                case SCATTER_SURFACE:
                     ignored(which);
                     return true;
                 default:
@@ -1269,6 +1292,7 @@ abstract class ConfigWriteTarget {
                 case TRAIN_MOBS:
                 case DAMAGE_IN_CREATIVE:
                 case SCATTER:
+                case SCATTER_SURFACE:
                     ignored(which);
                     return true;
                 default:
@@ -1374,6 +1398,7 @@ abstract class ConfigWriteTarget {
                 case SCATTER_STRENGTH:
                 case SCATTER_RADIUS:
                 case SCATTER:
+                case SCATTER_SURFACE:
                     ignored(which);
                     break;
                 default:
@@ -1417,6 +1442,7 @@ abstract class ConfigWriteTarget {
                 case TRAIN_MOBS:
                 case DAMAGE_IN_CREATIVE:
                 case SCATTER:
+                case SCATTER_SURFACE:
                     ignored(which);
                     break;
                 default:

@@ -665,6 +665,24 @@ public final class HeadlightConfig {
      */
     public double scatterRadius = 6.0D;
 
+    /**
+     * 散射的<b>表面项</b>：车灯真的把地面 / 墙面 / 车体照亮（默认开）。
+     *
+     * <p>同一个全屏 pass 里的两层可以分开关：
+     * <ul>
+     *   <li>{@code true}（默认）= 表面项 + 体积项。着色器把场景颜色拷一份当 albedo，用深度的
+     *       {@code dFdx × dFdy} 求面法线，逐灯算 <code>spot × 距离窗 × 1/(1+d²/9) × max(N·L,0)</code>，
+     *       最后 <code>scene + (1-exp(-added·strength))·(1-0.5·scene)</code> 直接替换整屏颜色。
+     *       这就是「地面被照亮」的来源，它不改任何光照数据、不重烘 chunk。</li>
+     *   <li>{@code false} = 只保留体积项（空气里的光雾），表面项整块被 uniform 分支跳过，
+     *       每帧省掉逐灯的 spot / 法线 / N·L 计算；拷贝与合成照旧（合成本来就要读场景色）。</li>
+     * </ul>
+     *
+     * <p>父开关是 {@link #scatterEnabled}：它关掉时这个值不生效。配置界面在「光源 → 空气散射」，
+     * 中文行名「照亮表面」。
+     */
+    public boolean scatterSurface = true;
+
     /** {@link #scatterStrength} 钳制到 [0.1, 3]。 */
     public double scatterStrengthClamped() {
         return clamp(scatterStrength, 0.1D, 3.0D);

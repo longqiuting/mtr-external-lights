@@ -58,6 +58,7 @@ final class ScatterProgram {
     private static GlUniform uInvViewProj;
     private static GlUniform uParams;
     private static GlUniform uCone;
+    private static GlUniform uSurface;
     private static GlUniform uCount;
     private static GlUniform uTest;
     private static GlUniform uLightPos;
@@ -111,12 +112,14 @@ final class ScatterProgram {
             final GlUniform invViewProj = require(loaded, "uInvViewProj");
             final GlUniform params = require(loaded, "uParams");
             final GlUniform cone = require(loaded, "uCone");
+            final GlUniform surface = require(loaded, "uSurface");
             final GlUniform count = require(loaded, "uCount");
             final GlUniform test = require(loaded, "uTest");
             final GlUniform lightPos = require(loaded, "uLightPos");
             final GlUniform lightDir = require(loaded, "uLightDir");
             final GlUniform lightColor = require(loaded, "uLightColor");
-            if (invViewProj == null || params == null || cone == null || count == null
+            if (invViewProj == null || params == null || cone == null || surface == null
+                    || count == null
                     || test == null
                     || lightPos == null || lightDir == null || lightColor == null) {
                 // A uniform the compiler dropped (renamed, or no longer read) would make the pass
@@ -128,6 +131,7 @@ final class ScatterProgram {
             uInvViewProj = invViewProj;
             uParams = params;
             uCone = cone;
+            uSurface = surface;
             uCount = count;
             uTest = test;
             uLightPos = lightPos;
@@ -175,14 +179,25 @@ final class ScatterProgram {
         return uniform;
     }
 
-    /** Pushes one frame's worth of state. {@code count} lamps must already be in the arrays. */
-    static void uniforms(final Matrix4f inverseViewProj, final float gain, final float extinction,
-                         final float maxRay, final float phaseG, final float cosInner,
-                         final float cosOuter, final int count, final float[] pos,
-                         final float[] dir, final float[] color) {
+    /**
+     * Pushes one frame's worth of state. {@code count} lamps must already be in the arrays.
+     *
+     * @param volumeGain    the volume calibration constant ({@code uParams.x}), not the strength
+     * @param strength      the user's strength ({@code uSurface.x}); the composite gain
+     * @param attenuationRef squared distance (blocks^2) at which the surface term halves
+     * @param surface       {@code uSurface.z}: compile-block switch for the surface term
+     * @param coverage      {@code uSurface.w}: write the lit-pixel probe into the output alpha
+     */
+    static void uniforms(final Matrix4f inverseViewProj, final float volumeGain,
+                         final float extinction, final float maxRay, final float phaseG,
+                         final float cosInner, final float cosOuter, final float strength,
+                         final float attenuationRef, final boolean surface, final boolean coverage,
+                         final int count, final float[] pos, final float[] dir,
+                         final float[] color) {
         uInvViewProj.set(inverseViewProj);
-        uParams.set(gain, extinction, maxRay, phaseG);
+        uParams.set(volumeGain, extinction, maxRay, phaseG);
         uCone.set(cosInner, cosOuter, 0.0F, 0.0F);
+        uSurface.set(strength, attenuationRef, surface ? 1.0F : 0.0F, coverage ? 1.0F : 0.0F);
         uCount.set(count);
         // 真实渲染永远回到「不强制纯色」—— 探针关掉之后不会留下一个红色的 pass。
         uTest.set(0);
@@ -218,6 +233,7 @@ final class ScatterProgram {
         uInvViewProj = null;
         uParams = null;
         uCone = null;
+        uSurface = null;
         uCount = null;
         uTest = null;
         uLightPos = null;
