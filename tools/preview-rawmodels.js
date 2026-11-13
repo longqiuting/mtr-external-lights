@@ -355,4 +355,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { mesh, render, camera, decodePng, ROOT, OUT };
+module.exports = { mesh, render, camera, decodePng, writePng, crc32, ROOT, OUT };

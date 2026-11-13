@@ -40,9 +40,24 @@ public final class RawMesh {
      * @param normal   外法线（单位向量）
      * @param shade    方向明暗系数（见类注释）
      * @param fullBright 自发光：lightmap 拉满、颜色不压暗（原版的 {@code "shade": false}）
+     * @param group    源文件里的 {@code o} / {@code g} 组名（{@link RawModelJson} 恒为 {@code ""}），
+     *                 目前只记录、渲染层不用 —— 留给「按组隐藏 / 换材质」这类后续需求
      */
-    public record Quad(float[][] pos, float[][] uv, float[] normal, float shade, boolean fullBright) {
+    public record Quad(float[][] pos, float[][] uv, float[] normal, float shade, boolean fullBright,
+                       String group) {
+
+        /**
+         * 没有组名的五参数写法（{@link RawModelJson} 用它；组名兜底成空串）。
+         *
+         * <p>加这个构造器是为了让「给 {@code Quad} 加一个字段」不需要改动任何已有的解析器 ——
+         * record 的规范构造器新增一个分量时，老的 5 参数调用点会全部编译失败。
+         */
+        public Quad(final float[][] pos, final float[][] uv, final float[] normal, final float shade,
+                    final boolean fullBright) {
+            this(pos, uv, normal, shade, fullBright, "");
+        }
     }
+
 
     private final Identifier texture;
     private final Quad[] quads;
@@ -63,5 +78,32 @@ public final class RawMesh {
 
     public int quadCount() {
         return this.quads.length;
+    }
+
+    /**
+     * 模型空间包围盒：{@code [minX, minY, minZ, maxX, maxY, maxZ]}（0..16 单位）。
+     *
+     * <p>给「碰撞箱从几何推」用（{@code xiamen.eyecandy} 那 26 个物件就是按它算的）。
+     * 空网格返回全 0。
+     */
+    public double[] bounds() {
+        final double[] box = {Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE,
+                -Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE};
+        for (final Quad quad : this.quads) {
+            for (final float[] p : quad.pos()) {
+                for (int axis = 0; axis < 3; axis++) {
+                    if (p[axis] < box[axis]) {
+                        box[axis] = p[axis];
+                    }
+                    if (p[axis] > box[axis + 3]) {
+                        box[axis + 3] = p[axis];
+                    }
+                }
+            }
+        }
+        if (box[0] > box[3]) {
+            return new double[6];
+        }
+        return box;
     }
 }

@@ -112,6 +112,10 @@ public final class XiamenClient implements ClientModInitializer {
 
         // 7) 闸机（4 个）：几何改由 BER 运行时画（rawmodels），这里只注册渲染器。
         dev.js.mtrheadlight.xiamen.ticket.XiamenTicketGateClient.register();
+
+        // 8) 厦门风格物件包的 26 个 eyecandy：几何由 BER 运行时画（.obj），这里只注册渲染器。
+        //    方块本身是 empty 模型，所以也不挂 putBlock。
+        dev.js.mtrheadlight.xiamen.eyecandy.EyecandyClient.register();
     }
 
     private static void put(net.minecraft.block.Block block, String what) {

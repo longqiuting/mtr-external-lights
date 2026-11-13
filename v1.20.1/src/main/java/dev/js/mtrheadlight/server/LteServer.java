@@ -180,6 +180,14 @@ public final class LteServer implements ModInitializer {
             LteLog.LOGGER.warn("[lte] xiamen ticket gates unavailable", t);
         }
 
+        // 厦门风格物件包里的 26 个 eyecandy（.obj 几何，运行时由 BER 画）：方块 + 物品 + 独立页签
+        // mtrlte:xiamen_decor。碰撞箱在注册期从 obj 顶点重推（两端都要，所以排在服务端也跑的这一段里）。
+        try {
+            dev.js.mtrheadlight.xiamen.eyecandy.EyecandyBlocks.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] xiamen eyecandy decorations unavailable", t);
+        }
+
         try {
             ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
                 try {
