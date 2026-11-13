@@ -101,6 +101,8 @@ public final class ParameterScreen extends Screen {
     private static final int ROW_TOGGLE_WIDE = 4;
     /** 三态值（车灯模式 自动 / 常亮 / 关闭）：整行一个按钮，点一下换下一档。 */
     private static final int ROW_CYCLE = 5;
+    /** {@link #ROW_CYCLE} 的档数：车灯模式（自动/常亮/关闭）与光样式（光带/灯晕/两者）都是三档。 */
+    private static final int ROW_CYCLE_STATES = 3;
 
     /** The layout line is logged once per session, not once per screen open. */
     private static boolean layoutLogged;
@@ -188,6 +190,17 @@ public final class ParameterScreen extends Screen {
     private static final double DMG_CAP_MIN = 0.0D;
     private static final double DMG_CAP_MAX = 100.0D;
     private static final double DMG_CAP_STEP = 0.5D;
+    /**
+     * 屏幕空间散射：强度 0.1–3（默认 1.0，步长 0.05 —— 值得细调，1.0 与 1.3 的差别眼睛看得出来）、
+     * 空气球半径 1–24 格（默认 6，步长 0.5）。区间与 {@code HeadlightConfig.scatter*Clamped()}
+     * 完全一致，滑块不会把一个 clamp 掉的值显示成另一个数。
+     */
+    private static final double SCATTER_STR_MIN = 0.1D;
+    private static final double SCATTER_STR_MAX = 3.0D;
+    private static final double SCATTER_STR_STEP = 0.05D;
+    private static final double SCATTER_R_MIN = 1.0D;
+    private static final double SCATTER_R_MAX = 24.0D;
+    private static final double SCATTER_R_STEP = 0.5D;
 
     /** 分区列表（返回分区 / ESC 都回这里）。 */
     private final Screen parent;
@@ -351,9 +364,9 @@ public final class ParameterScreen extends Screen {
                     break;
                 case ROW_TOGGLE_WIDE:
                 case ROW_CYCLE:
-                    // 整行宽的一个按钮：只需要装下按钮文字本身。
+                    // 整行宽的一个按钮：只需要装下按钮文字本身（车灯模式 / 光样式）。
                     need = Math.max(need, textWidth(row.kind == ROW_CYCLE
-                            ? modeLabel() : toggleLabel(row.toggle)) + 14);
+                            ? cycleLabel(row.value) : toggleLabel(row.toggle)) + 14);
                     break;
                 case ROW_VALUE:
                     need = Math.max(need, textWidth(valueLabel(row.value)) + 14);
@@ -387,8 +400,8 @@ public final class ParameterScreen extends Screen {
     /**
      * The row table of THIS category only. Side-by-side comparison of the five partitions:
      * <pre>
-     *   光源  总开关|渲染距离 · 车灯模式(自动/常亮/关闭，全局页) · 灯晕|照射长度 ·
-     *         真实照亮|车灯亮度 · 车头/车尾颜色 · 光束距离/车头长度/车尾长度/光束宽度/
+     *   光源  总开关|渲染距离 · 车灯模式(自动/常亮/关闭，全局页) · 光样式(光带/灯晕/两者，全局页) ·
+     *         灯晕|照射长度 · 真实照亮|车灯亮度 · 车头/车尾颜色 · 光束距离/车头长度/车尾长度/光束宽度/
      *         车头高度/车尾高度 · 光束编辑
      *   碰撞  车体碰撞 · 碰撞高度 · 道床碰撞 · 车头延长 · 车尾延长 · 车顶掉落速度 · 车顶弯道半径
      *   粒子  雨天水雾|水雾起始速度 · 挡雨
@@ -396,10 +409,12 @@ public final class ParameterScreen extends Screen {
      *   其他  内置车型屏蔽 · 重载内置车型 · 立即重载光源
      * </pre>
      * 「车灯模式」放在光源分区第二行（用户要求：它决定灯什么时候亮，属于光源，不属于其他），
-     * 并且只在全局页出现 —— 它没有侧线覆盖。三个「灯」开关连在一起：
-     * <b>灯晕 → 真实照亮</b>（同一件事的两层：灯位上的加色光斑 / 写进区块网格的方块光照），
+     * 并且只在全局页出现 —— 它没有侧线覆盖。「光样式」紧跟其后，同样是全局页专属：
+     * 它是"这一版车灯用哪种画法"的全局选择（光带 / 灯晕 / 两者，默认光带），见
+     * {@code docs/light-styles.md}。三个「灯」开关连在一起：
+     * <b>光样式 → 灯晕 → 真实照亮</b>（灯位上的加色光斑 / 写进区块网格的方块光照），
      * 动态光源那行右边仍然是车灯亮度滑块，改开关立刻能用滑块看到效果。
-     * {@code isGlobal()} 为假时只留下侧线真能覆盖的行：光源全部（除车灯模式）、碰撞的两个端部延长、
+     * {@code isGlobal()} 为假时只留下侧线真能覆盖的行：光源全部（除车灯模式 / 光样式）、碰撞的两个端部延长、
      * 粒子的三项，以及伤害的开关 / 起点速度 / 上限。
      */
     private void buildRows() {
@@ -411,6 +426,9 @@ public final class ParameterScreen extends Screen {
                 // 属于光源。它没有侧线覆盖，所以只在全局页出现（侧线页多一行不可点的行没有意义）。
                 if (isGlobal()) {
                     this.rows.add(Row.mode());
+                    // 光样式（光带 / 灯晕 / 两者）：光带是玩家公认最好的一版，默认就是它；
+                    // 灯晕与它互为备份，两者也能同时画。逐侧线的灯晕覆盖仍在下面那条灯晕开关上。
+                    this.rows.add(Row.style());
                 }
                 this.rows.add(Row.toggle(ConfigWriteTarget.LIGHT_BAND, ConfigWriteTarget.HEAD_LENGTH));
                 // 动态照亮 + 车灯亮度：灯晕（billboard）与真实方块光照是同一件事的两层，
@@ -424,6 +442,14 @@ public final class ParameterScreen extends Screen {
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_WIDTH));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_HEAD_HEIGHT));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_TAIL_HEIGHT));
+                // 屏幕空间散射（空气散射）：开关 + 强度同一行，半径单独一行。只有全局值 ——
+                // 它是一次全屏 pass，和「哪条侧线的车」无关；行放在光束几何之后、编辑器入口之前，
+                // 因为它读的是同一批灯位（TrainLamps），只是画法在几何层之外。
+                if (isGlobal()) {
+                    this.rows.add(Row.toggle(ConfigWriteTarget.SCATTER,
+                            ConfigWriteTarget.SCATTER_STRENGTH));
+                    this.rows.add(Row.value(ConfigWriteTarget.SCATTER_RADIUS));
+                }
                 // 光束编辑：逐车型、逐束的几何 / 颜色 / 长度，入口放在光源分区最底部。
                 this.rows.add(Row.worldAction(tr("btn.beamEditor"), this::openBeamEditor));
                 // 立即重载光源：从「其他」搬到这里 —— 它重载的就是这一页在改的那套光源
@@ -539,11 +565,12 @@ public final class ParameterScreen extends Screen {
                 break;
             }
             case ROW_CYCLE: {
-                // 车灯模式：整行一个按钮，点一下切下一档（自动 -> 常亮 -> 关闭）。
-                addButton(this.colX, y, this.colW - RESET_W - GAP, ROW_H, modeLabel(), b -> {
+                // 三态值：整行一个按钮，点一下切下一档（车灯模式 自动->常亮->关闭；
+                // 光样式 光带->灯晕->两者）。两者的取值都走 readValue/writeValue，档数都是 3。
+                addButton(this.colX, y, this.colW - RESET_W - GAP, ROW_H, cycleLabel(row.value), b -> {
                     final int next = ((int) Math.round(
-                            this.target.readValue(ConfigWriteTarget.HEADLIGHT_MODE)) + 1) % 3;
-                    this.target.writeValue(ConfigWriteTarget.HEADLIGHT_MODE, next);
+                            this.target.readValue(row.value)) + 1) % ROW_CYCLE_STATES;
+                    this.target.writeValue(row.value, next);
                     reinit();
                 });
                 addResetButton(row, y);
@@ -761,6 +788,10 @@ public final class ParameterScreen extends Screen {
             case ConfigWriteTarget.RAIN_HUSH:
                 return follow(this.target.readToggle(which)
                         ? tr("opt.rainHush.on") : tr("opt.rainHush.off"), which);
+            case ConfigWriteTarget.SCATTER:
+                // 全局开关，不走 follow()：侧线页根本不生成这一行。
+                return tr(this.target.readToggle(which)
+                        ? "opt.scatter.on" : "opt.scatter.off");
             default:
                 return follow(this.target.readToggle(which)
                         ? tr("opt.band.on") : tr("opt.band.off"), which);
@@ -791,6 +822,30 @@ public final class ParameterScreen extends Screen {
     private MutableText modeLabel() {
         final int index = (int) Math.round(this.target.readValue(ConfigWriteTarget.HEADLIGHT_MODE));
         return tr("opt.mode", tr(modeKey(index)));
+    }
+
+    /**
+     * {@link #ROW_CYCLE} 那一行的按钮文字：车灯模式（自动/常亮/关闭）或光样式（光带/灯晕/两者）。
+     * 两者都读实时值，所以点一下只需要重建界面，不需要缓存。
+     */
+    private MutableText cycleLabel(final int which) {
+        if (which == ConfigWriteTarget.LIGHT_STYLE) {
+            final int index = (int) Math.round(this.target.readValue(ConfigWriteTarget.LIGHT_STYLE));
+            return tr("opt.lightStyle", tr(styleKey(index)));
+        }
+        return modeLabel();
+    }
+
+    /** 光样式的三档文案，顺序与 {@code HeadlightConfig.LightStyle} 的声明一致。 */
+    private static String styleKey(final int index) {
+        switch (index) {
+            case 1:
+                return "opt.lightStyle.flare";
+            case 2:
+                return "opt.lightStyle.both";
+            default:
+                return "opt.lightStyle.band";
+        }
     }
 
     private static String modeKey(final int index) {
@@ -871,6 +926,10 @@ public final class ParameterScreen extends Screen {
                 return "opt.collisionFlyV";
             case ConfigWriteTarget.COLLISION_COOLDOWN:
                 return "opt.collisionCooldown";
+            case ConfigWriteTarget.SCATTER_STRENGTH:
+                return "opt.scatterStrength";
+            case ConfigWriteTarget.SCATTER_RADIUS:
+                return "opt.scatterRadius";
             default:
                 return "opt.beamTailHeight";
         }
@@ -934,6 +993,10 @@ public final class ParameterScreen extends Screen {
                 return KNOCKBACK_CAP_MAX;
             case ConfigWriteTarget.COLLISION_COOLDOWN:
                 return COOLDOWN_MAX;
+            case ConfigWriteTarget.SCATTER_STRENGTH:
+                return SCATTER_STR_MAX;
+            case ConfigWriteTarget.SCATTER_RADIUS:
+                return SCATTER_R_MAX;
             default:
                 return BEAM_HEIGHT_MAX;
         }
@@ -967,6 +1030,11 @@ public final class ParameterScreen extends Screen {
                 return String.format(Locale.ROOT, "%.1f", value);
             case ConfigWriteTarget.COLLISION_KNOCKBACK_MAX:
                 return String.format(Locale.ROOT, "%.0f", value);
+            case ConfigWriteTarget.SCATTER_STRENGTH:
+                // 两位小数：0.05 的步长要看得出来（1.00 → 1.05 是能感觉到的差别）。
+                return String.format(Locale.ROOT, "%.2f", value);
+            case ConfigWriteTarget.SCATTER_RADIUS:
+                return String.format(Locale.ROOT, "%.1f", value);
             default:
                 return String.format(Locale.ROOT, "%.1f", value);
         }
@@ -1028,6 +1096,10 @@ public final class ParameterScreen extends Screen {
                 return KNOCKBACK_CAP_MIN;
             case ConfigWriteTarget.COLLISION_COOLDOWN:
                 return COOLDOWN_MIN;
+            case ConfigWriteTarget.SCATTER_STRENGTH:
+                return SCATTER_STR_MIN;
+            case ConfigWriteTarget.SCATTER_RADIUS:
+                return SCATTER_R_MIN;
             default:
                 return BEAM_HEIGHT_MIN;
         }
@@ -1089,6 +1161,10 @@ public final class ParameterScreen extends Screen {
                 return KNOCKBACK_CAP_STEP;
             case ConfigWriteTarget.COLLISION_COOLDOWN:
                 return COOLDOWN_STEP;
+            case ConfigWriteTarget.SCATTER_STRENGTH:
+                return SCATTER_STR_STEP;
+            case ConfigWriteTarget.SCATTER_RADIUS:
+                return SCATTER_R_STEP;
             default:
                 return BEAM_HEIGHT_STEP;
         }
@@ -1340,6 +1416,12 @@ public final class ParameterScreen extends Screen {
         /** 三态值一行（车灯模式），按钮整行宽。 */
         static Row mode() {
             return new Row(ROW_CYCLE, -1, ConfigWriteTarget.HEADLIGHT_MODE, false, false,
+                    Text.empty(), null);
+        }
+
+        /** 三态值一行（光样式：光带 / 灯晕 / 两者），按钮整行宽，只有全局页有。 */
+        static Row style() {
+            return new Row(ROW_CYCLE, -1, ConfigWriteTarget.LIGHT_STYLE, false, false,
                     Text.empty(), null);
         }
     }

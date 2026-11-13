@@ -219,8 +219,10 @@ public final class ConfigScreen extends Screen {
         context.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, 22, 0xFFFFFF);
 
         final HeadlightConfig cfg = MtrHeadlightClient.config();
+        // 灯晕那一格读 flareGlobal()：样式是 BAND 时即使 beamFlare 字段被手改成 true 也不画，
+        // 状态行必须和实际绘制一致（bandGlobal / flareGlobal 是渲染唯一读口）。
         final MutableText status = tr("config.status",
-                        onOff(cfg.enabled), onOff(cfg.dynamicLight), onOff(cfg.beamFlare))
+                        onOff(cfg.enabled), onOff(cfg.dynamicLight), onOff(cfg.flareGlobal()))
                 .append(Text.literal(cfg.disableBuiltInTrains
                         ? tr("main.builtinHidden").getString() : ""));
         context.drawCenteredTextWithShadow(this.textRenderer, status, this.width / 2, 38,

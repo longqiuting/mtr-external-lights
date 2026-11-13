@@ -100,6 +100,27 @@ abstract class ConfigWriteTarget {
     static final int COLLISION_KNOCKBACK_K = 32;
     /** 撞飞距离上限（格，1–200，默认 80）：指数曲线的天花板。只有全局值。 */
     static final int COLLISION_KNOCKBACK_MAX = 33;
+    /**
+     * 屏幕空间散射的强度（{@code HeadlightConfig#scatterStrength}，0.1–3，默认 1.0）。
+     *
+     * <p><b>只有全局值</b>：散射是一次全屏 pass，代价和「哪条侧线的车」无关；而且它必须和
+     * {@link #SCATTER} 这个开关一起读才说得通，逐侧线覆盖只会让「这条线开着、那条线关着」变成
+     * 两个 pass 抢同一个 framebuffer。
+     */
+    static final int SCATTER_STRENGTH = 34;
+    /** 每盏灯的散射空气球半径（格，1–24，默认 6）。只有全局值，理由同上。 */
+    static final int SCATTER_RADIUS = 35;
+    /**
+     * 车灯<b>光样式</b>（0 = 光带 / 1 = 灯晕 / 2 = 两者），写 {@link HeadlightConfig#lightStyle}。
+     *
+     * <p>只有全局值：样式是"这一版用哪种画法"的全局选择，逐侧线要单独开关灯晕仍然走
+     * {@link #LIGHT_BAND}（侧线页那一行）。和车灯模式一样，界面上是整行一个循环按钮，但仍走
+     * {@link #readValue}/{@link #writeValue} 这条写入路径。
+     *
+     * <p>号段刻意与 34 起的那一段错开：屏幕空间散射（{@code scatter*}）是并行加的另一组行，
+     * 两边各占一段，合到一起时不会撞号。
+     */
+    static final int LIGHT_STYLE = 40;
     static final int[] ALL_VALUES = {
             DISTANCE, LUMINANCE, HEAD_LENGTH, BEAM_DISTANCE, BEAM_HEAD_LENGTH,
             BEAM_TAIL_LENGTH, BEAM_WIDTH, BEAM_HEAD_HEIGHT, BEAM_TAIL_HEIGHT,
@@ -110,6 +131,7 @@ abstract class ConfigWriteTarget {
             COLLISION_COOLDOWN, COLLISION_HEIGHT, ROOF_DROP_SPEED, ROOF_DROP_RADIUS,
             HEADLIGHT_MODE, DAMAGE_MIN_SPEED, DAMAGE_MAX, COLLISION_KNOCKBACK,
             COLLISION_KNOCKBACK_K, COLLISION_KNOCKBACK_MAX,
+            SCATTER_STRENGTH, SCATTER_RADIUS,
     };
 
     /**
@@ -140,9 +162,20 @@ abstract class ConfigWriteTarget {
      * 这是伤害规则的全局安全阀，不是按侧线量的参数，所以侧线页不生成、也不接受写入。
      */
     static final int DAMAGE_IN_CREATIVE = 11;
+    /**
+     * 屏幕空间散射（{@link HeadlightConfig#scatterEnabled}），全局开关：一次全屏 pass，没有"这条
+     * 侧线要不要"的语义，所以侧线页不生成、也不接受写入。
+     *
+     * <p><b>号段要注意：</b>开关和数值是两套 id，但下面几个 switch 把它们混在同一个 {@code switch}
+     * 里（「这一行是全局限定，忽略」的那些分支），所以这两套 id <b>不能取同一个数字</b>——取 12 会
+     * 和 {@link #COLLISION_PUSH_MAX} 撞成「case 标签重复」。36 是数值表（0–35、40）里没有用过的第一个
+     * 空位。
+     */
+    static final int SCATTER = 36;
     static final int[] ALL_TOGGLES = {
             MASTER, DYNAMIC_LIGHT, LIGHT_BAND, RAIN_SPRAY, BUILTIN_TRAINS,
             TRAIN_COLLISION, TRACKBED, TRAIN_DAMAGE, TRAIN_MOBS, RAIN_HUSH, DAMAGE_IN_CREATIVE,
+            SCATTER,
     };
 
     /**
@@ -355,6 +388,13 @@ abstract class ConfigWriteTarget {
                         return 1.0D;
                     }
                     return HeadlightConfig.MODE_OFF.equals(mode) ? 2.0D : 0.0D;
+                case LIGHT_STYLE:
+                    // 0 光带 / 1 灯晕 / 2 两者：顺序与 LightStyle 的声明一致（按钮按 ordinal 轮换）。
+                    return config().style().ordinal();
+                case SCATTER_STRENGTH:
+                    return config().scatterStrengthClamped();
+                case SCATTER_RADIUS:
+                    return config().scatterRadiusClamped();
                 default:
                     return eff.beamTailHeight;
             }
@@ -466,6 +506,20 @@ abstract class ConfigWriteTarget {
                             : (index == 2 ? HeadlightConfig.MODE_OFF : HeadlightConfig.MODE_AUTO);
                     break;
                 }
+                case LIGHT_STYLE: {
+                    // 走 setLightStyle：样式和两份逐层旧开关（beamGlow / beamFlare）一起写，
+                    // 文件里的三个键永远自洽。
+                    final HeadlightConfig.LightStyle[] styles = HeadlightConfig.LightStyle.values();
+                    final int index = (int) Math.round(value);
+                    config().setLightStyle(styles[Math.max(0, Math.min(styles.length - 1, index))]);
+                    break;
+                }
+                case SCATTER_STRENGTH:
+                    config().scatterStrength = value;
+                    break;
+                case SCATTER_RADIUS:
+                    config().scatterRadius = value;
+                    break;
                 default:
                     config().beamTailHeight = value;
                     break;
@@ -498,6 +552,8 @@ abstract class ConfigWriteTarget {
                     return config().damageInCreative;
                 case RAIN_HUSH:
                     return eff.rainHush;
+                case SCATTER:
+                    return config().scatterEnabled;
                 default:
                     return eff.beamFlare;
             }
@@ -513,7 +569,17 @@ abstract class ConfigWriteTarget {
                     config().dynamicLight = on;
                     break;
                 case LIGHT_BAND:
-                    config().beamFlare = on;
+                    // 这一行在样式出现之后的含义是"在当前样式上把灯晕加/去掉"：
+                    //   打开 -> 光带在就 BOTH，不在就 FLARE；关闭 -> 只留光带（BAND）。
+                    // 这样它永远不会变成一个按了没反应的死开关（样式只管灯晕时读出来仍然是
+                    // eff.beamFlare，两者始终一致）。想精确选三档请用「光样式」那一行。
+                    if (on) {
+                        config().setLightStyle(config().bandStyle()
+                                ? HeadlightConfig.LightStyle.BOTH
+                                : HeadlightConfig.LightStyle.FLARE);
+                    } else {
+                        config().setLightStyle(HeadlightConfig.LightStyle.BAND);
+                    }
                     break;
                 case RAIN_SPRAY:
                     config().rainSpray = on;
@@ -538,6 +604,9 @@ abstract class ConfigWriteTarget {
                     break;
                 case RAIN_HUSH:
                     config().rainHush = on;
+                    break;
+                case SCATTER:
+                    config().scatterEnabled = on;
                     break;
                 default:
                     config().beamFlare = on;
@@ -688,6 +757,15 @@ abstract class ConfigWriteTarget {
                 case HEADLIGHT_MODE:
                     c.headlightMode = d.headlightMode;
                     break;
+                case LIGHT_STYLE:
+                    c.setLightStyle(d.style());
+                    break;
+                case SCATTER_STRENGTH:
+                    c.scatterStrength = d.scatterStrength;
+                    break;
+                case SCATTER_RADIUS:
+                    c.scatterRadius = d.scatterRadius;
+                    break;
                 default:
                     c.beamTailHeight = d.beamTailHeight;
                     break;
@@ -706,7 +784,9 @@ abstract class ConfigWriteTarget {
                     c.dynamicLight = d.dynamicLight;
                     break;
                 case LIGHT_BAND:
-                    c.beamFlare = d.beamFlare;
+                    // 与 writeToggle 的"关"分支同一个结果：回到默认样式（只画光带）。
+                    // 直接写 beamFlare 会在样式是 BOTH 时留下"样式含灯晕、开关却关着"的自相矛盾状态。
+                    c.setLightStyle(d.style());
                     break;
                 case RAIN_SPRAY:
                     c.rainSpray = d.rainSpray;
@@ -731,6 +811,9 @@ abstract class ConfigWriteTarget {
                     break;
                 case RAIN_HUSH:
                     c.rainHush = d.rainHush;
+                    break;
+                case SCATTER:
+                    c.scatterEnabled = d.scatterEnabled;
                     break;
                 default:
                     c.beamGlow = d.beamGlow;
@@ -762,8 +845,8 @@ abstract class ConfigWriteTarget {
             final HeadlightConfig c = config();
             c.enabled = d.enabled;
             c.dynamicLight = d.dynamicLight;
-            c.beamGlow = d.beamGlow;
-            c.beamFlare = d.beamFlare;
+            // 样式 + 两份逐层开关一起回到出厂设置（setLightStyle 同步 beamGlow / beamFlare）。
+            c.setLightStyle(d.style());
             c.rainSpray = d.rainSpray;
             c.rainSprayMinSpeedKmh = d.rainSprayMinSpeedKmh;
             c.disableBuiltInTrains = d.disableBuiltInTrains;
@@ -808,6 +891,9 @@ abstract class ConfigWriteTarget {
             c.roofDropMaxRadiusM = d.roofDropMaxRadiusM;
             c.rainHush = d.rainHush;
             c.headlightMode = d.headlightMode;
+            c.scatterEnabled = d.scatterEnabled;
+            c.scatterStrength = d.scatterStrength;
+            c.scatterRadius = d.scatterRadius;
             // Restoring the globals while a siding still overrode them would leave the world on the
             // old numbers - "全部恢复默认" means the overrides go too.
             if (c.sidingSettings != null) {
@@ -904,6 +990,10 @@ abstract class ConfigWriteTarget {
                 case ROOF_DROP_SPEED:
                 case ROOF_DROP_RADIUS:
                 case HEADLIGHT_MODE:
+                case LIGHT_STYLE:
+                case SCATTER_STRENGTH:
+                case SCATTER_RADIUS:
+                case SCATTER:
                     ignored(which);
                     return 0.0D;
                 default:
@@ -974,6 +1064,10 @@ abstract class ConfigWriteTarget {
                 case ROOF_DROP_SPEED:
                 case ROOF_DROP_RADIUS:
                 case HEADLIGHT_MODE:
+                case LIGHT_STYLE:
+                case SCATTER_STRENGTH:
+                case SCATTER_RADIUS:
+                case SCATTER:
                     ignored(which);
                     break;
                 default:
@@ -1003,6 +1097,7 @@ abstract class ConfigWriteTarget {
                 case TRACKBED:
                 case TRAIN_MOBS:
                 case DAMAGE_IN_CREATIVE:
+                case SCATTER:
                     ignored(which);
                     return false;
                 default:
@@ -1037,6 +1132,7 @@ abstract class ConfigWriteTarget {
                 case TRACKBED:
                 case TRAIN_MOBS:
                 case DAMAGE_IN_CREATIVE:
+                case SCATTER:
                     ignored(which);
                     break;
                 default:
@@ -1114,6 +1210,10 @@ abstract class ConfigWriteTarget {
                 case ROOF_DROP_SPEED:
                 case ROOF_DROP_RADIUS:
                 case HEADLIGHT_MODE:
+                case LIGHT_STYLE:
+                case SCATTER_STRENGTH:
+                case SCATTER_RADIUS:
+                case SCATTER:
                     ignored(which);
                     return true;
                 default:
@@ -1145,6 +1245,7 @@ abstract class ConfigWriteTarget {
                 case TRACKBED:
                 case TRAIN_MOBS:
                 case DAMAGE_IN_CREATIVE:
+                case SCATTER:
                     ignored(which);
                     return true;
                 default:
@@ -1246,6 +1347,10 @@ abstract class ConfigWriteTarget {
                 case ROOF_DROP_SPEED:
                 case ROOF_DROP_RADIUS:
                 case HEADLIGHT_MODE:
+                case LIGHT_STYLE:
+                case SCATTER_STRENGTH:
+                case SCATTER_RADIUS:
+                case SCATTER:
                     ignored(which);
                     break;
                 default:
@@ -1285,6 +1390,7 @@ abstract class ConfigWriteTarget {
                 case TRACKBED:
                 case TRAIN_MOBS:
                 case DAMAGE_IN_CREATIVE:
+                case SCATTER:
                     ignored(which);
                     break;
                 default:

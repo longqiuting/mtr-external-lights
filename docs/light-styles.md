@@ -1,0 +1,107 @@
+# 车灯可见样式：光带 / 灯晕 / 两者（默认光带）
+
+> 适用：1.20.1 模块。配置键 `lightStyle`，默认 `BAND`（光带）。
+
+车灯在"看得见"这一层一直有两套画法。它们画的是**同一盏灯**：同一份灯位（`TrainLamps`）、同一份
+颜色（`beamHeadColor` / `beamTailColor`）、同一份亮度与长度（`beamAlpha` / `beamHeadLength` /
+`beamTailLength` / `beamHeight`）。区别只是**怎么画**，所以可以互为备份、由玩家自己选，也可以
+两个一起开。
+
+## 三种样式
+
+| `lightStyle` | 画什么 | 观感 | 开销 |
+|---|---|---|---|
+| `BAND`（默认） | `BeamGlow`：从车头沿车体朝向直线推出的贴地带状面片 | 近看有"灯光打在地上"的体积感，弯道上也能看出车灯指哪 | 每束 1 个面片批次（几十个顶点），每帧 1 次 draw |
+| `FLARE` | `LightFlare`：每个物理灯位一张面向相机的加色贴图 | 远看、侧看都是一颗亮灯；转弯时随灯位朝向明暗变化 | 每灯 1 个四边形，所有灯合成 1 次 draw |
+| `BOTH` | 两者叠加 | 灯头有亮斑、地面有光带，最"满"的一种 | 上面两项相加 |
+
+三者都**不含**地面的实际照明：地面/墙上的亮光来自真实方块光照（`beamBlockLight`，写进区块网格），
+那是一个独立开关，与样式无关。
+
+光带是玩家公认最好看的一版，因此它也是新装与升级后的默认值。
+
+## 怎么切
+
+三个入口，写的是同一个键，效果立刻可见（渲染每帧读配置）：
+
+1. **配置面板**：`/mtr_lte` → 全局配置 → 光源 → 第一行「光样式：…」。整行一个按钮，点一下换下一档：
+   `光带 → 灯晕 → 光带 + 灯晕`。
+2. **指令**：
+   ```
+   /mtr_lte flare style band      # 只画光带
+   /mtr_lte flare style flare     # 只画灯晕
+   /mtr_lte flare style both      # 两者都画
+   /mtr_lte flare status          # 看现在是什么样式、两层各自画不画
+   ```
+3. **手改 `config/mtrlte.json`**：`"lightStyle": "BAND" | "FLARE" | "BOTH"`。写错或写成 `null`
+   会被读成 `BAND`，不会让整份配置读不出来。
+
+## 和旧开关的关系（`beamGlow` / `beamFlare`）
+
+`beamGlow` 与 `beamFlare` 是样式出现之前"这一层画不画"的两个开关，现在**跟着样式一起写**：
+
+| 样式 | `beamGlow` | `beamFlare` |
+|---|---|---|
+| `BAND` | `true` | `false` |
+| `FLARE` | `false` | `true` |
+| `BOTH` | `true` | `true` |
+
+所以 JSON 里的三个键永远自洽（不会出现"样式是光带，但 beamFlare 还写着 true"）。实际是否绘制
+= 样式允许 **且** 这一层的开关没被关掉，两份条件都在 `HeadlightConfig.bandGlobal()` /
+`flareGlobal()` 里，渲染器和界面都只读这两个方法，不会出现两边判断不一致。
+
+开着光带时，"光源"页上的那行**灯晕**开关等价于"在当前样式上把灯晕加上/去掉"：
+
+* 灯晕 打开 → 有光带则 `BOTH`，没有则 `FLARE`；
+* 灯晕 关闭 → `BAND`。
+
+它能按、按了也有反应（不会变成死开关），但想精确三选一请用「光样式」那一行。
+
+## 旧配置升级
+
+配置文件里没有 `lightStyle` 键的（也就是 0.2.x 及更早写的 `config/mtrlte.json`），读到 `BAND`：
+
+* 光带照旧画 —— 与"光带不要删"的要求一致；
+* 灯晕不画；
+* 迁移时会顺带把 `beamFlare` 写成 `false`、`beamGlow` 写成 `true`，让文件内容与实际绘制一致；
+* **逐侧线的覆盖不动**：`sidingSettings[<id>].beamGlow` / `.beamFlare` 是玩家对某条侧线的明确选择，
+  迁移不碰。
+
+想让灯晕回来：`/mtr_lte flare style flare`（或面板里点一下）。
+
+## 逐侧线覆盖
+
+全局样式决定默认画法；侧线页的「灯晕」开关仍然可以给**某一条侧线**单独打开或关掉灯晕：
+
+* 侧线覆盖了 `beamFlare = true`，全局样式是 `BAND` → 这条侧线的车也画灯晕；
+* 侧线覆盖了 `beamFlare = false`，全局样式是 `BOTH` → 这条侧线不画灯晕（光带照画）；
+* 点 `↺` = 清除覆盖，重新跟随全局样式。
+
+## 屏幕空间散射（独立开关，可与任意样式叠加）
+
+`dev.js.mtrheadlight.sss.ScatterPass`（配置 `scatterEnabled` / `scatterStrength` /
+`scatterRadius`）画的是**空气里的光晕**，既不读 `lightStyle`，也不写它：
+
+* `scatterEnabled = true` 时，光带、灯晕、两者三种样式下都会出散射；
+* 三种样式都不会影响散射的强弱或半径（散射读同一份灯位与颜色）；
+* 反之，关掉散射也不影响光带/灯晕。
+
+一句话：**样式管"灯怎么画"，散射管"灯光在空气里散不散"，两组开关互不干扰。**
+
+## 叠加时会不会互相影响
+
+`BOTH` 时 `RenderHooks` 先调 `BeamGlow.render` 再调 `LightFlare.render`，两者都是自包含的：
+
+* 各自 `begin` / `end` 自己的顶点缓冲，不会把对方写了一半的面片接过来（`BeamGlow` 走
+  `GlowCompat.draw`，`buffer.end()` 立刻提交；`LightFlare` 自己 `begin` / `endNullable`）；
+* 各自设置并**复位**同一组 GL 状态（`depthMask(false) → depthMask(true)`、`SRC_ALPHA/ONE →
+  defaultBlendFunc`、`disableCull → enableCull`），所以后者看到的是干净的状态；
+* 早/晚两趟回调仍然"每帧只有一趟真的画"（按 `ShaderPackProbe` 决定），两套几何用的是同一个判定，
+  不会一帧画两次；
+* 任何一边抛异常都只影响它自己（各自 try/catch），另一边照旧。
+
+## 自检
+
+* `/mtr_lte flare status`：`lightStyle`、光带/灯晕各自画不画、方块光照挂钩状态；
+* 日志每 5 秒一行 `[lte] glow: …`（光带）和 `[lte] flare: trains=… lamps=… quads=…`（灯晕）；
+* 光带看不到时有 `[lte] glow: … near= skipped=` 的分类计数，灯晕看不到时看 `noLamp=`。

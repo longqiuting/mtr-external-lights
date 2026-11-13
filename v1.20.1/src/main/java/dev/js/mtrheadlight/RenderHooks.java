@@ -1,6 +1,8 @@
 package dev.js.mtrheadlight;
 
 import dev.js.mtrheadlight.signal.ConnectorNodeHighlight;
+import dev.js.mtrheadlight.sss.ScatterPass;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 
@@ -41,14 +43,19 @@ public final class RenderHooks {
             MtrHeadlightClient.LOGGER.warn("[lte] could not register the debug probe tick", t);
         }
 
-        // The lamp flares are our own geometry and completely independent of the relight scheduler:
-        // they draw themselves and never queue a chunk. The early/late pair exists so exactly one
-        // pass draws, depending on whether a shader pack composites after translucent.
-        //
-        // The volumetric cone (ProtoBeamCone) and the ground sheet (BeamGlow) used to be registered
-        // here as well; both were removed with the light rework - a train light is now a flare at the
-        // lamp plus real block light (BeamBlockLight), never a visible beam in mid-air.
+        // 车灯的两套可见几何：光带（BeamGlow，贴地带状面片）和灯晕（LightFlare，灯位加色 billboard）。
+        // 画哪一套由 config.lightStyle 决定（BAND / FLARE / BOTH，默认 BAND），两个渲染器各自读
+        // 自己的开关（beamAnySiding / flareAnySiding），所以这里只负责"都给它们一次机会"：
+        //   * 早/晚两趟回调仍然成对存在，各自按 ShaderPackProbe 决定是这一趟画还是另一趟画；
+        //   * 两个渲染器各自 begin/end 自己的顶点缓冲、各自复位 depthMask / blendFunc / cull，
+        //     所以 BOTH 叠加时不会重复写面片，也不会把对方的 GL 状态清掉；
+        //   * 光带先画、灯晕后画：灯晕是加色贴图，压在上面才是"灯亮着"的样子。
         WorldRenderEvents.AFTER_ENTITIES.register(context -> {
+            try {
+                BeamGlow.render(context, false);
+            } catch (Throwable t) {
+                MtrHeadlightClient.LOGGER.error("[lte] beam glow failed", t);
+            }
             try {
                 LightFlare.render(context, false);
             } catch (Throwable t) {
@@ -57,11 +64,40 @@ public final class RenderHooks {
         });
         WorldRenderEvents.AFTER_TRANSLUCENT.register(context -> {
             try {
+                BeamGlow.render(context, true);
+            } catch (Throwable t) {
+                MtrHeadlightClient.LOGGER.error("[lte] beam glow (late pass) failed", t);
+            }
+            try {
                 LightFlare.render(context, true);
             } catch (Throwable t) {
                 MtrHeadlightClient.LOGGER.error("[lte] light flare (late pass) failed", t);
             }
         });
+
+        // 屏幕空间散射（车灯在空气里的光雾）。两条钩子：
+        //  * END_CLIENT_TICK 只做一次「把 shader 编译出来」——发生在标题画面，所以 shader 编译错误
+        //    在进世界之前就写在日志里，而且玩家的 GL 上下文由客户端线程持有；
+        //  * LAST 才是真正的 pass：世界已经画完、GUI 还没开始，主 framebuffer 仍绑着，深度还是
+        //    这一帧的深度。没有点亮的灯时它直接返回，不建 framebuffer、不拷深度、不绑程序。
+        try {
+            ClientTickEvents.END_CLIENT_TICK.register(ScatterPass::tick);
+        } catch (Throwable t) {
+            MtrHeadlightClient.LOGGER.warn("[lte] could not register the scatter shader probe", t);
+        }
+        WorldRenderEvents.LAST.register(context -> {
+            try {
+                ScatterPass.render(context);
+            } catch (Throwable t) {
+                MtrHeadlightClient.LOGGER.error("[lte] scatter pass failed", t);
+            }
+        });
+        // 退出时把程序和深度纹理还回去：它们不在原版 ProgramManager 的清单里，没人替我们关。
+        try {
+            ClientLifecycleEvents.CLIENT_STOPPING.register(client -> ScatterPass.shutdown());
+        } catch (Throwable t) {
+            MtrHeadlightClient.LOGGER.warn("[lte] could not register the scatter shutdown hook", t);
+        }
 
         // 手持任意一个连接器（信号 / 投影机 / PIDS）时在附近轨道节点上画轮廓（白色；
         // 信号连接器已选中的那颗青色）。三个物品共用同一个绘制回调，一帧一次 draw。纯粹是辅助显示。

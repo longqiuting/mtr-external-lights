@@ -29,11 +29,13 @@ import net.minecraft.text.Text;
  * It ignores trains, models, siding overrides and the master switch, so a probe that fails to appear
  * localises the fault to the particle path itself instead of the weather gate.
  *
- * <p>{@code /mtr_lte flare [status]} - 车灯现在由什么点亮：灯晕（{@code LightFlare}，每个物理灯位
- * 一张面向相机的加色贴图）+ 真实方块光照（{@code BeamBlockLight}）。灯位来自
- * {@link TrainLamps}（模型 LIGHT 部件 → {@code builtin_lights.json} → 尺寸兜底），所以这一行
- * 顺带报告灯位诊断线与方块光照挂钩是否在运行。光柱（体积锥 / raymarch 体积光）已整体移除，
- * 对应的 {@code /mtr_lte cone …} 与 {@code /mtr_lte debug cone…} 子命令一并删除。
+ * <p>{@code /mtr_lte flare [status|style band|flare|both]} - 车灯的两套可见几何与真实方块光照。
+ * 样式三档（{@link HeadlightConfig.LightStyle}）：光带（{@code BeamGlow}，默认）/ 灯晕
+ * （{@code LightFlare}）/ 两者；{@code style} 子命令就是界面「光样式」那一行，写同一份配置、
+ * 立即生效。灯位来自 {@link TrainLamps}（模型 LIGHT 部件 → {@code builtin_lights.json} →
+ * 尺寸兜底），地面亮斑来自 {@code BeamBlockLight}，所以 {@code status} 顺带报告灯位诊断线与
+ * 方块光照挂钩是否在运行。光柱（体积锥 / raymarch 体积光）已整体移除，对应的
+ * {@code /mtr_lte cone …} 与 {@code /mtr_lte debug cone…} 子命令一并删除。
  *
  * <p>{@code /mtr_lte dep [status|next|normal|mirror|flip|rotate]} - 挂墙发车倒数器
  * （{@code mtrlte:dep_on_wall}）的<b>读数方向</b>。四档都是绕屏幕正中的 {@code scale(±1,±1,1)}：
@@ -164,11 +166,40 @@ public final class Commands {
                                 .executes(context -> setBuiltInTrains(context.getSource(), false)))
                         .then(ClientCommandManager.literal("reload")
                                 .executes(context -> reloadTrains(context.getSource()))))
-                // 车灯现状：灯晕 + 真实方块光照（光柱已移除）。
+                // 车灯现状：光样式（光带 / 灯晕 / 两者）+ 真实方块光照（光柱已移除）。
                 .then(ClientCommandManager.literal("flare")
                         .executes(context -> flareStatus(context.getSource()))
                         .then(ClientCommandManager.literal("status")
-                                .executes(context -> flareStatus(context.getSource()))))
+                                .executes(context -> flareStatus(context.getSource())))
+                        // 光样式：band / flare / both —— 和界面「光样式」一行同一条写入路径。
+                        .then(ClientCommandManager.literal("style")
+                                .executes(context -> flareStatus(context.getSource()))
+                                .then(ClientCommandManager.argument("style", StringArgumentType.word())
+                                        .suggests((context, builder) -> builder
+                                                .suggest("band")
+                                                .suggest("flare")
+                                                .suggest("both")
+                                                .buildFuture())
+                                        .executes(context -> setLightStyle(context.getSource(),
+                                                StringArgumentType.getString(context, "style"))))))
+                // 屏幕空间散射（车灯在空气里的光雾）：开关 / 状态。pass 本身在
+                // dev.js.mtrheadlight.sss.ScatterPass，这里只改那一个布尔量并落盘。
+                .then(ClientCommandManager.literal("scatter")
+                        .executes(context -> scatterStatus(context.getSource()))
+                        .then(ClientCommandManager.literal("status")
+                                .executes(context -> scatterStatus(context.getSource())))
+                        .then(ClientCommandManager.literal("on")
+                                .executes(context -> setScatter(context.getSource(), true)))
+                        .then(ClientCommandManager.literal("off")
+                                .executes(context -> setScatter(context.getSource(), false)))
+                        .then(ClientCommandManager.argument("state", StringArgumentType.word())
+                                .suggests((context, builder) -> builder
+                                        .suggest("on")
+                                        .suggest("off")
+                                        .buildFuture())
+                                .executes(context -> setScatter(context.getSource(),
+                                        !"off".equalsIgnoreCase(
+                                                StringArgumentType.getString(context, "state"))))))
                 // 可见探针：先回答"管道通不通"，再谈绑定。两个开关都只在内存里，不写 config，
                 // 退出游戏/换世界即失效（它们不是玩家的设置项）。
                 .then(ClientCommandManager.literal("debug")
@@ -321,8 +352,10 @@ public final class Commands {
     private static int flareStatus(final FabricClientCommandSource source) {
         final HeadlightConfig cfg = MtrHeadlightClient.config();
         final HeadlightConfig.Effective eff = cfg.effectiveFor(0L);
-        source.sendFeedback(Text.literal("LTE：light = flare"
-                + (eff.beamFlare ? "+block" : "(flare 关)")
+        source.sendFeedback(Text.literal("LTE：lightStyle = " + cfg.style()
+                + "（光带=" + (eff.beamGlow ? "画" : "不画")
+                + "，灯晕=" + (eff.beamFlare ? "画" : "不画")
+                + "；用 /mtr_lte flare style band|flare|both 切换）"
                 + " flareSize=" + String.format(java.util.Locale.ROOT, "%.2f",
                         cfg.flareSizeClamped())
                 + " minPx=" + cfg.flareMinPxClamped()
@@ -336,6 +369,66 @@ public final class Commands {
                     + (BeamRelight.available() ? "区块网格重建被别的模组接管" : "Sodium/Embeddium 在线")
                     + "）—— 灯晕照常画，地面的亮斑不会出现"));
         }
+        return 1;
+    }
+
+    /**
+     * {@code /mtr_lte flare style band|flare|both} - 车灯<b>可见样式</b>：光带 / 灯晕 / 两者都画。
+     *
+     * <p>和配置界面「光源 → 光样式」一行走同一条路径（{@link HeadlightConfig#setLightStyle}），
+     * 所以两种入口不会写出不同的状态：样式决定"画哪一套几何"，两份逐层旧开关
+     * （{@code beamGlow} / {@code beamFlare}）跟着它一起写。颜色、亮度、灯位、长度是<b>同一份</b>
+     * 配置，切换样式只改画法，不改灯本身 —— 这也是为什么光带和灯晕可以互为备份。
+     *
+     * <p>立即生效（渲染每帧读配置），并写盘，和 {@code /mtr_lte headlight} 一样。
+     */
+    private static int setLightStyle(final FabricClientCommandSource source, final String arg) {
+        final HeadlightConfig cfg = MtrHeadlightClient.config();
+        final HeadlightConfig.LightStyle style;
+        if ("band".equalsIgnoreCase(arg)) {
+            style = HeadlightConfig.LightStyle.BAND;
+        } else if ("flare".equalsIgnoreCase(arg)) {
+            style = HeadlightConfig.LightStyle.FLARE;
+        } else if ("both".equalsIgnoreCase(arg)) {
+            style = HeadlightConfig.LightStyle.BOTH;
+        } else {
+            source.sendError(Text.literal("LTE：未知样式 " + arg + "（band / flare / both）"));
+            return 0;
+        }
+        cfg.setLightStyle(style);
+        cfg.save();
+        source.sendFeedback(Text.literal("LTE：lightStyle = " + cfg.style()
+                + (style == HeadlightConfig.LightStyle.BAND ? "（光带）"
+                : style == HeadlightConfig.LightStyle.FLARE ? "（灯晕）" : "（光带 + 灯晕）")));
+        return 1;
+    }
+
+    /**
+     * {@code /mtr_lte scatter} - 屏幕空间散射（车灯在空气里的光雾）的状态。
+     *
+     * <p>这一行同时回答三个问题：开关开没开（{@code scatter on|off}）、shader 程序到底编译出来没有
+     * （{@code program=ok|missing|failed(...)}）、以及上一帧真的往 shader 里送了几盏灯
+     * （{@code lights=n/16}）。{@code program=failed(...)} 后面跟的就是加载失败的原因，和日志里那条
+     * WARN 是同一个字符串；{@code depth=none} 说明还没有任何一帧有灯（pass 不建深度拷贝）。
+     *
+     * <p>开光影时这一行会多一句「shader pack active: pass skipped」—— 那不是故障，是设计：光影
+     * 自己拥有 framebuffer 与深度缓冲，我们再去读会拿到一张错的深度图。
+     */
+    private static int scatterStatus(final FabricClientCommandSource source) {
+        final HeadlightConfig cfg = MtrHeadlightClient.config();
+        source.sendFeedback(Text.literal("LTE：" + dev.js.mtrheadlight.sss.ScatterPass.status(cfg)
+                + " — /mtr_lte scatter on|off，强度/半径在 配置 → 光源 → 空气散射"));
+        return 1;
+    }
+
+    /** {@code /mtr_lte scatter on|off} - 写活配置 + 落盘，下一帧生效（和配置界面同一条路径）。 */
+    private static int setScatter(final FabricClientCommandSource source, final boolean on) {
+        final HeadlightConfig cfg = MtrHeadlightClient.config();
+        cfg.scatterEnabled = on;
+        cfg.save();
+        source.sendFeedback(Text.literal("LTE：scatter = " + (on ? "on" : "off")
+                + (on ? "（车灯会在空气里散出光雾；没有灯时零开销）"
+                        : "（不再运行全屏散射 pass）")));
         return 1;
     }
 

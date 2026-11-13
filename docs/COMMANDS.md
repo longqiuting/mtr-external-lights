@@ -23,6 +23,10 @@
 | `/mtr_lte headlight auto` | 自动：白天关、夜晚/隧道/雨天开 |
 | `/mtr_lte headlight always` | 常亮 |
 | `/mtr_lte headlight off` | 常关 |
+| `/mtr_lte flare` / `/mtr_lte flare status` | 查看光样式 + 光带/灯晕各自画不画 + 灯位来源与方块光照状态 |
+| `/mtr_lte flare style band\|flare\|both` | 切换光样式：光带 / 灯晕 / 两者都画（写盘、立即生效，与面板「光样式」同一个键） |
+| `/mtr_lte scatter` / `scatter status` | 屏幕空间散射（车灯在空气里的光雾）：开关 / shader 程序状态 / 上一帧送进 shader 的灯数 |
+| `/mtr_lte scatter on` / `off` | 开关全屏散射 pass（写盘、下一帧生效；没灯时零开销） |
 
 ### 列车挡雨（车内看不到雨滴）
 
@@ -80,11 +84,25 @@
 每一项在面板里都有单独的 `↺` 恢复默认；底部有「全部恢复默认」（带二次确认）。
 侧线详情页里的 `↺` 语义是「清除本侧线覆盖，重新跟随全局」。
 
+### 光源 · 光样式（三种画法，默认光带）
+
+光带（`BeamGlow`）和灯晕（`LightFlare`）是**同一盏灯的两套画法**，读同一份灯位与颜色，可以互为备份、
+也可以同时画。三种样式的区别、手感与切换方式见 [light-styles.md](light-styles.md)。
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `lightStyle` | `BAND` | `BAND` = 光带 / `FLARE` = 灯晕 / `BOTH` = 两者都画。面板「光源 → 光样式」一行点一下换一档 |
+| `beamGlow` | `true` | 光带这一层的总闸。由 `lightStyle` 一起写（`BAND`/`BOTH` → `true`） |
+| `beamFlare` | `false` | 灯晕这一层的总闸。由 `lightStyle` 一起写（`FLARE`/`BOTH` → `true`） |
+
+> 旧配置（没有 `lightStyle` 键）升级后按 `BAND` 处理：光带照旧画，灯晕不画。
+> 屏幕空间散射（`scatterEnabled` 等）是**独立**开关，与这三种样式可以任意叠加。
+
 ### 光源 · 光带（BeamGlow，稳定功能）
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `beamGlow` | `true` | 车灯光带总开关 |
+| `beamGlow` | `true` | 车灯光带总开关（`lightStyle` 的 `BAND` / `BOTH` 都会写 `true`） |
 | `beamDistance` | `128` | 光带可见距离（格） |
 | `beamWidth` | — | 光带宽度 |
 | `beamHeadLength` / `beamTailLength` | — | 头/尾光带长度 |

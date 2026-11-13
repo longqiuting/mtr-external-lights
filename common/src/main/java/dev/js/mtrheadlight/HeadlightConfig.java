@@ -2,6 +2,10 @@ package dev.js.mtrheadlight;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.TypeAdapter;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
+import com.google.gson.stream.JsonWriter;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.IOException;
@@ -23,9 +27,12 @@ import java.util.Map;
  * and the rail relight scheduler read, so a siding override can never be half-applied.
  */
 public final class HeadlightConfig {
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting()
+            // 手改 JSON 拼错样式名时回落到 BAND，而不是让整份配置读失败（见 LightStyle.Adapter）。
+            .registerTypeAdapter(LightStyle.class, new LightStyle.Adapter())
+            .create();
     /** Bumped when a default changes in a way an existing file has to be migrated onto. */
-    private static final int CONFIG_VERSION = 21;
+    private static final int CONFIG_VERSION = 22;
 
     /**
      * {@code railChunkBuildPerFrame} 的上限（每帧最多重建几个轨道区块）。
@@ -422,6 +429,116 @@ public final class HeadlightConfig {
     public double railLightGain = 1.4D;
 
     /**
+     * 车灯<b>可见样式</b>：光带 / 灯晕 / 两者都画。
+     *
+     * <ul>
+     *   <li>{@link #BAND}（<b>默认</b>）- 只看光带：从车头沿车体朝向直线推出的贴地带状面片
+     *       （{@code BeamGlow}）。近看有"灯光打在地上"的体积感，是玩家公认最好看的一版；</li>
+     *   <li>{@link #FLARE} - 只看灯晕：每个物理灯位一张面向相机的加色贴图
+     *       （{@code LightFlare}）。远看/侧看都是一颗亮灯，几何量最小；</li>
+     *   <li>{@link #BOTH} - 两者都画。它们是两套独立的顶点与 GL 状态（各自提交、各自复位），
+     *       叠加时不会互相覆盖，也不会重复写面片。</li>
+     * </ul>
+     *
+     * <p>两种样式读的是<b>同一份</b>灯位与颜色：{@code TrainLamps} 的灯位、{@code beamHeadColor} /
+     * {@code beamTailColor} / {@code beamAlpha} / {@code beamDistance} / 光束长度与高度。切换样式
+     * 只改"怎么画"，不改灯的颜色、亮度、位置 —— 所以 {@code /mtr_lte flare}、编辑器预览和光束的
+     * 颜色配置在三种样式下语义完全一致。
+     *
+     * <p>侧线页的"灯晕"开关仍然是<b>逐侧线</b>的覆盖（{@link SidingSettings#beamFlare}）：全局样式
+     * 决定默认画什么，某条侧线可以单独打开/关掉灯晕。屏幕空间散射（{@code dev.js.mtrheadlight.sss}）
+     * 是<b>另一个</b>开关，与这里三种样式可以任意叠加。
+     */
+    public enum LightStyle {
+        BAND, FLARE, BOTH;
+
+        /**
+         * 宽松读法：值不认识（手改 JSON 拼错）或键写成 {@code null} 都回落到 {@link #BAND}，
+         * 空的/未知的枚举串不会让整份配置读失败 —— 和本文件其它字符串枚举（{@code headlightMode} /
+         * {@code beamConeSource}）同一套规则。
+         */
+        static LightStyle parse(final String name) {
+            if (name != null) {
+                for (final LightStyle s : values()) {
+                    if (s.name().equalsIgnoreCase(name)) {
+                        return s;
+                    }
+                }
+            }
+            return BAND;
+        }
+
+        /** Gson 适配器：写出枚举名，读回来走 {@link #parse(String)}（不认识的值 → {@code BAND}）。 */
+        static final class Adapter extends TypeAdapter<LightStyle> {
+            @Override
+            public void write(final JsonWriter out, final LightStyle value) throws IOException {
+                out.value((value == null ? BAND : value).name());
+            }
+
+            @Override
+            public LightStyle read(final JsonReader in) throws IOException {
+                if (in.peek() == JsonToken.NULL) {
+                    in.nextNull();
+                    return BAND;
+                }
+                return parse(in.nextString());
+            }
+        }
+    }
+
+    /**
+     * 当前样式，见 {@link LightStyle}。<b>默认 {@link LightStyle#BAND}</b>：光带是玩家公认最好的
+     * 一版，新装与升级都从它开始，灯晕留给喜欢的人自己选。
+     */
+    public LightStyle lightStyle = LightStyle.BAND;
+
+    /** {@link #lightStyle}，null 安全（手改 JSON 写成 {@code "lightStyle": null} 时按 BAND）。 */
+    public LightStyle style() {
+        return lightStyle == null ? LightStyle.BAND : lightStyle;
+    }
+
+    /** 样式是否要画光带（BAND / BOTH）。 */
+    public boolean bandStyle() {
+        return style() == LightStyle.BAND || style() == LightStyle.BOTH;
+    }
+
+    /** 样式是否要画灯晕（FLARE / BOTH）。 */
+    public boolean flareStyle() {
+        return style() == LightStyle.FLARE || style() == LightStyle.BOTH;
+    }
+
+    /**
+     * 全局"光带要画"：样式允许 <b>且</b> 旧开关 {@link #beamGlow} 没被关掉。
+     *
+     * <p>两个条件都要，是因为 {@code beamGlow} 是样式出现之前的全局总闸：老文件里它可能是玩家
+     * 亲手关的（{@code /mtr_lte cone …} 时代留下的 JSON），样式默认 BAND 不能把玩家的"关"悄悄
+     * 翻回来。{@link #setLightStyle} 会把这个开关同步到样式上，所以从界面切的样式永远自洽。
+     */
+    public boolean bandGlobal() {
+        return bandStyle() && beamGlow;
+    }
+
+    /** 全局"灯晕要画"：样式允许 且 旧开关 {@link #beamFlare} 没被关掉（同 {@link #bandGlobal()}）。 */
+    public boolean flareGlobal() {
+        return flareStyle() && beamFlare;
+    }
+
+    /**
+     * 切样式，并把两份逐层旧开关同步过去（{@code beamGlow = 样式含光带}，
+     * {@code beamFlare = 样式含灯晕}）。
+     *
+     * <p>为什么同步：{@code config/mtrlte.json} 同时出现 {@code "lightStyle": "BAND"} 和
+     * {@code "beamFlare": true} 只会让人以为配置坏了。三处始终一起写，读的人就不会被误导。
+     * 逐侧线的 {@link SidingSettings#beamGlow} / {@link SidingSettings#beamFlare} 不受影响 ——
+     * 那是每条侧线自己的选择，必须保留。
+     */
+    public void setLightStyle(final LightStyle style) {
+        lightStyle = style == null ? LightStyle.BAND : style;
+        beamGlow = bandStyle();
+        beamFlare = flareStyle();
+    }
+
+    /**
      * Draw the head/tail <b>light beams</b> - our own additive geometry, independent of the baked
      * rail light ({@link #railLight}) and of the relight scheduler.
      *
@@ -448,8 +565,13 @@ public final class HeadlightConfig {
      *
      * <p>Independent of {@link #beamGlow} in both directions, and a child of {@link #enabled}: the
      * master switch off means neither draws.
+     *
+     * <p><b>默认 {@code false}：</b>全局默认样式是 {@link LightStyle#BAND}（只有光带）。这个字段
+     * 现在是"灯晕这一层被允许画"的第二道闸，由 {@link #setLightStyle} 跟着样式一起写；灯晕要单独
+     * 打开请选样式 {@code FLARE} / {@code BOTH}（界面「光样式」一行，或
+     * {@code /mtr_lte flare style}），不要手改这个键。
      */
-    public boolean beamFlare = true;
+    public boolean beamFlare = false;
 
     /**
      * Base size of one flare in blocks (before the facing/distance terms), clamped to [0.2, 4].
@@ -463,6 +585,44 @@ public final class HeadlightConfig {
 
     /** Minimum on-screen height of one flare, in GUI pixels. Below this the quad is scaled up. */
     public int beamFlareMinPx = 6;
+
+    /**
+     * 屏幕空间散射（{@code dev.js.mtrheadlight.sss.ScatterPass}）：车灯在空气里的光雾。
+     *
+     * <p>与灯晕是两件独立的事，可以任意叠加：灯晕是<b>灯位上的一张加色贴图</b>（画在几何层，
+     * 谁挡住它谁就挡住它），散射是<b>世界画完之后的一次全屏 pass</b>（读深度、按视线积分灯周围
+     * 的空气，所以会被墙/站台/车体正确截断）。它们共用 {@code TrainLamps} 的灯位与颜色，所以
+     * 开关任一个都不会让另一处的位置或颜色变化。
+     *
+     * <p>默认开。开光影（Iris / OptiFine）时整个 pass 会被跳过并只写一行日志：光影自己拥有
+     * framebuffer 与深度缓冲，我们再去抢会得到一张错的深度图。没有灯（场上没有点亮的车）时
+     * 不做任何 GL 工作：不建 framebuffer、不拷深度、不绑程序。
+     *
+     * <p>{@code /mtr_lte scatter on|off}，或配置界面「光源 → 空气散射」。
+     */
+    public boolean scatterEnabled = true;
+
+    /**
+     * 散射的强度，钳制到 [0.1, 3]。1.0 是标定值：正对车灯时空气明显亮起来，但不会把整片画面推到
+     * 白色。它乘在 {@code 1 - exp(-sum)} 的指数外面，所以调大是「更快饱和」而不是「更白」。
+     */
+    public double scatterStrength = 1.0D;
+
+    /**
+     * 每盏灯周围参与散射的空气球半径（格），钳制到 [1, 24]。默认 6：大约是两节车头灯能在夜里
+     * 「照亮一片雾」的尺度；调到 12 以上会变成一团很明显的光球，而且每个像素要多算很多余弦。
+     */
+    public double scatterRadius = 6.0D;
+
+    /** {@link #scatterStrength} 钳制到 [0.1, 3]。 */
+    public double scatterStrengthClamped() {
+        return clamp(scatterStrength, 0.1D, 3.0D);
+    }
+
+    /** {@link #scatterRadius} 钳制到 [1, 24]。 */
+    public double scatterRadiusClamped() {
+        return clamp(scatterRadius, 1.0D, 24.0D);
+    }
 
     /**
      * Draw the head <b>beam cone</b> ({@code ProtoBeamCone}) - the volumetric light cone out of the
@@ -1764,7 +1924,7 @@ public final class HeadlightConfig {
                 ? null : sidingSettings.get(Long.valueOf(sidingId));
         if (o == null) {
             return new Effective(enabled, dynamicLight, maxDistance, headLuminance, tailLuminance,
-                    headLength, tailLength, railLight, beamGlow, beamFlare, beamDistance,
+                    headLength, tailLength, railLight, bandGlobal(), flareGlobal(), beamDistance,
                     beamHeadLength,
                     beamTailLength, beamWidth, parseColor(beamHeadColor, DEFAULT_HEAD_BEAM),
                     parseColor(beamTailColor, DEFAULT_TAIL_BEAM),
@@ -1786,8 +1946,8 @@ public final class HeadlightConfig {
                 o.headLength != null ? o.headLength.doubleValue() : headLength,
                 o.tailLength != null ? o.tailLength.doubleValue() : tailLength,
                 o.railLight != null ? o.railLight.booleanValue() : railLight,
-                o.beamGlow != null ? o.beamGlow.booleanValue() : beamGlow,
-                o.beamFlare != null ? o.beamFlare.booleanValue() : beamFlare,
+                o.beamGlow != null ? o.beamGlow.booleanValue() : bandGlobal(),
+                o.beamFlare != null ? o.beamFlare.booleanValue() : flareGlobal(),
                 o.beamDistance != null ? o.beamDistance.doubleValue() : beamDistance,
                 o.beamHeadLength != null ? o.beamHeadLength.doubleValue() : beamHeadLength,
                 o.beamTailLength != null ? o.beamTailLength.doubleValue() : beamTailLength,
@@ -1853,7 +2013,7 @@ public final class HeadlightConfig {
 
     /** True when a beam may be drawn for at least one siding (see {@link #railLightAnySiding()}). */
     public boolean beamAnySiding() {
-        if (beamGlow) {
+        if (bandGlobal()) {
             return true;
         }
         if (sidingSettings != null) {
@@ -1872,7 +2032,7 @@ public final class HeadlightConfig {
      * asks this <em>before</em> iterating trains, so a globally-off feature costs one boolean.
      */
     public boolean flareAnySiding() {
-        if (beamFlare) {
+        if (flareGlobal()) {
             return true;
         }
         if (sidingSettings != null) {
@@ -2180,6 +2340,8 @@ public final class HeadlightConfig {
         // doorLightByLine). Every one of them starts at the shipped default - the strip follows the
         // route colour, the door light is orange - so nothing is rewritten; the bump exists so the
         // keys show up in an existing config/mtrlte.json and can be edited by hand.
+        // Version 22 adds lightStyle (BAND / FLARE / BOTH, default BAND = the light band only) and
+        // folds the two legacy layer switches onto it; see the block at the end of this method.
         if (configVersion < 21) {
             // Version 21 turns the beam cone off by default (still experimental) and appends
             // rainSprayLowSpeedBoost. true was the shipped default of beamCone, so an old file
@@ -2191,6 +2353,14 @@ public final class HeadlightConfig {
                 beamCone = false;
             }
         }
+        if (configVersion < 22) {
+            // Version 22 引入 lightStyle（BAND / FLARE / BOTH，默认 BAND）——玩家要求"光带不要
+            // 删，和灯晕互为备份，自己选"。老文件没有这个键，Gson 让它停在初始值 BAND；这里再把
+            // 两份逐层旧开关同步成 BAND 的样子（beamGlow=true / beamFlare=false），否则文件里会
+            // 写着 "beamFlare": true 而实际不画灯晕，读的人只会以为配置坏了。
+            // 逐侧线的 beamGlow / beamFlare 覆盖一律不动：那是玩家对单条侧线的明确选择。
+            setLightStyle(style());
+        }
         configVersion = CONFIG_VERSION;
         return true;
     }
@@ -2199,6 +2369,9 @@ public final class HeadlightConfig {
         if (mutedSidings == null) {
             mutedSidings = new java.util.ArrayList<>();
         }
+        // 样式：键写成 null（或适配器之外的路径给出了 null）按默认 BAND 处理 —— 渲染侧
+        // 靠 bandGlobal()/flareGlobal() 读，永远不会看到一个 null 样式。
+        lightStyle = style();
         if (sidingSettings == null) {
             sidingSettings = new LinkedHashMap<>();
         } else {
@@ -2314,6 +2487,9 @@ public final class HeadlightConfig {
         beamTailHeight = clamp(beamTailHeight, 0.0D, 4.0D);
         beamLift = clamp(beamLift, 0.0D, 0.5D);
         beamAlpha = clamp(beamAlpha, 0.0D, 1.0D);
+        // 屏幕空间散射：手改 JSON 写出 0 或 1e9 时钳到有意义的值（半径 0 会让 pass 变成空操作）。
+        scatterStrength = clamp(scatterStrength, 0.1D, 3.0D);
+        scatterRadius = clamp(scatterRadius, 1.0D, 24.0D);
         beamConeAlpha = clamp(beamConeAlpha, 0.02D, 0.5D);
         rainSprayMinSpeedKmh = clamp(rainSprayMinSpeedKmh, 0, 200);
         trainCollisionHeight = clamp(trainCollisionHeight, 1.0D, 8.0D);
