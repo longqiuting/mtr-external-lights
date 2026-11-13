@@ -154,6 +154,10 @@ progress += sign(target - progress) * step，越界夹到 target
 * 物品图标是 **3D 方块模型**：按每个 `o` 组的包围盒生成 `<id>_icon.json`（每个组一个 cuboid，
   贴图用该组里面数最多的那个材质，UV 用该组的 uv 范围），`models/item/<id>.json` 只是
   `parent` 到它。3 格高的模型在图标里等比缩到 ≤ 28 单位（方块模型允许的 −16..32 区间）。
+* 图标 / 粒子贴图走的是**方块图集**（模型管线会 stitch），而 1024×1024 基本占满整张图集、
+  stitch 会失败（物品图标变紫黑）。所以 `downscale-icons.js` 给两张 1024 的贴图各生成一份
+  256×256 的盒式降采样 `<name>_icon.png`，图标模型与粒子模型只引用这一份；
+  BER 仍然用原尺寸（`getEntityCutout` 直绑贴图，不进图集）。
 
 ## 7. 已知限制
 
@@ -178,9 +182,9 @@ progress += sign(target - progress) * step，越界夹到 target
 # 资源齐备（描述 → obj → mtl → png → blockstate → item model → loot → lang）
 node v1.20.1/tools/psd/verify-resources.js v1.20.1/src/main/resources
 
-# 连 jar 一起核对（92 个被引用的资源文件 + 6 个类文件逐个在 jar 里确认）
+# 连 jar 一起核对（94 个被引用的资源文件 + 6 个类文件逐个在 jar 里确认）
 node v1.20.1/tools/psd/verify-resources.js v1.20.1/src/main/resources \
-     v1.20.1/build/libs/lte-1.0.46.jar
+     v1.20.1/build/devlibs/lte-1.0.47-dev.jar
 ```
 
 脚本还会检查：描述里的 `subModels.main/door` 与 `subModel` 必须真的出现在 `.obj` 的 `o` 组里
@@ -194,4 +198,5 @@ node v1.20.1/tools/psd/verify-resources.js v1.20.1/src/main/resources \
 | `asset-report.js` | png 尺寸（判断要不要降采样）+ mtl 的材质 → 贴图对应 |
 | `import-assets.js` | 把素材包复制进 jar 并改写命名空间 |
 | `gen-resources.js` | 生成 14 个 blockstate / 3D 图标模型 / 掉落表 / lang |
+| `downscale-icons.js` | 给 >256 的贴图生成 256 的图标副本（图集能 stitch），并把图标模型指过去 |
 | `verify-resources.js` | 上面的验收脚本 |

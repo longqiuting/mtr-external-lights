@@ -114,14 +114,15 @@ public final class FangsuPsdBlocks {
             blocks.add(block);
         }
 
-        entityType = Registry.register(Registries.BLOCK_ENTITY_TYPE, ENTITY_ID,
-                FabricBlockEntityTypeBuilder.create(FangsuPsdDoorBlock.FangsuPsdDoorEntity::new,
-                        blocks.toArray(new FangsuPsdDoorBlock[0])).build());
         if (blocks.isEmpty()) {
-            // 描述文件全都读不到（jar 资源被裁过）：方块实体类型没有方块可挂，后面的页签也就不用加。
+            // 描述文件全都读不到（jar 资源被裁过）：没有方块可挂，方块实体类型 / 页签都不用建了。
             LteLog.LOGGER.warn("[lte] fangsu psd doors: no variant could be loaded, nothing registered");
             return;
         }
+
+        entityType = Registry.register(Registries.BLOCK_ENTITY_TYPE, ENTITY_ID,
+                FabricBlockEntityTypeBuilder.create(FangsuPsdDoorBlock.FangsuPsdDoorEntity::new,
+                        blocks.toArray(new FangsuPsdDoorBlock[0])).build());
 
         // 页签：进「厦门风格物件」（mtrlte:core，由 XiamenObjects 建），排在 eyecandy 之后 ——
         // 这一页本来就是「厦门风格」的大杂烩（屏蔽门 / 闸机 / 栏杆 / 装饰件）。

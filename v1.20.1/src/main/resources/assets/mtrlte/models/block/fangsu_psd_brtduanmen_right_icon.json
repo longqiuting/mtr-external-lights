@@ -1,7 +1,7 @@
 {
   "textures": {
-    "0": "mtrlte:fangsu_psd/duanmen/dkg",
-    "1": "mtrlte:fangsu_psd/duanmen/dkg"
+    "0": "mtrlte:block/fangsu_psd_duanmen_dkg",
+    "1": "mtrlte:block/fangsu_psd_duanmen_dkg"
   },
   "elements": [
     {
