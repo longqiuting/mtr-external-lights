@@ -25,6 +25,7 @@ uniform mat4 uInvViewProj;                  // inverse(projection * view), camer
 uniform vec4 uParams;                       // x = gain, y = extinction/block, z = max ray, w = phase g
 uniform vec4 uCone;                         // x = cos(inner), y = cos(outer)
 uniform int uCount;                         // lamps actually filled in
+uniform int uTest;                          // 1 = /mtr_lte lighttest: fixed red output, no maths at all
 uniform vec4 uLightPos[16];                 // xyz = lamp, camera relative; w = glow radius R
 uniform vec4 uLightDir[16];                 // xyz = unit heading; w = beam length
 uniform vec4 uLightColor[16];               // rgb = colour; w = intensity
@@ -40,6 +41,14 @@ float smooth01(float x) {
 }
 
 void main() {
+    // 取证：/mtr_lte lighttest 打开时，这一整个 pass 只输出一块纯红 —— 不读深度、不看灯数、
+    // 不做任何数学。于是「屏幕上有没有红」只取决于「程序绑定 + uniform 上传 + 这块全屏四边形 +
+    // 颜色附件 + 加色混合」这条链，与模型和参数完全无关。见 dev.js.mtrheadlight.LightTest。
+    if (uTest == 1) {
+        fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+        return;
+    }
+
     vec2 ndc = vUv * 2.0 - 1.0;
     float sceneDepth = texture(Sampler0, vUv).r;
 

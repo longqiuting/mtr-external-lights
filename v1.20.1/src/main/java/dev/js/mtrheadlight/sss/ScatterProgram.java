@@ -59,6 +59,7 @@ final class ScatterProgram {
     private static GlUniform uParams;
     private static GlUniform uCone;
     private static GlUniform uCount;
+    private static GlUniform uTest;
     private static GlUniform uLightPos;
     private static GlUniform uLightDir;
     private static GlUniform uLightColor;
@@ -111,10 +112,12 @@ final class ScatterProgram {
             final GlUniform params = require(loaded, "uParams");
             final GlUniform cone = require(loaded, "uCone");
             final GlUniform count = require(loaded, "uCount");
+            final GlUniform test = require(loaded, "uTest");
             final GlUniform lightPos = require(loaded, "uLightPos");
             final GlUniform lightDir = require(loaded, "uLightDir");
             final GlUniform lightColor = require(loaded, "uLightColor");
             if (invViewProj == null || params == null || cone == null || count == null
+                    || test == null
                     || lightPos == null || lightDir == null || lightColor == null) {
                 // A uniform the compiler dropped (renamed, or no longer read) would make the pass
                 // draw with stale values - that is exactly the "effect silently does nothing" bug.
@@ -126,6 +129,7 @@ final class ScatterProgram {
             uParams = params;
             uCone = cone;
             uCount = count;
+            uTest = test;
             uLightPos = lightPos;
             uLightDir = lightDir;
             uLightColor = lightColor;
@@ -180,9 +184,24 @@ final class ScatterProgram {
         uParams.set(gain, extinction, maxRay, phaseG);
         uCone.set(cosInner, cosOuter, 0.0F, 0.0F);
         uCount.set(count);
+        // 真实渲染永远回到「不强制纯色」—— 探针关掉之后不会留下一个红色的 pass。
+        uTest.set(0);
         uLightPos.set(pos);
         uLightDir.set(dir);
         uLightColor.set(color);
+    }
+
+    /**
+     * {@code /mtr_lte lighttest} 用：把整个 pass 切成「固定纯红输出」，不读深度、不看灯数。
+     *
+     * @return {@code false} 表示程序里没有这个 uniform（探针不能假装自己做了事）
+     */
+    static boolean testTint(final boolean on) {
+        if (uTest == null) {
+            return false;
+        }
+        uTest.set(on ? 1 : 0);
+        return true;
     }
 
     /** The program to draw with; only valid while {@link #ready()}. */
@@ -200,6 +219,7 @@ final class ScatterProgram {
         uParams = null;
         uCone = null;
         uCount = null;
+        uTest = null;
         uLightPos = null;
         uLightDir = null;
         uLightColor = null;

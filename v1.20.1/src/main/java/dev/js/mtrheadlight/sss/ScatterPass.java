@@ -3,6 +3,7 @@ package dev.js.mtrheadlight.sss;
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import dev.js.mtrheadlight.HeadlightConfig;
+import dev.js.mtrheadlight.LightTest;
 import dev.js.mtrheadlight.MtrHeadlightClient;
 import dev.js.mtrheadlight.ShaderPackProbe;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
@@ -142,13 +143,32 @@ public final class ScatterPass {
 
     /** The pass itself. Never throws: a broken pass must not take the frame down. */
     public static void render(final WorldRenderContext context) {
+        // 让 [lte] lighttest: 那一行始终有窗口在推进（灯晕那一侧也会调，谁先到谁打）。
+        LightTest.report();
         try {
-            final HeadlightConfig cfg = MtrHeadlightClient.config();
-            if (cfg == null || !cfg.enabled || !cfg.scatterEnabled) {
-                return;
-            }
             final MinecraftClient client = MinecraftClient.getInstance();
             if (client == null || client.world == null || client.player == null) {
+                return;
+            }
+            /*
+             * 取证探针（/mtr_lte lighttest）：一次同屏两块纯色，都不采灯、不拷深度，也不看
+             * scatterEnabled / shader 包判定。
+             *   左半屏红 = 本 pass 自己的 light_scatter 程序（uTest=1 时整段 main() 只写纯红）；
+             *   右半屏蓝 = 原版 position_color 程序（GlowCompat.drawScreenQuad），完全不碰我们的
+             *              程序，只证明「LAST 这个时机本来就能往主 framebuffer 写」。
+             * 于是「只有蓝没有红」= 断在我们这条程序上；「两半都没有」= 整条 LAST 写入链路在别处；
+             * 「有红而光雾仍然没有」= 程序与附件都对，问题在 shader 的深度重建与灯参数。
+             * 见 {@link dev.js.mtrheadlight.LightTest}。
+             */
+            if (LightTest.enabled()) {
+                // 左半屏：本程序自己输出纯红（uTest=1）—— 「散射 pass 真在写颜色」的直接证据。
+                tintThroughProgram(client);
+                // 右半屏：原版程序画的蓝，作为「这个时机本来就能写」的对照。
+                LightTest.drawFallbackTint();
+                return;
+            }
+            final HeadlightConfig cfg = MtrHeadlightClient.config();
+            if (cfg == null || !cfg.enabled || !cfg.scatterEnabled) {
                 return;
             }
             if (shaderPackActive()) {
@@ -227,7 +247,9 @@ public final class ScatterPass {
         }
 
         RenderSystem.setShader(ScatterProgram::program);
-        RenderSystem.setShaderTexture(0, DepthCopy.texture());
+        // -1 = 这一帧还没有深度拷贝（只有 lighttest 会走到），绑 0 而不是把一个非法 id 交给 GL。
+        final int depth = DepthCopy.texture();
+        RenderSystem.setShaderTexture(0, depth == -1 ? 0 : depth);
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         RenderSystem.enableBlend();
         RenderSystem.blendFunc(GlStateManager.SrcFactor.SRC_ALPHA, GlStateManager.DstFactor.ONE);
@@ -252,6 +274,50 @@ public final class ScatterPass {
             RenderSystem.setShader(GameRenderer::getPositionColorProgram);
             RenderSystem.setShaderTexture(0, 0);
             RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
+        }
+    }
+
+    /**
+     * {@code /mtr_lte lighttest}：让<b>本 pass 自己</b>把左半屏涂成纯红。
+     *
+     * <p>{@code uTest=1} 时片元着色器整段 {@code main()} 只写 {@code vec4(1,0,0,1)}：不读深度、
+     * 不看灯数、不做任何积分。所以这块红是这条完整链路的产物 ——
+     * <b>程序编译 + uniform 上传 + 采样器绑定 + 全屏四边形 + 主 framebuffer 的颜色附件 + 加色混合</b>，
+     * 一个都不少，唯独把「shader 里的数学」排除在外。
+     *
+     * <p>只画左半屏用视口实现（全屏 NDC 四边形 + 半宽视口），右半屏留给原版程序画的那块蓝
+     * （{@link LightTest#drawFallbackTint()}），一次同屏就能把「我们的程序」和「这个时机」分开看。
+     *
+     * <p>走 {@link #draw()} 而不是另写一份：状态设置与复位（blend / depthMask / cull / shader）
+     * 和真实 pass 逐字相同，否则探针的回答就不代表真实 pass。
+     */
+    private static void tintThroughProgram(final MinecraftClient client) {
+        try {
+            final Framebuffer framebuffer = client.getFramebuffer();
+            if (framebuffer == null) {
+                LightTest.tintFailure("no-framebuffer");
+                return;
+            }
+            if (!ScatterProgram.ensure(client)) {
+                LightTest.tintFailure("program=" + ScatterProgram.status());
+                return;
+            }
+            if (!ScatterProgram.testTint(true)) {
+                LightTest.tintFailure("uniform-missing:uTest");
+                return;
+            }
+            final int width = Math.max(2, framebuffer.viewportWidth);
+            final int height = Math.max(1, framebuffer.viewportHeight);
+            GlStateManager._viewport(0, 0, Math.max(1, width / 2), height);
+            try {
+                draw();
+                LightTest.programTintSubmitted();
+            } finally {
+                GlStateManager._viewport(0, 0, width, height);
+                ScatterProgram.testTint(false);
+            }
+        } catch (Throwable t) {
+            LightTest.tintFailure(t.getClass().getSimpleName() + ":" + firstLine(t));
         }
     }
 
@@ -379,6 +445,14 @@ public final class ScatterPass {
             sb.append(" (shader pack active: pass skipped)");
         }
         return sb.toString();
+    }
+
+    /** First line of a throwable's message, for a one-line log field. */
+    private static String firstLine(final Throwable t) {
+        final String text = t == null ? "unknown" : String.valueOf(t.getMessage());
+        final int newline = text.indexOf('\n');
+        final String head = newline < 0 ? text : text.substring(0, newline);
+        return head.length() > 120 ? head.substring(0, 120) : head;
     }
 
     /** Releases the program and the depth target; called when the client stops. */

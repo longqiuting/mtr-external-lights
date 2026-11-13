@@ -200,6 +200,23 @@ public final class Commands {
                                 .executes(context -> setScatter(context.getSource(),
                                         !"off".equalsIgnoreCase(
                                                 StringArgumentType.getString(context, "state"))))))
+                // 车灯渲染路径取证：洋红四边形（灯晕层）+ 左半屏红（散射 pass）。只在内存里。
+                .then(ClientCommandManager.literal("lighttest")
+                        .executes(context -> lightTestStatus(context.getSource()))
+                        .then(ClientCommandManager.literal("status")
+                                .executes(context -> lightTestStatus(context.getSource())))
+                        .then(ClientCommandManager.literal("on")
+                                .executes(context -> setLightTest(context.getSource(), true)))
+                        .then(ClientCommandManager.literal("off")
+                                .executes(context -> setLightTest(context.getSource(), false)))
+                        .then(ClientCommandManager.argument("state", StringArgumentType.word())
+                                .suggests((context, builder) -> builder
+                                        .suggest("on")
+                                        .suggest("off")
+                                        .buildFuture())
+                                .executes(context -> setLightTest(context.getSource(),
+                                        "on".equalsIgnoreCase(StringArgumentType.getString(
+                                                context, "state"))))))
                 // 可见探针：先回答"管道通不通"，再谈绑定。两个开关都只在内存里，不写 config，
                 // 退出游戏/换世界即失效（它们不是玩家的设置项）。
                 .then(ClientCommandManager.literal("debug")
@@ -429,6 +446,44 @@ public final class Commands {
         source.sendFeedback(Text.literal("LTE：scatter = " + (on ? "on" : "off")
                 + (on ? "（车灯会在空气里散出光雾；没有灯时零开销）"
                         : "（不再运行全屏散射 pass）")));
+        return 1;
+    }
+
+    /**
+     * {@code /mtr_lte lighttest [on|off|status]} —— <b>车灯渲染路径的取证开关</b>（只在内存里）。
+     *
+     * <p>「只看到光带，灯晕和散射都看不见」这句话背后有四种完全不同的原因：几何落在视锥外、程序/贴图
+     * 没加载、散射 pass 写的颜色附件没到屏幕、shader 数学算出来接近 0。它们在截图里长得一模一样，
+     * 所以这里一次性给两块<b>纯色</b>探针，都不看配置闸：
+     * <ul>
+     *   <li>每列车的<b>车头 / 车尾前方 2 格</b>各一块 <b>3 格宽的洋红四边形</b>。它走光带那条已验证
+     *       可见的路（{@code position_color}，<b>不带贴图</b>），并且跳过朝向 / 距离 / 透明度 /
+     *       {@code lightStyle} / {@code isLit} 的全部判定。<b>看不到洋红</b> = 世界渲染回调、相机相对
+     *       坐标或程序绑定这一层出了问题；<b>看到洋红但看不到灯晕</b> = 灯晕贴图 / 纹理程序 / 透明度
+     *       的问题，与几何和时机无关。</li>
+     *   <li>{@code WorldRenderEvents.LAST} 里一块<b>左半屏红色叠加</b>，不看灯数、不拷深度、不绑我们
+     *       自己的 shader。<b>看不到半屏红</b> = 散射 pass 的时机/附件有问题；<b>看到红但光雾仍然没有</b>
+     *       = pass 和附件都对，问题在 shader 的深度重建或灯参数。</li>
+     * </ul>
+     *
+     * <p>打开后每 5 秒一行 {@code [lte] lighttest: flareQuads=N scatterTint=true|false}：
+     * {@code flareQuads=0} 说明连列车都没走到（回调没跑 / 没有可见列车），{@code >0} 而屏幕上看不见
+     * 才是「几何在、没画到屏幕上」。失败原因（程序加载等）跟在行尾 {@code flareError=…} /
+     * {@code tintError=…}。退出游戏即失效，与 {@code /mtr_lte debug spray} 一致，不写盘。
+     */
+    private static int lightTestStatus(final FabricClientCommandSource source) {
+        source.sendFeedback(Text.literal("LTE：" + LightTest.status()
+                + " — /mtr_lte lighttest on|off"
+                + "（洋红 = 灯晕层几何，左半屏红 = 散射 pass；日志见 [lte] lighttest: 行）"));
+        return 1;
+    }
+
+    private static int setLightTest(final FabricClientCommandSource source, final boolean on) {
+        LightTest.set(on);
+        source.sendFeedback(Text.literal("LTE：lighttest = " + (on ? "on" : "off")
+                + (on ? "（每列车两端各一块 3 格洋红四边形 + 左半屏红；"
+                        + "洋红=灯晕层几何，红=散射 pass 在写颜色）"
+                        : "（恢复真实渲染：灯晕 + 散射）")));
         return 1;
     }
 

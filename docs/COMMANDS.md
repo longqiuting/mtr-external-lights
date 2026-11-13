@@ -27,6 +27,28 @@
 | `/mtr_lte flare style band\|flare\|both` | 切换光样式：光带 / 灯晕 / 两者都画（写盘、立即生效，与面板「光样式」同一个键） |
 | `/mtr_lte scatter` / `scatter status` | 屏幕空间散射（车灯在空气里的光雾）：开关 / shader 程序状态 / 上一帧送进 shader 的灯数 |
 | `/mtr_lte scatter on` / `off` | 开关全屏散射 pass（写盘、下一帧生效；没灯时零开销） |
+| `/mtr_lte lighttest on` / `off` | **渲染路径取证**：洋红四边形（灯晕层）+ 左半屏红（散射 pass 自己画）+ 右半屏蓝（时机对照）。只在内存里，退出游戏失效 |
+
+### 车灯渲染路径取证（`/mtr_lte lighttest`）
+
+「只看到光带，灯晕和散射都看不见」背后有四种完全不同的原因，截图里长得一模一样。打开探针后一屏
+就能分开看，三块颜色**都跳过** `lightStyle` / `isLit` / 灯位 / 朝向 / 距离 / 透明度 / 灯数：
+
+| 屏幕上的东西 | 谁画的 | 判读 |
+|---|---|---|
+| **洋红四边形**（每列车车头、车尾前方 2 格，3 格见方） | 灯晕层，原版 `position_color` 程序，**不带贴图** | 看不到 → 世界渲染回调 / 相机相对坐标 / 程序绑定坏了；看得到但灯晕仍然没有 → 灯晕的**贴图或纹理程序**是问题 |
+| **左半屏红** | 散射 pass **自己的** `light_scatter` 程序（`uTest=1` 时片元着色器只写 `vec4(1,0,0,1)`） | 看不到 → 程序绑定 / uniform / 全屏四边形 / 颜色附件 有一环断了；看得到但光雾仍然没有 → 问题在 **shader 的深度重建或灯参数** |
+| **右半屏蓝** | 原版 `position_color` 程序，不碰我们的程序与深度拷贝 | 只有蓝没有红 → `LAST` 时机能写、断的是我们的程序；两半都没有 → 整条 `LAST` 写入链路在光影/别的模组手里 |
+
+打开后日志每 5 秒一行：
+
+```
+[lte] lighttest: flareQuads=4 scatterTint=true
+```
+
+- `flareQuads` = 本窗口真的写进顶点缓冲的洋红四边形数。**0** 说明连列车都没走到（回调没跑 / 没有可见列车）；`>0` 而屏幕上看不见才是「几何在、但没画到屏幕上」。
+- `scatterTint` = 散射程序那次纯红有没有真的提交。
+- 后面可能跟 `fallbackTint=true`（右半屏蓝已提交）、`tintError=…` / `flareError=…`（哪一环抛了异常）。
 
 ### 列车挡雨（车内看不到雨滴）
 
@@ -329,6 +351,8 @@
 | 光柱看不到 | `[lte] cone: ... drawn= quads= path= dmin= range= g1..g9=` |
 | 光柱太淡 / 太实 | `/mtr_lte debug coneBoost on` 对照；`beamConeAlpha` |
 | 光带看不到 | `[lte] glow: ... calls= quads= beams= near= skipped=` |
+| 灯晕看不到 | `/mtr_lte lighttest on`：有洋红无灯晕 → 贴图/纹理程序；无洋红 → 几何与时机（看 `[lte] lighttest: flareQuads=`） |
+| 散射光雾看不到 | `/mtr_lte lighttest on`：左半屏红有 → shader 数学/深度；无红有蓝 → 我们的程序；两半都无 → `LAST` 写入链路 |
 | 水雾看不到 | `[lte] spray: ... trains= spawned= roofSkipped= sprayType= culled=` |
 | 水雾不出现但下雨 | 检查 `trains=`（附近是否真有车）与 `rainSprayMinSpeedKmh` |
 | 撞了没伤害 | `[lte] impact: v= tier= dmg=` 与 `collision(server) ... hits= damage=` |
