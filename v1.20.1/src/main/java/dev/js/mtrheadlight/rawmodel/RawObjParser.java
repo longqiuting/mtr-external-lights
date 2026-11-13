@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Predicate;
 
 import dev.js.mtrheadlight.LteLog;
 import net.minecraft.util.Identifier;
@@ -32,7 +33,8 @@ import net.minecraft.util.Identifier;
  *   <tr><td>{@code vn}</td><td><b>读但不信</b>：法线一律用三角形叉积现算（OBJ 里的 vn 经常与绕序不一致）</td></tr>
  *   <tr><td>{@code f}</td><td>支持 {@code v}、{@code v/vt}、{@code v//vn}、{@code v/vt/vn} 四种写法与<b>负索引</b>；
  *       三角形原样出，四边形原样出，{@code n>4} 的多边形按<b>扇形</b>拆成 {@code n-2} 个三角形</td></tr>
- *   <tr><td>{@code o} / {@code g}</td><td>记进 {@link RawMesh.Quad#group()}（渲染层不用，留给后续按组隐藏）</td></tr>
+ *   <tr><td>{@code o} / {@code g}</td><td>记进 {@link RawMesh.Quad#group()} + {@link RawMesh.Quad#paragraph()}
+ *       （每一条 `o`/`g` 行 = 一段，同名也算新的一段）；渲染层按段挑几何见 {@link #groupRuns}</td></tr>
  *   <tr><td>{@code mtllib} / {@code usemtl} / {@code s} / {@code #…}</td><td>忽略 —— 贴图由 {@code first.json} 的
  *       {@code textureId} 直接给，.mtl 一概不读</td></tr>
  * </table>
@@ -257,6 +259,68 @@ public final class RawObjParser {
         return result;
     }
 
+    /**
+     * 一份网格按 {@code o} / {@code g} 组<b>切段</b>：组名或段落号一变就开新的一段。
+     *
+     * <h2>为什么需要它</h2>
+     * <p>BRT 屏蔽门收纳机（{@code left.obj} / {@code right.obj}）的机身上有一盏警示灯，模型里是
+     * <b>两段同名 {@code o light} 的几何，位置完全重合、只差 uv</b>：第一段采样贴图上「熄灯」的深色
+     * 像素，第二段采样「点亮」的浅色像素。渲染时只能画其中一段（两段一起画会 z-fighting），
+     * 于是需要「按组段挑四边形」。
+     *
+     * <p>注意<b>不能只按组名挑</b>：两段都叫 {@code light}（Blockbench 导出时重名），所以切成段的依据是
+     * 组名 <b>+</b> {@link RawMesh.Quad#paragraph()}（每一条 {@code o} / {@code g} 行加一）——
+     * 这正是本方法返回带顺序的 {@link GroupRun} 列表、而不是按名字合并的 {@code Map} 的原因。
+     *
+     * @return 按文件顺序的组段；网格为 {@code null} / 空时返回空表
+     */
+    public static List<GroupRun> groupRuns(final RawMesh mesh) {
+        final List<GroupRun> runs = new ArrayList<>();
+        if (mesh == null || mesh.quads().length == 0) {
+            return runs;
+        }
+        String name = null;
+        int paragraph = Integer.MIN_VALUE;
+        final List<RawMesh.Quad> quads = new ArrayList<>();
+        for (final RawMesh.Quad quad : mesh.quads()) {
+            final String group = quad.group() == null ? "" : quad.group();
+            if (name == null) {
+                name = group;
+                paragraph = quad.paragraph();
+            } else if (!name.equals(group) || paragraph != quad.paragraph()) {
+                runs.add(new GroupRun(name, quads.toArray(new RawMesh.Quad[0])));
+                quads.clear();
+                name = group;
+                paragraph = quad.paragraph();
+            }
+            quads.add(quad);
+        }
+        runs.add(new GroupRun(name, quads.toArray(new RawMesh.Quad[0])));
+        return runs;
+    }
+
+    /**
+     * 只留下组名满足 {@code keep} 的四边形（贴图沿用原网格）。
+     *
+     * <p>和 {@link #groupRuns} 配合使用：「底座」= 去掉所有灯组，某一盏灯 = 某一个组段。
+     */
+    public static RawMesh select(final RawMesh mesh, final Predicate<String> keep) {
+        if (mesh == null) {
+            return null;
+        }
+        final List<RawMesh.Quad> kept = new ArrayList<>();
+        for (final RawMesh.Quad quad : mesh.quads()) {
+            if (keep.test(quad.group() == null ? "" : quad.group())) {
+                kept.add(quad);
+            }
+        }
+        return new RawMesh(mesh.texture(), kept.toArray(new RawMesh.Quad[0]));
+    }
+
+    /** 一段连续同名组：{@code o} / {@code g} 的名字 + 这一段的四边形（文件顺序）。 */
+    public record GroupRun(String name, RawMesh.Quad[] quads) {
+    }
+
     /** 一个资源路径的目录部分（带结尾斜杠）；没有目录时返回空串。 */
     static String directoryOf(final String path) {
         final int slash = path.lastIndexOf('/');
@@ -463,8 +527,8 @@ public final class RawObjParser {
 
     // ------------------------------------------------------------------ 四边形
 
-    /** 一个面：逐角度的顶点 / uv 索引（已解析成 0 基），它所在的 {@code o} / {@code g} 组名，以及 {@code usemtl} 材质名。 */
-    private record Face(int[] vertex, int[] texCoord, String group, String material) {
+    /** 一个面：逐角度的顶点 / uv 索引（已解析成 0 基），它所在的 {@code o} / {@code g} 组名 + 段落号，以及 {@code usemtl} 材质名。 */
+    private record Face(int[] vertex, int[] texCoord, String group, int paragraph, String material) {
     }
 
     /** 一个面的三角形 → 一个 {@link RawMesh.Quad}（三角形补一个重复顶点凑成 4 个）。 */
@@ -499,7 +563,7 @@ public final class RawObjParser {
         if (normal == null) {
             return; // 零面积（重复顶点 / 退化的多边形角），画出来也不可见
         }
-        out.add(new RawMesh.Quad(pos, uv, normal, shadeOf(normal), false, face.group));
+        out.add(new RawMesh.Quad(pos, uv, normal, shadeOf(normal), false, face.group(), face.paragraph()));
     }
 
     /** 三角形的外法线（单位向量）；面积为零返回 {@code null}。 */
@@ -558,6 +622,7 @@ public final class RawObjParser {
         final Geometry g = new Geometry();
         // uv 的 flipV 在这里统一做（两份素材的物件都是 flipV=true），折进 [0,1) 见类注释。
         String group = "";
+        int paragraph = 0;
         String material = "";
         for (final String rawLine : text.split("\n")) {
             final String line = rawLine.strip();
@@ -576,11 +641,16 @@ public final class RawObjParser {
                     final float[] uv = parsePair(rest);
                     g.texCoords.add(new float[] {wrap(uv[0]), wrap(flipV ? 1.0F - uv[1] : uv[1])});
                 }
-                case "o", "g" -> group = rest;
+                case "o", "g" -> {
+                    group = rest;
+                    // 每一条 o / g 都是一段（同名也算新的一段）：Blockbench 允许重名，
+                    // 收纳机的两段 `o light` 只能靠这个序号分开。
+                    paragraph++;
+                }
                 case "usemtl" -> material = rest;
                 case "f" -> {
                     if (withFaces) {
-                        final Face face = parseFace(rest, g, group, material);
+                        final Face face = parseFace(rest, g, group, paragraph, material);
                         if (face != null) {
                             g.faces.add(face);
                         }
@@ -628,7 +698,7 @@ public final class RawObjParser {
      * 负数索引按 OBJ 规范相对「当前已读到的个数」解析。
      */
     private static Face parseFace(final String rest, final Geometry g, final String group,
-                                 final String material) {
+                                 final int paragraph, final String material) {
         final String[] corners = rest.split("\\s+");
         final List<Integer> vi = new ArrayList<>(corners.length);
         final List<Integer> ti = new ArrayList<>(corners.length);
@@ -655,7 +725,7 @@ public final class RawObjParser {
         if (vi.size() < 3) {
             return null;
         }
-        return new Face(toArray(vi), toArray(ti), group, material);
+        return new Face(toArray(vi), toArray(ti), group, paragraph, material);
     }
 
     /** OBJ 的 1 基 / 负索引 → 0 基；越界返回 -1。 */

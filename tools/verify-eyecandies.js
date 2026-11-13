@@ -53,6 +53,14 @@ const DESCRIPTORS = [
 ];
 const CORNER_KEYS = ['msd_corner_railing', 'xiamen_brt_railing_corner'];
 const NO_COLLISION_KEYS = ['bridge_pier_20'];
+// 带警示灯的屏蔽门收纳机（BRT psd 左 / 右）：obj 里有两段位置重合、只差 uv 的 `o light`
+// （深色 = 熄 / 浅色 = 亮），渲染器只画其中一段，亮的那段自发光。
+const WARNING_LIGHT_KEYS = ['xiamen_brt_psd_left', 'xiamen_brt_psd_right'];
+// 贴图尺寸上限：绝大部分物件 1024 就够（超了说明没降采样，显存白吃）；
+// 这两件是作者给的 4096 原图（用户明确要求「保持原尺寸，不缩」），单独放宽。
+const MAX_TEXTURE_SIZE = 1024;
+const MAX_TEXTURE_SIZE_LARGE = 4096;
+
 // BRT 栏杆 4 段：薄面（z，约 0.09 格）必须整体贴在方块的一条边上，不能压着格子中线。
 const RAILING_KEYS = ['xiamen_brt_railing_middle', 'xiamen_brt_railing_left',
   'xiamen_brt_railing_right', 'xiamen_brt_railing_middle_plain'];
@@ -162,6 +170,30 @@ function objVertices(file) {
     }
   }
   return out;
+}
+
+/**
+ * OBJ 里有多少段「以 light 开头的组」（{@code o light} / {@code o light2}，同名也算两段）。
+ * 与 RawObjParser.groupRuns 同一套「组名一变就开新段」的规则。
+ */
+function lightRuns(file) {
+  const runs = [];
+  let current = null;
+  let count = 0;
+  for (const raw of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const parts = line.split(/\s+/);
+    if (parts[0] === 'o' || parts[0] === 'g') {
+      if (current !== null && count > 0 && current.toLowerCase().startsWith('light')) runs.push(current);
+      current = parts.slice(1).join(' ');
+      count = 0;
+    } else if (parts[0] === 'f') {
+      count++;
+    }
+  }
+  if (current !== null && count > 0 && current.toLowerCase().startsWith('light')) runs.push(current);
+  return runs;
 }
 
 /** 三角形（f 行按扇形拆），与 RawObjParser.footprint 的采样对象一致。 */
@@ -508,11 +540,21 @@ function checkEntry(key, entry, seenIds, seenFiles) {
 
   // 2) 贴图尺寸
   const info = pngInfo(path.join(TEX, pngName));
+  const maxTexture = WARNING_LIGHT_KEYS.includes(key) ? MAX_TEXTURE_SIZE_LARGE : MAX_TEXTURE_SIZE;
   if (info.bitDepth !== 8) fail(`${tag} ${pngName} bit depth ${info.bitDepth} (expected 8)`);
-  if (info.width > 1024 || info.height > 1024) {
-    fail(`${tag} ${pngName} is ${info.width}x${info.height} (>1024, not downscaled)`);
+  if (info.width > maxTexture || info.height > maxTexture) {
+    fail(`${tag} ${pngName} is ${info.width}x${info.height} (>${maxTexture}, not downscaled)`);
   } else {
     ok(`${tag} ${pngName} ${info.width}x${info.height}`);
+  }
+
+  // 2b) 警示灯组：警示灯那两件必须有两段 `o light`（深 / 浅两份几何重合，只差 uv），
+  //     渲染器靠「第几段」分辨亮灭 —— 少一段就闪不起来。
+  if (WARNING_LIGHT_KEYS.includes(key)) {
+    const runs = lightRuns(path.join(EYECANDY, objName));
+    if (runs.length < 2) {
+      fail(`${tag} ${objName} has ${runs.length} light group(s), expected 2 (off + on)`);
+    } else ok(`${tag} ${objName} has ${runs.length} light groups (off / on)`);
   }
 
   // 3) 碰撞箱
@@ -738,6 +780,34 @@ function main() {
   for (const key of NO_COLLISION_KEYS) {
     if (!blocksSrc.includes(`"${key}"`)) fail(`EyecandyBlocks: no-collision key ${key} not listed`);
     else ok(`no-collision key ${key} listed`);
+  }
+  // 警示灯：两块 key 必须在 WARNING_LIGHT_KEYS 里，渲染器必须按「底座 + 一盏灯」分开画，
+  // 方块必须交出 ticker（状态机的唯一入口）。
+  for (const key of WARNING_LIGHT_KEYS) {
+    if (!blocksSrc.includes(`"${key}"`)) fail(`EyecandyBlocks: warning-light key ${key} not listed`);
+    else ok(`warning-light key ${key} listed`);
+  }
+  if (!blocksSrc.includes('WARNING_LIGHT_KEYS')) fail('EyecandyBlocks: WARNING_LIGHT_KEYS set is missing');
+  else ok('EyecandyBlocks has the WARNING_LIGHT_KEYS set');
+  if (!blocksSrc.includes('public static RawMesh lightMesh(')) {
+    fail('EyecandyBlocks: lightMesh(entry, lit) is missing (the warning light cannot be picked)');
+  } else ok('EyecandyBlocks splits the warning light into base / off / on');
+  if (!blocksSrc.includes('RawObjParser.groupRuns(')) {
+    fail('EyecandyBlocks does not use RawObjParser.groupRuns (light paragraphs would not be separable)');
+  } else ok('EyecandyBlocks picks the light group by paragraph order');
+  const probeSrc = path.join(src, 'xiamen', 'eyecandy', 'PsdDoorProbe.java');
+  if (!fs.existsSync(probeSrc)) fail('PsdDoorProbe.java is missing (no door-state source)');
+  else {
+    const probe = fs.readFileSync(probeSrc, 'utf8');
+    if (!probe.includes('TileEntityPSDAPGDoorBase')) fail('PsdDoorProbe does not read the MTR PSD door block entity');
+    else ok('PsdDoorProbe reads the MTR PSD door state');
+    if (!probe.includes('"door_open"')) fail('PsdDoorProbe does not look for the generic door_open property');
+    else ok('PsdDoorProbe also accepts generic open / door_open properties');
+  }
+  const beSrc = fs.readFileSync(path.join(src, 'xiamen', 'eyecandy', 'EyecandyBlockEntity.java'), 'utf8');
+  for (const needle of ['BLINK_PHASE_TICKS', 'BLINK_FLASHES', 'PsdDoorProbe.anyDoorOpen(', 'public boolean isLit()']) {
+    if (!beSrc.includes(needle)) fail(`EyecandyBlockEntity: ${needle} is missing (blink state machine)`);
+    else ok(`EyecandyBlockEntity has ${needle}`);
   }
   // facing 三处必须一致：Java 端每件都带 FACING、生成器给每件写四个变体、本脚本核对四个变体。
   // 漏一处就是「方块有 facing 但 blockstate 只有单变体」那种上线才炸的问题。

@@ -23,6 +23,17 @@ import net.minecraft.world.World;
  * （见 {@code RawObjParser}），BER 的 {@code matrices} 原点就是方块西北下角，网格本身在模型空间
  * 0..16 里摆好了。
  *
+ * <h2>警示灯（BRT 屏蔽门收纳机那两件）</h2>
+ * <p>{@code xiamen_brt_psd_left / _right} 的 obj 里有<b>两段位置重合、只差 uv</b> 的 {@code o light}
+ * 几何（深色 = 熄 / 浅色 = 亮）。这两件不画整份网格，而是：
+ * <ol>
+ *   <li>{@link EyecandyBlocks#baseMesh} —— 底座（去掉所有灯组），普通光照；</li>
+ *   <li>{@link EyecandyBlocks#lightMesh} —— <b>只画其中一盏</b>，亮的那份走
+ *       {@code emissive = true}（lightmap 满亮、不压暗），灭的那份走普通光照。</li>
+ * </ol>
+ * 亮 / 灭由方块实体的状态机给（{@link EyecandyBlockEntity#isLit()}）：开门闪三下后常亮、
+ * 关门闪三下后熄灭。两段灯几何必须<b>只画一段</b>，否则重合面会 z-fighting 出花斑。
+ *
  * <h2>朝向：59 件全部跟着 {@code facing} 转</h2>
  * <p>每一件都有 {@link EyecandyBlock#FACING}（放置时按玩家朝向定，见
  * {@link EyecandyBlock#getPlacementState}），这里按 {@code facing} 绕方块中心
@@ -38,11 +49,12 @@ import net.minecraft.world.World;
  *
  * <h2>光照</h2>
  * <p>用 BER 传进来的 {@code light}（方块位置的天光 / 方块光），颜色乘解析期算好的方向明暗
- * （原版那套 down 0.5 / up 1.0 / 南北 0.8 / 东西 0.6）。OBJ 没有自发光信息，所以没有 fullBright 的面。
+ * （原版那套 down 0.5 / up 1.0 / 南北 0.8 / 东西 0.6）。OBJ 没有自发光信息，所以没有 fullBright 的面，
+ * 唯一的例外是点亮的那盏警示灯（{@code emissive}）。
  *
  * <h2>远处 / 面数</h2>
  * <p>共享单车那种一个模型 3446 个面、60 个加起来的量级对 BER 来说没问题（闸机那份 JSON 也是几千个面）。
- * 网格按 obj id 缓存，只解析一次。
+ * 网格按 obj id 缓存，只解析一次；警示灯的拆分（底座 / 亮 / 灭）也只在第一次画到时算一次。
  */
 public class EyecandyRenderer implements BlockEntityRenderer<EyecandyBlockEntity> {
 
@@ -57,28 +69,37 @@ public class EyecandyRenderer implements BlockEntityRenderer<EyecandyBlockEntity
         if (!(state.getBlock() instanceof EyecandyBlock block)) {
             return;
         }
-        final RawMesh mesh = EyecandyBlocks.mesh(block.entry());
-        if (mesh == null) {
+        final EyecandyEntry entry = block.entry();
+        // 警示灯那两件：底座 + 一盏灯分开画；其余 57 件就是整份网格。
+        final boolean warningLight = block.hasWarningLight();
+        final RawMesh base = warningLight ? EyecandyBlocks.baseMesh(entry) : EyecandyBlocks.mesh(entry);
+        if (base == null) {
             return;
         }
-        final RenderLayer layer = RawModelRenderer.cutoutLayer(mesh);
+        final boolean lit = warningLight && entity.isLit();
+        final RawMesh lightPart = warningLight ? EyecandyBlocks.lightMesh(entry, lit) : null;
+        final RenderLayer layer = RawModelRenderer.cutoutLayer(base);
         final VertexConsumer consumer = vertexConsumers.getBuffer(layer);
         // 全部物件都有 facing（兜底 NORTH 只防「状态里没这个属性」的老数据）。
         final Direction facing = state.contains(EyecandyBlock.FACING)
                 ? state.get(EyecandyBlock.FACING) : Direction.NORTH;
         final int degrees = EyecandyBlock.blockRotation(facing);
-        if (degrees == 0) {
-            RawModelRenderer.render(matrices, consumer, mesh, light, overlay);
-            return;
-        }
-        matrices.push();
-        try {
+        if (degrees != 0) {
+            matrices.push();
             matrices.translate(0.5F, 0.0F, 0.5F);
             matrices.multiply(RotationAxis.NEGATIVE_Y.rotationDegrees(degrees));
             matrices.translate(-0.5F, 0.0F, -0.5F);
-            RawModelRenderer.render(matrices, consumer, mesh, light, overlay);
+        }
+        try {
+            RawModelRenderer.render(matrices, consumer, base, light, overlay);
+            if (lightPart != null) {
+                // 点亮的那一段取满亮 lightmap；熄灭的那一段就是一块深色塑料，走普通光照。
+                RawModelRenderer.render(matrices, consumer, lightPart, light, overlay, lit);
+            }
         } finally {
-            matrices.pop();
+            if (degrees != 0) {
+                matrices.pop();
+            }
         }
     }
 }

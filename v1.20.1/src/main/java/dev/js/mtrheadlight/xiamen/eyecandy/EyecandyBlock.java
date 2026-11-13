@@ -9,6 +9,8 @@ import net.minecraft.block.BlockEntityProvider;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.ShapeContext;
 import net.minecraft.block.entity.BlockEntity;
+import net.minecraft.block.entity.BlockEntityTicker;
+import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.item.ItemPlacementContext;
 import net.minecraft.state.StateManager;
 import net.minecraft.state.property.DirectionProperty;
@@ -18,6 +20,7 @@ import net.minecraft.util.math.Direction;
 import net.minecraft.util.shape.VoxelShape;
 import net.minecraft.util.shape.VoxelShapes;
 import net.minecraft.world.BlockView;
+import net.minecraft.world.World;
 
 /**
  * 全部 eyecandy 共用的方块类：<b>一个类 + 一份数据</b>（{@link EyecandyEntry}）。
@@ -104,6 +107,33 @@ public class EyecandyBlock extends Block implements BlockEntityProvider {
     /** 有没有碰撞（给 {@code tools/verify-eyecandies.js} 与调试命令用）。 */
     public boolean collides() {
         return this.collides;
+    }
+
+    /**
+     * 这一件是不是「带警示灯的屏蔽门收纳机」（BRT psd 左 / 右）。
+     *
+     * <p>是的话渲染器会把它拆成「底座 + 一盏灯」画，并且方块实体开始跑
+     * {@link EyecandyBlockEntity} 的状态机（见 {@link #getTicker}）。
+     */
+    public boolean hasWarningLight() {
+        return EyecandyBlocks.isWarningLight(this.entry.key());
+    }
+
+    /**
+     * 方块实体的 ticker：<b>只有警示灯那两件</b>返回（其它 57 件返回 {@code null}，
+     * 也就是它们根本不 tick，一个空壳都不多跑）。
+     *
+     * <p>{@code type} 必须是本模组那个共享的 {@code mtrlte:eyecandy} —— 原版 {@code BlockEntityProvider}
+     * 的约定：类型对不上就返回 {@code null}（免得「方块与方块实体错位」时崩）。
+     */
+    @Override
+    @SuppressWarnings("unchecked")
+    public <T extends BlockEntity> BlockEntityTicker<T> getTicker(final World world, final BlockState state,
+                                                                  final BlockEntityType<T> type) {
+        if (!hasWarningLight() || (EyecandyBlocks.entityType() != null && type != EyecandyBlocks.entityType())) {
+            return null;
+        }
+        return (BlockEntityTicker<T>) (BlockEntityTicker<EyecandyBlockEntity>) EyecandyBlockEntity::tick;
     }
 
     /** 北向形状（调试 / 日志用）。 */

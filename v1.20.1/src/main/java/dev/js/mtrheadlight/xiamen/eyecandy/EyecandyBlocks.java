@@ -10,6 +10,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import dev.js.mtrheadlight.LteLog;
 import dev.js.mtrheadlight.rawmodel.RawMesh;
@@ -165,6 +166,20 @@ public final class EyecandyBlocks {
     private static final Map<String, EyecandyBlock> BLOCKS = new LinkedHashMap<>();
     private static final Map<String, Item> ITEMS = new LinkedHashMap<>();
 
+    /**
+     * 带警示灯的「屏蔽门收纳机」：BRT 屏蔽门左 / 右两件。
+     *
+     * <p>这两件不是纯装饰：门开的时候门扇滑进机身里，机身上的警示灯按
+     * 「开门闪三下后常亮 / 关门闪三下后熄灭」亮灭（状态机在 {@link EyecandyBlockEntity}，
+     * 灯组筛选在 {@link #lightMesh}）。obj 里两段同名 {@code o light} 的几何位置重合、只差 uv：
+     * 第一段是熄灯的深色，第二段是点亮的浅色。
+     */
+    private static final Set<String> WARNING_LIGHT_KEYS =
+            new LinkedHashSet<>(List.of("xiamen_brt_psd_left", "xiamen_brt_psd_right"));
+
+    /** 警示灯网格缓存：key → {@code [底座, 熄灭, 点亮]}（第一次画到时算，之后直接取）。 */
+    private static final Map<String, RawMesh[]> LIGHT_MESHES = new ConcurrentHashMap<>();
+
     /** OBJ 文本缓存（注册期一个物件要读两遍：算碰撞盒 + 打日志；59 个 obj 合计几 MB，别读两次）。 */
     private static final Map<String, String> MODEL_TEXTS = new LinkedHashMap<>();
 
@@ -292,6 +307,129 @@ public final class EyecandyBlocks {
     public static RawMesh mesh(final EyecandyEntry entry) {
         return RawObjParser.get(entry.modelId(), entry.texture(), entry.flipV(),
                 entry.scale(), entry.rotation(), entry.translation(), entry.mirror());
+    }
+
+    // ------------------------------------------------------------------ 警示灯（BRT 屏蔽门收纳机）
+
+    /** 这一件是不是「带警示灯的屏蔽门收纳机」（BRT psd 左 / 右）。 */
+    public static boolean isWarningLight(final String key) {
+        return WARNING_LIGHT_KEYS.contains(key);
+    }
+
+    /**
+     * 底座网格：<b>去掉所有灯组</b>（{@code light} / {@code light2}）之后剩下的机身。
+     *
+     * <p>不是警示灯物件时直接返回整份网格（其它 57 件一行都不用改）。
+     * 灯组两块几何在模型里<b>位置完全重合</b>，必须从底座里剔掉，否则会和选中的那一盏叠在一起
+     * z-fighting。
+     */
+    public static RawMesh baseMesh(final EyecandyEntry entry) {
+        if (!isWarningLight(entry.key())) {
+            return mesh(entry);
+        }
+        return lightParts(entry)[0];
+    }
+
+    /**
+     * 警示灯那一段几何（{@code lit} = 亮 / 灭两份），只画其中一份。
+     *
+     * @return 不是警示灯物件时 {@code null}；obj 里没有灯组时返回空网格（画不出东西，也就没有灯）
+     */
+    public static RawMesh lightMesh(final EyecandyEntry entry, final boolean lit) {
+        if (!isWarningLight(entry.key())) {
+            return null;
+        }
+        final RawMesh[] parts = lightParts(entry);
+        return lit ? parts[2] : parts[1];
+    }
+
+    /** {@code [底座, 熄灭, 点亮]}，按 key 缓存在 {@link #LIGHT_MESHES}。 */
+    private static RawMesh[] lightParts(final EyecandyEntry entry) {
+        final RawMesh[] cached = LIGHT_MESHES.get(entry.key());
+        if (cached != null) {
+            return cached;
+        }
+        final RawMesh full = mesh(entry);
+        final RawMesh[] parts = splitLight(entry.key(), full);
+        if (full != null) {
+            LIGHT_MESHES.put(entry.key(), parts);
+        }
+        return parts;
+    }
+
+    /**
+     * 整份网格 → {@code [底座, 熄灭, 点亮]}。
+     *
+     * <h2>怎么认出哪一段是「亮」</h2>
+     * <ol>
+     *   <li>组名以 {@code light} 开头的<b>连续段</b>（{@link RawObjParser#groupRuns}）算灯组 ——
+     *       这段素材是两段同名 {@code o light}，位置重合只差 uv；</li>
+     *   <li>顺序上<b>第一段 = 熄灭</b>、<b>第二段 = 点亮</b>（Blockbench 里先摆深色再叠浅色）；</li>
+     *   <li>如果以后真的按名字分开写（{@code light} / {@code light2} / {@code light_on} /
+     *       {@code light_lit}），名字里带 {@code 2} / {@code on} / {@code lit} 的那一段优先当「点亮」，
+     *       这样不依赖顺序。</li>
+     * </ol>
+     */
+    static RawMesh[] splitLight(final String key, final RawMesh full) {
+        if (full == null) {
+            return new RawMesh[] {null, null, null};
+        }
+        final List<RawObjParser.GroupRun> lightRuns = new ArrayList<>();
+        for (final RawObjParser.GroupRun run : RawObjParser.groupRuns(full)) {
+            if (isLightGroup(run.name())) {
+                lightRuns.add(run);
+            }
+        }
+        final RawMesh base = RawObjParser.select(full, name -> !isLightGroup(name));
+        final RawMesh empty = new RawMesh(full.texture(), new RawMesh.Quad[0]);
+        if (lightRuns.isEmpty()) {
+            LteLog.LOGGER.warn("[lte] eyecandy {}: the obj has no light group (o light / light2), "
+                    + "the warning light is drawn as a static part of the body", key);
+            return new RawMesh[] {base, empty, empty};
+        }
+        RawMesh off = null;
+        RawMesh on = null;
+        for (final RawObjParser.GroupRun run : lightRuns) {
+            final RawMesh piece = new RawMesh(full.texture(), run.quads());
+            if (isLitName(run.name())) {
+                if (on == null) {
+                    on = piece;
+                }
+            } else if (off == null) {
+                off = piece;
+            } else if (on == null) {
+                // 两段同名：第一段熄灭、第二段点亮。
+                on = piece;
+            }
+        }
+        if (off == null) {
+            // 只有「亮」那一段：灭的时候干脆不画（灯不出现 = 看着是灭的），比错画成亮的强。
+            off = empty;
+        }
+        if (on == null) {
+            // 只有一段又没有名字可判：亮灭用同一段（不闪），免得整盏灯消失。
+            on = off;
+            LteLog.LOGGER.warn("[lte] eyecandy {}: only one light group and no name hint "
+                    + "(light2 / light_on), the warning light cannot blink", key);
+        }
+        LteLog.LOGGER.info("[lte] eyecandy {}: warning light split into base {} + off {} + on {} quad(s)",
+                key, base.quadCount(), off.quadCount(), on.quadCount());
+        return new RawMesh[] {base, off, on};
+    }
+
+    /** 组名是不是灯组（{@code light} / {@code light2} / {@code light_on} …）。 */
+    private static boolean isLightGroup(final String name) {
+        return name != null && name.toLowerCase(java.util.Locale.ROOT).startsWith("light");
+    }
+
+    /** 组名里有没有「这是点亮的那一段」的暗示（{@code light2} / {@code light_on} / {@code light_lit}）。 */
+    private static boolean isLitName(final String name) {
+        if (name == null) {
+            return false;
+        }
+        final String lower = name.toLowerCase(java.util.Locale.ROOT);
+        return lower.endsWith("2") || lower.endsWith("on") || lower.contains("lit")
+                || lower.contains("bright");
     }
 
     // ------------------------------------------------------------------ 转角栏杆：占位格 → 盒子

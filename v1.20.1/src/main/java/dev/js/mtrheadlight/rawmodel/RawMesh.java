@@ -40,11 +40,14 @@ public final class RawMesh {
      * @param normal   外法线（单位向量）
      * @param shade    方向明暗系数（见类注释）
      * @param fullBright 自发光：lightmap 拉满、颜色不压暗（原版的 {@code "shade": false}）
-     * @param group    源文件里的 {@code o} / {@code g} 组名（{@link RawModelJson} 恒为 {@code ""}），
-     *                 目前只记录、渲染层不用 —— 留给「按组隐藏 / 换材质」这类后续需求
+     * @param group    源文件里的 {@code o} / {@code g} 组名（{@link RawModelJson} 恒为 {@code ""}）
+     * @param paragraph 第几个 {@code o} / {@code g} <b>段落</b>（从 0 数；{@link RawModelJson} 恒为 0）。
+     *                 同名组连续写两段时（Blockbench 允许重名，BRT 屏蔽门收纳机的
+     *                 {@code o light} 就是两段）只有这个下标能把它们分开 —— 见
+     *                 {@code RawObjParser.groupRuns}
      */
     public record Quad(float[][] pos, float[][] uv, float[] normal, float shade, boolean fullBright,
-                       String group) {
+                       String group, int paragraph) {
 
         /**
          * 没有组名的五参数写法（{@link RawModelJson} 用它；组名兜底成空串）。
@@ -54,7 +57,13 @@ public final class RawMesh {
          */
         public Quad(final float[][] pos, final float[][] uv, final float[] normal, final float shade,
                     final boolean fullBright) {
-            this(pos, uv, normal, shade, fullBright, "");
+            this(pos, uv, normal, shade, fullBright, "", 0);
+        }
+
+        /** 有组名、没有段落信息的写法（段落兜底成 0）。 */
+        public Quad(final float[][] pos, final float[][] uv, final float[] normal, final float shade,
+                    final boolean fullBright, final String group) {
+            this(pos, uv, normal, shade, fullBright, group, 0);
         }
     }
 

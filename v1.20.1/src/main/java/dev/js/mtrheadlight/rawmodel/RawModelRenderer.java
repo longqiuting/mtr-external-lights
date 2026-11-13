@@ -64,12 +64,25 @@ public final class RawModelRenderer {
      */
     public static void render(final MatrixStack matrices, final VertexConsumer consumer,
                               final RawMesh mesh, final int light, final int overlay) {
+        render(matrices, consumer, mesh, light, overlay, false);
+    }
+
+    /**
+     * 画一份网格，并可以<b>整份强制自发光</b>。
+     *
+     * <p>{@code emissive} 是给「会亮的灯」用的：OBJ 里没有自发光信息（{@code Quad#fullBright()} 恒为
+     * {@code false}），而警示灯点亮的那一段几何必须取 lightmap 满亮、颜色不压暗，否则夜里 / 阴影里
+     * 那盏灯是黑的。熄灭的那一段照旧走普通光照（它就是一块深色塑料）。
+     */
+    public static void render(final MatrixStack matrices, final VertexConsumer consumer,
+                              final RawMesh mesh, final int light, final int overlay,
+                              final boolean emissive) {
         if (mesh == null || consumer == null) {
             return;
         }
         final MatrixStack.Entry entry = matrices.peek();
         for (final RawMesh.Quad quad : mesh.quads()) {
-            final boolean bright = quad.fullBright();
+            final boolean bright = emissive || quad.fullBright();
             final int quadLight = bright ? LightmapTextureManager.MAX_LIGHT_COORDINATE : light;
             final float shade = bright ? 1.0F : quad.shade();
             final float[][] pos = quad.pos();
