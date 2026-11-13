@@ -4,6 +4,7 @@ package dev.js.mtrheadlight.rawmodel;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -100,11 +101,17 @@ public final class RawObjParser {
     /** 水平居中：OBJ 的 x/z 以方块中心为原点，模型空间的 x/z 以西北角为原点。 */
     private static final float HALF_BLOCK = 8.0F;
 
-    /** 解析成功的网格（按 obj id 缓存；classpath 资源，换资源包不影响）。 */
-    private static final Map<Identifier, RawMesh> CACHE = new ConcurrentHashMap<>();
+    /**
+     * 解析成功的网格。
+     *
+     * <p><b>缓存键必须带上贴图与摆放参数</b>：同一个 obj 可以被多个描述条目复用（例如厦门地铁
+     * 100 米指示牌与无米数指示牌都用 {@code sign.obj}，只是贴图不同），只按 obj id 缓存会让先加载
+     * 的那份贴图“传染”给另一个方块，表现为贴图随机匹配。
+     */
+    private static final Map<String, RawMesh> CACHE = new ConcurrentHashMap<>();
 
     /** 加载失败的 id：只警告一次，之后每帧直接跳过。 */
-    private static final Set<Identifier> FAILED = ConcurrentHashMap.newKeySet();
+    private static final Set<String> FAILED = ConcurrentHashMap.newKeySet();
 
     /** 多材质入口的缓存（一个 obj → 若干按材质分开的网格）。 */
     private static final Map<Identifier, Map<String, RawMesh>> MATERIAL_CACHE = new ConcurrentHashMap<>();
@@ -134,31 +141,40 @@ public final class RawObjParser {
     public static RawMesh get(final Identifier id, final Identifier texture, final boolean flipV,
                               final float[] scale, final float[] rotation, final float[] translation,
                               final boolean[] mirror) {
-        final RawMesh cached = CACHE.get(id);
+        final String key = cacheKey(id, texture, flipV, scale, rotation, translation, mirror);
+        final RawMesh cached = CACHE.get(key);
         if (cached != null) {
             return cached;
         }
-        if (FAILED.contains(id)) {
+        if (FAILED.contains(key)) {
             return null;
         }
         final String path = "/assets/" + id.getNamespace() + "/" + id.getPath();
         try (InputStream in = RawObjParser.class.getResourceAsStream(path)) {
             if (in == null) {
-                FAILED.add(id);
+                FAILED.add(key);
                 LteLog.LOGGER.warn("[lte] obj model: {} is missing from the classpath", path);
                 return null;
             }
             final RawMesh mesh = parse(new String(in.readAllBytes(), StandardCharsets.UTF_8),
                     texture, flipV, scale, rotation, translation, mirror);
-            CACHE.put(id, mesh);
+            CACHE.put(key, mesh);
             LteLog.LOGGER.info("[lte] obj model: loaded {} ({} quads, texture {})",
                     id, mesh.quadCount(), mesh.texture());
             return mesh;
         } catch (Throwable t) {
-            FAILED.add(id);
+            FAILED.add(key);
             LteLog.LOGGER.warn("[lte] obj model: could not load {} ({})", path, t.toString());
             return null;
         }
+    }
+
+    /** 缓存的唯一键：obj + 贴图 + 翻转 + 缩放/旋转/平移/镜像。 */
+    private static String cacheKey(final Identifier id, final Identifier texture, final boolean flipV,
+                                   final float[] scale, final float[] rotation, final float[] translation,
+                                   final boolean[] mirror) {
+        return id + "|" + texture + "|" + flipV + "|" + Arrays.toString(scale) + "|"
+                + Arrays.toString(rotation) + "|" + Arrays.toString(translation) + "|" + Arrays.toString(mirror);
     }
 
     /** 从 OBJ 文本解析出完整网格（顶点已按 {@code scale/rotation/translation} 摆好）。 */
