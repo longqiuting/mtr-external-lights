@@ -1,0 +1,16 @@
+{
+  "variants": {
+    "facing=north,open=closed": { "model": "mtrlte:block/empty" },
+    "facing=north,open=open": { "model": "mtrlte:block/empty" },
+    "facing=north,open=open_concessionary": { "model": "mtrlte:block/empty" },
+    "facing=east,open=closed": { "model": "mtrlte:block/empty" },
+    "facing=east,open=open": { "model": "mtrlte:block/empty" },
+    "facing=east,open=open_concessionary": { "model": "mtrlte:block/empty" },
+    "facing=south,open=closed": { "model": "mtrlte:block/empty" },
+    "facing=south,open=open": { "model": "mtrlte:block/empty" },
+    "facing=south,open=open_concessionary": { "model": "mtrlte:block/empty" },
+    "facing=west,open=closed": { "model": "mtrlte:block/empty" },
+    "facing=west,open=open": { "model": "mtrlte:block/empty" },
+    "facing=west,open=open_concessionary": { "model": "mtrlte:block/empty" }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "__comment": "与 wall_sign_xiamen.json 同一套（MTR 的 station_name_entrance：propagate_property 0=矮 / 1=高，2..5 无灯板），模型换成带角美地铁 logo 的那一份。",
+  "multipart": [
+    {
+      "when": { "facing": "north", "propagate_property": "0" },
+      "apply": { "model": "mtrlte:block/wall_sign_jiaomei_short" }
+    },
+    {
+      "when": { "facing": "east", "propagate_property": "0" },
+      "apply": { "model": "mtrlte:block/wall_sign_jiaomei_short", "y": 90 }
+    },
+    {
+      "when": { "facing": "south", "propagate_property": "0" },
+      "apply": { "model": "mtrlte:block/wall_sign_jiaomei_short", "y": 180 }
+    },
+    {
+      "when": { "facing": "west", "propagate_property": "0" },
+      "apply": { "model": "mtrlte:block/wall_sign_jiaomei_short", "y": 270 }
+    },
+    {
+      "when": { "facing": "north", "propagate_property": "1" },
+      "apply": { "model": "mtrlte:block/wall_sign_jiaomei_tall" }
+    },
+    {
+      "when": { "facing": "east", "propagate_property": "1" },
+      "apply": { "model": "mtrlte:block/wall_sign_jiaomei_tall", "y": 90 }
+    },
+    {
+      "when": { "facing": "south", "propagate_property": "1" },
+      "apply": { "model": "mtrlte:block/wall_sign_jiaomei_tall", "y": 180 }
+    },
+    {
+      "when": { "facing": "west", "propagate_property": "1" },
+      "apply": { "model": "mtrlte:block/wall_sign_jiaomei_tall", "y": 270 }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+	"variants": {
+		"facing=west": {
+			"model": "mtrlte:block/railing_stair_glass_end"
+		},
+		"facing=north": {
+			"model": "mtrlte:block/railing_stair_glass_end",
+			"y": 90
+		},
+		"facing=east": {
+			"model": "mtrlte:block/railing_stair_glass_end",
+			"y": 180
+		},
+		"facing=south": {
+			"model": "mtrlte:block/railing_stair_glass_end",
+			"y": 270
+		}
+	}
+}

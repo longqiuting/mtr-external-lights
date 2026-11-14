@@ -1,0 +1,23 @@
+{
+	"parent": "block/block",
+	"credit": "Made with Blockbench (素材/装饰方块/floor.json)",
+	"textures": {
+		"particle": "mtrlte:block/floor_hangzhou_floor",
+		"side": "mtrlte:block/floor_hangzhou",
+		"top": "mtrlte:block/floor_hangzhou_floor"
+	},
+	"elements": [
+		{
+			"from": [0, 0, 0],
+			"to": [16, 16, 16],
+			"faces": {
+				"north": {"uv": [0, 0, 8, 8], "texture": "#side", "cullface": "north"},
+				"east": {"uv": [0, 0, 8, 8], "texture": "#side", "cullface": "east"},
+				"south": {"uv": [0, 0, 8, 8], "texture": "#side", "cullface": "south"},
+				"west": {"uv": [0, 0, 8, 8], "texture": "#side", "cullface": "west"},
+				"up": {"uv": [0, 0, 16, 16], "texture": "#top", "cullface": "up"},
+				"down": {"uv": [0, 0, 16, 16], "texture": "#top", "cullface": "down"}
+			}
+		}
+	]
+}

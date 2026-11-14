@@ -1,5 +1,6 @@
 package dev.js.mtrheadlight;
 
+import dev.js.mtrheadlight.compat.Pos;
 import mtr.client.ClientData;
 import mtr.data.TrainClient;
 import mtr.data.TransportMode;
@@ -9,7 +10,6 @@ import net.minecraft.client.world.ClientWorld;
 import net.minecraft.particle.ParticleEffect;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.ArrayList;
@@ -696,7 +696,7 @@ public final class RainSpray {
         try {
             for (int i = 0; i <= 4; i++) {
                 final double probe = y + i;
-                if (world.isAir(new BlockPos(MathHelper.floor(x), MathHelper.floor(probe), MathHelper.floor(z)))) {
+                if (world.isAir(dev.js.mtrheadlight.compat.Pos.ofFloored(x, probe, z))) {
                     return probe;
                 }
             }

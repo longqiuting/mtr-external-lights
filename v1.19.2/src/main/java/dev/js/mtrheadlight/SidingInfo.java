@@ -2,8 +2,9 @@ package dev.js.mtrheadlight;
 
 import mtr.data.Siding;
 
-/** Fields that only exist in some MTR versions. */
-public final class SidingInfo {
+/** Compatibility indirection: what this build can read off an MTR {@link Siding}. */
+final class SidingInfo {
+
     private SidingInfo() {
     }
 

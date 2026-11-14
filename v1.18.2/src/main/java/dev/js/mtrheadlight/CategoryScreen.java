@@ -1,21 +1,19 @@
 package dev.js.mtrheadlight;
 
-import net.minecraft.text.LiteralText;
-import net.minecraft.text.TranslatableText;
-
-import dev.js.mtrheadlight.clientgui.Widgets;
-
-import net.minecraft.client.util.math.MatrixStack;
 import mtr.data.Siding;
 import dev.js.mtrheadlight.clientgui.DrawContext;
+import dev.js.mtrheadlight.clientgui.Widgets;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.text.TranslatableText;
+import net.minecraft.text.LiteralText;
 
 /**
  * 分区列表：全局配置和一条侧线的详情都先到这里选分区，点进分区才是具体的行
@@ -165,7 +163,10 @@ public final class CategoryScreen extends Screen {
     // ---------------------------------------------------------------------------------------------
 
     @Override
-    public void render(final MatrixStack matrices, final int mouseX, final int mouseY, final float delta) {
+    public void render(final MatrixStack matrices, final int mouseX, final int mouseY,
+                        final float delta) {
+        // 1.18.2 的 Screen#render 收 MatrixStack（没有 1.20.1 的 DrawContext）；
+        // 替身包一层，屏幕内部的绘制代码一行不用改。
         final DrawContext context = new DrawContext(matrices);
         context.drawTexture(OPTIONS_BACKGROUND, 0, 0, 0, 0, this.width, this.height, 32, 32);
         context.fillGradient(0, 0, this.width, this.height, 0xC0101010, 0xD0101010);
@@ -213,7 +214,8 @@ public final class CategoryScreen extends Screen {
     public boolean mouseScrolled(final double mouseX, final double mouseY, final double amount) {
         if (this.shown.size() > this.visibleRows && amount != 0.0D) {
             this.scrollRow -= (int) Math.signum(amount);
-            this.init(this.client, this.width, this.height); // 1.18.2 没有 clearAndInit()：init 自己会 clearChildren
+            this.clearChildren();
+        this.init();
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, amount);
@@ -235,7 +237,8 @@ public final class CategoryScreen extends Screen {
             return false;
         }
         this.scrollRow += delta;
-        this.init(this.client, this.width, this.height); // 1.18.2 没有 clearAndInit()：init 自己会 clearChildren
+        this.clearChildren();
+        this.init();
         return true;
     }
 }

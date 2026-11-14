@@ -13,6 +13,7 @@ import net.minecraft.resource.ResourcePack;
 import net.minecraft.resource.ResourcePackManager;
 import net.minecraft.resource.ResourcePackProfile;
 import net.minecraft.resource.ResourceType;
+import net.minecraft.resource.Resource;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -958,6 +959,19 @@ final class BeamPackWriter {
             } catch (Throwable ignored) {
                 // 关不掉也只是一次文件句柄，不影响读数
             }
+        }
+    }
+
+    private static String readAll(final java.util.function.Supplier<InputStream> supplier) {
+        if (supplier == null) {
+            return null;
+        }
+        // 1.18.2 没有 net.minecraft.resource.InputSupplier（那是 1.19.4+ 的接口），
+        // 但 Resource#getInputStream() 直接返回流，所以在调用方套一层 Supplier 就等价。
+        try (InputStream in = supplier.get()) {
+            return in == null ? null : new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (Throwable t) {
+            return null;
         }
     }
 

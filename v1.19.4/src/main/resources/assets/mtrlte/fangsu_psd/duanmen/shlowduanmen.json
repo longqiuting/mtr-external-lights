@@ -1,0 +1,98 @@
+{
+  "content": [
+    {
+      "id": "shlowduanmen_right",
+      "text": "shlowduanmen.right",
+      "model": "mtrlte:fangsu_psd/duanmen/shlowduanmen.obj",
+      "flipV": true,
+      "doorPos": [
+        -0.4375,
+        0,
+        -0.4375
+      ],
+      "subModels": {
+        "main": "main_right",
+        "door": "door_right"
+      },
+      "doorAngle": -1,
+      "shape": {
+        "close": [
+          [
+            0,
+            0,
+            15,
+            16,
+            25,
+            16
+          ]
+        ],
+        "open": [
+          [
+            15,
+            0,
+            15,
+            16,
+            25,
+            16
+          ],
+          [
+            14,
+            0,
+            0,
+            15,
+            25,
+            16
+          ]
+        ]
+      },
+      "hitPos": 0.05
+    },
+    {
+      "id": "shlowduanmen_left",
+      "text": "shlowduanmen.left",
+      "model": "mtrlte:fangsu_psd/duanmen/shlowduanmen.obj",
+      "flipV": true,
+      "doorPos": [
+        0.4375,
+        0,
+        -0.4375
+      ],
+      "subModels": {
+        "main": "main_left",
+        "door": "door_left"
+      },
+      "doorAngle": 1,
+      "shape": {
+        "close": [
+          [
+            0,
+            0,
+            15,
+            16,
+            25,
+            16
+          ]
+        ],
+        "open": [
+          [
+            0,
+            0,
+            15,
+            1,
+            25,
+            16
+          ],
+          [
+            1,
+            0,
+            0,
+            2,
+            25,
+            16
+          ]
+        ]
+      },
+      "hitPos": 0.05
+    }
+  ]
+}

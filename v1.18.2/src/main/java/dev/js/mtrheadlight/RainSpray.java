@@ -9,7 +9,6 @@ import net.minecraft.client.world.ClientWorld;
 import net.minecraft.particle.ParticleEffect;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.ArrayList;
@@ -670,11 +669,8 @@ public final class RainSpray {
     /** 当前粒子档位；读不到就当 ALL（老行为）。 */
     private static ParticlesMode particleMode(final MinecraftClient client) {
         try {
-            if (client == null) {
-                return ParticlesMode.ALL;
-            }
-            // 1.18.2 的档位是 GameOptions#particles 这个普通字段（没有 SimpleOption 包装）。
-            return McCompat.particlesMode();
+            final ParticlesMode value = client == null ? null : client.options.particles;
+            return value == null ? ParticlesMode.ALL : value;
         } catch (Throwable t) {
             return ParticlesMode.ALL;
         }
@@ -699,7 +695,7 @@ public final class RainSpray {
         try {
             for (int i = 0; i <= 4; i++) {
                 final double probe = y + i;
-                if (world.isAir(new BlockPos(MathHelper.floor(x), MathHelper.floor(probe), MathHelper.floor(z)))) {
+                if (world.isAir(new BlockPos(x, probe, z))) {
                     return probe;
                 }
             }

@@ -1,0 +1,285 @@
+{
+    "model": "mtrlte:fangsu_psd/screendoor/xiamen/door.obj",
+    "flipV": true,
+    "isFlexibleAvailable": false,
+    "door": {
+        "left": [
+            {
+                "id": "common",
+                "text": "high_left",
+                "contentText": "made",
+                "doors": [
+                    {
+                        "subModel": "left_door",
+                        "shape": [
+                            [0, 0, 14, 16, 48, 15]
+                        ],
+                        "step": 0.95
+                    }
+                ]
+            }
+        ],
+        "right": [
+            {
+                "id": "common",
+                "text": "high_right",
+                "contentText": "made",
+                "doors": [
+                    {
+                        "subModel": "right_door",
+                        "shape": [
+                            [0, 0, 14, 16, 48, 15]
+                        ],
+                        "step": -0.95
+                    }
+                ]
+            }
+        ]
+    }
+    ,
+  "glass": {
+    "left": [
+      {
+        "id": "auto",
+        "text": "cfg.autoSubModel",
+        "auto": "auto"
+      },
+      {
+        "id": "door",
+        "text": "glass_left_door",
+        "contentText": "duel_made",
+        "subModel": "glass_left_door",
+        "shape": [
+          [
+            15,
+            0,
+            12,
+            16,
+            48,
+            14
+          ],
+          [
+            8,
+            0,
+            12,
+            16,
+            48,
+            13
+          ]
+        ]
+      },
+      {
+        "id": "doorend",
+        "text": "glass_left_door_end",
+        "contentText": "duel_made",
+        "subModel": "glass_left_door_end",
+        "shape": [
+          [
+            15,
+            0,
+            11,
+            16,
+            48,
+            13
+          ],
+          [
+            8,
+            0,
+            11,
+            16,
+            48,
+            12
+          ]
+        ]
+      },
+      {
+        "id": "glass",
+        "text": "glass_left_glass",
+        "contentText": "duel_made",
+        "subModel": "glass_left_glass",
+        "shape": [
+          [
+            8,
+            0,
+            12,
+            16,
+            48,
+            13
+          ]
+        ]
+      },
+      {
+        "id": "longend",
+        "text": "glass_left_long_end",
+        "contentText": "duel_made",
+        "subModel": "glass_left_long_end",
+        "shape": [
+          [
+            15,
+            0,
+            0,
+            16,
+            48,
+            14
+          ],
+          [
+            8,
+            0,
+            12,
+            16,
+            48,
+            13
+          ]
+        ]
+      }
+    ],
+    "right": [
+      {
+        "id": "auto",
+        "text": "cfg.autoSubModel",
+        "auto": "auto"
+      },
+      {
+        "id": "door",
+        "text": "glass_right_door",
+        "contentText": "duel_made",
+        "subModel": "glass_right_door",
+        "shape": [
+          [
+            0,
+            0,
+            12,
+            1,
+            48,
+            14
+          ],
+          [
+            0,
+            0,
+            12,
+            8,
+            48,
+            13
+          ]
+        ]
+      },
+      {
+        "id": "doorend",
+        "text": "glass_right_door_end",
+        "contentText": "duel_made",
+        "subModel": "glass_right_door_end",
+        "shape": [
+          [
+            0,
+            0,
+            11,
+            1,
+            48,
+            13
+          ],
+          [
+            0,
+            0,
+            11,
+            8,
+            48,
+            12
+          ]
+        ]
+      },
+      {
+        "id": "glass",
+        "text": "glass_right_glass",
+        "contentText": "duel_made",
+        "subModel": "glass_right_glass",
+        "shape": [
+          [
+            0,
+            0,
+            12,
+            8,
+            48,
+            13
+          ]
+        ]
+      },
+      {
+        "id": "longend",
+        "text": "glass_right_long_end",
+        "contentText": "duel_made",
+        "subModel": "glass_right_long_end",
+        "shape": [
+          [
+            0,
+            0,
+            0,
+            1,
+            48,
+            14
+          ],
+          [
+            0,
+            0,
+            12,
+            8,
+            48,
+            13
+          ]
+        ]
+      }
+    ],
+    "auto": [
+  {
+    "if": "LEFT_BLOCK",
+    "is": "SCREENDOOR_DOOR",
+    "left": "door"
+  },
+  {
+    "if": "RIGHT_BLOCK",
+    "is": "SCREENDOOR_DOOR",
+    "right": "door"
+  },
+  {
+    "if": {
+      "LEFT_BLOCK": {
+        "is": "SCREENDOOR_GLASS"
+      },
+      "RIGHT_BLOCK": {
+        "is": "SCREENDOOR_GLASS"
+      }
+    },
+    "left": "glass",
+    "right": "glass"
+  },
+  {
+    "if": {
+      "LEFT_BLOCK": {
+        "not": "SCREENDOOR_GLASS"
+      },
+      "RIGHT_BLOCK": {
+        "not": "SCREENDOOR_GLASS"
+      }
+    },
+    "left": "glass",
+    "right": "glass"
+  },
+  {
+    "if": "LEFT_BLOCK",
+    "not": "SCREENDOOR_GLASS",
+    "left": "door",
+    "right": "glass"
+  },
+  {
+    "if": "RIGHT_BLOCK",
+    "not": "SCREENDOOR_GLASS",
+    "left": "glass",
+    "right": "door"
+  },
+  {
+    "if": "TRUE",
+    "left": "doorend",
+    "right": "doorend"
+  }
+    ]
+  }
+}

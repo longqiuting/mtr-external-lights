@@ -292,7 +292,7 @@ public final class MtrTiles {
      * <p>{@code setData} 里的 {@code markDirty()} 已经会走到
      * {@code World#markDirty(pos) → WorldChunk#setNeedsSaving(true)}（javap 核对过），
      * 但它依赖 {@code BlockEntity.world/cachedState} 非空。绑定完再补一刀几乎零成本，
-     * 换来「关服/换维度/区块卸载后数据还在」这件事不取决于反编译出来的实现细节。
+     * 换来「关服/换维度/区块卸载后数据还在」这件事不取决于外部实现细节。
      */
     public static void markChunkSaved(final World world, final BlockPos pos) {
         if (world == null || pos == null) {

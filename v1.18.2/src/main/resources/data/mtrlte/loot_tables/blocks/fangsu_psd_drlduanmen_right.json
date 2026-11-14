@@ -1,0 +1,28 @@
+{
+  "type": "minecraft:block",
+  "pools": [
+    {
+      "rolls": 1,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "mtrlte:fangsu_psd_drlduanmen_right",
+          "conditions": [
+            {
+              "condition": "minecraft:block_state_property",
+              "block": "mtrlte:fangsu_psd_drlduanmen_right",
+              "properties": {
+                "half": "lower"
+              }
+            }
+          ]
+        }
+      ],
+      "conditions": [
+        {
+          "condition": "minecraft:survives_explosion"
+        }
+      ]
+    }
+  ]
+}

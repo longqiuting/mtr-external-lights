@@ -1,6 +1,5 @@
 package dev.js.mtrheadlight.signal;
 
-import dev.js.mtrheadlight.MtrCompat;
 import mtr.data.Rail;
 import mtr.data.RailwayData;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
@@ -12,6 +11,7 @@ import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
+import dev.js.mtrheadlight.MtrCompat;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -235,6 +235,7 @@ public final class SignalLinkNet {
             if (data == null) {
                 return Collections.emptyList();
             }
+            // MTR 3.2.2 只有私有 rails 字段：走 common 里的 MtrCompat（先试 getter，再反射）。
             final Map rails = MtrCompat.railsMap(data);
             if (rails == null) {
                 return Collections.emptyList();

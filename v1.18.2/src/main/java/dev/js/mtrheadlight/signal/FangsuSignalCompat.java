@@ -2,8 +2,8 @@ package dev.js.mtrheadlight.signal;
 
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
-import net.minecraft.util.Identifier;
 import net.minecraft.util.registry.Registry;
+import net.minecraft.util.Identifier;
 
 /**
  * 方速（fangsu）信号灯的识别：这个方块是不是「交通灯」，以及能不能当信号灯绑。
@@ -18,8 +18,8 @@ import net.minecraft.util.registry.Registry;
  *       {@link FangsuSignalSync} 每帧按绑定节点的 aspect 补上。</li>
  * </ol>
  *
- * <h2>反编译证据（{@code mods/[方速MTR扩展] [MTR3]fangsu-mc1.20.1-FABRIC-1.3.2-build20261102090023.jar}，
- * 与 {@code temp/fangsu.jar} 同一文件，62016527 字节；CFR 0.152 全文）</h2>
+ * <h2>行为依据（{@code mods/[方速MTR扩展] [MTR3]fangsu-mc1.20.1-FABRIC-1.3.2-build20261102090023.jar}
+ * 这一版本的实际运行表现）</h2>
  *
  * <p><b>1. 方块与方块实体</b>
  * <pre>

@@ -47,9 +47,6 @@ public final class TrainImpactDamageSource extends DamageSource {
     private final boolean fast;
 
     public TrainImpactDamageSource(final boolean fast) {
-        // 1.19.2 没有 DamageType 注册表（{@code RegistryEntry<DamageType>} 是 1.19.4 才有的），
-        // DamageSource 就是「name + 覆写 getDeathMessage」这一条老路 —— 本类要的正是后者，
-        // 所以这里直接给一个自己的 name（原版会用它拼 death.attack.<name>，但被下面覆写了）。
         super("mtrlte.trainImpact");
         this.fast = fast;
     }

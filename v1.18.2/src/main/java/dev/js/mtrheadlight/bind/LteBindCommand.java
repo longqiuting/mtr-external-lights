@@ -1,7 +1,5 @@
 package dev.js.mtrheadlight.bind;
 
-import net.minecraft.text.TranslatableText;
-
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import net.fabricmc.fabric.api.command.v1.CommandRegistrationCallback;
@@ -14,6 +12,7 @@ import net.minecraft.util.math.BlockPos;
 
 import java.util.List;
 import java.util.Set;
+import net.minecraft.text.TranslatableText;
 
 /**
  * 服务端查询指令 {@code /ltebind}：看看某个投影机 / PIDS 现在绑到了哪儿。
@@ -37,7 +36,8 @@ public final class LteBindCommand {
     }
 
     public static void register() {
-        // 1.18.2 的 command-api v1：handler 是 (dispatcher, dedicatedServer)，没有 registryAccess。
+        // 1.18.2 只有 command-api v1：回调是 (dispatcher, dedicated) —— 没有 registryAccess /
+        // environment 那两个参数。
         CommandRegistrationCallback.EVENT.register((dispatcher, dedicated) ->
                 dispatcher.register(CommandManager.literal("ltebind")
                         .then(CommandManager.literal("projector")

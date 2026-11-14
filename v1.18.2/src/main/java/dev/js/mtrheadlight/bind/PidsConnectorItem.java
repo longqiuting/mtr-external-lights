@@ -1,8 +1,5 @@
 package dev.js.mtrheadlight.bind;
 
-import net.minecraft.text.LiteralText;
-import net.minecraft.text.TranslatableText;
-
 import dev.js.mtrheadlight.LteLog;
 import mtr.data.Station;
 import net.minecraft.client.item.TooltipContext;
@@ -23,6 +20,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
+import net.minecraft.text.TranslatableText;
+import net.minecraft.text.LiteralText;
 
 /**
  * PIDS 连接器（{@code mtrlte:pids_connector}）：把一块 PIDS 绑到「某个轨道节点所属的站台」。

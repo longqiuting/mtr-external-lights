@@ -1,8 +1,7 @@
 package dev.js.mtrheadlight;
 
-import dev.js.mtrheadlight.clientgui.Widgets;
-
 import net.minecraft.client.util.math.MatrixStack;
+import dev.js.mtrheadlight.clientgui.Widgets;
 import dev.js.mtrheadlight.mtr.BuiltInTrains;
 import mtr.data.Siding;
 import net.minecraft.client.MinecraftClient;
@@ -103,6 +102,8 @@ public final class ParameterScreen extends Screen {
     private static final int ROW_TOGGLE_WIDE = 4;
     /** 三态值（车灯模式 自动 / 常亮 / 关闭）：整行一个按钮，点一下换下一档。 */
     private static final int ROW_CYCLE = 5;
+    /** {@link #ROW_CYCLE} 的档数：车灯模式（自动 / 常亮 / 关闭）三档。 */
+    private static final int ROW_CYCLE_STATES = 3;
 
     /** The layout line is logged once per session, not once per screen open. */
     private static boolean layoutLogged;
@@ -190,6 +191,17 @@ public final class ParameterScreen extends Screen {
     private static final double DMG_CAP_MIN = 0.0D;
     private static final double DMG_CAP_MAX = 100.0D;
     private static final double DMG_CAP_STEP = 0.5D;
+    /**
+     * 屏幕空间散射：强度 0.1–3（默认 1.0，步长 0.05 —— 值得细调，1.0 与 1.3 的差别眼睛看得出来）、
+     * 空气球半径 1–24 格（默认 6，步长 0.5）。区间与 {@code HeadlightConfig.scatter*Clamped()}
+     * 完全一致，滑块不会把一个 clamp 掉的值显示成另一个数。
+     */
+    private static final double SCATTER_STR_MIN = 0.1D;
+    private static final double SCATTER_STR_MAX = 3.0D;
+    private static final double SCATTER_STR_STEP = 0.05D;
+    private static final double SCATTER_R_MIN = 1.0D;
+    private static final double SCATTER_R_MAX = 24.0D;
+    private static final double SCATTER_R_STEP = 0.5D;
 
     /** 分区列表（返回分区 / ESC 都回这里）。 */
     private final Screen parent;
@@ -353,9 +365,9 @@ public final class ParameterScreen extends Screen {
                     break;
                 case ROW_TOGGLE_WIDE:
                 case ROW_CYCLE:
-                    // 整行宽的一个按钮：只需要装下按钮文字本身。
+                    // 整行宽的一个按钮：只需要装下按钮文字本身（车灯模式 / 光样式）。
                     need = Math.max(need, textWidth(row.kind == ROW_CYCLE
-                            ? modeLabel() : toggleLabel(row.toggle)) + 14);
+                            ? cycleLabel(row.value) : toggleLabel(row.toggle)) + 14);
                     break;
                 case ROW_VALUE:
                     need = Math.max(need, textWidth(valueLabel(row.value)) + 14);
@@ -389,49 +401,81 @@ public final class ParameterScreen extends Screen {
     /**
      * The row table of THIS category only. Side-by-side comparison of the five partitions:
      * <pre>
-     *   光源  总开关|渲染距离 · 车灯模式(自动/常亮/关闭，全局页) · 光带|照射长度 · 光柱 ·
-     *         动态光源|车灯亮度 · 车头/车尾颜色 · 光束距离/车头长度/车尾长度/光束宽度/
-     *         车头高度/车尾高度 · 光束编辑
+     *   光源  总开关|渲染距离 · 车灯模式(自动/常亮/关闭，全局页) · 光带|照射长度 · 灯晕 ·
+     *         真实照亮|车灯亮度 · 车头/车尾颜色 · 光束距离/车头长度/车尾长度/光束宽度/
+     *         车头高度/车尾高度 · 散射|强度 · 照亮表面 · 散射半径 · 光束编辑
      *   碰撞  车体碰撞 · 碰撞高度 · 道床碰撞 · 车头延长 · 车尾延长 · 车顶掉落速度 · 车顶弯道半径
      *   粒子  雨天水雾|水雾起始速度 · 挡雨
      *   伤害  伤害开关 · 创造模式也受伤 · 伤害起点速度 · 伤害上限 · 4 个速度档 · 4 个伤害系数 · 撞飞距离 · 2 个竖直初速 · 冲量冷却 · 生物受伤
      *   其他  内置车型屏蔽 · 重载内置车型 · 立即重载光源
      * </pre>
      * 「车灯模式」放在光源分区第二行（用户要求：它决定灯什么时候亮，属于光源，不属于其他），
-     * 并且只在全局页出现 —— 它没有侧线覆盖。三个「灯」开关连在一起：
-     * <b>光带 → 光柱 → 动态光源</b>（同一件事的三层：贴地光带 / 体积光锥 / 真实方块光照），
-     * 动态光源那行右边仍然是车灯亮度滑块，改开关立刻能用滑块看到效果。
-     * {@code isGlobal()} 为假时只留下侧线真能覆盖的行：光源全部（除车灯模式）、碰撞的两个端部延长、
-     * 粒子的三项，以及伤害的开关 / 起点速度 / 上限。
+     * 并且只在全局页出现 —— 它没有侧线覆盖。
+     *
+     * <p><b>三件可见光效各有自己的开关、互不影响</b>：光带（{@code beamBand}）/ 灯晕
+     * （{@code beamFlare}）/ 散射（{@code beamScatter}），默认都开。以前是一个三态「光样式」
+     * （光带 / 灯晕 / 两者）按钮，想试组合只能一直点它，所以拆成了三个独立勾选 —— 现在任意组合
+     * 都能直接点出来，不需要"排列组合"。真实照亮（写进区块网格的方块光照）与这三件无关，它一直都在。
+     * {@code isGlobal()} 为假时只留下侧线真能覆盖的行：光带 / 灯晕（逐侧线只能收紧）、
+     * 碰撞的两个端部延长、粒子的三项，以及伤害的开关 / 起点速度 / 上限。
      */
     private void buildRows() {
         this.rows.clear();
         switch (this.category) {
             case LIGHT:
-                this.rows.add(Row.toggle(ConfigWriteTarget.MASTER, ConfigWriteTarget.DISTANCE));
+                /*
+                 * 排版规则（用户要求）：同一个分区里 **所有开关在上面，所有滑块在下面**。
+                 * 所以这里按三块顺序排，不再有「左边开关 + 右边滑块」的混排行：
+                 *   1) 开关：总开关 / 车灯模式（三态按钮）/ 光带 / 灯晕 / 空气散射 / 散射·照亮表面
+                 *      / 方块打光 / 手持动态光源
+                 *   2) 滑块：渲染距离、车灯亮度、照射长度、光束几何、散射强度/半径
+                 *   3) 颜色 + 动作：车头/车尾颜色、光束编辑、立即重载光源
+                 * 侧线页缺的只是「全局限定」的那几行（车灯模式 / 散射三行 / 手持光），块内顺序完全相同。
+                 */
+                this.rows.add(Row.toggleWide(ConfigWriteTarget.MASTER));
                 // 车灯模式（自动 / 常亮 / 关闭）从「其他」搬到这里：它决定的就是灯什么时候亮，
-                // 属于光源。它没有侧线覆盖，所以只在全局页出现（侧线页多一行不可点的行没有意义）。
+                // 属于光源。它没有侧线覆盖，所以只在全局页出现。
                 if (isGlobal()) {
                     this.rows.add(Row.mode());
                 }
-                this.rows.add(Row.toggle(ConfigWriteTarget.LIGHT_BAND, ConfigWriteTarget.HEAD_LENGTH));
-                // 光柱是光带之外的另一件事（体积光锥 vs 贴地光带）：整行一个开关。它可按侧线覆盖，
-                // 所以侧线页也有这一行（alpha / 采样数 / 遮挡只在 JSON 里，见 SidingSettings）。
-                this.rows.add(Row.toggleWide(ConfigWriteTarget.BEAM_CONE));
-                // 动态光源 + 车灯亮度：和光带 / 光柱三个开关并排，紧跟在它们后面。
-                // 这三个是同一件事的三个层次（贴地光带 → 体积光锥 → 真实方块光照），
-                // 以前它在光源页最底下（要滚到底才看见），也在「其他」页出现过，现在归位到这里。
-                this.rows.add(Row.toggle(ConfigWriteTarget.DYNAMIC_LIGHT, ConfigWriteTarget.LUMINANCE));
-                this.rows.add(Row.color(true));
-                this.rows.add(Row.color(false));
+                // 三件可见光效各有自己的开关，默认只开光带，互不影响（矩阵一样的组合都能点出来）。
+                this.rows.add(Row.toggleWide(ConfigWriteTarget.LIGHT_BAND));
+                this.rows.add(Row.toggleWide(ConfigWriteTarget.BEAM_FLARE));
+                if (isGlobal()) {
+                    this.rows.add(Row.toggleWide(ConfigWriteTarget.SCATTER));
+                    // 表面项是散射的第二个开关（光雾 / 照亮表面两层），所以紧跟在散射下面。
+                    this.rows.add(Row.toggleWide(ConfigWriteTarget.SCATTER_SURFACE));
+                }
+                // 真实照亮：写进区块网格的方块光照，"照在地上"的那一层，一直是开关。
+                this.rows.add(Row.toggleWide(ConfigWriteTarget.DYNAMIC_LIGHT));
+                if (isGlobal()) {
+                    // 手持动态光源：全局开关，需要 LambDynamicLights；没装时这一行置灰并注明。
+                }
+                // ---- 滑块（数值）全部在开关之下 ----
+                this.rows.add(Row.value(ConfigWriteTarget.DISTANCE));
+                this.rows.add(Row.value(ConfigWriteTarget.LUMINANCE));
+                this.rows.add(Row.value(ConfigWriteTarget.HEAD_LENGTH));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_DISTANCE));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_HEAD_LENGTH));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_TAIL_LENGTH));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_WIDTH));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_HEAD_HEIGHT));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_TAIL_HEIGHT));
-                // 光束编辑：逐车型、逐束的几何 / 颜色 / 长度，入口放在光源分区最底部。
+                // 散射的两个参数（全局值：一次全屏 pass，和「哪条侧线的车」无关）。
+                if (isGlobal()) {
+                    this.rows.add(Row.value(ConfigWriteTarget.SCATTER_STRENGTH));
+                    this.rows.add(Row.value(ConfigWriteTarget.SCATTER_RADIUS));
+                }
+                // ---- 颜色与动作（既不是开关也不是滑块，统一放在最下面）----
+                this.rows.add(Row.color(true));
+                this.rows.add(Row.color(false));
+                // 光束编辑：逐车型、逐束的几何 / 颜色 / 长度。
                 this.rows.add(Row.worldAction(tr("btn.beamEditor"), this::openBeamEditor));
+                // 立即重载光源：从「其他」搬到这里 —— 它重载的就是这一页在改的那套光源
+                // （LightController 的缓存）。全局动作，侧线页不生成（侧线页只留可覆盖的行）。
+                if (isGlobal()) {
+                    this.rows.add(Row.action(tr("btn.reload"), LightController::reload));
+                }
                 break;
             case COLLISION:
                 // 车体 / 道床 / 车顶是整车的几何设定，不是按车厢量出来的参数，所以只有全局值。
@@ -492,7 +536,9 @@ public final class ParameterScreen extends Screen {
                 if (isGlobal()) {
                     this.rows.add(Row.toggleWide(ConfigWriteTarget.BUILTIN_TRAINS));
                     this.rows.add(Row.action(tr("btn.reloadTrains"), this::reloadTrains));
-                    this.rows.add(Row.action(tr("btn.reload"), LightController::reload));
+                    // 厦门 PIDS 的三个全局显示开关（本地时间 / 即将进站 / 广告）。
+                    // 从主界面搬到这里：主界面只留「进哪个流程」这一层，具体开关归「全局 → 其他」。
+                    this.rows.add(Row.action(tr("screen.mtrlte.pids_xiamen"), this::openXiamenPids));
                 }
                 break;
         }
@@ -502,10 +548,6 @@ public final class ParameterScreen extends Screen {
         final int y = rowY(visibleIndex);
         switch (row.kind) {
             case ROW_TOGGLE: {
-                // 没有 LambDynamicLights 就没有动态光源可开关：这一行置灰 + 悬停说明，其余功能照常。
-                // 1.19.2 的 tooltip 只能建按钮时给（没有 1.19.4 的 setTooltip），所以先算好。
-                final boolean ldlMissing = row.toggle == ConfigWriteTarget.DYNAMIC_LIGHT
-                        && !LightBackends.available();
                 final ButtonWidget button = addButton(this.colX, y, this.leftW, ROW_H,
                         toggleLabel(row.toggle), b -> {
                             this.target.writeToggle(row.toggle,
@@ -518,10 +560,7 @@ public final class ParameterScreen extends Screen {
                             // A switch that now differs from the global value starts being an
                             // override; getting back to "follow" is the explicit 恢复为跟随全局 row.
                             reinit();
-                        }, ldlMissing ? tr("hint.needsLdl") : null);
-                if (ldlMissing) {
-                    button.active = false;
-                }
+                        });
                 addDrawableChild(new NumberSlider(rightX(), y, this.rightW, ROW_H, row.value,
                         true, this.target.readValue(row.value)));
                 addResetButton(row, y);
@@ -529,33 +568,28 @@ public final class ParameterScreen extends Screen {
             }
             case ROW_TOGGLE_WIDE: {
                 // 两边格合成一个按钮：这一行没有数值可配，强塞一个无关滑块只会误导。
-                final boolean ldlMissing = row.toggle == ConfigWriteTarget.DYNAMIC_LIGHT
-                        && !LightBackends.available();
-                final Text wideTip = ldlMissing
-                        ? tr("hint.needsLdl")
-                        : row.toggle == ConfigWriteTarget.DAMAGE_IN_CREATIVE
-                                ? tr("hint.damageInCreative") : null;
+                final Text wideLabel = toggleLabel(row.toggle);
+                final Text wideHint = row.toggle == ConfigWriteTarget.DAMAGE_IN_CREATIVE
+                        ? tr("hint.damageInCreative") : null;
                 final ButtonWidget button = addButton(this.colX, y,
-                        this.colW - RESET_W - GAP, ROW_H, toggleLabel(row.toggle), b -> {
+                        this.colW - RESET_W - GAP, ROW_H, wideLabel, b -> {
                             this.target.writeToggle(row.toggle,
                                     !this.target.readToggle(row.toggle));
                             if (row.toggle == ConfigWriteTarget.BUILTIN_TRAINS) {
                                 BuiltInTrains.reloadNow();
                             }
                             reinit();
-                        }, wideTip);
-                if (ldlMissing) {
-                    button.active = false;
-                }
+                        }, wideHint);
                 addResetButton(row, y);
                 break;
             }
             case ROW_CYCLE: {
-                // 车灯模式：整行一个按钮，点一下切下一档（自动 -> 常亮 -> 关闭）。
-                addButton(this.colX, y, this.colW - RESET_W - GAP, ROW_H, modeLabel(), b -> {
+                // 三态值：整行一个按钮，点一下切下一档（车灯模式 自动->常亮->关闭）。
+                // 取值走 readValue/writeValue，档数是 3。
+                addButton(this.colX, y, this.colW - RESET_W - GAP, ROW_H, cycleLabel(row.value), b -> {
                     final int next = ((int) Math.round(
-                            this.target.readValue(ConfigWriteTarget.HEADLIGHT_MODE)) + 1) % 3;
-                    this.target.writeValue(ConfigWriteTarget.HEADLIGHT_MODE, next);
+                            this.target.readValue(row.value)) + 1) % ROW_CYCLE_STATES;
+                    this.target.writeValue(row.value, next);
                     reinit();
                 });
                 addResetButton(row, y);
@@ -696,6 +730,19 @@ public final class ParameterScreen extends Screen {
     }
 
     /**
+     * 「厦门 PIDS」：三个全局显示开关（本地时间 / 即将进站 / 广告）。
+     *
+     * <p>退回时回这一页（{@code this}），于是「返回分区」还能继续改别的项；
+     * 开关本身一点就落盘，不进主界面的完成 / 取消快照（它改的是显示偏好）。
+     */
+    private void openXiamenPids() {
+        if (this.client == null) {
+            return;
+        }
+        this.client.setScreen(new dev.js.mtrheadlight.xiamen.pids.PidsXiamenSettingsScreen(this));
+    }
+
+    /**
      * 「重载内置车型」: the button form of {@code /mtr_lte trains reload}. It goes through the same
      * {@link BuiltInTrains#reloadNow()} the command uses, so the two cannot report different numbers,
      * and the result is echoed into chat because a button gives no other feedback.
@@ -733,9 +780,12 @@ public final class ParameterScreen extends Screen {
             case ConfigWriteTarget.DYNAMIC_LIGHT:
                 return follow(this.target.readToggle(which)
                         ? tr("opt.dynamicLight.on") : tr("opt.dynamicLight.off"), which);
-            case ConfigWriteTarget.BEAM_CONE:
+            case ConfigWriteTarget.LIGHT_BAND:
                 return follow(this.target.readToggle(which)
-                        ? tr("opt.cone.on") : tr("opt.cone.off"), which);
+                        ? tr("opt.band.on") : tr("opt.band.off"), which);
+            case ConfigWriteTarget.BEAM_FLARE:
+                return follow(this.target.readToggle(which)
+                        ? tr("opt.flare.on") : tr("opt.flare.off"), which);
             case ConfigWriteTarget.RAIN_SPRAY:
                 return follow(this.target.readToggle(which)
                         ? tr("opt.rainSpray.on") : tr("opt.rainSpray.off"), which);
@@ -760,6 +810,14 @@ public final class ParameterScreen extends Screen {
             case ConfigWriteTarget.RAIN_HUSH:
                 return follow(this.target.readToggle(which)
                         ? tr("opt.rainHush.on") : tr("opt.rainHush.off"), which);
+            case ConfigWriteTarget.SCATTER:
+                // 全局开关，不走 follow()：侧线页根本不生成这一行。
+                return tr(this.target.readToggle(which)
+                        ? "opt.scatter.on" : "opt.scatter.off");
+            case ConfigWriteTarget.SCATTER_SURFACE:
+                // 同上，全局开关；它只关「照亮表面」那一层，光雾留着。
+                return tr(this.target.readToggle(which)
+                        ? "opt.scatterSurface.on" : "opt.scatterSurface.off");
             default:
                 return follow(this.target.readToggle(which)
                         ? tr("opt.band.on") : tr("opt.band.off"), which);
@@ -790,6 +848,14 @@ public final class ParameterScreen extends Screen {
     private MutableText modeLabel() {
         final int index = (int) Math.round(this.target.readValue(ConfigWriteTarget.HEADLIGHT_MODE));
         return tr("opt.mode", tr(modeKey(index)));
+    }
+
+    /**
+     * {@link #ROW_CYCLE} 那一行的按钮文字：车灯模式（自动 / 常亮 / 关闭）。读实时值，所以点一下
+     * 只需要重建界面，不需要缓存。
+     */
+    private MutableText cycleLabel(final int which) {
+        return modeLabel();
     }
 
     private static String modeKey(final int index) {
@@ -870,6 +936,10 @@ public final class ParameterScreen extends Screen {
                 return "opt.collisionFlyV";
             case ConfigWriteTarget.COLLISION_COOLDOWN:
                 return "opt.collisionCooldown";
+            case ConfigWriteTarget.SCATTER_STRENGTH:
+                return "opt.scatterStrength";
+            case ConfigWriteTarget.SCATTER_RADIUS:
+                return "opt.scatterRadius";
             default:
                 return "opt.beamTailHeight";
         }
@@ -933,6 +1003,10 @@ public final class ParameterScreen extends Screen {
                 return KNOCKBACK_CAP_MAX;
             case ConfigWriteTarget.COLLISION_COOLDOWN:
                 return COOLDOWN_MAX;
+            case ConfigWriteTarget.SCATTER_STRENGTH:
+                return SCATTER_STR_MAX;
+            case ConfigWriteTarget.SCATTER_RADIUS:
+                return SCATTER_R_MAX;
             default:
                 return BEAM_HEIGHT_MAX;
         }
@@ -966,6 +1040,11 @@ public final class ParameterScreen extends Screen {
                 return String.format(Locale.ROOT, "%.1f", value);
             case ConfigWriteTarget.COLLISION_KNOCKBACK_MAX:
                 return String.format(Locale.ROOT, "%.0f", value);
+            case ConfigWriteTarget.SCATTER_STRENGTH:
+                // 两位小数：0.05 的步长要看得出来（1.00 → 1.05 是能感觉到的差别）。
+                return String.format(Locale.ROOT, "%.2f", value);
+            case ConfigWriteTarget.SCATTER_RADIUS:
+                return String.format(Locale.ROOT, "%.1f", value);
             default:
                 return String.format(Locale.ROOT, "%.1f", value);
         }
@@ -1027,6 +1106,10 @@ public final class ParameterScreen extends Screen {
                 return KNOCKBACK_CAP_MIN;
             case ConfigWriteTarget.COLLISION_COOLDOWN:
                 return COOLDOWN_MIN;
+            case ConfigWriteTarget.SCATTER_STRENGTH:
+                return SCATTER_STR_MIN;
+            case ConfigWriteTarget.SCATTER_RADIUS:
+                return SCATTER_R_MIN;
             default:
                 return BEAM_HEIGHT_MIN;
         }
@@ -1088,21 +1171,29 @@ public final class ParameterScreen extends Screen {
                 return KNOCKBACK_CAP_STEP;
             case ConfigWriteTarget.COLLISION_COOLDOWN:
                 return COOLDOWN_STEP;
+            case ConfigWriteTarget.SCATTER_STRENGTH:
+                return SCATTER_STR_STEP;
+            case ConfigWriteTarget.SCATTER_RADIUS:
+                return SCATTER_R_STEP;
             default:
                 return BEAM_HEIGHT_STEP;
         }
     }
 
     /**
-     * Same tooltip contract as the other screens: 1.19.2 has no
-     * {@code ClickableWidget#setTooltip}, so the hint has to be handed over when the button is
-     * built ({@code ButtonWidget.TooltipSupplier}); {@code null} means "no tooltip".
+     * Same tooltip contract as the other screens: these buttons carry no tooltip. Safe on 1.20.1
+     * ({@code ClickableWidget.applyTooltip()} null-checks the field); the 1.19.2/1.18.2 builds must
+     * pass {@code ButtonWidget.EMPTY} instead - never a null supplier.
      */
     private ButtonWidget addButton(final int x, final int y, final int w, final int h,
                                    final Text label, final ButtonWidget.PressAction action) {
         return this.addButton(x, y, w, h, label, action, null);
     }
 
+    /**
+     * 带悬停说明的按钮。1.19.2 的 tooltip 是 {@code ButtonWidget.TooltipSupplier}（建按钮时给），
+     * 没有 1.20.1 的 {@code ClickableWidget#setTooltip(Tooltip)}，所以说明必须在建按钮时交进去。
+     */
     private ButtonWidget addButton(final int x, final int y, final int w, final int h,
                                    final Text label, final ButtonWidget.PressAction action,
                                    final Text tooltip) {
@@ -1308,48 +1399,52 @@ public final class ParameterScreen extends Screen {
         final boolean head;
         /** True for the per-siding entry: disabled (and annotated) outside a save. */
         final boolean needsWorld;
+        final boolean needsLdl;
         final Text label;
         final Runnable action;
 
         private Row(final int kind, final int toggle, final int value, final boolean head,
-                    final boolean needsWorld, final Text label, final Runnable action) {
+                    final boolean needsWorld, final boolean needsLdl, final Text label,
+                    final Runnable action) {
             this.kind = kind;
             this.toggle = toggle;
             this.value = value;
             this.head = head;
             this.needsWorld = needsWorld;
+            this.needsLdl = needsLdl;
             this.label = label;
             this.action = action;
         }
 
         static Row toggle(final int toggle, final int value) {
-            return new Row(ROW_TOGGLE, toggle, value, false, false, Text.empty(), null);
+            return new Row(ROW_TOGGLE, toggle, value, false, false, false, Text.empty(), null);
         }
 
         /** 只有开关、右边没有滑块的一行（光柱 / 车体碰撞 / 道床 / 内置车型屏蔽 …）。 */
         static Row toggleWide(final int toggle) {
-            return new Row(ROW_TOGGLE_WIDE, toggle, -1, false, false, Text.empty(), null);
+            return new Row(ROW_TOGGLE_WIDE, toggle, -1, false, false, false, Text.empty(), null);
         }
 
+
         static Row value(final int value) {
-            return new Row(ROW_VALUE, -1, value, false, false, Text.empty(), null);
+            return new Row(ROW_VALUE, -1, value, false, false, false, Text.empty(), null);
         }
 
         static Row color(final boolean head) {
-            return new Row(ROW_COLOR, -1, -1, head, false, Text.empty(), null);
+            return new Row(ROW_COLOR, -1, -1, head, false, false, Text.empty(), null);
         }
 
         static Row action(final Text label, final Runnable action) {
-            return new Row(ROW_ACTION, -1, -1, false, false, label, action);
+            return new Row(ROW_ACTION, -1, -1, false, false, false, label, action);
         }
 
         static Row worldAction(final Text label, final Runnable action) {
-            return new Row(ROW_ACTION, -1, -1, false, true, label, action);
+            return new Row(ROW_ACTION, -1, -1, false, true, false, label, action);
         }
 
         /** 三态值一行（车灯模式），按钮整行宽。 */
         static Row mode() {
-            return new Row(ROW_CYCLE, -1, ConfigWriteTarget.HEADLIGHT_MODE, false, false,
+            return new Row(ROW_CYCLE, -1, ConfigWriteTarget.HEADLIGHT_MODE, false, false, false,
                     Text.empty(), null);
         }
     }

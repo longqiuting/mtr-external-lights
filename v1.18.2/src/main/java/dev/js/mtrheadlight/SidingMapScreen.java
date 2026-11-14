@@ -1,17 +1,13 @@
 package dev.js.mtrheadlight;
 
-import net.minecraft.text.LiteralText;
-import net.minecraft.text.TranslatableText;
-
-import dev.js.mtrheadlight.clientgui.Widgets;
-
-import net.minecraft.client.util.math.MatrixStack;
 import mtr.client.ClientData;
 import mtr.data.Depot;
 import mtr.data.Siding;
 import dev.js.mtrheadlight.clientgui.DrawContext;
+import dev.js.mtrheadlight.clientgui.Widgets;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
@@ -21,6 +17,8 @@ import org.lwjgl.glfw.GLFW;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import net.minecraft.text.TranslatableText;
+import net.minecraft.text.LiteralText;
 
 /**
  * The siding list as a map: a top-down 2D plan of the depots (rectangles) and the sidings (a dot
@@ -566,7 +564,10 @@ public final class SidingMapScreen extends Screen {
     // ---------------------------------------------------------------------------------------------
 
     @Override
-    public void render(final MatrixStack matrices, final int mouseX, final int mouseY, final float delta) {
+    public void render(final MatrixStack matrices, final int mouseX, final int mouseY,
+                        final float delta) {
+        // 1.18.2 的 Screen#render 收 MatrixStack（没有 1.20.1 的 DrawContext）；
+        // 替身包一层，屏幕内部的绘制代码一行不用改。
         final DrawContext context = new DrawContext(matrices);
         context.drawTexture(OPTIONS_BACKGROUND, 0, 0, 0, 0, this.width, this.height, 32, 32);
         context.fillGradient(0, 0, this.width, this.height, 0xC0101010, 0xD0101010);

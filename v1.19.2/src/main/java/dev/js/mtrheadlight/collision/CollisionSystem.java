@@ -1,5 +1,6 @@
 package dev.js.mtrheadlight.collision;
 
+import dev.js.mtrheadlight.compat.Pos;
 import dev.js.mtrheadlight.DepartureState;
 import dev.js.mtrheadlight.HeadlightConfig;
 import dev.js.mtrheadlight.MtrHeadlightClient;
@@ -13,14 +14,12 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.entity.Entity;
-import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.shape.VoxelShape;
 
@@ -114,6 +113,23 @@ import java.util.Map;
  *
  * 满足条件时这一 tick 不吸附、不载人：玩家留在原地，车从他脚下开走，随后自然下落。其余情况
  * 一律继续粘在车顶上（旧行为是「一过弯就掉」，现在只有高速急弯才掉）。
+ *
+ * <p><b>跳跃惯性（空中载人）</b>：起跳后人在车顶正上方腾空（脚底在车顶平面以上、离车顶不超过
+ * {@value #ROOF_AIR_MAX} 格、水平投影还在车厢里）时，{@link #airborneCarry} 把这一 tick 的车厢
+ * 位移也加到玩家身上 —— 跳起来跟着车往前、落点还是原来那块车顶。离开车厢水平投影（从侧边走出去）
+ * 就立刻不载人，人自然落在车后面。用的是与车顶站立同一套「移动平台位移」，不是写速度：
+ * 写速度的话原版 {@code move} 下一 tick 会再用一次（走两倍），而且空中每 tick 改一次水平速度，
+ * 玩家的 WASD 会被反复覆盖。
+ *
+ * <p><b>从车顶掉下来：自然掉落 + 掉落伤害</b>：离开车顶的那一 tick 起
+ * （{@link #roofState} → 掉落追踪，{@value #ROOF_FALL_TICKS} tick 上限），这名玩家对<b>那一节车</b>
+ * 不再算「被车撞到」—— 不推出、不写速度、不给撞飞冲量（{@link #roofEscape}）。以前「掉下车顶」与
+ * 「被车撞」是同一个判定：下落必然穿过车厢的竖直范围，于是侧向推出把人弹开一格多、
+ * {@code velocityPush} 把水平速度改写成车速、{@code ≥50 km/h} 再补一记撞飞冲量 —— 玩家看到的就是
+ * 「一离开车顶就被弹飞 / 瞬移」，高速时还不是摔死的。现在落体只剩重力。
+ * 落地那一 tick 按<b>离开车顶时的车速</b>结算血量（{@link CollisionImpact#roofFallHp}，与撞击
+ * 同一套档位）：低速只掉一点血，{@code ≥ trainCollisionLaunchMaxKmh}（默认 80）必死，
+ * 死亡消息走原版摔落那一段。落差不足 {@value #ROOF_FALL_MIN_DROP} 格（走上同高站台）不算摔下来。
  *
  * <p><b>车顶上的行走动画</b>：踩在车顶上时玩家相对车不动，但水平速度还在，原版会一直播
  * 走路摆腿。{@link #tick()} 在 {@code END_CLIENT_TICK}（渲染之前的最后一次写入）把
@@ -227,6 +243,21 @@ public final class CollisionSystem {
     /** 单 tick 的载人位移上限；超过就当作列车瞬移（重同步），不载人。 */
     private static final double CARRY_MAX = 4.0D;
 
+    /**
+     * 车顶上方「空中载人」的高度上限（格）：起跳后脚底离车顶不超过这么高时仍然跟着车走
+     * （一次普通起跳约 1.25 格，留一倍余量给跳跃提升 / 缓降）。
+     */
+    private static final double ROOF_AIR_MAX = 3.0D;
+
+    /** 离开车顶之后的「掉落追踪」时长（tick，3 s）：这段时间里玩家算「从车顶掉下来」。 */
+    private static final int ROOF_FALL_TICKS = 60;
+
+    /**
+     * 「从车顶掉下来」的最低落差（格）：低于它不算摔下来 —— 从车顶直接走上同高的站台、
+     * 或者只是脚底蹭过车顶平面时不该掉血。
+     */
+    private static final double ROOF_FALL_MIN_DROP = 1.2D;
+
     /** 车宽缺失时的半宽兜底（格）。 */
     private static final double DEFAULT_HALF_WIDTH = 1.3D;
 
@@ -258,8 +289,21 @@ public final class CollisionSystem {
     /** 自己的 tick 计数：不依赖 {@code LightController} 的计数器（那条可能提前 return）。 */
     private static long ticks;
 
+    /**
+     * 当前 tick 计数（{@code /mtr_lte trackbed where} 要用它复用同一份道床缓存）。
+     *
+     * <p>和判定路径用同一个计数器，命令那次查询就不会因为 tick 编号不同而白重建一次缓存。
+     */
+    public static long tickCount() {
+        return ticks;
+    }
+
     /** 本 tick 移动前的脚底 y（道床「从上方穿过」判定）。 */
     private static double startY = Double.NaN;
+
+    /** 本 tick 移动前的水平位置：只用来算「这一步走了多远」（道床取证）。 */
+    private static double startX = Double.NaN;
+    private static double startZ = Double.NaN;
 
     private static Entity cacheEntity;
     private static long cacheTick = -1L;
@@ -270,9 +314,35 @@ public final class CollisionSystem {
     /** 本 tick 玩家踩在哪个车厢的车顶上（null = 没踩）。车顶动画修正要用。 */
     private static String roofKey;
 
+    // ---- 车顶状态 / 掉落追踪（三件事：跳跃惯性、掉落伤害、自然掉落）--------------------------
+    //
+    // 站在车顶上时记下「哪节车 / 车顶平面 / 车速」；离开车顶的那一 tick 把这组值搬进「掉落追踪」，
+    // 追踪窗口里这名玩家算「从车顶掉下来」而不是「被车撞到」。三个用途：
+    //   1) 还在车顶正上方的滞空阶段（起跳 / 落回车顶）→ 按车厢位移带着走（跳跃惯性）；
+    //   2) 车顶平面以下、自由落体 → 车身段不再推出 / 不再给冲量（否则掉下来 = 被撞飞，见 roofEscape）；
+    //   3) 落地那一 tick → 按离开车顶时的车速结算掉落伤害（含高速必死）。
+    /** 这一 tick 站着的车厢（列车 key + 车厢序号）。 */
+    private static String standKey;
+    private static int standIndex = -1;
+    /** 最后一次真的站在车顶上的 tick（-1 = 从没站过）。 */
+    private static long standTick = -1L;
+    /** 站车顶那一刻的脚底高度（= 车顶平面）与那列车的车速（km/h）。 */
+    private static double standRoofY = Double.NaN;
+    private static double standSpeedKmh;
+
+    /** 掉落追踪：从哪节车的车顶掉下来的、当时的车顶平面 / 车速、追踪截止 tick。 */
+    private static String fallKey;
+    private static int fallIndex = -1;
+    private static double fallRoofY = Double.NaN;
+    private static double fallSpeedKmh;
+    private static long fallUntil = -1L;
+
     /** 本 tick 推出方向（单位向量，水平）：撞飞冲量沿它走。没推过就是 (0,0)。 */
     private static double pushDirX;
     private static double pushDirZ;
+
+    /** {@link #standOnRoof} 这一 tick 吸附到的车顶平面 y（没吸附 = NaN）。掉落追踪要用。 */
+    private static double lastRoofY = Double.NaN;
 
     /** 每节车厢上一 tick 的中心，用来算「移动平台」位移。key = trainKey + '#' + carIndex。 */
     private static final Map<String, CarTrack> TRACKS = new HashMap<>();
@@ -393,12 +463,14 @@ public final class CollisionSystem {
     // 注入点 1/2：Entity#move 的 HEAD
     // ---------------------------------------------------------------------------------------------
 
-    /** 记录移动前的脚底 y。所有判定都以它作为「这一 tick 从哪来」的基准。 */
+    /** 记录移动前的脚底 y（以及水平位置，只为道床取证算「这一步走了多远」）。 */
     public static void beforeMove(final Entity entity) {
         if (!isLocal(entity)) {
             return;
         }
         startY = entity.getY();
+        startX = entity.getX();
+        startZ = entity.getZ();
     }
 
     /**
@@ -409,13 +481,27 @@ public final class CollisionSystem {
      *
      * <p>只处理「脚底已经在车顶平面上或之上」的情形：脚底低于车顶说明玩家在车体内部或车下方
      * （例如从高架下面走过），那是另一半逻辑（侧向推出），不能把人往上一顶。
+     *
+     * <p><b>旁观模式例外</b>：旁观者穿一切（{@code afterMove} 里本来就有这道门，但漏在这里就会
+     * 表现为「旁观模式下飞不进车体、被车顶托住」）。判定放在最前面，比乘车 / 驾驶钥匙更早，
+     * 因为这些分支都只是在讨论「怎么处理这次下落」，而旁观者根本不该被处理。
      */
     public static Vec3d clampMovement(final Entity entity, final Vec3d movement) {
         if (!isLocal(entity) || movement.y >= 0.0D) {
             return movement;
         }
+        // 旁观模式穿一切：原版旁观者不与方块 / 实体碰撞，我们这层「把竖直位移截到车顶」也必须让开。
+        // 否则从车顶上方飞下来时会被车顶平面接住（脚底吸在 roof 上），看起来就像车顶有实体碰撞箱
+        // —— 旁观者本该能直接穿进车体、从车厢里穿出去。
+        if (entity instanceof PlayerEntity spectator && spectator.isSpectator()) {
+            return movement;
+        }
         // 坐在车里：座位自己决定高度，车顶截断只会把人往下按（坐着时脚底就在车顶平面附近）。
         if (isRiding(entity)) {
+            return movement;
+        }
+        // 手持 MTR 驾驶钥匙：车顶截断也不做 —— 否则玩家想走到车门前上车时会被车顶「按」下来。
+        if (DriverKeyBypass.active(entity)) {
             return movement;
         }
         try {
@@ -481,17 +567,40 @@ public final class CollisionSystem {
                 return;
             }
             final ClientWorld world = (ClientWorld) entity.getWorld();
+
+            // 手持 MTR 驾驶钥匙：车体这套几何（推出 / 车顶站立 / 撞击伤害 / 撞击后的流血窗口）
+            // 整套跳过 —— 否则玩家停下车、拿着钥匙走向车门时会被自己刚开的那列车推开，
+            // 或者被车顶「按」在车外上不去。松手后下一 tick 自动恢复，不是永久免伤。
+            // 道床是轨面不是列车，照常结算。
+            if (DriverKeyBypass.active(player)) {
+                roofKey = null;
+                if (cfg.trackbedCollision) {
+                    trackbed(player, cfg, world);
+                }
+                return;
+            }
+
             final double height = cfg.trainCollisionHeightClamped();
             final List<CarHit> cars = cfg.trainCollision ? cars(entity, height) : List.of();
 
             // 1) 车顶优先：站在车顶上时不能又被侧向推出（坡道上车顶面低于包围盒顶面，两者会打架）。
+            lastRoofY = Double.NaN;
             boolean onRoof = false;
+            CarHit roofCar = null;
             for (final CarHit car : cars) {
                 if (standOnRoof(player, car, height, world)) {
                     onRoof = true;
                     roofKey = car.key;
+                    roofCar = car;
                     break;
                 }
+            }
+            // 车顶状态：站上去就记下这一节，离开就启动「掉落追踪」（跳跃惯性 / 掉落伤害都靠它）。
+            // 高速急弯被甩下来时 standOnRoof 故意不吸附，但状态照样要记 —— 掉落伤害的车速快照取它。
+            roofState(onRoof ? roofCar : roofStandby(player, cars, height));
+            // 车顶正上方腾空（起跳 / 落回车顶）：跟着车走，落点还是原来那块车顶。
+            if (!onRoof) {
+                airborneCarry(player, cars, height, world);
             }
 
             // 2) 车体推出：车身段只做侧向推、端盖还要挡住车头车尾。
@@ -506,6 +615,11 @@ public final class CollisionSystem {
             pushDirZ = 0.0D;
             if (!onRoof) {
                 for (final CarHit car : cars) {
+                    // 刚从这节车顶掉下来 / 正在它车顶正上方：那是「站在车顶」「掉下车顶」，
+                    // 不是「被车撞到」—— 推出、速度推送、冲量、伤害全部让开。
+                    if (roofEscape(player, car)) {
+                        continue;
+                    }
                     if (!pushCar(player, car, world)) {
                         continue;
                     }
@@ -534,7 +648,11 @@ public final class CollisionSystem {
                 trackbed(player, cfg, world);
             }
 
-            // 4) 记下这一 tick 的车厢中心，下一 tick 算载人位移用。
+            // 4) 从车顶掉下来的落地结算（车速决定掉多少血，高速直接致死）。
+            //    放在道床之后：落在道床上时「落地」是靠道床那次 setPosition 判出来的。
+            settleRoofFall(player, cfg);
+
+            // 5) 记下这一 tick 的车厢中心，下一 tick 算载人位移用。
             remember(cars);
             int segs = 0;
             for (final CarHit car : cars) {
@@ -559,6 +677,19 @@ public final class CollisionSystem {
         if (world != lastWorld) {
             reset();
             lastWorld = world;
+        }
+        // 道床：这一 tick 的移动都跑完了，把按压状态转成「上一 tick」。
+        Trackbed.endTick();
+        // 状态延续的汇总：不看任何开关，每 5 秒一行（rail= seg= s= y= ok= lost= hop=）。
+        // 它是「直道到底还掉不掉」的唯一读法：走一遍出问题的那段，lost 一直是 0 就说明延续链没断。
+        if (ticks % DIAG_PERIOD == 0L) {
+            MtrHeadlightClient.LOGGER.info(Trackbed.followLine());
+        }
+        // 取证窗口（{@code /mtr_lte trackbed status}）：每 5 秒一行结论 + 各结论计数。
+        // 放在诊断早退之前 —— 它和 {@code collisionDiagnostics} 是两个开关。
+        if (Trackbed.watch() && ticks % DIAG_PERIOD == 0L) {
+            MtrHeadlightClient.LOGGER.info(Trackbed.describe(Trackbed.snapped()));
+            Trackbed.clearCounters();
         }
         stillLimbs(client == null ? null : client.player);
         // 流血窗口内把原版受击镜头晃动按掉：每 10 tick 一笔伤害会把 hurtTime 反复重置成 10，
@@ -650,6 +781,13 @@ public final class CollisionSystem {
         cacheTick = -1L;
         cacheCars = List.of();
         roofKey = null;
+        lastRoofY = Double.NaN;
+        standKey = null;
+        standIndex = -1;
+        standTick = -1L;
+        standRoofY = Double.NaN;
+        standSpeedKmh = 0.0D;
+        clearFall();
         rideTick = -1L;
         rideEntity = null;
         rideCached = false;
@@ -1592,6 +1730,7 @@ public final class CollisionSystem {
         player.setPosition(x, roof, z);
         player.setOnGround(true);
         player.fallDistance = 0.0F;
+        lastRoofY = roof;
 
         final Vec3d carry = carryFor(car);
         if (carry.lengthSquared() > 1.0E-9D) {
@@ -1601,6 +1740,241 @@ public final class CollisionSystem {
             }
         }
         return true;
+    }
+
+    /**
+     * 车顶状态迁移：站上去就记下「哪节车 / 车顶平面 / 车速」，离开的那一 tick 启动掉落追踪。
+     *
+     * <p>追踪只对<b>同一节车</b>成立（{@link #isFallCar}），换车顶、换列车都不串。
+     * 重新站回车顶（起跳又落回来、或者走到相邻车厢）时立刻作废 —— 那不是一次掉落。
+     *
+     * @param car 这一 tick 真的站上去的车厢；{@code null} = 这一 tick 没站在车顶上
+     */
+    private static void roofState(final CarHit car) {
+        if (car != null) {
+            standKey = car.key;
+            standIndex = car.index;
+            standTick = ticks;
+            standSpeedKmh = car.speedKmh;
+            standRoofY = lastRoofY;
+            clearFall();
+            return;
+        }
+        if (standTick == ticks - 1L) {
+            // 上一 tick 还在车顶、这一 tick 不在了：开始追踪这次掉落。
+            // 车顶平面与车速都取「还站在上面时」的值 —— 落地那一刻车早就开走、甚至已经停了。
+            fallKey = standKey;
+            fallIndex = standIndex;
+            fallRoofY = standRoofY;
+            fallSpeedKmh = standSpeedKmh;
+            fallUntil = ticks + ROOF_FALL_TICKS;
+            standTick = -1L;
+        }
+    }
+
+    /**
+     * 脚底就踩在这节车的车顶平面上、但这一 tick <b>没有</b>被吸附的那节车（高速急弯被甩下来时
+     * {@link #standOnRoof} 故意不吸附、或者吸附被 {@code isSpaceEmpty} 挡掉）。
+     *
+     * <p>只用来记状态（掉落伤害要用它算车速与落差），<b>不做载人</b> —— 载人只发生在
+     * {@link #standOnRoof}（站着）与 {@link #airborneCarry}（车顶正上方腾空）。起跳中
+     * （{@code vy > 0.08}）一律不算站车顶：那时归 {@link #airborneCarry} 管，这里要是记了一笔，
+     * 就会把「跳跃惯性」的掉落追踪清掉。
+     */
+    private static CarHit roofStandby(final PlayerEntity player, final List<CarHit> cars,
+                                      final double height) {
+        if (player.getVelocity().y > 0.08D) {
+            return null;
+        }
+        final double feet = player.getY();
+        for (final CarHit car : cars) {
+            final double roof = car.roofAt(player.getX(), player.getZ(), height);
+            if (Double.isNaN(roof)) {
+                continue;
+            }
+            if (feet < roof - ROOF_TOL || feet > roof + ROOF_ABOVE) {
+                continue;
+            }
+            lastRoofY = roof;
+            return car;
+        }
+        return null;
+    }
+
+    /** 清掉「从车顶掉下来」的追踪（重新站回车顶 / 结算完 / 换世界）。 */
+    private static void clearFall() {
+        fallKey = null;
+        fallIndex = -1;
+        fallRoofY = Double.NaN;
+        fallSpeedKmh = 0.0D;
+        fallUntil = -1L;
+    }
+
+    /** 这节车就是「刚刚从它车顶上掉下来」的那一节吗？ */
+    private static boolean isFallCar(final CarHit car) {
+        return fallKey != null && car.index == fallIndex && fallKey.equals(car.key);
+    }
+
+    /**
+     * 车顶上的<b>跳跃惯性</b>：人在车顶正上方腾空（起跳中，或者正落回车顶）时，按这一 tick 的车厢位移
+     * 把他一起带走 —— 跳起来跟着车往前，落点还是原来那块车顶。
+     *
+     * <p>为什么用位移而不是<b>写速度</b>：与车顶站立同一个理由（见 {@link #standOnRoof}）。写速度的话
+     * 原版 {@code move} 下一 tick 还会再用一次，等于走两倍；而且空中每 tick 改一次水平速度，玩家的
+     * 空中操作（WASD）会被反复覆盖，手感像在冰上。位移只加车厢真的走过的那一段，与玩家的空中移动
+     * 叠加，两者互不干扰，落地时也不留残余速度。
+     *
+     * <p>只处理「水平投影还在车厢里」的情形：从车顶侧边走出去时 {@link CarHit#roofAt} 立刻返回
+     * NaN，这时<b>不</b>再带着走 —— 人应该自然落在车后面，而不是被车拖着飞（见 {@link #roofEscape}）。
+     */
+    private static void airborneCarry(final PlayerEntity player, final List<CarHit> cars,
+                                      final double height, final ClientWorld world) {
+        if (fallKey == null) {
+            return;
+        }
+        if (ticks > fallUntil) {
+            clearFall();
+            return;
+        }
+        final double feet = player.getY();
+        for (final CarHit car : cars) {
+            if (!isFallCar(car)) {
+                continue;
+            }
+            if (car.slidesOff(MtrHeadlightClient.config())) {
+                // 高速急弯：车顶本来就该「甩下」人（见 {@link CarHit#slidesOff}），这一 tick 不载人 ——
+                // 否则这里的空中载人会把刚刚被甩下来的人又粘回车顶。
+                return;
+            }
+            final double roof = car.roofAt(player.getX(), player.getZ(), height);
+            if (Double.isNaN(roof)) {
+                // 已经走出车厢水平投影（从侧边掉下去）：自然下落，不载人。
+                return;
+            }
+            if (feet < roof - ROOF_ABOVE || feet > roof + ROOF_AIR_MAX) {
+                // 掉到车顶平面以下（落体的后半段）或者跳得太高：都不是「车顶上的腾空」。
+                return;
+            }
+            final Vec3d carry = carryFor(car);
+            if (carry.lengthSquared() < 1.0E-9D) {
+                return;
+            }
+            final Box moved = player.getBoundingBox().offset(carry.x, 0.0D, carry.z);
+            if (world.isSpaceEmpty(player, moved)) {
+                player.setPosition(player.getX() + carry.x, feet, player.getZ() + carry.z);
+            }
+            return;
+        }
+    }
+
+    /**
+     * 这一节车这一 tick 要不要<b>放过</b>这名玩家（不推出、不写速度、不给冲量、不算撞击伤害）。
+     *
+     * <h2>为什么需要</h2>
+     * 车体推出 / 速度推送 / 撞飞冲量 / 撞击伤害全都挂在「玩家与某个车身段相交」上。人从车顶往下掉
+     * 的时候<b>必然</b>要穿过车厢的竖直范围（车顶平面离轨面 {@code trainCollisionHeight} 格，落差
+     * 全在这一段里），于是以前「掉下车顶」和「被车撞」是同一个判定：
+     * <ul>
+     *   <li>侧向推出把人从车边「弹」出去一格多；</li>
+     *   <li>{@code velocityPush} 把水平速度改写成车速（1.1 格/tick），下落变成「被车拖着飞」；</li>
+     *   <li>{@code ≥ 50 km/h} 还会给撞飞冲量（{@code ≥ 80} 直接进飞出致死流程）—— 玩家看到的
+     *       不是「摔下来」，而是「一离开车顶就被弹飞 / 瞬移」，而且高速时不是摔死的。</li>
+     * </ul>
+     * 这就是反馈里「从车顶掉下来几乎是瞬移下来的」的来源：下落被替换成了一次水平撞击。
+     * 现在这三段时间里这一节车不参与碰撞 —— <b>站在车顶</b>、<b>刚离开车顶的滞空</b>、
+     * <b>从车顶掉下来的自由落体</b>。真正被车撞（走到轨道上、被另一列车扫到）仍然照旧。
+     */
+    private static boolean roofEscape(final PlayerEntity player, final CarHit car) {
+        if (fallKey == null) {
+            return false;
+        }
+        if (ticks > fallUntil) {
+            clearFall();
+            return false;
+        }
+        if (!isFallCar(car) || Double.isNaN(fallRoofY)) {
+            return false;
+        }
+        if (player.getY() >= fallRoofY - ROOF_ABOVE) {
+            // 还在车顶平面之上：起跳 / 落回车顶的滞空段，交给车顶吸附（车顶上方不该被车撞）。
+            return true;
+        }
+        // 车顶平面以下：只在「还在追踪里、并且确实悬空」时放过。落地之后立刻恢复，
+        // 否则人会从车体里穿过去。
+        return !player.isOnGround();
+    }
+
+    /**
+     * 落地结算「从车顶摔下来」。
+     *
+     * <p>时机：落地那一 tick（{@code isOnGround()}，或者道床 / 车顶已经把人接住）。伤害按<b>离开
+     * 车顶那一刻的车速</b>在 {@link CollisionImpact#roofFallHp} 里算：与撞击同一套档位，
+     * {@code ≥ trainCollisionLaunchMaxKmh}（默认 80）直接一条血 —— 需求就是「高速移动时直接死亡」。
+     *
+     * <p>落差小于 {@value #ROOF_FALL_MIN_DROP} 格（从车顶直接走上同高的站台）不算摔下来，
+     * 一次掉落只结算一次。
+     */
+    private static void settleRoofFall(final PlayerEntity player, final HeadlightConfig cfg) {
+        if (fallKey == null) {
+            return;
+        }
+        if (ticks > fallUntil) {
+            clearFall();
+            return;
+        }
+        if (Double.isNaN(fallRoofY) || !player.isOnGround()) {
+            return;
+        }
+        final double drop = fallRoofY - player.getY();
+        final double speed = fallSpeedKmh;
+        clearFall();
+        if (!(drop >= ROOF_FALL_MIN_DROP) || !cfg.trainCollisionDamage) {
+            return;
+        }
+        final float hp = CollisionImpact.roofFallHp(player, cfg, speed);
+        if (!(hp > 0.0F)) {
+            return;
+        }
+        try {
+            MtrHeadlightClient.LOGGER.info("[lte] roof-fall: v={}km/h drop={} hp={} by={}",
+                    String.format(Locale.ROOT, "%.1f", Double.valueOf(speed)),
+                    String.format(Locale.ROOT, "%.2f", Double.valueOf(drop)),
+                    String.format(Locale.ROOT, "%.2f", Float.valueOf(hp)),
+                    serverOwnsIt() ? "server" : "client");
+        } catch (Throwable ignored) {
+            // 日志永远不许影响 tick。
+        }
+        hurtForFall(player, hp, cfg);
+    }
+
+    /**
+     * 把「从车顶摔下来」的伤害打到权威实例上。
+     *
+     * <p>服务端权威时（单人 / 装了 LTE 的多人服务器）什么都不做：{@code ServerCollision} 那边有
+     * 同一套车顶追踪与同一份公式（{@link CollisionImpact#roofFallHp}），两边各算一次就是双倍伤害。
+     * 纯客户端模式（服务端没装 LTE）才在这里对本地玩家实例调用 —— 只有受击表现，血量由服务器
+     * 同步，与「服务端没装 LTE」时的撞击伤害同一条路。
+     */
+    private static void hurtForFall(final PlayerEntity player, final float hp,
+                                    final HeadlightConfig cfg) {
+        if (serverOwnsIt()) {
+            return;
+        }
+        final MinecraftServer server = MinecraftClient.getInstance().getServer();
+        ServerPlayerEntity authoritative = null;
+        if (server != null) {
+            try {
+                authoritative = server.getPlayerManager().getPlayer(player.getUuid());
+            } catch (Throwable ignored) {
+                authoritative = null;
+            }
+        }
+        if (authoritative != null) {
+            final ServerPlayerEntity target = authoritative;
+            server.execute(() -> CollisionImpact.applyRoofFall(target, hp, cfg));
+            return;
+        }
+        CollisionImpact.applyRoofFall(player, hp, cfg);
     }
 
     /** 上一 tick 到这一 tick 该车厢的水平位移；间隔不是恰好一 tick、或位移过大（重同步）时返回零。 */
@@ -1651,41 +2025,112 @@ public final class CollisionSystem {
     // 道床
     // ---------------------------------------------------------------------------------------------
 
-    /** 站到道床上：轨面 + thickness。只有「已经在上面」或「这一 tick 从上方落下穿过」才生效。 */
+    /**
+     * 站到道床上：<b>横向列 + 弧长插值</b>，<b>不看 onGround、不拿 y 做阈值</b>。
+     *
+     * <p>老实现的失败方式有两种，恰好就是用户报的两种：
+     * <ul>
+     *   <li><b>上坡掉</b>：判定要求「脚底在轨面 ±0.1 内」（{@code resting}）或「本 tick 起点在轨面之上、
+     *       终点在轨面之下」（{@code crossed}）。往前走一步，轨面已经抬高，脚底在轨面<b>之下</b>，
+     *       两条都不满足 —— 尤其是 {@code crossed} 还要求起点在轨面之上，上坡时起点也在轨面之下，
+     *       于是每一步都被漏掉，人顺着坡滑下去。</li>
+     *   <li><b>弯道掉</b>：最近点用的是离散采样点的固定 y，弯道中段的轨面高度取的是「上一格」的值，
+     *       和脚底对不上（几何明明命中了，仍然被判成没命中）。</li>
+     * </ul>
+     *
+     * <p>现在的判定只有三步，全部与 onGround 无关：
+     * <ol>
+     *   <li>横向：{@link Trackbed#nearest} 给出「最近横向列」的轨面 y 与有符号偏移，{@code |offset| ≤
+     *       }{@link Trackbed#HALF_WIDTH} 才算踩在道床上（法向判定，弯道内侧外侧一致）；</li>
+     *   <li>纵向：{@link RailBed#verdict} 用 {@code dy = 脚底 − 轨面} 判窗口
+     *       {@code [-STEP_UP, +CEIL]}，再分「起跳 / 从上方穿过 / 贴着往下走」三档；上坡时
+     *       {@code dy ∈ [-STEP_UP, 0]} 直接抬上去 —— 这就是坡道不再掉的那一条；</li>
+     *   <li>真实方块优先、落点空间检查：和前版一致，只是结论也进取证。</li>
+     * </ol>
+     *
+     * <p><b>下落安全网</b>（第 2.5 步）：上面三步全判「不在窗口里」之后，只要人正在下坠、轨面就在
+     * 脚底下方 0–3 格、横向 2.5 格以内，这一 tick 无条件把人接住（{@link RailBed.Verdict#RESCUE}）。
+     * 顺序是 <b>verdict 之后、真实方块之前</b>：判定能接住的 tick 完全走老路，安全网只补漏；
+     * 脚下有真方块时仍然是方块优先。跳跃（{@code vy > 0}）不会被这条拖住 —— 见
+     * {@link RailBed#rescues}。
+     */
     private static boolean trackbed(final PlayerEntity player, final HeadlightConfig cfg,
                                     final ClientWorld world) {
         final double feet = player.getY();
         final double x = player.getX();
         final double z = player.getZ();
-        final Trackbed.Sample sample = Trackbed.nearest(world, ticks, x, feet, z);
-        if (sample == null) {
-            return false;
-        }
-        final double surface = sample.y + cfg.trackbedThicknessClamped();
+        final boolean onGround = player.isOnGround();
+        final double moved = movedSinceStart(feet, x, z);
         final double vy = player.getVelocity().y;
-        // 已经站在上面：脚底就在道床面附近且没有在跳。必须排除"正在起跳"（vy > 0）—— 否则跳起来
-        // 的第一 tick 脚底还在容差里，会被立刻按回去并清零速度，跳不上去。
-        final boolean resting = vy <= 0.02D && feet >= surface - 0.03D && feet <= surface + 0.10D;
-        // 「从上方穿透」：本 tick 起点不低于道床面，终点低于它。站在高架下面（起点远低于道床面）
-        // 永远不满足，所以桥下不会被吸上去。
-        final boolean crossed = vy < -1.0E-3D && !Double.isNaN(startY)
-                && startY >= surface - 0.03D && feet < surface;
-        if (!resting && !crossed) {
-            return false;
+        final Trackbed.Sample sample = Trackbed.follow(world, ticks, x, feet, z);
+        final double railY = sample == null ? Double.NaN : sample.y;
+        final double surface = sample == null ? Double.NaN : railY + cfg.trackbedThicknessClamped();
+        final double dy = sample == null ? Double.NaN : feet - surface;
+
+        // 1) 常规判定：横向列（HALF_WIDTH 内才有资格）→ 纵向窗口（RailBed.verdict）。
+        final double startDy = Double.isNaN(startY) ? Double.NaN : startY - surface;
+        RailBed.Verdict verdict;
+        if (sample == null) {
+            verdict = RailBed.Verdict.NO_HIT;
+        } else if (sample.distance > Trackbed.HALF_WIDTH) {
+            verdict = RailBed.Verdict.LATERAL;
+        } else {
+            verdict = RailBed.verdict(dy, vy, startDy, cfg.trackbedStepUpClamped());
         }
-        if (realBlockWins(world, x, feet, z, surface)) {
-            return false;
+        // 1.5) 状态延续的直接吸附：这一 tick 的轨面是「接着上一 tick 那条轨道走」出来的
+        //      （continue / hop），人已经掉到轨面以下 1.5 格以内 —— 直接抬回去。
+        //      这条是「掉下去就再也上不来」那个死循环的出口：verdict 的下界只有一级台阶（1.0），
+        //      一旦漏掉一 tick，人就掉到 -1.2，之后每 tick 都是 dy、整段直道都没有碰撞箱。
+        //      条件收得很紧：横向仍在 HALF_WIDTH 内、不是起跳（vy > 0.02 一律让开）、上限只到
+        //      STICK（0.6）—— 所以它只会把人从轨道<b>下面</b>拉回轨面，不会从上方把人按下来。
+        if (!verdict.snaps() && sample != null && Trackbed.continued()
+                && sample.distance <= Trackbed.HALF_WIDTH
+                && vy <= 0.02D && dy >= -RailBed.FOLLOW_BELOW && dy <= RailBed.STICK) {
+            verdict = RailBed.Verdict.SNAP;
         }
-        final Box moved = player.getBoundingBox().offset(0.0D, surface - feet, 0.0D);
-        if (!world.isSpaceEmpty(player, moved)) {
-            return false;
+        // 2) 下落安全网：常规判定说「不在窗口里」之后的最后一道兜底 —— 这一 tick 人从道床面上方
+        //    掉了下来、真的穿过了轨面、横向 2.5 格以内，就无条件接住。它不看 dy 的 -stepUp 下界，
+        //    也不要求 |offset| ≤ HALF_WIDTH（那两条正是「踩空」时最容易被判掉的地方）。
+        //    放在 verdict 之后：判定已经能接住的 tick 走原路，安全网只补「漏掉」的那些；
+        //    放在真实方块检查之前：脚下有真方块时仍然按原版走，不会被道床抢走。
+        if (!verdict.snaps() && sample != null
+                && Trackbed.rescue(sample.distance, startDy, dy, vy)) {
+            verdict = RailBed.Verdict.RESCUE;
         }
-        player.setPosition(x, surface, z);
-        player.setOnGround(true);
-        final Vec3d v = player.getVelocity();
-        player.setVelocity(v.x, 0.0D, v.z);
-        diagTrackbed = surface;
-        return true;
+        // 3) 真实方块优先、落点空间检查。
+        if (verdict.snaps()) {
+            if (realBlockWins(world, x, feet, z, surface)) {
+                verdict = RailBed.Verdict.BLOCK;
+            } else if (!world.isSpaceEmpty(player,
+                    player.getBoundingBox().offset(0.0D, surface - feet, 0.0D))) {
+                verdict = RailBed.Verdict.SPACE;
+            }
+        }
+        final boolean snapped = verdict.snaps();
+        if (snapped) {
+            player.setPosition(x, surface, z);
+            player.setOnGround(true);
+            // 落到轨面 = 落地：不清 fallDistance 的话，下坡时「每 tick 掉几厘米、被接住」会一路累加，
+            // 走完一条长下坡就吃一记原版摔落伤害（车顶那条路也是这么清的）。
+            // 车顶掉落的伤害结算有自己的一套状态（{@code settleRoofFall}），不读这个字段。
+            player.fallDistance = 0.0F;
+            final Vec3d v = player.getVelocity();
+            player.setVelocity(v.x, 0.0D, v.z);
+            diagTrackbed = surface;
+        }
+        Trackbed.noteStep(sample, x, feet, z, startDy, dy, vy, onGround, moved, verdict);
+        return snapped;
+    }
+
+    /** 这一 tick 走了多远（含竖直）：道床取证的 {@code moved=}，用来区分「站着不动」和「走着走着掉了」。 */
+    private static double movedSinceStart(final double feet, final double x, final double z) {
+        if (Double.isNaN(startX) || Double.isNaN(startY) || Double.isNaN(startZ)) {
+            return 0.0D;
+        }
+        final double dx = x - startX;
+        final double dy = feet - startY;
+        final double dz = z - startZ;
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
     /**
@@ -1696,7 +2141,7 @@ public final class CollisionSystem {
      */
     private static boolean realBlockWins(final ClientWorld world, final double x, final double feet,
                                          final double z, final double surface) {
-        final BlockPos below = new BlockPos(MathHelper.floor(x), MathHelper.floor(feet - 0.02D), MathHelper.floor(z));
+        final BlockPos below = dev.js.mtrheadlight.compat.Pos.ofFloored(x, feet - 0.02D, z);
         try {
             final BlockState state = world.getBlockState(below);
             final VoxelShape shape = state.getCollisionShape(world, below);

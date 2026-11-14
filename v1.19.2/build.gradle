@@ -34,8 +34,6 @@ dependencies {
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-    // LambDynamicLights 2.x（老版本线：DynamicLightSource 点光源 API）
-    modCompileOnly files("../libs/lambdynamiclights-2.2.0+1.19.2.jar")
     // MTR 用 compileOnly 跳过 remap；另需配套的 intermediary MC jar。named jar 必须排在它前面，
     // 否则 com.mojang.* 这类非混淆类和它的参数类型会解析到 intermediary 那一份。
     compileOnly files("C:/Users/AD/.gradle/caches/fabric-loom/minecraftMaven/net/minecraft/minecraft-merged/1.19.2-net.fabricmc.yarn.1_19_2.1.19.2+build.28-v2/minecraft-merged-1.19.2-net.fabricmc.yarn.1_19_2.1.19.2+build.28-v2.jar")
@@ -55,6 +53,11 @@ processResources {
     filesMatching("fabric.mod.json") {
         expand "version": project.version
     }
+    // LGPL / MIT 合规：许可与来源声明要随分发物一起走，不能只躺在仓库里
+    // （与 1.20.1 的构建逐字一致；用 -p v1.19.2 单独构建时 rootProject 就是本模块，所以路径写 ../）。
+    from(file("../LICENSE")) { into "META-INF" rename { "LICENSE-mtrlte" } }
+    from(file("../NOTICE.md")) { into "META-INF" rename { "NOTICE-mtrlte.md" } }
+    from(file("../LICENSES")) { into "META-INF/LICENSES" }
 }
 
 tasks.withType(JavaCompile).configureEach {

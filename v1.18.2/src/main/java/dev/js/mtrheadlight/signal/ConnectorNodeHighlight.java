@@ -1,7 +1,6 @@
 package dev.js.mtrheadlight.signal;
 
 import dev.js.mtrheadlight.LteLog;
-import dev.js.mtrheadlight.McCompat;
 import mtr.client.ClientData;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
@@ -175,8 +174,8 @@ public final class ConnectorNodeHighlight {
         }
         final Vec3d camera = context.camera().getPos();
 
-        // 半径 = 视距（区块）× 16；视距的取法逐版本不同，统一走 McCompat。
-        final int viewChunks = McCompat.viewDistanceChunks();
+        // 半径 = 视距（区块）× 16；1.20.1 的 getViewDistance() 是 SimpleOption, 所以要 getValue()。
+        final int viewChunks = client.options.viewDistance;
         final double range = Math.max(16, viewChunks * 16);
         final double rangeSq = range * range;
 

@@ -1,8 +1,7 @@
 package dev.js.mtrheadlight;
 
-import dev.js.mtrheadlight.clientgui.Widgets;
-
 import net.minecraft.client.util.math.MatrixStack;
+import dev.js.mtrheadlight.clientgui.Widgets;
 import mtr.client.ClientData;
 import mtr.data.Depot;
 import mtr.data.Siding;

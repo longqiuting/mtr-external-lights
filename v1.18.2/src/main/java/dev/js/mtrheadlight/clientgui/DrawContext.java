@@ -80,6 +80,17 @@ public final class DrawContext {
         RenderSystem.disableBlend();
     }
 
+    // ---------------------------------------------------------------- rect outlines
+
+    /** 1.20.1 {@code DrawContext#drawBorder(x, y, width, height, color)}：1px 边框。 */
+    public void drawBorder(final int x, final int y, final int width, final int height,
+                           final int color) {
+        this.fill(x, y, x + width, y + 1, color);
+        this.fill(x, y + height - 1, x + width, y + height, color);
+        this.fill(x, y, x + 1, y + height, color);
+        this.fill(x + width - 1, y, x + width, y + height, color);
+    }
+
     // ---------------------------------------------------------------- textures
 
     /** {@code drawTexture(Identifier, x, y, u, v, width, height)} — 7 args, sheet assumed 256². */

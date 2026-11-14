@@ -138,10 +138,20 @@ public final class XiamenPsdBlocks {
         }
 
         /**
-         * 放置状态再兜一层。MTR 的 {@code BlockDirectionalDoubleBlockBase#getPlacementState}
+         * 放置状态再兜一层 TEMP。MTR 的 {@code BlockDirectionalDoubleBlockBase#getPlacementState}
          * 是用 {@code getAdditionalState(pos, facing)} 搭的，而它（javap）
          * {@code invokevirtual getDefaultState()} —— 所以上面改了默认态其实就够；
          * 这里显式再改一次，防止哪天默认态被别处（{@code getAdditionalState} 重写）绕开。
+         *
+         * <h2>朝向：父类的写法就是对的，不要再「修」</h2>
+         * <p>父类 {@code BlockDirectionalDoubleBlockBase#getPlacementState} 的字节码是
+         * {@code ItemPlacementContext.getPlayerFacing()} → {@code FACING}
+         * （<b>没有</b> {@code getOpposite()}，片段见 {@code FangsuPsdDoorBlock#getPlacementState}）。
+         * {@code FACING} 的语义是「门扇贴的那条边」：{@code IBlock.getVoxelShapeByDirection(0,0,0,16,h,4,FACING)}
+         * 在 {@code FACING=NORTH} 时是 {@code z 0..4}（北边）。所以玩家朝北放 → 门扇落在北边 =
+         * 玩家对面那条边、正面朝北。<b>给这里加 {@code getOpposite()} 就会把门翻到玩家这一侧的内侧</b>
+         * （用户反馈过两次）。厦门整套（门 / 玻璃 / 端部）都走 {@link PsdAPGItem}，那里也是
+         * MTR 的 {@code ItemPSDAPGBase} 写法：{@code FACING = getHorizontalPlayerFacing()}。
          */
         @Override
         public BlockState getPlacementState(final ItemPlacementContext context) {

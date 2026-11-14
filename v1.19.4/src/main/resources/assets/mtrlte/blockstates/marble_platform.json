@@ -1,0 +1,84 @@
+{
+	"multipart": [
+		{
+			"when": { "facing": "north" },
+			"apply": { "model": "mtrlte:block/marble_platform" }
+		},
+		{
+			"when": { "facing": "east" },
+			"apply": { "model": "mtrlte:block/marble_platform", "y": 90 }
+		},
+		{
+			"when": { "facing": "south" },
+			"apply": { "model": "mtrlte:block/marble_platform", "y": 180 }
+		},
+		{
+			"when": { "facing": "west" },
+			"apply": { "model": "mtrlte:block/marble_platform", "y": 270 }
+		},
+		{
+			"when": { "facing": "north", "side": "1" },
+			"apply": { "model": "mtrlte:block/marble_platform_arrow_1" }
+		},
+		{
+			"when": { "facing": "east", "side": "1" },
+			"apply": { "model": "mtrlte:block/marble_platform_arrow_1", "y": 90 }
+		},
+		{
+			"when": { "facing": "south", "side": "1" },
+			"apply": { "model": "mtrlte:block/marble_platform_arrow_1", "y": 180 }
+		},
+		{
+			"when": { "facing": "west", "side": "1" },
+			"apply": { "model": "mtrlte:block/marble_platform_arrow_1", "y": 270 }
+		},
+		{
+			"when": { "facing": "north", "side": "2" },
+			"apply": { "model": "mtrlte:block/marble_platform_arrow_2" }
+		},
+		{
+			"when": { "facing": "east", "side": "2" },
+			"apply": { "model": "mtrlte:block/marble_platform_arrow_2", "y": 90 }
+		},
+		{
+			"when": { "facing": "south", "side": "2" },
+			"apply": { "model": "mtrlte:block/marble_platform_arrow_2", "y": 180 }
+		},
+		{
+			"when": { "facing": "west", "side": "2" },
+			"apply": { "model": "mtrlte:block/marble_platform_arrow_2", "y": 270 }
+		},
+		{
+			"when": { "facing": "north", "side": "3" },
+			"apply": { "model": "mtrlte:block/marble_platform_arrow_3" }
+		},
+		{
+			"when": { "facing": "east", "side": "3" },
+			"apply": { "model": "mtrlte:block/marble_platform_arrow_3", "y": 90 }
+		},
+		{
+			"when": { "facing": "south", "side": "3" },
+			"apply": { "model": "mtrlte:block/marble_platform_arrow_3", "y": 180 }
+		},
+		{
+			"when": { "facing": "west", "side": "3" },
+			"apply": { "model": "mtrlte:block/marble_platform_arrow_3", "y": 270 }
+		},
+		{
+			"when": { "facing": "north", "side": "4" },
+			"apply": { "model": "mtrlte:block/marble_platform_arrow_4" }
+		},
+		{
+			"when": { "facing": "east", "side": "4" },
+			"apply": { "model": "mtrlte:block/marble_platform_arrow_4", "y": 90 }
+		},
+		{
+			"when": { "facing": "south", "side": "4" },
+			"apply": { "model": "mtrlte:block/marble_platform_arrow_4", "y": 180 }
+		},
+		{
+			"when": { "facing": "west", "side": "4" },
+			"apply": { "model": "mtrlte:block/marble_platform_arrow_4", "y": 270 }
+		}
+	]
+}

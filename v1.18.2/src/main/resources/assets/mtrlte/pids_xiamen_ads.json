@@ -1,0 +1,38 @@
+{
+    "_comment_aspectRatio": 2.0,
+    "_comment": "结构与天津地铁的 assets/tjmetro/pids_tianjin_ads.json 完全一致：顶层 key = 命名空间，name/description 是语言键，color 是 6 位 hex，advertisements[].image 是资源包内路径、text 是语言键（查不到就原样显示）、url 可为 null。默认分类（mtrlte）只有一张静态海报、不轮播；xiamen_ads 是玩家在「选择广告」里勾上之后才轮播的三张风景图。",
+    "mtrlte": {
+        "name": "advertisement.mtrlte.name",
+        "description": "advertisement.mtrlte.description",
+        "color": "009845",
+        "advertisements": [
+            {
+                "image": "mtrlte:advertisements/xiamen_scenery.png",
+                "text": "ticker.mtrlte.ad_welcome",
+                "url": null
+            }
+        ]
+    },
+    "xiamen_ads": {
+        "name": "advertisement.xiamen_ads.name",
+        "description": "advertisement.xiamen_ads.description",
+        "color": "00A0E9",
+        "advertisements": [
+            {
+                "image": "mtrlte:advertisements/scenery1.png",
+                "text": "advertisement.mtrlte.scenery1",
+                "url": null
+            },
+            {
+                "image": "mtrlte:advertisements/scenery2.png",
+                "text": "advertisement.mtrlte.scenery2",
+                "url": null
+            },
+            {
+                "image": "mtrlte:advertisements/scenery3.png",
+                "text": "advertisement.mtrlte.scenery3",
+                "url": null
+            }
+        ]
+    }
+}

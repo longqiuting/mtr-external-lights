@@ -1,0 +1,62 @@
+{
+    "key1": {
+        "name": "厦门风格隔音板",
+        "model": "mtrsteamloco:rails/rails.obj",
+        "repeatInterval": 1.0,
+        "flipV": true
+    },
+    "key2": {
+        "name": "厦门风格桥栏杆",
+        "model": "mtrsteamloco:rails/langan.obj",
+        "repeatInterval": 1.0,
+        "flipV": true
+    },
+    "key3": {
+        "name": "通用桥墩20格高",
+        "model": "mtrsteamloco:rails/stand.obj",
+        "repeatInterval": 25.0,
+        "flipV": true
+    },
+    "key4": {
+        "name": "北京风格高隔音板",
+        "model": "mtrsteamloco:rails/highrails.obj",
+        "repeatInterval": 1.0,
+        "flipV": true
+    },
+     "msdrail": {
+        "name": "适配MSD的刚性接触网架",
+        "model": "mtrsteamloco:rails/rigid_catenary_node.obj",
+        "repeatInterval": 10.0,
+        "flipV": true
+    },
+    "catenary_front": {
+        "name": "适配MSD的柔性接触网（支柱正向，20格间距）",
+        "model": "mtrsteamloco:rails/catenary_front.obj",
+        "repeatInterval": 20.0,
+        "flipV": true
+    },
+    "catenary_back": {
+        "name": "适配MSD的柔性接触网（支柱反向，20格间距）",
+        "model": "mtrsteamloco:rails/catenary_back.obj",
+        "repeatInterval": 20.0,
+        "flipV": true
+    },
+    "catenary_side_front": {
+        "name": "适配MSD的柔性接触网（悬挂正向，20格间距）",
+        "model": "mtrsteamloco:rails/catenary_side_back.obj",
+        "repeatInterval": 20.0,
+        "flipV": true
+    },
+    "catenary_side_back": {
+        "name": "适配MSD的柔性接触网（悬挂反向，20格间距）",
+        "model": "mtrsteamloco:rails/catenary_side_back.obj",
+        "repeatInterval": 20.0,
+        "flipV": true
+    },
+     "rigid": {
+        "name": "适配MSD的刚性接触网",
+        "model": "mtrsteamloco:rails/rigid_catenary.obj",
+        "repeatInterval": 0.9,
+        "flipV": true
+    }
+}

@@ -1,9 +1,9 @@
 package dev.js.mtrheadlight;
 
-import net.minecraft.client.util.math.MatrixStack;
 import dev.js.mtrheadlight.mtr.BuiltInTrains;
 import net.minecraft.client.MinecraftClient;
 import dev.js.mtrheadlight.clientgui.DrawContext;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.tooltip.Tooltip;
@@ -27,6 +27,12 @@ import java.util.List;
  *   <li><b>重载</b> - 内置车注册表 + 光源缓存一起重建，结果打进聊天栏
  *       （按钮本身没有别的反馈渠道）。</li>
  * </ol>
+ *
+ * <h2>厦门 PIDS 的开关去哪了</h2>
+ * 它<b>不再是</b>主界面上的第五个入口：三个开关（本地时间 / 即将进站 / 广告）属于「显示偏好」，
+ * 和「光源 / 碰撞 / 粒子」是同一层的东西，所以入口搬到
+ * <b>全局配置 → 其他</b>（{@link ParameterScreen} 的 {@code OTHER} 分区）。主界面只负责
+ * 「进哪个流程」，不再混进具体开关。
  *
  * <h2>完成 / 取消 只在这一层</h2>
  * 打开时拍一份 {@link HeadlightConfig#toJson() 配置快照}。所有分区里的控件都直接改内存里的
@@ -215,8 +221,9 @@ public final class ConfigScreen extends Screen {
         context.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, 22, 0xFFFFFF);
 
         final HeadlightConfig cfg = MtrHeadlightClient.config();
+        // 灯晕那一格读 drawFlare()：状态行必须和实际绘制一致（这是渲染器自己用的那个门）。
         final MutableText status = tr("config.status",
-                        onOff(cfg.enabled), onOff(cfg.dynamicLight), onOff(cfg.beamGlow))
+                        onOff(cfg.enabled), onOff(cfg.dynamicLight), onOff(cfg.drawFlare()))
                 .append(Text.literal(cfg.disableBuiltInTrains
                         ? tr("main.builtinHidden").getString() : ""));
         context.drawCenteredTextWithShadow(this.textRenderer, status, this.width / 2, 38,

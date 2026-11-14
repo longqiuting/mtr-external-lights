@@ -24,27 +24,44 @@ import java.util.Set;
  * 厦门实拍样式的线路条带，<b>纯 Java2D</b>（这个类刻意不 import 任何 {@code net.minecraft} /
  * {@code mtr} 类型，所以能用 {@code javac} 单独编译，直接吐出 PNG 看版式，不用开游戏）。
  *
- * <h2>v5.1 版式（2026-11-11 第四轮实机微调）</h2>
+ * <h2>v7 版式（2026-11-12：无黑箭头 / 方向统一镜像 / 当前站只填红实心）</h2>
  * <pre>
- *   绘制顺序（从底到顶，v5.1 明确固定）：
+ *   绘制顺序（从底到顶，v8.1）：
  *     1. 白底条带（fillRect 铺满整张图）
- *     2. 线路主线
- *     3. 所有站点圆环（普通 / 当前 / 换乘，当前站最后）
+ *     2. 线路主线（先整条铺“已过站灰”，再把「当前站 → 终点」这段用线路色盖回来）
+ *     3. 所有站点标记（普通环 / 换乘环 / 当前站红色实心圆，当前站最后）
+ *        普通环、换乘图标各自先铺一层**不透明的环身底色**（普通站白心、当前站白底 + 红圆），
+ *        主线因此在环边上“断”开 —— 不会从追逐箭头环左右两侧的缺口里横穿过去
  *     4. 站名文字（45° 斜排 / 正排）
- *     5. <b>终点箭头</b>（箭杆 + 宽三角）—— 整张图的最后一笔，箭尖永远在最上层
+ *     5. <b>终点箭头</b>（箭杆 + 三角）—— 整张图的最后一笔
+ *
+ *   换乘图标内部画序（同一格）：
+ *        环身白底 →（当前站：环内红实心圆）→ 下弧（换乘线路色）→ 上弧（当前线路色）→ 垂尾 → 线路牌
+ *        即 <b>红底最先、追逐箭头最后</b>：箭头永远压在红圆上面，不会被红圆盖掉一半
+ *
+ *   <b>镜像</b>         <b>只有 {@link Model#direction} 一个输入</b>（MTR 的 ARROW_DIRECTION 原值）：
+ *                     0 = 终点在右，1 / 2 / 3 = 整条镜像（终点在左）。站位、站名、换乘杆、主线、
+ *                     终点箭头全部由它推出来 —— 不会出现“条带翻了、箭头没翻”
  *
  *   白底              铺满整张图（= 面板尺寸不变，不会透出灰板）
  *   左右内边距        PAD_X = 宽度 x 3%（最小 24px）：首站 / 末站 / 箭头 / 主线 / 站名都不贴边
  *   内容区            只占高度的 <b>60%</b>（居中）：线宽 / 圆环 / 线路牌都按内容区缩，
  *                     上下留白比 v4 再大一档 —— 多出来的白边<b>让给站名</b>
  *   主线              内容区高度的 8.5%；从 PAD_X 起、到 宽 - PAD_X 止（终点那头停在箭头底边）
+ *   <b>已过站</b>         数据顺序里排在当前站之前的站：<b>圆环 + 站名 + 换乘牌固定灰</b>
+ *                     （{@link #PASSED_GREY} / {@link #PASSED_NAME_GREY}），
+ *                     对应的<b>区段</b>也用固定灰 {@link #PASSED_SEGMENT_GREY} —— 与线路色无关
  *   普通站            白心空心环，环宽 15%
  *   终点站            和普通站<b>完全同尺寸</b>的环 + <b>线路同色的实心箭头</b>：
  *                     箭杆就是线路本身（主线停在箭头底边），<b>宽三角</b>箭尖顶住环外缘并压进环 2px
  *                     （宽 2.3×线宽、长 1.9×线宽），且是<b>最后画的</b> → 箭尖不会被任何东西盖住
- *   当前站            1.3× 空心环 + 一圈细内环
+ *   <b>当前站</b>         <b>固定红</b>（{@link #CURRENT_FILL}）的<b>实心圆</b>，直径 = 普通站圆环
+ *                     的可见外缘（<b>不放大、不套外圈</b>）；站名也是同一个红 ——
+ *                     <b>不跟线路色走</b>（v7 用户实拍指定）
  *   换乘站            追逐箭头环（上半 = 当前线路色、下半 = 换乘线路色，两段之间留空隙）；
- *                     下方「矩形杆 + 尖三角」+ 圆角矩形线路牌（v5：牌高 +14%、左右内边距 +18%）
+ *                     下方「矩形杆 + 尖三角」+ 圆角矩形线路牌（v5：牌高 +14%、左右内边距 +18%）；
+ *                     环身<b>自带不透明白底</b>，线路主带在环边上断开（v8.1）；
+ *                     换乘线路名不做任何「未命名」过滤 —— 站名/线路名就叫「未命名」也是合法名字，照常画
  *   站名              45° 斜排、中文 + 英文两行；<b>可用到图片顶部的留白</b>，
  *                     逐站按字宽反解字号（超长的自己变小，再不行裁字加 “…”），绝不越界
  *   线路号牌          已删除（v4：用户不需要左侧圆角号码牌）
@@ -84,9 +101,6 @@ public final class XiamenStripPainter {
     /** 普通站圆点直径上限：内容区高度的 19%（MTR：直径 = 2×线宽）。 */
     public static final float CIRCLE_RATIO = 0.19f;
 
-    /** 当前站圆点相对普通点的倍数。 */
-    public static final float CURRENT_SCALE = 1.30f;
-
     /** 圆环描边 / 内环（MTR drawStation 的 0.29×半径 → 直径的 14.5%）。 */
     public static final float RING_RATIO = 0.15f;
     public static final float INNER_RATIO = 0.58f;
@@ -105,6 +119,10 @@ public final class XiamenStripPainter {
      *   <li><b>箭头是整张图最后画的一笔</b>，箭尖还要往环里压 {@link #TERM_ARROW_TIP_OVERLAP}px，
      *       这样箭尖 100% 露在最上层、又不会和圆环之间留白缝。</li>
      * </ul>
+     *
+     * <p><b>v7 结论：这里的几何 / 画序一点没动。</b>用户报的“尖没露出来”查下来是<b>镜像</b>的问题
+     * （{@link Model#direction} 只跟着 MTR 的 {@code flip} 走，方向 1 / 3 整条图不翻，箭头自然看着
+     * “停在原来那一端”），已按“一个方向值驱动全部元素”修好 —— 不要再改这里的尺寸 / 覆盖顺序。</p>
      */
     public static final float TERM_ARROW_LEN = 1.90f;
     public static final float TERM_ARROW_HALF = 1.15f;
@@ -217,6 +235,25 @@ public final class XiamenStripPainter {
     /** 英文行稍微浅一点，和中文区分开（实拍里英文也偏深，这里只降一点）。 */
     public static final int TEXT_EN = 0x3A3A3A;
 
+    // ---- 已过站 / 当前站（v6，用户实拍指定的固定颜色，<b>不跟线路色</b>）----
+
+    /** 已过站（列车已经经过的站）的圆环：<b>固定灰</b>。 */
+    public static final int PASSED_GREY = 0xB2B2B2;
+
+    /** 已经过的区段（当前站之前那段主线）：<b>固定灰</b>，比圆环略深一档。 */
+    public static final int PASSED_SEGMENT_GREY = 0xA7A8A8;
+
+    /** 已过站的站名：灰（白底上比环深一档，否则小字号读不清）。 */
+    public static final int PASSED_NAME_GREY = 0x9E9E9E;
+
+    /**
+     * 当前站的颜色：<b>固定正红</b>（用户指定的厦门实拍红）。
+     *
+     * <p>当前站的实心圆、站名文字全部用这一个常量 ——
+     * <b>不跟线路色走</b>（4 号线红、1 号线绿，当前站都是这一块红）。改一处即可整体换色。</p>
+     */
+    public static final int CURRENT_FILL = 0xE60012;
+
     private static volatile Font cjkFont;
 
     private XiamenStripPainter() {
@@ -240,9 +277,14 @@ public final class XiamenStripPainter {
         return isLight(rgb) ? TEXT_DARK : (0xFF000000 | (rgb & 0xFFFFFF));
     }
 
-    /** 白底上的当前站站名（加粗）：深色线路用加深的线路色，浅色线路用近黑。 */
+    /**
+     * 白底上的当前站站名：<b>固定红</b>（{@link #CURRENT_FILL}）。
+     *
+     * <p>v6 起当前站的颜色不再跟线路色走（用户实拍指定：圆环、填充、站名都是同一块红），
+     * 所以 {@code rgb} 参数已不再参与计算，只为保持调用方签名不变。</p>
+     */
     public static int currentNameText(final int rgb) {
-        return isLight(rgb) ? TEXT_DARK : darken(rgb, 0.88);
+        return CURRENT_FILL;
     }
 
     /** 颜色按比例加深（保持 A=255）。 */
@@ -268,8 +310,19 @@ public final class XiamenStripPainter {
         public int lineRgb;
         /** 线路号（v4 起不再画左侧号码牌，这里保留字段只做数据透传 / 日志）。 */
         public String lineNumber;
-        /** true = 行进方向朝左（MTR 的 arrowDirection == 2）。 */
-        public boolean flip;
+        /**
+         * 刷子方向 = MTR 的 {@code ARROW_DIRECTION} 原值（{@code 0 / 1 / 2 / 3}）。
+         *
+         * <p><b>0 = 条带从左往右读（终点在右）；1 / 2 / 3 = 整条镜像（终点在左）。</b>
+         * 这是<b>唯一</b>的镜像输入 —— 站位、站名、换乘杆、主线、<b>终点三角</b>全部由它推出来
+         * （{@code paint} 里的局部变量 {@code flip}），所以不可能出现“条带翻了、箭头没翻”。</p>
+         *
+         * <p>v7 之前这里叫 {@code flip}，值直接来自 MTR 传进
+         * {@code generateRouteMap} 的那个 {@code flip} —— 而 MTR 只在方向 2 时才传 true
+         * （{@code RenderRouteBase#render} 的 {@code arrowDirection == 2}），
+         * 于是 1 / 3 两个形态条带不动，终点三角看上去就“停在原来那一端”。</p>
+         */
+        public int direction;
         /** true = 站名正排到线下方，false = 45° 斜排到线上方（默认，实拍版式）。 */
         public boolean namesBelow;
         /** 面板宽/高。 */
@@ -327,7 +380,8 @@ public final class XiamenStripPainter {
             g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
 
             final int count = model.names.length;
-            final boolean flip = model.flip;
+            // v7：唯一的镜像规则 —— 方向 1 / 2 / 3 都是“列车朝左”，整条图一起镜像（含终点三角）。
+            final boolean flip = model.direction != 0;
             final int current = Math.max(0, Math.min(count - 1, model.currentIndex));
             final int lineRgb = model.lineRgb & 0xFFFFFF;
 
@@ -337,11 +391,15 @@ public final class XiamenStripPainter {
             final String[] names = new String[count];
             final String[] namesEn = new String[count];
             final Interchange[] swaps = new Interchange[count];
+            // v6：已过站 = “数据顺序里排在当前站之前”的站（列车已经开过的那些）。
+            // 灰化必须按数据顺序判定再随 flip 一起镜像，否则 flip 时灰的是未来的站。
+            final boolean[] passed = new boolean[count];
             for (int i = 0; i < count; i++) {
                 final int d = flip ? count - 1 - i : i;
                 names[i] = model.names[d];
                 namesEn[i] = model.namesEn != null && d < model.namesEn.length ? model.namesEn[d] : "";
                 swaps[i] = dataInterchange(model, d);
+                passed[i] = d < current;
             }
             final int currentIndex = flip ? count - 1 - current : current;
 
@@ -383,15 +441,17 @@ public final class XiamenStripPainter {
 
             // ---- 每个站标记的“可见外缘半径”：站名让位 / 终点三角都按它算 ----
             final int ixRingD = Math.max(14, Math.round(bandH * IX_RING_RATIO));
+            // v7：当前站 = 一个红色实心圆，直径和普通站圆环的「可见外缘」完全一样（不放大、不套环）。
+            final float curD = circle + Math.max(1.2f, circle * RING_RATIO);
             final float[] visR = new float[count];
             for (int i = 0; i < count; i++) {
-                final float d = swaps[i] != null
-                        ? Math.max(circle, ixRingD)
-                        : (i == currentIndex ? circle * CURRENT_SCALE : circle);
-                // 空心环的描边是居中描的，外缘 = 半径 + 半个描边厚度。
-                visR[i] = swaps[i] != null
-                        ? d / 2f
-                        : d / 2f + Math.max(1.2f, d * RING_RATIO) / 2f;
+                if (swaps[i] != null && i != currentIndex) {
+                    visR[i] = Math.max(circle, ixRingD) / 2f;
+                } else {
+                    // 普通站是空心环、描边居中描 → 外缘 = 半径 + 半个描边厚度；
+                    // 当前站是实心圆、没有描边 → 外缘 = 半径。两者都正好等于 curD / 2。
+                    visR[i] = curD / 2f;
+                }
             }
             float maxVisR = 0f;
             for (final float r : visR) {
@@ -410,10 +470,17 @@ public final class XiamenStripPainter {
             // ---- 主线（v5.1：从 PAD_X 起、到 宽 - PAD_X 止；终点那头停在箭头底边）----
             // 非终点端：正好落在 PAD_X / 宽 - PAD_X（圆环外再多出半个直径，视觉上贴着留白边）。
             // 终点端：停在 headBaseX，把“箭尖 → 底边”这段让给三角，箭尖才不会被同色主线埋掉。
+            // v6：整条先铺“已过站灰”，再把「当前站 → 终点」这一段用线路色盖回来 ——
+            //     于是当前站之前（列车已经开过）的区段是灰的，之后仍是线路色。
             final int lineFrom = flip ? headBaseX : padLeft;
             final int lineTo = flip ? rightEdge : headBaseX;
-            g.setColor(new Color(lineRgb));
+            g.setColor(new Color(PASSED_SEGMENT_GREY));
             g.fillRect(lineFrom, lineY - lineW / 2, Math.max(1, lineTo - lineFrom), lineW);
+            final int curX = xs[currentIndex];
+            final int futureA = flip ? lineFrom : Math.min(curX, lineTo);
+            final int futureB = flip ? Math.max(curX, lineFrom) : lineTo;
+            g.setColor(new Color(lineRgb));
+            g.fillRect(futureA, lineY - lineW / 2, Math.max(1, futureB - futureA), lineW);
 
             // ---- 站点标记（只画环；终点箭头放到最后，保证不被圆环盖住）----
             // v5：内容区缩到 60% 后，线路牌可以借用下方多出来的白边（最多借一半），
@@ -433,32 +500,35 @@ public final class XiamenStripPainter {
                 final Interchange swap = swaps[i];
                 if (swap != null) {
                     final int[] box = new int[2];
-                    if (drawInterchange(g, xs[i], lineY, lineRgb, swap, bandH, step, width, plateFloorY, box)) {
+                    if (drawInterchange(g, xs[i], lineY, lineRgb, swap, bandH, step, width, plateFloorY, box,
+                            passed[i], false, curD)) {
                         swapDrawn++;
                         plateBottomMax = Math.max(plateBottomMax, box[1]);
                     }
                 } else {
                     // v4：终点站也是普通尺寸的环，只是多一个三角箭头。
-                    drawDot(g, xs[i], lineY, circle, lineRgb);
+                    // v6：已过站用固定灰（圆环），未到的站用线路色。
+                    drawDot(g, xs[i], lineY, circle, passed[i] ? PASSED_GREY : lineRgb, passed[i]);
                 }
             }
             final Interchange currentSwap = swaps[currentIndex];
             if (currentSwap != null) {
                 final int[] box = new int[2];
+                // 当前站同时是换乘站：圆点画成“红色当前站实心圆”，下面的线路牌照旧画出来。
                 if (drawInterchange(g, xs[currentIndex], lineY, lineRgb, currentSwap, bandH, step, width,
-                        plateFloorY, box)) {
+                        plateFloorY, box, false, true, curD)) {
                     swapDrawn++;
                     plateBottomMax = Math.max(plateBottomMax, box[1]);
                 }
             } else {
-                drawCurrentDot(g, xs[currentIndex], lineY, circle * CURRENT_SCALE, lineRgb, 0.15f);
+                drawCurrentDot(g, xs[currentIndex], lineY, curD);
             }
             lastInterchangeCount = swapDrawn;
 
             // 正排站名（namesBelow）时要把换乘牌的位置让出来，否则站名会压在牌子上。
             final float belowExtra = namesBelow && plateBottomMax > 0
                     ? Math.max(0f, plateBottomMax - (lineY + maxVisR)) : 0f;
-            final float nameSize = drawNames(g, names, namesEn, xs, visR, currentIndex, lineRgb, nameTop,
+            final float nameSize = drawNames(g, names, namesEn, xs, visR, currentIndex, passed, lineRgb, nameTop,
                     bandBottom, lineY, step, namesBelow, rightEdge, contentX, belowExtra, nameCap);
 
             // ---- 终点箭头：**整张图的最后一笔**（v5.1）----
@@ -469,7 +539,7 @@ public final class XiamenStripPainter {
             lastBandH = bandH;
             lastLineW = lineW;
             lastCircle = Math.round(circle);
-            lastCurrent = Math.round(circle * CURRENT_SCALE);
+            lastCurrent = Math.round(curD);
             lastNameSize = Math.round(nameSize);
             lastTerminalRing = Math.round(circle);
             lastTerminalArrow = termArrowLen;
@@ -505,29 +575,46 @@ public final class XiamenStripPainter {
     /**
      * 普通站点：<b>白心空心圆环</b>，环 = 线路色，环宽约直径的 15–18%。
      * 没有实心点、没有内环、没有箭头（按实拍纠正）。
+     *
+     * <p>v6：{@code grey = true}（已过站）时圆环用固定灰 {@link #PASSED_GREY}，
+     * 而且<b>不再按“浅色线路加深”那条规则处理</b>（灰就是灰，不能被压成 #808080）。</p>
      */
-    private static void drawDot(final Graphics2D g, final int cx, final int cy, final float size, final int lineRgb) {
-        ring(g, cx, cy, size, lineRgb, 0f, 0f);
+    private static void drawDot(final Graphics2D g, final int cx, final int cy, final float size, final int rgb,
+                                final boolean grey) {
+        ring(g, cx, cy, size, grey ? PASSED_GREY : ringColor(rgb), 0f, 0f);
     }
 
     /**
-     * 大圆环（当前站 / 终点站）：白心 + 粗线路色环，{@code innerStroke > 0} 时再补一圈细内环
-     * （只有当前站有 —— 终点站就是一个干净的大环）。
+     * 当前站（v7）：<b>一个固定红色的实心圆</b>，别的一律不画。
+     *
+     * <p>v6 是“放大 1.3× 的红环 + 一圈白 + 环内红色实心”，实机上被当成“当前站外围多了一圈
+     * 线路色圆环”：用户明确纠正 —— <b>只填红实心</b>。所以这里只剩一个 {@code fillOval}：
+     * 直径由调用方给（{@code curD} = 普通站圆环的可见外缘，<b>不放大</b>），
+     * 颜色固定 {@link #CURRENT_FILL}（不跟线路色）。</p>
      */
-    private static void drawCurrentDot(final Graphics2D g, final int cx, final int cy, final float size,
-                                       final int lineRgb, final float innerStroke) {
-        ring(g, cx, cy, size, lineRgb, innerStroke, INNER_RATIO);
+    private static void drawCurrentDot(final Graphics2D g, final int cx, final int cy, final float size) {
+        // v8：只在线路色/灰色圆环**内部**填红，内缩一个描边宽度 —— 否则会盖掉圆环本身
+        // （用户实机反馈「红圈画太大把线路色描边弄没了」）。
+        final int d = Math.max(4, Math.round(size));
+        final int inset = Math.max(1, Math.round(d * RING_RATIO));
+        final int fd = Math.max(2, d - inset * 2);
+        g.setColor(new Color(CURRENT_FILL));
+        g.fillOval(cx - fd / 2, cy - fd / 2, fd, fd);
     }
 
-    private static void ring(final Graphics2D g, final int cx, final int cy, final float size, final int lineRgb,
+    /** 圆环颜色：浅色线路（黄 / 浅绿）压深一点，否则白底上看不见；深色线路原样。 */
+    private static int ringColor(final int rgb) {
+        return isLight(rgb) ? darken(rgb, 0.72) : rgb;
+    }
+
+    private static void ring(final Graphics2D g, final int cx, final int cy, final float size, final int rgb,
                              final float innerStroke, final float innerRatio) {
-        final int ringRgb = isLight(lineRgb) ? darken(lineRgb, 0.72) : lineRgb;
         final int d = Math.max(4, Math.round(size));
         final int left = cx - d / 2;
         final int top = cy - d / 2;
         g.setColor(Color.WHITE);
         g.fillOval(left, top, d, d);
-        g.setColor(new Color(ringRgb));
+        g.setColor(new Color(rgb));
         g.setStroke(new BasicStroke(Math.max(1.2f, d * RING_RATIO), BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND));
         g.drawOval(left, top, d - 1, d - 1);
         if (innerStroke > 0f && innerRatio > 0f) {
@@ -566,21 +653,29 @@ public final class XiamenStripPainter {
      * </ul>
      *
      * @param box 输出 {牌上沿, 牌下沿}，站名排版要避让
+     * @param grey {@code true} = 这是<b>已过站</b>的换乘站：环 / 杆 / 牌子全部改用固定灰
+     * @param asCurrent {@code true} = 这一站同时是<b>当前站</b>：环的位置画“红色当前站实心圆”，
+     *                  只保留下方的杆 + 线路牌
+     * @param currentD 当前站实心圆的直径（{@code asCurrent} 时才用；与普通站圆环的外缘等大）
      * @return 真的把牌子也画出来了（false = 连最小号的牌子都放不下，此时只有环 + 杆）
      */
     private static boolean drawInterchange(final Graphics2D g, final int cx, final int lineY, final int lineRgb,
                                            final Interchange swap, final int bandH, final float step,
-                                           final int width, final int floorY, final int[] box) {
-        final int swapRgb = swap.rgb & 0xFFFFFF;
+                                           final int width, final int floorY, final int[] box,
+                                           final boolean grey, final boolean asCurrent, final float currentD) {
+        final int swapRgb = grey ? PASSED_GREY : (swap.rgb & 0xFFFFFF);
         final int ringD = Math.max(14, Math.round(bandH * IX_RING_RATIO));
         final float rOut = ringD / 2f;
         final float thick = ringD * IX_RING_THICK;
         final float rIn = Math.max(1f, rOut - thick);
         final int gap = Math.max(3, Math.round(bandH * IX_PLATE_GAP_RATIO));
+        // 图标本体半径：普通/已过站换乘站是追逐箭头环（rOut）；当前站是一个红色实心圆
+        // （直径 = 普通站圆环外缘 currentD），垂尾和线路牌都从“本体的下沿”开始算。
+        final float bodyR = rOut;
 
         // ---- 线路牌几何（先算，垂尾要指向它）----
         int plateH = Math.max(10, Math.round(bandH * IX_PLATE_H_RATIO));
-        int plateTop = lineY + Math.round(rOut) + gap;
+        int plateTop = lineY + Math.round(bodyR) + gap;
         if (plateTop + plateH > floorY) {
             plateH = Math.max(10, floorY - plateTop);
         }
@@ -615,26 +710,42 @@ public final class XiamenStripPainter {
         final int px = cx - plateW / 2;   // 永远以图标中心为准，不为了塞进画面而左右平移
 
         // ---- 追逐箭头环：先下半（换乘线路色），再上半（当前线路色），共圆心共半径 ----
-        final int ringRgb = isLight(lineRgb) ? darken(lineRgb, 0.72) : lineRgb;
+        final int ringRgb = grey ? PASSED_GREY : ringColor(lineRgb);
         final float cy = lineY;
 
-        // 环内白底（在线上也保持“空心”）
+        // 环内底色（v8.1 顺手修掉的画序 bug）：**两种情况都先铺一层和环等大的白底**，
+        // 把线路主带挡在环外。
+        //
+        // 追逐箭头环的两段弧在 0° / 180°（环的左右两侧）各留一个缺口，主线正好从这两个缺口
+        // 里横穿过去；只有环身有不透明底色时，主带才会在环边上“断”开（普通换乘站一直如此，
+        // 因为 else 分支铺了白底）。v8 把当前站换成“环内红色实心圆”后，else 的白底没了，
+        // 于是当前站是换乘站时主线整个横穿环身、把两段弧和箭头切成两半（用户实机反馈）。
+        // 白底先画、红圆后画、箭头最后画 —— 红圆 / 箭头都不会被白底盖掉。
         g.setColor(Color.WHITE);
         g.fillOval(Math.round(cx - rOut), Math.round(cy - rOut), ringD, ringD);
+        if (asCurrent) {
+            // 当前站：环内再叠红色实心圆（内缩到环内缘以内，追逐箭头照常画在上面）。
+            final float rFill = Math.max(1f, rIn - Math.max(1f, thick * 0.30f));
+            final int fd = Math.max(4, Math.round(rFill * 2f));
+            g.setColor(new Color(CURRENT_FILL));
+            g.fillOval(Math.round(cx - fd / 2f), Math.round(cy - fd / 2f), fd, fd);
+        }
 
-        // 下半：210° → 330°，末端箭头尖朝右上（换乘线路色）
-        g.setColor(new Color(swapRgb));
-        g.fill(annularSector(cx, cy, rOut, rIn, IX_ARC_BOTTOM_FROM, IX_ARC_BOTTOM_TO));
-        arrowHead(g, cx, cy, rOut, rIn, IX_ARC_BOTTOM_TO, swapRgb);
+        {
+            g.setColor(new Color(swapRgb));
+            g.fill(annularSector(cx, cy, rOut, rIn, IX_ARC_BOTTOM_FROM, IX_ARC_BOTTOM_TO));
+            arrowHead(g, cx, cy, rOut, rIn, IX_ARC_BOTTOM_TO, swapRgb);
 
-        // 上半：30° → 150°，末端箭头尖朝左下（当前线路色）
-        g.setColor(new Color(ringRgb));
-        g.fill(annularSector(cx, cy, rOut, rIn, IX_ARC_TOP_FROM, IX_ARC_TOP_TO));
-        arrowHead(g, cx, cy, rOut, rIn, IX_ARC_TOP_TO, ringRgb);
+            // 上半：30° → 150°，末端箭头尖朝左下（当前线路色）
+            g.setColor(new Color(ringRgb));
+            g.fill(annularSector(cx, cy, rOut, rIn, IX_ARC_TOP_FROM, IX_ARC_TOP_TO));
+            arrowHead(g, cx, cy, rOut, rIn, IX_ARC_TOP_TO, ringRgb);
+        }
 
         // ---- 垂尾（v4）：环底伸出一条矩形杆，杆端再收成一个尖三角，指向线路牌 ----
         final float tailW = ringD * IX_TAIL_W;
-        final float shaftTop = cy + rOut - thick * 0.45f;   // 稍微伸进环里，接缝处不会有白缝
+        // 起点贴住“本体下沿”再往内压一点，接缝处不会有白缝（当前站是实心圆，压 2px 就够）。
+        final float shaftTop = cy + bodyR - (asCurrent ? 2f : thick * 0.45f);
         final float tipY = plateTop - 2f;
         // 尖三角的高度按「环底到牌子」之间真正剩下的空间取（不然空间不够时又被挤成一根光杆）。
         final float tailHead = Math.min(ringD * IX_TAIL_HEAD, Math.max(3f, (tipY - shaftTop) * 0.42f));
@@ -758,19 +869,38 @@ public final class XiamenStripPainter {
                 3);
     }
 
-    /** 线路牌第一行：{@code N号线}（拿不到线路号时用换乘线的中文名）。 */
+    /**
+     * 线路牌第一行：{@code N号线}。
+     *
+     * <p>只有线路号是<b>纯数字</b>时才拼 {@code 号线}；{@code K3} 这类轻轨编号（来自
+     * {@code Route#lightRailRouteNumber}）不拼，否则牌子上会出现一条现实中不存在的“K3号线”，
+     * 那时直接用线路名。</p>
+     */
     private static String plateCjk(final Interchange swap) {
         final String number = swap.number == null ? "" : swap.number.trim();
-        if (!number.isEmpty()) {
+        if (isAllDigits(number)) {
             return number + "号线";
         }
-        return swap.name == null ? "" : swap.name.trim();
+        final String name = swap.name == null ? "" : swap.name.trim();
+        return name.isEmpty() ? number : name;
     }
 
-    /** 线路牌第二行：{@code Line N}。 */
+    /** 线路牌第二行：{@code Line N}（线路号不是纯数字时留空，第二行不画）。 */
     private static String plateEn(final Interchange swap) {
         final String number = swap.number == null ? "" : swap.number.trim();
-        return number.isEmpty() ? "" : "Line " + number;
+        return isAllDigits(number) ? "Line " + number : "";
+    }
+
+    private static boolean isAllDigits(final String text) {
+        if (text == null || text.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < text.length(); i++) {
+            if (text.charAt(i) < '0' || text.charAt(i) > '9') {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -790,10 +920,10 @@ public final class XiamenStripPainter {
      * </ul>
      */
     private static float drawNames(final Graphics2D g, final String[] names, final String[] ens, final int[] xs,
-                                   final float[] radii, final int currentIndex, final int lineRgb,
-                                   final int nameTop, final int bandBottom, final int lineY, final float step,
-                                   final boolean namesBelow, final int rightEdge, final int firstTextX,
-                                   final float belowExtra, final int nameCap) {
+                                   final float[] radii, final int currentIndex, final boolean[] passed,
+                                   final int lineRgb, final int nameTop, final int bandBottom, final int lineY,
+                                   final float step, final boolean namesBelow, final int rightEdge,
+                                   final int firstTextX, final float belowExtra, final int nameCap) {
         final int count = names.length;
         float maxR = 0f;
         for (final float r : radii) {
@@ -947,13 +1077,16 @@ public final class XiamenStripPainter {
 
             final Font cjkFont = base.deriveFont(Font.BOLD, s * boost);
             final Font enFont = base.deriveFont(Font.PLAIN, Math.max(1f, enSize));
+            // v6：当前站 = 固定红；已过站 = 灰；其余站名按原规则（正排非当前站 65% 灰 / 斜排近黑）。
+            final boolean isPassed = passed != null && i < passed.length && passed[i];
             final int textRgb = isCurrent
-                    ? currentNameText(lineRgb)
-                    : (namesBelow ? NAME_GREY : TEXT_DARK);
+                    ? CURRENT_FILL
+                    : (isPassed ? PASSED_NAME_GREY : (namesBelow ? NAME_GREY : TEXT_DARK));
             // 颜色常量是 0xRRGGBB，没有 alpha 位；new Color(rgb, true) 会把 alpha 当成 0（= 全透明），
             // 所以这里必须显式补上 0xFF000000。
             final Color textColor = new Color(0xFF000000 | textRgb, true);
-            final Color enColor = new Color(0xFF000000 | (isCurrent ? textRgb : TEXT_EN), true);
+            final Color enColor = new Color(0xFF000000
+                    | (isCurrent ? textRgb : (isPassed ? PASSED_NAME_GREY : TEXT_EN)), true);
             g.setFont(cjkFont);
             g.setColor(textColor);
             if (namesBelow) {

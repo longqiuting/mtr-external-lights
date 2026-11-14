@@ -1,16 +1,17 @@
 package dev.js.mtrheadlight.xiamen;
 
+import net.minecraft.block.Material;
 import net.minecraft.block.AbstractBlock;
 import net.minecraft.block.Block;
 
 /**
  * 厦门地铁标志方块 {@code mtrlte:xiamen_logo} —— <b>与 MTR 原版 {@code mtr:logo} 同构</b>。
  *
- * <h2>反编译证据（MTR 3.6.4.2）</h2>
+ * <h2>行为依据（MTR 3.6.4.2）</h2>
  * <p>{@code mtr/Blocks.java} 第 117 行，一字不改：
  * <pre>{@code
  * public static final RegistryObject<Block> LOGO = new RegistryObject<>(() -> new Block(
- *         AbstractBlock.Settings.create()   // method_9637
+ *         AbstractBlock.Settings.of(Material.METAL)   // method_9637
  *                 .requiresTool()           // method_29292
  *                 .hardness(2.0f)           // method_9632
  *                 .luminance(state -> 10)));// method_9631

@@ -1,7 +1,5 @@
 package dev.js.mtrheadlight.bind;
 
-import net.minecraft.text.TranslatableText;
-
 import net.minecraft.client.item.TooltipContext;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.Item;
@@ -13,6 +11,7 @@ import net.minecraft.util.TypedActionResult;
 import net.minecraft.world.World;
 
 import java.util.List;
+import net.minecraft.text.TranslatableText;
 
 /**
  * LTE 车灯编辑器（{@code mtrlte:beam_editor}）：拿在手上右键，打开 3D 光束编辑器。

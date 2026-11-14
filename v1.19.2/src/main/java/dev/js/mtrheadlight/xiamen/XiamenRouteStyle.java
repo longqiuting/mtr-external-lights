@@ -201,7 +201,7 @@ public final class XiamenRouteStyle {
         return XiamenStripPainter.onWhiteText(rgb);
     }
 
-    /** 当前站站名（白底、加粗）：深色线路用加深后的线路色，浅色线路用近黑。 */
+    /** 当前站站名（白底、加粗）：<b>固定红</b>（{@link XiamenStripPainter#CURRENT_FILL}），不跟线路色。 */
     public static int currentNameText(final int rgb) {
         return XiamenStripPainter.currentNameText(rgb);
     }

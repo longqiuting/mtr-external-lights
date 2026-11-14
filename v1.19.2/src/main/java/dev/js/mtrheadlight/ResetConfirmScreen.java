@@ -1,8 +1,7 @@
 package dev.js.mtrheadlight;
 
-import dev.js.mtrheadlight.clientgui.Widgets;
-
 import net.minecraft.client.util.math.MatrixStack;
+import dev.js.mtrheadlight.clientgui.Widgets;
 import dev.js.mtrheadlight.clientgui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;

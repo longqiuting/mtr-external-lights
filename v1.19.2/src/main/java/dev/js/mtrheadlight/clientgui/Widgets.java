@@ -1,5 +1,6 @@
 package dev.js.mtrheadlight.clientgui;
 
+import dev.js.mtrheadlight.clientgui.Widgets;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
@@ -13,7 +14,7 @@ import net.minecraft.text.Text;
  * <p>1.19.2 里这两样都没有：
  * <ul>
  *   <li>{@code ButtonWidget} 只有<b>构造器</b>（第 7 个参数是 {@code TooltipSupplier}），
- *       没有 1.19.3 才加的 {@code ButtonWidget.builder(label, action).dimensions(x,y,w,h).build()}
+ *       没有 1.19.3 才加的 {@code Widgets.button(label, action).dimensions(x,y,w,h).build()}
  *       这条链；</li>
  *   <li>tooltip 是 {@code ButtonWidget.TooltipSupplier#onTooltip(button, matrices, mouseX, mouseY)}
  *       —— 由按钮自己画，不是「存一个 Tooltip 对象」。所以 {@code setTooltip} 也无从对应：
@@ -21,7 +22,7 @@ import net.minecraft.text.Text;
  * </ul>
  *
  * <p>于是这里提供一条与 1.19.4 形状相同的小 builder，屏幕代码只需要把
- * {@code ButtonWidget.builder(..)} 换成 {@link #button(Text, ButtonWidget.PressAction)}，
+ * {@code Widgets.button(..)} 换成 {@link #button(Text, ButtonWidget.PressAction)}，
  * 其余 {@code .dimensions(..).build()} 不动；带悬停说明的按钮再加一个 {@code .tooltip(Text)}。
  * 工具提示由 {@code Screen#renderTooltip} 画（1.19.2 里它是 <b>public</b>，2 参数版直接可用）。
  */

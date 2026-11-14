@@ -1,0 +1,510 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.14/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Configure project :
+Fabric Loom: 1.11.8
+
+> Task :compileJava
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:305: 错误: 找不到符号
+            if (MinecraftClient.getInstance().getResourceManager().getResource(id).isPresent()) {
+                                                                                  ^
+  符号:   方法 isPresent()
+  位置: 接口 Resource
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:456: 错误: 不兼容的类型: dev.js.mtrheadlight.clientgui.Matrix4f无法转换为net.minecraft.util.math.Matrix4f
+            matrices.multiplyPositionMatrix(camera.toPixels(centreX, centreY));
+                                                           ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:457: 错误: 不兼容的类型: dev.js.mtrheadlight.clientgui.Matrix4f无法转换为net.minecraft.util.math.Matrix4f
+            matrices.multiplyPositionMatrix(camera.rotation());
+                                                           ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamPackScope.java:379: 错误: 不兼容的类型: String[]无法转换为String
+        try (InputStream in = pack.openRoot(segments).get()) {
+                                            ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamVehicleScreen.java:169: 错误: 找不到符号
+        this.searchField.setPlaceholder(tr("beam.search"));
+                        ^
+  符号:   方法 setPlaceholder(MutableText)
+  位置: 类型为TextFieldWidget的变量 searchField
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\bind\LteBindCommand.java:40: 错误: 不兼容的类型: lambda 表达式中的参数类型不兼容
+        CommandRegistrationCallback.EVENT.register(dispatcher ->
+                                                   ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\CollisionImpact.java:1139: 错误: 找不到符号
+        final DamageSource source = target.getWorld().getDamageSources().fall();
+                                                     ^
+  符号:   方法 getDamageSources()
+  位置: 类 World
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\LightFlare.java:885: 错误: 找不到符号
+            if (client.getResourceManager().getResource(TEXTURE).isEmpty()) {
+                                                                ^
+  符号:   方法 isEmpty()
+  位置: 接口 Resource
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\security\LiquidScannerBlock.java:307: 错误: 找不到符号
+        world.scheduleBlockTick(pos, this, LAMP_TICKS);
+             ^
+  符号:   方法 scheduleBlockTick(BlockPos,LiquidScannerBlock,int)
+  位置: 类型为World的变量 world
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\security\LiquidScannerBlock.java:359: 错误: 找不到符号
+        final ItemStack scanned = held.copyWithCount(1);
+                                      ^
+  符号:   方法 copyWithCount(int)
+  位置: 类型为ItemStack的变量 held
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\security\LiquidScannerBlock.java:364: 错误: 找不到符号
+        world.playSound(null, pos, SoundEvents.BLOCK_NOTE_BLOCK_PLING.value(),
+                                                                     ^
+  符号:   方法 value()
+  位置: 类型为SoundEvent的变量 BLOCK_NOTE_BLOCK_PLING
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\server\LteServer.java:243: 错误: 找不到符号
+                    final net.minecraft.server.world.ServerWorld world = player.getServerWorld();
+                                                                               ^
+  符号:   方法 getServerWorld()
+  位置: 类型为ServerPlayerEntity的变量 player
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\SidingInfo.java:13: 错误: 找不到符号
+            return siding.getTrainCars();
+                         ^
+  符号:   方法 getTrainCars()
+  位置: 类型为Siding的变量 siding
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\SidingScreen.java:318: 错误: 找不到符号
+        this.searchField.setPlaceholder(tr("sidings.search"));
+                        ^
+  符号:   方法 setPlaceholder(MutableText)
+  位置: 类型为TextFieldWidget的变量 searchField
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\signal\SignalLinkNet.java:237: 错误: 找不到符号
+            final Map rails = data.getRailsMap();
+                                  ^
+  符号:   方法 getRailsMap()
+  位置: 类型为RailwayData的变量 data
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:373: 错误: 找不到符号
+            VIEW_PROJ.set(RenderSystem.getProjectionMatrix()).mul(view);
+                     ^
+  符号:   方法 set(net.minecraft.util.math.Matrix4f)
+  位置: 类型为dev.js.mtrheadlight.clientgui.Matrix4f的变量 VIEW_PROJ
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:374: 错误: 找不到符号
+            INVERSE.set(VIEW_PROJ).invert();
+                   ^
+  符号:   方法 set(Matrix4f)
+  位置: 类型为Matrix4f的变量 INVERSE
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:645: 错误: 找不到符号
+            BufferRenderer.drawWithGlobalProgram(built);
+                                                 ^
+  符号:   变量 built
+  位置: 类 ScatterPass
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:747: 错误: 不兼容的类型: net.minecraft.util.math.Matrix4f无法转换为dev.js.mtrheadlight.clientgui.Matrix4f
+                candidate = context.matrixStack().peek().getPositionMatrix();
+                                                                          ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:756: 错误: 不兼容的类型: net.minecraft.util.math.Matrix4f无法转换为dev.js.mtrheadlight.clientgui.Matrix4f
+        final Matrix4f renderSystem = RenderSystem.getModelViewMatrix();
+                                                                     ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:764: 错误: 找不到符号
+                .rotateX((float) Math.toRadians(camera.getPitch()))
+                ^
+  符号:   方法 rotateX(float)
+  位置: 类 Matrix4f
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:276: 错误: 不兼容的类型: Resource无法转换为Optional<Resource>
+                        base.getResource(new Identifier(NAMESPACE, id.getPath()));
+                                        ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:278: 错误: 不兼容的类型: lambda 表达式中的返回类型错误
+                    return own;
+                           ^
+    Optional<Resource>无法转换为Resource
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainNames.java:132: 错误: 找不到符号
+            if (text.getContent() instanceof TranslatableText content) {
+                    ^
+  符号:   方法 getContent()
+  位置: 类型为Text的变量 text
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainNames.java:139: 错误: 找不到符号
+                    final String fallback = content.getFallback();
+                                                   ^
+  符号:   方法 getFallback()
+  位置: 类型为TranslatableText的变量 content
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainNames.java:167: 错误: 不兼容的类型: Resource无法转换为Optional<Resource>
+                final Optional<Resource> resource = manager.getResource(
+                                                                       ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\charger\PowerBankProjectileEntity.java:81: 错误: 找不到符号
+        this.stack = stack.copyWithCount(1);
+                          ^
+  符号:   方法 copyWithCount(int)
+  位置: 类型为ItemStack的变量 stack
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\charger\PowerBankProjectileEntity.java:151: 错误: 找不到符号
+            living.damage(world.getDamageSources().thrown(this, owner), BLAST_DAMAGE);
+                               ^
+  符号:   方法 getDamageSources()
+  位置: 类型为World的变量 world
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\charger\PowerBankProjectileEntity.java:200: 错误: 找不到符号
+        if (!current.isAir() && !current.isReplaceable()) {
+                                        ^
+  符号:   方法 isReplaceable()
+  位置: 类型为BlockState的变量 current
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnWallRenderer.java:375: 错误: 找不到符号
+                RenderLayer.getEntityTranslucentEmissive(TEXTURE));
+                           ^
+  符号:   方法 getEntityTranslucentEmissive(Identifier)
+  位置: 类 RenderLayer
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnWallRenderer.java:429: 错误: 找不到符号
+                RenderLayer.getEntityTranslucentEmissive(LED_TEXTURE));
+                           ^
+  符号:   方法 getEntityTranslucentEmissive(Identifier)
+  位置: 类 RenderLayer
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\drinks\DrinksMachineBlock.java:282: 错误: 找不到符号
+        return state.isAir() || state.isReplaceable();
+                                     ^
+  符号:   方法 isReplaceable()
+  位置: 类型为BlockState的变量 state
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\drinks\DrinksMachineBlock.java:471: 错误: 找不到符号
+        world.playSound(null, base, SoundEvents.BLOCK_NOTE_BLOCK_BELL.value(), SoundCategory.BLOCKS, 0.9F, 1.4F);
+                                                                     ^
+  符号:   方法 value()
+  位置: 类型为SoundEvent的变量 BLOCK_NOTE_BLOCK_BELL
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\drinks\DrinksMachineBlock.java:474: 错误: 找不到符号
+        world.scheduleBlockTick(base, DrinksMachineObjects.bottom(), OPEN_TICKS);
+             ^
+  符号:   方法 scheduleBlockTick(BlockPos,DrinksMachineBlock,int)
+  位置: 类型为World的变量 world
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\eyecandy\PsdDoorProbe.java:169: 错误: 找不到符号
+                return Integer.valueOf(door.getOpenValue());
+                                           ^
+  符号:   方法 getOpenValue()
+  位置: 类型为TileEntityPSDAPGDoorBase的变量 door
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\fangsu\FangsuPsdDoorBlock.java:382: 错误: 找不到符号
+            return this.animation.update(this.getOpenValue() / (float) MAX_OPEN_VALUE, ticks, tickDelta);
+                                             ^
+  符号: 方法 getOpenValue()
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\machine\XiamenBalanceMachineBlock.java:71: 错误: 找不到符号
+                net.minecraft.sound.SoundEvent.of(new net.minecraft.util.Identifier("mtrlte", "ticket_processor_entry")),
+                                              ^
+  符号:   方法 of(Identifier)
+  位置: 类 SoundEvent
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenAds.java:336: 错误: 找不到符号
+                        state = client.getResourceManager().getResource(ad.image()).isPresent()
+                                                                                   ^
+  符号:   方法 isPresent()
+  位置: 接口 Resource
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenAdsScreen.java:218: 错误: 无法将类 PackScreen中的构造器 PackScreen应用到给定类型;
+            client.setScreen(new PackScreen(client.getResourcePackManager(),
+                             ^
+  需要: Screen,ResourcePackManager,Consumer<ResourcePackManager>,File,Text
+  找到:    ResourcePackManager,(manager)-[...]f); },File,TranslatableText
+  原因: 实际参数列表和形式参数列表长度不同
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenNet.java:134: 错误: 找不到符号
+            final World world = player.getServerWorld();
+                                      ^
+  符号:   方法 getServerWorld()
+  位置: 类型为ServerPlayerEntity的变量 player
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:149: 错误: 对于draw(String,float,float,int,boolean,Matrix4f,VertexConsumerProvider,TextLayerType,int,int), 找不到合适的方法
+            textRenderer.draw(text, 0.0F, 0.0F, color, false,
+                        ^
+    方法 TextRenderer.draw(String,float,float,int,boolean,Matrix4f,VertexConsumerProvider,boolean,int,int)不适用
+      (参数不匹配; TextLayerType无法转换为boolean)
+    方法 TextRenderer.draw(Text,float,float,int,boolean,Matrix4f,VertexConsumerProvider,boolean,int,int)不适用
+      (参数不匹配; String无法转换为Text)
+    方法 TextRenderer.draw(OrderedText,float,float,int,boolean,Matrix4f,VertexConsumerProvider,boolean,int,int)不适用
+      (参数不匹配; String无法转换为OrderedText)
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:258: 错误: 找不到符号
+            matrix.transform(this.vector);
+                  ^
+  符号:   方法 transform(Vector4f)
+  位置: 类型为Matrix4f的变量 matrix
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenTicker.java:294: 错误: 找不到符号
+            if (resource.isEmpty()) {
+                        ^
+  符号:   方法 isEmpty()
+  位置: 类型为Resource的变量 resource
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenTicker.java:298: 错误: 找不到符号
+            try (InputStream in = resource.get().getInputStream()) {
+                                          ^
+  符号:   方法 get()
+  位置: 类型为Resource的变量 resource
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\PsdAPGItem.java:94: 错误: 找不到符号
+        Direction playerFacing = context.getPlayerLookDirection();
+                                        ^
+  符号:   方法 getPlayerLookDirection()
+  位置: 类型为ItemUsageContext的变量 context
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\PsdAPGItem.java:134: 错误: 找不到符号
+        Direction facing = context.getPlayerLookDirection();
+                                  ^
+  符号:   方法 getPlayerLookDirection()
+  位置: 类型为ItemUsageContext的变量 context
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\PsdAPGItem.java:147: 错误: 找不到符号
+                if (world.getBlockState(offsetPos.up(y)).isReplaceable()) {
+                                                        ^
+  符号:   方法 isReplaceable()
+  位置: 类 BlockState
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\ticket\XiamenTicketGates.java:184: 错误: 找不到符号
+                    new XiamenTicketGateSide(Block.Settings.create().strength(2.0F).requiresTool().nonOpaque(),
+                                                           ^
+  符号:   方法 create()
+  位置: 类 Settings
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\ticket\XiamenTicketGateSounds.java:55: 错误: 找不到符号
+        CRT_TICKET = Registry.register(Registry.SOUND_EVENT, CRT_TICKET_ID, SoundEvent.of(CRT_TICKET_ID));
+                                                                                      ^
+  符号:   方法 of(Identifier)
+  位置: 类 SoundEvent
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\ticket\XiamenTicketGateSounds.java:57: 错误: 找不到符号
+                SoundEvent.of(CRT_TICKET_ERROR_ID));
+                          ^
+  符号:   方法 of(Identifier)
+  位置: 类 SoundEvent
+注: 某些输入文件使用或覆盖了已过时的 API。
+注: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+注: D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\signal\FangsuTrafficLightMode.java使用了未经检查或不安全的操作。
+注: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
+注: 某些消息已经过简化; 请使用 -Xdiags:verbose 重新编译以获得完整输出
+50 个错误
+
+> Task :compileJava FAILED
+
+[Incubating] Problems report is available at: file:///D:/MC-MTR-JS/mtr-headlight/v1.18.2/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileJava'.
+> Compilation failed; see the compiler output below.
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenAdsScreen.java:218: 错误: 无法将类 PackScreen中的构造器 PackScreen应用到给定类型;
+              client.setScreen(new PackScreen(client.getResourcePackManager(),
+                               ^
+    需要: Screen,ResourcePackManager,Consumer<ResourcePackManager>,File,Text
+    找到:    ResourcePackManager,(manager)-[...]f); },File,TranslatableText
+    原因: 实际参数列表和形式参数列表长度不同
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:149: 错误: 对于draw(String,float,float,int,boolean,Matrix4f,VertexConsumerProvider,TextLayerType,int,int), 找不到合适的方法
+              textRenderer.draw(text, 0.0F, 0.0F, color, false,
+                          ^
+      方法 TextRenderer.draw(String,float,float,int,boolean,Matrix4f,VertexConsumerProvider,boolean,int,int)不适用
+        (参数不匹配; TextLayerType无法转换为boolean)
+      方法 TextRenderer.draw(Text,float,float,int,boolean,Matrix4f,VertexConsumerProvider,boolean,int,int)不适用
+        (参数不匹配; String无法转换为Text)
+      方法 TextRenderer.draw(OrderedText,float,float,int,boolean,Matrix4f,VertexConsumerProvider,boolean,int,int)不适用
+        (参数不匹配; String无法转换为OrderedText)
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\fangsu\FangsuPsdDoorBlock.java:382: 错误: 找不到符号
+              return this.animation.update(this.getOpenValue() / (float) MAX_OPEN_VALUE, ticks, tickDelta);
+                                               ^
+    符号: 方法 getOpenValue()
+  注: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:456: 错误: 不兼容的类型: dev.js.mtrheadlight.clientgui.Matrix4f无法转换为net.minecraft.util.math.Matrix4f
+              matrices.multiplyPositionMatrix(camera.toPixels(centreX, centreY));
+                                                             ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:457: 错误: 不兼容的类型: dev.js.mtrheadlight.clientgui.Matrix4f无法转换为net.minecraft.util.math.Matrix4f
+              matrices.multiplyPositionMatrix(camera.rotation());
+                                                             ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamPackScope.java:379: 错误: 不兼容的类型: String[]无法转换为String
+          try (InputStream in = pack.openRoot(segments).get()) {
+                                              ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\bind\LteBindCommand.java:40: 错误: 不兼容的类型: lambda 表达式中的参数类型不兼容
+          CommandRegistrationCallback.EVENT.register(dispatcher ->
+                                                     ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:747: 错误: 不兼容的类型: net.minecraft.util.math.Matrix4f无法转换为dev.js.mtrheadlight.clientgui.Matrix4f
+                  candidate = context.matrixStack().peek().getPositionMatrix();
+                                                                            ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:756: 错误: 不兼容的类型: net.minecraft.util.math.Matrix4f无法转换为dev.js.mtrheadlight.clientgui.Matrix4f
+          final Matrix4f renderSystem = RenderSystem.getModelViewMatrix();
+                                                                       ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:276: 错误: 不兼容的类型: Resource无法转换为Optional<Resource>
+                          base.getResource(new Identifier(NAMESPACE, id.getPath()));
+                                          ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:278: 错误: 不兼容的类型: lambda 表达式中的返回类型错误
+                      return own;
+                             ^
+      Optional<Resource>无法转换为Resource
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainNames.java:167: 错误: 不兼容的类型: Resource无法转换为Optional<Resource>
+                  final Optional<Resource> resource = manager.getResource(
+                                                                         ^
+  注: D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\signal\FangsuTrafficLightMode.java使用了未经检查或不安全的操作。
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:645: 错误: 找不到符号
+              BufferRenderer.drawWithGlobalProgram(built);
+                                                   ^
+    符号:   变量 built
+    位置: 类 ScatterPass
+  注: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
+  注: 某些输入文件使用或覆盖了已过时的 API。
+  注: 某些消息已经过简化; 请使用 -Xdiags:verbose 重新编译以获得完整输出
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:305: 错误: 找不到符号
+              if (MinecraftClient.getInstance().getResourceManager().getResource(id).isPresent()) {
+                                                                                    ^
+    符号:   方法 isPresent()
+    位置: 接口 Resource
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamVehicleScreen.java:169: 错误: 找不到符号
+          this.searchField.setPlaceholder(tr("beam.search"));
+                          ^
+    符号:   方法 setPlaceholder(MutableText)
+    位置: 类型为TextFieldWidget的变量 searchField
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\CollisionImpact.java:1139: 错误: 找不到符号
+          final DamageSource source = target.getWorld().getDamageSources().fall();
+                                                       ^
+    符号:   方法 getDamageSources()
+    位置: 类 World
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\LightFlare.java:885: 错误: 找不到符号
+              if (client.getResourceManager().getResource(TEXTURE).isEmpty()) {
+                                                                  ^
+    符号:   方法 isEmpty()
+    位置: 接口 Resource
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\security\LiquidScannerBlock.java:307: 错误: 找不到符号
+          world.scheduleBlockTick(pos, this, LAMP_TICKS);
+               ^
+    符号:   方法 scheduleBlockTick(BlockPos,LiquidScannerBlock,int)
+    位置: 类型为World的变量 world
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\security\LiquidScannerBlock.java:359: 错误: 找不到符号
+          final ItemStack scanned = held.copyWithCount(1);
+                                        ^
+    符号:   方法 copyWithCount(int)
+    位置: 类型为ItemStack的变量 held
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\security\LiquidScannerBlock.java:364: 错误: 找不到符号
+          world.playSound(null, pos, SoundEvents.BLOCK_NOTE_BLOCK_PLING.value(),
+                                                                       ^
+    符号:   方法 value()
+    位置: 类型为SoundEvent的变量 BLOCK_NOTE_BLOCK_PLING
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\server\LteServer.java:243: 错误: 找不到符号
+                      final net.minecraft.server.world.ServerWorld world = player.getServerWorld();
+                                                                                 ^
+    符号:   方法 getServerWorld()
+    位置: 类型为ServerPlayerEntity的变量 player
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\SidingInfo.java:13: 错误: 找不到符号
+              return siding.getTrainCars();
+                           ^
+    符号:   方法 getTrainCars()
+    位置: 类型为Siding的变量 siding
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\SidingScreen.java:318: 错误: 找不到符号
+          this.searchField.setPlaceholder(tr("sidings.search"));
+                          ^
+    符号:   方法 setPlaceholder(MutableText)
+    位置: 类型为TextFieldWidget的变量 searchField
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\signal\SignalLinkNet.java:237: 错误: 找不到符号
+              final Map rails = data.getRailsMap();
+                                    ^
+    符号:   方法 getRailsMap()
+    位置: 类型为RailwayData的变量 data
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:373: 错误: 找不到符号
+              VIEW_PROJ.set(RenderSystem.getProjectionMatrix()).mul(view);
+                       ^
+    符号:   方法 set(net.minecraft.util.math.Matrix4f)
+    位置: 类型为dev.js.mtrheadlight.clientgui.Matrix4f的变量 VIEW_PROJ
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:374: 错误: 找不到符号
+              INVERSE.set(VIEW_PROJ).invert();
+                     ^
+    符号:   方法 set(Matrix4f)
+    位置: 类型为Matrix4f的变量 INVERSE
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:764: 错误: 找不到符号
+                  .rotateX((float) Math.toRadians(camera.getPitch()))
+                  ^
+    符号:   方法 rotateX(float)
+    位置: 类 Matrix4f
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainNames.java:132: 错误: 找不到符号
+              if (text.getContent() instanceof TranslatableText content) {
+                      ^
+    符号:   方法 getContent()
+    位置: 类型为Text的变量 text
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainNames.java:139: 错误: 找不到符号
+                      final String fallback = content.getFallback();
+                                                     ^
+    符号:   方法 getFallback()
+    位置: 类型为TranslatableText的变量 content
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\charger\PowerBankProjectileEntity.java:81: 错误: 找不到符号
+          this.stack = stack.copyWithCount(1);
+                            ^
+    符号:   方法 copyWithCount(int)
+    位置: 类型为ItemStack的变量 stack
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\charger\PowerBankProjectileEntity.java:151: 错误: 找不到符号
+              living.damage(world.getDamageSources().thrown(this, owner), BLAST_DAMAGE);
+                                 ^
+    符号:   方法 getDamageSources()
+    位置: 类型为World的变量 world
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\charger\PowerBankProjectileEntity.java:200: 错误: 找不到符号
+          if (!current.isAir() && !current.isReplaceable()) {
+                                          ^
+    符号:   方法 isReplaceable()
+    位置: 类型为BlockState的变量 current
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnWallRenderer.java:375: 错误: 找不到符号
+                  RenderLayer.getEntityTranslucentEmissive(TEXTURE));
+                             ^
+    符号:   方法 getEntityTranslucentEmissive(Identifier)
+    位置: 类 RenderLayer
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnWallRenderer.java:429: 错误: 找不到符号
+                  RenderLayer.getEntityTranslucentEmissive(LED_TEXTURE));
+                             ^
+    符号:   方法 getEntityTranslucentEmissive(Identifier)
+    位置: 类 RenderLayer
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\drinks\DrinksMachineBlock.java:282: 错误: 找不到符号
+          return state.isAir() || state.isReplaceable();
+                                       ^
+    符号:   方法 isReplaceable()
+    位置: 类型为BlockState的变量 state
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\drinks\DrinksMachineBlock.java:471: 错误: 找不到符号
+          world.playSound(null, base, SoundEvents.BLOCK_NOTE_BLOCK_BELL.value(), SoundCategory.BLOCKS, 0.9F, 1.4F);
+                                                                       ^
+    符号:   方法 value()
+    位置: 类型为SoundEvent的变量 BLOCK_NOTE_BLOCK_BELL
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\drinks\DrinksMachineBlock.java:474: 错误: 找不到符号
+          world.scheduleBlockTick(base, DrinksMachineObjects.bottom(), OPEN_TICKS);
+               ^
+    符号:   方法 scheduleBlockTick(BlockPos,DrinksMachineBlock,int)
+    位置: 类型为World的变量 world
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\eyecandy\PsdDoorProbe.java:169: 错误: 找不到符号
+                  return Integer.valueOf(door.getOpenValue());
+                                             ^
+    符号:   方法 getOpenValue()
+    位置: 类型为TileEntityPSDAPGDoorBase的变量 door
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\machine\XiamenBalanceMachineBlock.java:71: 错误: 找不到符号
+                  net.minecraft.sound.SoundEvent.of(new net.minecraft.util.Identifier("mtrlte", "ticket_processor_entry")),
+                                                ^
+    符号:   方法 of(Identifier)
+    位置: 类 SoundEvent
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenAds.java:336: 错误: 找不到符号
+                          state = client.getResourceManager().getResource(ad.image()).isPresent()
+                                                                                     ^
+    符号:   方法 isPresent()
+    位置: 接口 Resource
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenNet.java:134: 错误: 找不到符号
+              final World world = player.getServerWorld();
+                                        ^
+    符号:   方法 getServerWorld()
+    位置: 类型为ServerPlayerEntity的变量 player
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:258: 错误: 找不到符号
+              matrix.transform(this.vector);
+                    ^
+    符号:   方法 transform(Vector4f)
+    位置: 类型为Matrix4f的变量 matrix
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenTicker.java:294: 错误: 找不到符号
+              if (resource.isEmpty()) {
+                          ^
+    符号:   方法 isEmpty()
+    位置: 类型为Resource的变量 resource
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenTicker.java:298: 错误: 找不到符号
+              try (InputStream in = resource.get().getInputStream()) {
+                                            ^
+    符号:   方法 get()
+    位置: 类型为Resource的变量 resource
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\PsdAPGItem.java:94: 错误: 找不到符号
+          Direction playerFacing = context.getPlayerLookDirection();
+                                          ^
+    符号:   方法 getPlayerLookDirection()
+    位置: 类型为ItemUsageContext的变量 context
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\PsdAPGItem.java:134: 错误: 找不到符号
+          Direction facing = context.getPlayerLookDirection();
+                                    ^
+    符号:   方法 getPlayerLookDirection()
+    位置: 类型为ItemUsageContext的变量 context
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\PsdAPGItem.java:147: 错误: 找不到符号
+                  if (world.getBlockState(offsetPos.up(y)).isReplaceable()) {
+                                                          ^
+    符号:   方法 isReplaceable()
+    位置: 类 BlockState
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\ticket\XiamenTicketGates.java:184: 错误: 找不到符号
+                      new XiamenTicketGateSide(Block.Settings.create().strength(2.0F).requiresTool().nonOpaque(),
+                                                             ^
+    符号:   方法 create()
+    位置: 类 Settings
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\ticket\XiamenTicketGateSounds.java:55: 错误: 找不到符号
+          CRT_TICKET = Registry.register(Registry.SOUND_EVENT, CRT_TICKET_ID, SoundEvent.of(CRT_TICKET_ID));
+                                                                                        ^
+    符号:   方法 of(Identifier)
+    位置: 类 SoundEvent
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\ticket\XiamenTicketGateSounds.java:57: 错误: 找不到符号
+                  SoundEvent.of(CRT_TICKET_ERROR_ID));
+                            ^
+    符号:   方法 of(Identifier)
+    位置: 类 SoundEvent
+  50 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights.
+
+BUILD FAILED in 9s
+1 actionable task: 1 executed

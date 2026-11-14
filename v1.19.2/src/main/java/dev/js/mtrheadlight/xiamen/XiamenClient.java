@@ -103,6 +103,26 @@ public final class XiamenClient implements ClientModInitializer {
             put(set.apgEnd, line + " apg end");
         }
         put(XiamenObjects.logo(), "logo");
+
+        // 6) 站外标志（4 个）：贴图是大片 alpha=0 的灯箱牌，同样必须 cutout。
+        for (dev.js.mtrheadlight.xiamen.sign.StationSignObjects.Entry entry
+                : dev.js.mtrheadlight.xiamen.sign.StationSignObjects.entries()) {
+            put(entry.block(), "station sign " + entry.id());
+        }
+
+        // 6b) 站名贴墙标识（3 个）：零厚度的板 + 挖空的品牌 logo，同样必须 cutout。
+        //     渲染器与渲染层也由 WallSignClient 注册；这里是历史入口，保留只为「早于它跑」时也不会漏。
+        for (dev.js.mtrheadlight.xiamen.sign.WallSignObjects.Entry entry
+                : dev.js.mtrheadlight.xiamen.sign.WallSignObjects.entries()) {
+            put(entry.block(), "wall sign " + entry.id());
+        }
+
+        // 7) 闸机（4 个）：几何改由 BER 运行时画（rawmodels），这里只注册渲染器。
+        dev.js.mtrheadlight.xiamen.ticket.XiamenTicketGateClient.register();
+
+        // 8) 厦门风格物件包的 26 个 eyecandy：几何由 BER 运行时画（.obj），这里只注册渲染器。
+        //    方块本身是 empty 模型，所以也不挂 putBlock。
+        dev.js.mtrheadlight.xiamen.eyecandy.EyecandyClient.register();
     }
 
     private static void put(net.minecraft.block.Block block, String what) {

@@ -1,9 +1,8 @@
 package dev.js.mtrheadlight;
 
-import net.minecraft.text.TranslatableText;
-
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
+import net.minecraft.text.TranslatableText;
 
 /**
  * 配置界面的分区。主界面（{@link ConfigScreen}）只有四个入口；「全局配置」和一条侧线的详情都先
@@ -16,7 +15,7 @@ import net.minecraft.text.Text;
  * <h2>哪些分区带侧线覆盖</h2>
  * 除「其他」外每个分区都有可按侧线覆盖的字段（{@link HeadlightConfig.SidingSettings}）：
  * <ul>
- *   <li>{@link #LIGHT} - 总开关 / 动态光源 / 光带 / 光柱开关 / 光束几何 / 颜色，全部可覆盖；
+ *   <li>{@link #LIGHT} - 总开关 / 真实照亮 / 灯晕开关 / 光束几何 / 颜色，全部可覆盖；
  *       车灯模式只在这一分区里出现，但它是全局的（没有侧线覆盖）；</li>
  *   <li>{@link #COLLISION} - 只有车头 / 车尾碰撞延长可覆盖，其余（车体开关、道床、车顶）是全局的；</li>
  *   <li>{@link #PARTICLE} - 水雾开关 / 起始速度 / 挡雨可覆盖，粒子设置与诊断是全局的；</li>
@@ -28,7 +27,7 @@ import net.minecraft.text.Text;
  * 行表按 {@link #globalOnly} 过滤，两层都不过滤的话点到全局限定的行只会得到一次空操作。
  */
 enum ConfigCategory {
-    /** 光源：车灯模式、开关、光带、光柱、颜色、光束长度 / 宽度 / 高度、亮度、渲染距离。 */
+    /** 光源：车灯模式、开关、灯晕、真实照亮、颜色、光束长度 / 宽度 / 高度、亮度、渲染距离。 */
     LIGHT("cat.light", true),
     /** 碰撞：车体碰撞、碰撞高度、道床、端部延长、车顶掉落。 */
     COLLISION("cat.collision", true),

@@ -10,16 +10,25 @@
   "contributors": [
     "天童アリス",
     "596wjr",
-    "Bai."
+    "Coconut_",
+    "ZiYueCommentary (ziyue)",
+    "jiangxingyunjian",
+    "__Lingxii__ (lingxii)",
+    "AIDA64S",
+    "Santorsia",
+    "Zbx1425",
+    "Nanbin-Studio",
+    "LIEH-SAD",
+    "CodeCat",
+    "yaoxiansen",
+    "Nemo"
   ],
   "license": "MIT",
   "icon": "icon.png",
   "environment": "*",
   "mixins": [
-    "mtrlte.ante.mixins.json",
     "mtrlte.collision.mixins.json",
     "mtrlte.fangsu.mixins.json",
-    "mtrlte.nte.mixins.json",
     "mtrlte.rain.mixins.json",
     "mtrlte.mtr.mixins.json",
     "mtrlte.mtrserver.mixins.json",
@@ -36,7 +45,18 @@
       "dev.js.mtrheadlight.mtr.BuiltInTrainsInit",
       "dev.js.mtrheadlight.VehicleLightsJsonClient",
       "dev.js.mtrheadlight.signal.SignalLinkClient",
-      "dev.js.mtrheadlight.xiamen.XiamenClient"
+      "dev.js.mtrheadlight.xiamen.XiamenClient",
+      "dev.js.mtrheadlight.xiamen.sign.WallSignClient",
+      "dev.js.mtrheadlight.railing.RailingGlassClient",
+      "dev.js.mtrheadlight.decor.DecorClient",
+      "dev.js.mtrheadlight.xiamen.pids.PidsXiamenClient",
+      "dev.js.mtrheadlight.xiamen.dep.DepOnWallClient",
+      "dev.js.mtrheadlight.logo.LogoClient",
+      "dev.js.mtrheadlight.xiamen.machine.XiamenMachinesClient",
+      "dev.js.mtrheadlight.xiamen.charger.ChargerClient",
+      "dev.js.mtrheadlight.xiamen.drinks.DrinksMachineClient",
+      "dev.js.mtrheadlight.security.SecurityClient",
+      "dev.js.mtrheadlight.xiamen.fangsu.FangsuPsdClient"
     ],
     "modmenu": [
       "dev.js.mtrheadlight.ModMenuIntegration"
@@ -48,9 +68,6 @@
     "java": ">=17",
     "fabric-api": "*",
     "mtr": "*"
-  },
-  "recommends": {
-    "lambdynlights": ">=2.2.0"
   },
   "contact": {
     "homepage": "https://github.com/longqiuting/mtr-external-lights",

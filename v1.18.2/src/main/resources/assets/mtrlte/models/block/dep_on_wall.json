@@ -1,0 +1,7 @@
+{
+	"credit": "几何在 rawmodels/dep_on_wall.json，由 DepOnWallRenderer 的 BER 绘制；原版模型只留一个空的占位（原版读不了 135/-87.5 这类元素旋转，硬塞进去会被拒或丢件）",
+	"textures": {
+		"particle": "mtrlte:block/dep_on_wall"
+	},
+	"elements": []
+}

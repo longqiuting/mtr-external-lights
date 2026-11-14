@@ -375,10 +375,10 @@ final class BeamPackScope {
         if (pack == null || relative == null || relative.isBlank()) {
             return null;
         }
-        // 1.19.2 的 ResourcePack#openRoot 收的是**一整条相对路径**（不是 1.19.4 的
-        // String... 分段），所以这里只把反斜杠和开头的斜杠规整掉，不再 split。
-        final String path = relative.replace('\\', '/').replaceFirst("^/+", "");
-        try (InputStream in = pack.openRoot(path)) {
+        final String[] segments = relative.replace('\\', '/').replaceFirst("^/+", "").split("/");
+        // 1.19.2 的 ResourcePack#openRoot(String) 直接返回 InputStream（1.20.1 是 InputSupplier，
+        // 也就没有「按路径段拆开传 varargs」那套）；拼回一条相对路径传进去。
+        try (InputStream in = pack.openRoot(String.join("/", segments))) {
             return in == null ? null : new String(in.readAllBytes(), StandardCharsets.UTF_8);
         } catch (Throwable t) {
             return null;

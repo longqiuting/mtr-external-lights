@@ -1,22 +1,20 @@
 package dev.js.mtrheadlight;
 
-import net.minecraft.text.LiteralText;
-import net.minecraft.text.TranslatableText;
-
-import dev.js.mtrheadlight.clientgui.Widgets;
-
-import net.minecraft.client.util.math.MatrixStack;
 import dev.js.mtrheadlight.mtr.BuiltInTrains;
 import net.minecraft.client.MinecraftClient;
 import dev.js.mtrheadlight.clientgui.DrawContext;
+import dev.js.mtrheadlight.clientgui.Widgets;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.text.TranslatableText;
+import net.minecraft.text.LiteralText;
 
 /**
  * 配置主界面：<b>只有四个入口</b>，不再是一列滑条。
@@ -31,6 +29,12 @@ import java.util.List;
  *   <li><b>重载</b> - 内置车注册表 + 光源缓存一起重建，结果打进聊天栏
  *       （按钮本身没有别的反馈渠道）。</li>
  * </ol>
+ *
+ * <h2>厦门 PIDS 的开关去哪了</h2>
+ * 它<b>不再是</b>主界面上的第五个入口：三个开关（本地时间 / 即将进站 / 广告）属于「显示偏好」，
+ * 和「光源 / 碰撞 / 粒子」是同一层的东西，所以入口搬到
+ * <b>全局配置 → 其他</b>（{@link ParameterScreen} 的 {@code OTHER} 分区）。主界面只负责
+ * 「进哪个流程」，不再混进具体开关。
  *
  * <h2>完成 / 取消 只在这一层</h2>
  * 打开时拍一份 {@link HeadlightConfig#toJson() 配置快照}。所有分区里的控件都直接改内存里的
@@ -114,10 +118,13 @@ public final class ConfigScreen extends Screen {
         // 1) 全局配置 -> 分区列表
         addButton(this.colX, y, this.colW, ROW_H, labels.get(0), b -> openGlobal());
         y += PITCH;
-        // 2) 侧线配置 -> 现有侧线列表（世界外没有侧线数据，置灰 + 悬停说明）
+        // 2) 侧线配置 -> 现有侧线列表（世界外没有侧线数据，置灰）
         final boolean worldOk = MinecraftClient.getInstance().world != null;
-        final ButtonWidget sidings = addButton(this.colX, y, this.colW, ROW_H, labels.get(1),
-                b -> openSidings(), worldOk ? null : tr("tip.needWorld"));
+        // 1.18.2 没有 setTooltip：说明在建按钮时就交进去（TooltipSupplier），所以按条件选重载。
+        final ButtonWidget sidings = worldOk
+                ? addButton(this.colX, y, this.colW, ROW_H, labels.get(1), b -> openSidings())
+                : addButton(this.colX, y, this.colW, ROW_H, labels.get(1), b -> openSidings(),
+                        tr("tip.needWorld"));
         sidings.active = worldOk;
         y += PITCH;
         // 3) 隐藏原版列车：整行一个开关，点了立刻重建注册表
@@ -136,21 +143,20 @@ public final class ConfigScreen extends Screen {
 
     private ButtonWidget addButton(final int x, final int y, final int w, final int h,
                                    final Text label, final ButtonWidget.PressAction action) {
-        return this.addButton(x, y, w, h, label, action, null);
+        return this.addDrawableChild(Widgets.button(label, action).dimensions(x, y, w, h).build());
     }
 
     /**
-     * 带悬停说明的按钮。1.19.2 的 tooltip 是 {@code ButtonWidget.TooltipSupplier}（建按钮时给），
-     * 没有 1.19.4 的 {@code setTooltip(..)}，所以说明必须在这里一次性交进去。
+     * 同 {@link #addButton}，外加悬停说明。
+     *
+     * <p>1.18.2 的按钮说明必须在<b>建按钮时</b>用 {@code ButtonWidget.TooltipSupplier} 交进去
+     * （没有 1.19.4 的 {@code setTooltip}），所以这里多一个重载而不是事后补一句。
      */
     private ButtonWidget addButton(final int x, final int y, final int w, final int h,
                                    final Text label, final ButtonWidget.PressAction action,
                                    final Text tooltip) {
-        final Widgets.Builder builder = Widgets.button(label, action).dimensions(x, y, w, h);
-        if (tooltip != null) {
-            builder.tooltip(tooltip);
-        }
-        return this.addDrawableChild(builder.build());
+        return this.addDrawableChild(Widgets.button(label, action)
+                .dimensions(x, y, w, h).tooltip(tooltip).build());
     }
 
     private MutableText builtInLabel() {
@@ -213,7 +219,8 @@ public final class ConfigScreen extends Screen {
 
     private void reinit() {
         this.internalReinit = true;
-        this.init(this.client, this.width, this.height); // 1.18.2 没有 clearAndInit()：init 自己会 clearChildren
+        this.clearChildren();
+        this.init();
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -221,7 +228,10 @@ public final class ConfigScreen extends Screen {
     // ---------------------------------------------------------------------------------------------
 
     @Override
-    public void render(final MatrixStack matrices, final int mouseX, final int mouseY, final float delta) {
+    public void render(final MatrixStack matrices, final int mouseX, final int mouseY,
+                        final float delta) {
+        // 1.18.2 的 Screen#render 收 MatrixStack（没有 1.20.1 的 DrawContext）；
+        // 替身包一层，屏幕内部的绘制代码一行不用改。
         final DrawContext context = new DrawContext(matrices);
         context.drawTexture(OPTIONS_BACKGROUND, 0, 0, 0, 0, this.width, this.height, 32, 32);
         context.fillGradient(0, 0, this.width, this.height, 0xC0101010, 0xD0101010);
@@ -230,8 +240,9 @@ public final class ConfigScreen extends Screen {
         context.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, 22, 0xFFFFFF);
 
         final HeadlightConfig cfg = MtrHeadlightClient.config();
+        // 灯晕那一格读 drawFlare()：状态行必须和实际绘制一致（这是渲染器自己用的那个门）。
         final MutableText status = tr("config.status",
-                        onOff(cfg.enabled), onOff(cfg.dynamicLight), onOff(cfg.beamGlow))
+                        onOff(cfg.enabled), onOff(cfg.dynamicLight), onOff(cfg.drawFlare()))
                 .append(new LiteralText(cfg.disableBuiltInTrains
                         ? tr("main.builtinHidden").getString() : ""));
         context.drawCenteredTextWithShadow(this.textRenderer, status, this.width / 2, 38,

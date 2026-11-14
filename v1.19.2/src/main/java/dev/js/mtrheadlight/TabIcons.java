@@ -2,6 +2,7 @@ package dev.js.mtrheadlight;
 
 import net.minecraft.item.Item;
 import net.minecraft.util.registry.Registry;
+import net.minecraft.util.registry.Registry;
 import net.minecraft.util.Identifier;
 
 /**

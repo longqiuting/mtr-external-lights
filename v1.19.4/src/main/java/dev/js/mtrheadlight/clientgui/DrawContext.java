@@ -178,6 +178,20 @@ public final class DrawContext {
         DrawableHelper.drawCenteredTextWithShadow(matrices, renderer, text, centerX, y, color);
     }
 
+    // ---------------------------------------------------------------- borders
+
+    /**
+     * 1.20.1's {@code DrawContext.drawBorder(x, y, width, height, color)}: a one-pixel outline.
+     * 1.19.4 has no such helper, so the four edges are emitted with {@link #fill}.
+     */
+    public void drawBorder(final int x, final int y, final int width, final int height,
+                           final int color) {
+        fill(x, y, x + width, y + 1, color);
+        fill(x, y + height - 1, x + width, y + height, color);
+        fill(x, y, x + 1, y + height, color);
+        fill(x + width - 1, y, x + width, y + height, color);
+    }
+
     // ---------------------------------------------------------------- scissor
 
     /** {@code DrawableHelper.enableScissor} is already public static on 1.19.4 and scales itself. */

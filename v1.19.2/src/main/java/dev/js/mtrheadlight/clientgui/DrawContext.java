@@ -79,6 +79,20 @@ public final class DrawContext {
 
     // ---------------------------------------------------------------- textures
 
+    /**
+     * 1.20.1 的 {@code DrawContext#drawBorder(x, y, width, height, color)}。
+     *
+     * <p>1.19.2 只有 {@code DrawableHelper#drawBorder(MatrixStack, ..)} 这个 <b>protected static</b>，
+     * 这里给不了，所以直接按「四条 1px 边」用 {@link #fill} 拼出来，视觉等价（1.20 的实现也是这么画的）。
+     */
+    public void drawBorder(final int x, final int y, final int width, final int height,
+                           final int color) {
+        this.fill(x, y, x + width, y + 1, color);
+        this.fill(x, y + height - 1, x + width, y + height, color);
+        this.fill(x, y, x + 1, y + height, color);
+        this.fill(x + width - 1, y, x + width, y + height, color);
+    }
+
     /** {@code drawTexture(Identifier, x, y, u, v, width, height)} — 7 args, sheet assumed 256². */
     public void drawTexture(final Identifier texture, final int x, final int y, final int u,
                             final int v, final int width, final int height) {

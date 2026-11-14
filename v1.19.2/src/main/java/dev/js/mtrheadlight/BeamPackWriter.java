@@ -961,8 +961,6 @@ final class BeamPackWriter {
         }
     }
 
-    // 说明：包内文件统一走 BeamPackScope.readAsset（同一条路径段读取），这里只留包栈缓存。
-
     /** {@link #logHit} / {@link #logMiss} 的去重表：每个车型只报一次，绝不每帧。 */
     private static final Object LOG_LOCK = new Object();
     private static final Map<String, String> HITS = new LinkedHashMap<>(64, 0.75F, true);

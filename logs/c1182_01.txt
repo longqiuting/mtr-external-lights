@@ -1,0 +1,946 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.14/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Configure project :
+Fabric Loom: 1.11.8
+
+> Task :compileJava
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:6: 错误: 找不到符号
+import net.minecraft.client.gui.DrawContext;
+                               ^
+  符号:   类 DrawContext
+  位置: 程序包 net.minecraft.client.gui
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:14: 错误: 程序包org.joml不存在
+import org.joml.Matrix4f;
+               ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:15: 错误: 程序包org.joml不存在
+import org.joml.Vector3f;
+               ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:12: 错误: 找不到符号
+import net.minecraft.client.gui.DrawContext;
+                               ^
+  符号:   类 DrawContext
+  位置: 程序包 net.minecraft.client.gui
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:18: 错误: 程序包org.joml不存在
+import org.joml.Matrix4f;
+               ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:19: 错误: 找不到符号
+import net.minecraft.util.math.RotationAxis;
+                              ^
+  符号:   类 RotationAxis
+  位置: 程序包 net.minecraft.util.math
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:924: 错误: 找不到符号
+    private void drawPalette(final DrawContext context, final int mouseX, final int mouseY) {
+                                   ^
+  符号:   类 DrawContext
+  位置: 类 BeamEditor3DScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:1792: 错误: 找不到符号
+    private void drawSnapButtons(final DrawContext context, final int mouseX, final int mouseY) {
+                                       ^
+  符号:   类 DrawContext
+  位置: 类 BeamEditor3DScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:1977: 错误: 找不到符号
+    public void render(final DrawContext context, final int mouseX, final int mouseY, final float delta) {
+                             ^
+  符号:   类 DrawContext
+  位置: 类 BeamEditor3DScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:2072: 错误: 找不到符号
+    private void drawVehicleList(final DrawContext context, final int mouseX, final int mouseY) {
+                                       ^
+  符号:   类 DrawContext
+  位置: 类 BeamEditor3DScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:2116: 错误: 找不到符号
+    private void drawScrollbar(final DrawContext context) {
+                                     ^
+  符号:   类 DrawContext
+  位置: 类 BeamEditor3DScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:2140: 错误: 找不到符号
+    private void drawEmptyState(final DrawContext context) {
+                                      ^
+  符号:   类 DrawContext
+  位置: 类 BeamEditor3DScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:2156: 错误: 找不到符号
+    private void drawToolbarState(final DrawContext context) {
+                                        ^
+  符号:   类 DrawContext
+  位置: 类 BeamEditor3DScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:2170: 错误: 找不到符号
+    private void drawViewportTexts(final DrawContext context) {
+                                         ^
+  符号:   类 DrawContext
+  位置: 类 BeamEditor3DScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:2228: 错误: 找不到符号
+    private void drawValues(final DrawContext context, final int x, final int y, final int colour) {
+                                  ^
+  符号:   类 DrawContext
+  位置: 类 BeamEditor3DScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:2249: 错误: 找不到符号
+    private void drawDelta(final DrawContext context) {
+                                 ^
+  符号:   类 DrawContext
+  位置: 类 BeamEditor3DScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:2306: 错误: 找不到符号
+    private void drawFooter(final DrawContext context) {
+                                  ^
+  符号:   类 DrawContext
+  位置: 类 BeamEditor3DScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:352: 错误: 找不到符号
+        Matrix4f rotation() {
+        ^
+  符号:   类 Matrix4f
+  位置: 类 Camera
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:367: 错误: 找不到符号
+        Matrix4f toPixels(final int centreX, final int centreY) {
+        ^
+  符号:   类 Matrix4f
+  位置: 类 Camera
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:384: 错误: 找不到符号
+    static void draw(final Subject subject, final DrawContext context, final Camera camera,
+                                                  ^
+  符号:   类 DrawContext
+  位置: 类 TrainPreview
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:398: 错误: 找不到符号
+    static void draw(final Subject subject, final DrawContext context, final Camera camera,
+                                                  ^
+  符号:   类 DrawContext
+  位置: 类 TrainPreview
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:411: 错误: 找不到符号
+    static void draw(final Subject subject, final DrawContext context, final Camera camera,
+                                                  ^
+  符号:   类 DrawContext
+  位置: 类 TrainPreview
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:616: 错误: 找不到符号
+    private static void line(final VertexConsumer out, final Matrix4f matrix,
+                                                             ^
+  符号:   类 Matrix4f
+  位置: 类 TrainPreview
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:632: 错误: 找不到符号
+    static Matrix4f beamRotate(final Camera camera) {
+           ^
+  符号:   类 Matrix4f
+  位置: 类 TrainPreview
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:886: 错误: 找不到符号
+    private static double[] ringSample(final Camera camera, final Matrix4f matrix,
+                                                                  ^
+  符号:   类 Matrix4f
+  位置: 类 TrainPreview
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:1091: 错误: 找不到符号
+    private static float projectX(final Matrix4f m, final double x, final double y, final double z) {
+                                        ^
+  符号:   类 Matrix4f
+  位置: 类 TrainPreview
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:1095: 错误: 找不到符号
+    private static float projectY(final Matrix4f m, final double x, final double y, final double z) {
+                                        ^
+  符号:   类 Matrix4f
+  位置: 类 TrainPreview
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditScreen.java:4: 错误: 找不到符号
+import net.minecraft.client.gui.DrawContext;
+                               ^
+  符号:   类 DrawContext
+  位置: 程序包 net.minecraft.client.gui
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditScreen.java:365: 错误: 找不到符号
+    public void render(final DrawContext context, final int mouseX, final int mouseY, final float delta) {
+                             ^
+  符号:   类 DrawContext
+  位置: 类 BeamEditScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditScreen.java:411: 错误: 找不到符号
+    private void drawScrollBar(final DrawContext context) {
+                                     ^
+  符号:   类 DrawContext
+  位置: 类 BeamEditScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamListScreen.java:5: 错误: 找不到符号
+import net.minecraft.client.gui.DrawContext;
+                               ^
+  符号:   类 DrawContext
+  位置: 程序包 net.minecraft.client.gui
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamListScreen.java:299: 错误: 找不到符号
+    public void render(final DrawContext context, final int mouseX, final int mouseY, final float delta) {
+                             ^
+  符号:   类 DrawContext
+  位置: 类 BeamListScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamListScreen.java:328: 错误: 找不到符号
+    private void drawScrollBar(final DrawContext context) {
+                                     ^
+  符号:   类 DrawContext
+  位置: 类 BeamListScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamPackWriter.java:12: 错误: 找不到符号
+import net.minecraft.resource.InputSupplier;
+                             ^
+  符号:   类 InputSupplier
+  位置: 程序包 net.minecraft.resource
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamPackWriter.java:965: 错误: 找不到符号
+    private static String readAll(final InputSupplier<InputStream> supplier) {
+                                        ^
+  符号:   类 InputSupplier
+  位置: 类 BeamPackWriter
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamVehicleScreen.java:3: 错误: 找不到符号
+import net.minecraft.client.gui.DrawContext;
+                               ^
+  符号:   类 DrawContext
+  位置: 程序包 net.minecraft.client.gui
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamVehicleScreen.java:257: 错误: 找不到符号
+    private void drawRight(final DrawContext context, final Text text, final int right, final int y,
+                                 ^
+  符号:   类 DrawContext
+  位置: 类 BeamVehicleScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamVehicleScreen.java:264: 错误: 找不到符号
+    public void render(final DrawContext context, final int mouseX, final int mouseY, final float delta) {
+                             ^
+  符号:   类 DrawContext
+  位置: 类 BeamVehicleScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamVehicleScreen.java:310: 错误: 找不到符号
+    private void drawPresetFrame(final DrawContext context) {
+                                       ^
+  符号:   类 DrawContext
+  位置: 类 BeamVehicleScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamVehicleScreen.java:328: 错误: 找不到符号
+    private void drawScrollBar(final DrawContext context) {
+                                     ^
+  符号:   类 DrawContext
+  位置: 类 BeamVehicleScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\bind\DisplayPushTicker.java:48: 错误: 程序包net.minecraft.registry不存在
+    private static final Map<net.minecraft.registry.RegistryKey<World>, Map<BlockPos, Set<UUID>>> IN_RANGE =
+                                                   ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\bind\LteBindCommand.java:5: 错误: 程序包net.fabricmc.fabric.api.command.v2不存在
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+                                         ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\CategoryScreen.java:4: 错误: 找不到符号
+import net.minecraft.client.gui.DrawContext;
+                               ^
+  符号:   类 DrawContext
+  位置: 程序包 net.minecraft.client.gui
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\CategoryScreen.java:162: 错误: 找不到符号
+    public void render(final DrawContext context, final int mouseX, final int mouseY, final float delta) {
+                             ^
+  符号:   类 DrawContext
+  位置: 类 CategoryScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\CategoryScreen.java:182: 错误: 找不到符号
+    private void drawScrollBar(final DrawContext context) {
+                                     ^
+  符号:   类 DrawContext
+  位置: 类 CategoryScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\CollisionImpact.java:7: 错误: 找不到符号
+import net.minecraft.entity.damage.DamageType;
+                                  ^
+  符号:   类 DamageType
+  位置: 程序包 net.minecraft.entity.damage
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\CollisionImpact.java:9: 错误: 程序包net.minecraft.registry.entry不存在
+import net.minecraft.registry.entry.RegistryEntry;
+                                   ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\CollisionSystem.java:16: 错误: 找不到符号
+import net.minecraft.entity.LimbAnimator;
+                           ^
+  符号:   类 LimbAnimator
+  位置: 程序包 net.minecraft.entity
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\DriverKeyBypass.java:6: 错误: 程序包net.minecraft.registry不存在
+import net.minecraft.registry.Registries;
+                             ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\TrainImpactDamageSource.java:6: 错误: 找不到符号
+import net.minecraft.entity.damage.DamageType;
+                                  ^
+  符号:   类 DamageType
+  位置: 程序包 net.minecraft.entity.damage
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\TrainImpactDamageSource.java:8: 错误: 程序包net.minecraft.registry.entry不存在
+import net.minecraft.registry.entry.RegistryEntry;
+                                   ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\TrainImpactDamageSource.java:51: 错误: 找不到符号
+    public TrainImpactDamageSource(final RegistryEntry<DamageType> type, final boolean fast) {
+                                         ^
+  符号:   类 RegistryEntry
+  位置: 类 TrainImpactDamageSource
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\TrainImpactDamageSource.java:51: 错误: 找不到符号
+    public TrainImpactDamageSource(final RegistryEntry<DamageType> type, final boolean fast) {
+                                                       ^
+  符号:   类 DamageType
+  位置: 类 TrainImpactDamageSource
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\ColorPickerScreen.java:3: 错误: 找不到符号
+import net.minecraft.client.gui.DrawContext;
+                               ^
+  符号:   类 DrawContext
+  位置: 程序包 net.minecraft.client.gui
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\ColorPickerScreen.java:223: 错误: 找不到符号
+    private void drawCentered(final DrawContext context, final Text text, final int cx,
+                                    ^
+  符号:   类 DrawContext
+  位置: 类 ColorPickerScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\ColorPickerScreen.java:234: 错误: 找不到符号
+    public void render(final DrawContext context, final int mouseX, final int mouseY, final float delta) {
+                             ^
+  符号:   类 DrawContext
+  位置: 类 ColorPickerScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:12: 错误: 程序包net.fabricmc.fabric.api.client.command.v2不存在
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
+                                                ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:13: 错误: 程序包net.fabricmc.fabric.api.client.command.v2不存在
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+                                                ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:14: 错误: 程序包net.fabricmc.fabric.api.client.command.v2不存在
+import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
+                                                ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:76: 错误: 找不到符号
+            final LiteralArgumentBuilder<FabricClientCommandSource> root) {
+                                         ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:75: 错误: 找不到符号
+    private static LiteralArgumentBuilder<FabricClientCommandSource> root(
+                                          ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:286: 错误: 找不到符号
+    private static int killSelf(final FabricClientCommandSource source, final boolean high) {
+                                      ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:337: 错误: 找不到符号
+    private static int trackbedStatus(final FabricClientCommandSource source) {
+                                            ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:355: 错误: 找不到符号
+    private static int setTrackbedWatch(final FabricClientCommandSource source, final boolean on) {
+                                              ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:389: 错误: 找不到符号
+    private static int trackbedWhere(final FabricClientCommandSource source) {
+                                           ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:425: 错误: 找不到符号
+    private static int trainsStatus(final FabricClientCommandSource source) {
+                                          ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:435: 错误: 找不到符号
+    private static int setBuiltInTrains(final FabricClientCommandSource source, final boolean on) {
+                                              ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:443: 错误: 找不到符号
+    private static int reloadTrains(final FabricClientCommandSource source) {
+                                          ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:454: 错误: 找不到符号
+    private static int rainStatus(final FabricClientCommandSource source) {
+                                        ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:459: 错误: 找不到符号
+    private static int setRainHush(final FabricClientCommandSource source, final boolean on) {
+                                         ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:474: 错误: 找不到符号
+    private static int force(final FabricClientCommandSource source, final boolean on) {
+                                   ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:482: 错误: 找不到符号
+    private static int report(final FabricClientCommandSource source) {
+                                    ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:497: 错误: 找不到符号
+    private static int flareStatus(final FabricClientCommandSource source) {
+                                         ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:545: 错误: 找不到符号
+    private static int setLightSwitch(final FabricClientCommandSource source, final String what,
+                                            ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:578: 错误: 找不到符号
+    private static int scatterStatus(final FabricClientCommandSource source) {
+                                           ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:591: 错误: 找不到符号
+    private static int scatterDebugStatus(final FabricClientCommandSource source) {
+                                                ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:604: 错误: 找不到符号
+    private static int scatterDebug(final FabricClientCommandSource source, final String what) {
+                                          ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:610: 错误: 找不到符号
+    private static int setScatter(final FabricClientCommandSource source, final boolean on) {
+                                        ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:642: 错误: 找不到符号
+    private static int lightTestStatus(final FabricClientCommandSource source) {
+                                             ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:649: 错误: 找不到符号
+    private static int setLightTest(final FabricClientCommandSource source, final boolean on) {
+                                          ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:665: 错误: 找不到符号
+    private static int debugStatus(final FabricClientCommandSource source) {
+                                         ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:688: 错误: 找不到符号
+    private static int setDebugSpray(final FabricClientCommandSource source, final boolean on) {
+                                           ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:755: 错误: 找不到符号
+    private static int depNext(final FabricClientCommandSource source) {
+                                     ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:763: 错误: 找不到符号
+    private static int depStatus(final FabricClientCommandSource source) {
+                                       ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:771: 错误: 找不到符号
+    private static int depSet(final FabricClientCommandSource source, final String raw) {
+                                    ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:794: 错误: 找不到符号
+    private static int depDebugStatus(final FabricClientCommandSource source) {
+                                            ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:800: 错误: 找不到符号
+    private static int setDepDebug(final FabricClientCommandSource source, final boolean on) {
+                                         ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:810: 错误: 找不到符号
+    private static int set(final FabricClientCommandSource source, final String raw) {
+                                 ^
+  符号:   类 FabricClientCommandSource
+  位置: 类 Commands
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\ConfigScreen.java:5: 错误: 找不到符号
+import net.minecraft.client.gui.DrawContext;
+                               ^
+  符号:   类 DrawContext
+  位置: 程序包 net.minecraft.client.gui
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\ConfigScreen.java:8: 错误: 找不到符号
+import net.minecraft.client.gui.tooltip.Tooltip;
+                                       ^
+  符号:   类 Tooltip
+  位置: 程序包 net.minecraft.client.gui.tooltip
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\ConfigScreen.java:214: 错误: 找不到符号
+    public void render(final DrawContext context, final int mouseX, final int mouseY, final float delta) {
+                             ^
+  符号:   类 DrawContext
+  位置: 类 ConfigScreen
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\decor\DecorBlocks.java:6: 错误: 程序包net.fabricmc.fabric.api.itemgroup.v1不存在
+import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
+                                           ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\decor\DecorBlocks.java:12: 错误: 程序包net.minecraft.registry不存在
+import net.minecraft.registry.Registries;
+                             ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\decor\DecorBlocks.java:13: 错误: 程序包net.minecraft.registry不存在
+import net.minecraft.registry.Registry;
+                             ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\decor\DecorBlocks.java:14: 错误: 程序包net.minecraft.registry不存在
+import net.minecraft.registry.RegistryKey;
+                             ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\decor\DecorBlocks.java:15: 错误: 程序包net.minecraft.registry不存在
+import net.minecraft.registry.RegistryKeys;
+                             ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\decor\RccPlatforms.java:5: 错误: 程序包net.fabricmc.fabric.api.itemgroup.v1不存在
+import net.fabricmc.fabric.api.itemgroup.v1.FabricItemGroup;
+                                           ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\decor\RccPlatforms.java:6: 错误: 程序包net.fabricmc.fabric.api.itemgroup.v1不存在
+import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
+                                           ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\decor\RccPlatforms.java:14: 错误: 程序包net.minecraft.registry不存在
+import net.minecraft.registry.Registries;
+                             ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\decor\RccPlatforms.java:15: 错误: 程序包net.minecraft.registry不存在
+import net.minecraft.registry.Registry;
+                             ^
+100 个错误
+
+> Task :compileJava FAILED
+
+[Incubating] Problems report is available at: file:///D:/MC-MTR-JS/mtr-headlight/v1.18.2/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileJava'.
+> Compilation failed; see the compiler output below.
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:6: 错误: 找不到符号
+  import net.minecraft.client.gui.DrawContext;
+                                 ^
+    符号:   类 DrawContext
+    位置: 程序包 net.minecraft.client.gui
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:12: 错误: 找不到符号
+  import net.minecraft.client.gui.DrawContext;
+                                 ^
+    符号:   类 DrawContext
+    位置: 程序包 net.minecraft.client.gui
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:19: 错误: 找不到符号
+  import net.minecraft.util.math.RotationAxis;
+                                ^
+    符号:   类 RotationAxis
+    位置: 程序包 net.minecraft.util.math
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:924: 错误: 找不到符号
+      private void drawPalette(final DrawContext context, final int mouseX, final int mouseY) {
+                                     ^
+    符号:   类 DrawContext
+    位置: 类 BeamEditor3DScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:1792: 错误: 找不到符号
+      private void drawSnapButtons(final DrawContext context, final int mouseX, final int mouseY) {
+                                         ^
+    符号:   类 DrawContext
+    位置: 类 BeamEditor3DScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:1977: 错误: 找不到符号
+      public void render(final DrawContext context, final int mouseX, final int mouseY, final float delta) {
+                               ^
+    符号:   类 DrawContext
+    位置: 类 BeamEditor3DScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:2072: 错误: 找不到符号
+      private void drawVehicleList(final DrawContext context, final int mouseX, final int mouseY) {
+                                         ^
+    符号:   类 DrawContext
+    位置: 类 BeamEditor3DScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:2116: 错误: 找不到符号
+      private void drawScrollbar(final DrawContext context) {
+                                       ^
+    符号:   类 DrawContext
+    位置: 类 BeamEditor3DScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:2140: 错误: 找不到符号
+      private void drawEmptyState(final DrawContext context) {
+                                        ^
+    符号:   类 DrawContext
+    位置: 类 BeamEditor3DScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:2156: 错误: 找不到符号
+      private void drawToolbarState(final DrawContext context) {
+                                          ^
+    符号:   类 DrawContext
+    位置: 类 BeamEditor3DScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:2170: 错误: 找不到符号
+      private void drawViewportTexts(final DrawContext context) {
+                                           ^
+    符号:   类 DrawContext
+    位置: 类 BeamEditor3DScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:2228: 错误: 找不到符号
+      private void drawValues(final DrawContext context, final int x, final int y, final int colour) {
+                                    ^
+    符号:   类 DrawContext
+    位置: 类 BeamEditor3DScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:2249: 错误: 找不到符号
+      private void drawDelta(final DrawContext context) {
+                                   ^
+    符号:   类 DrawContext
+    位置: 类 BeamEditor3DScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:2306: 错误: 找不到符号
+      private void drawFooter(final DrawContext context) {
+                                    ^
+    符号:   类 DrawContext
+    位置: 类 BeamEditor3DScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:352: 错误: 找不到符号
+          Matrix4f rotation() {
+          ^
+    符号:   类 Matrix4f
+    位置: 类 Camera
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:367: 错误: 找不到符号
+          Matrix4f toPixels(final int centreX, final int centreY) {
+          ^
+    符号:   类 Matrix4f
+    位置: 类 Camera
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:384: 错误: 找不到符号
+      static void draw(final Subject subject, final DrawContext context, final Camera camera,
+                                                    ^
+    符号:   类 DrawContext
+    位置: 类 TrainPreview
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:398: 错误: 找不到符号
+      static void draw(final Subject subject, final DrawContext context, final Camera camera,
+                                                    ^
+    符号:   类 DrawContext
+    位置: 类 TrainPreview
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:411: 错误: 找不到符号
+      static void draw(final Subject subject, final DrawContext context, final Camera camera,
+                                                    ^
+    符号:   类 DrawContext
+    位置: 类 TrainPreview
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:616: 错误: 找不到符号
+      private static void line(final VertexConsumer out, final Matrix4f matrix,
+                                                               ^
+    符号:   类 Matrix4f
+    位置: 类 TrainPreview
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:632: 错误: 找不到符号
+      static Matrix4f beamRotate(final Camera camera) {
+             ^
+    符号:   类 Matrix4f
+    位置: 类 TrainPreview
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:886: 错误: 找不到符号
+      private static double[] ringSample(final Camera camera, final Matrix4f matrix,
+                                                                    ^
+    符号:   类 Matrix4f
+    位置: 类 TrainPreview
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:1091: 错误: 找不到符号
+      private static float projectX(final Matrix4f m, final double x, final double y, final double z) {
+                                          ^
+    符号:   类 Matrix4f
+    位置: 类 TrainPreview
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:1095: 错误: 找不到符号
+      private static float projectY(final Matrix4f m, final double x, final double y, final double z) {
+                                          ^
+    符号:   类 Matrix4f
+    位置: 类 TrainPreview
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditScreen.java:4: 错误: 找不到符号
+  import net.minecraft.client.gui.DrawContext;
+                                 ^
+    符号:   类 DrawContext
+    位置: 程序包 net.minecraft.client.gui
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditScreen.java:365: 错误: 找不到符号
+      public void render(final DrawContext context, final int mouseX, final int mouseY, final float delta) {
+                               ^
+    符号:   类 DrawContext
+    位置: 类 BeamEditScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditScreen.java:411: 错误: 找不到符号
+      private void drawScrollBar(final DrawContext context) {
+                                       ^
+    符号:   类 DrawContext
+    位置: 类 BeamEditScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamListScreen.java:5: 错误: 找不到符号
+  import net.minecraft.client.gui.DrawContext;
+                                 ^
+    符号:   类 DrawContext
+    位置: 程序包 net.minecraft.client.gui
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamListScreen.java:299: 错误: 找不到符号
+      public void render(final DrawContext context, final int mouseX, final int mouseY, final float delta) {
+                               ^
+    符号:   类 DrawContext
+    位置: 类 BeamListScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamListScreen.java:328: 错误: 找不到符号
+      private void drawScrollBar(final DrawContext context) {
+                                       ^
+    符号:   类 DrawContext
+    位置: 类 BeamListScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamPackWriter.java:12: 错误: 找不到符号
+  import net.minecraft.resource.InputSupplier;
+                               ^
+    符号:   类 InputSupplier
+    位置: 程序包 net.minecraft.resource
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamPackWriter.java:965: 错误: 找不到符号
+      private static String readAll(final InputSupplier<InputStream> supplier) {
+                                          ^
+    符号:   类 InputSupplier
+    位置: 类 BeamPackWriter
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamVehicleScreen.java:3: 错误: 找不到符号
+  import net.minecraft.client.gui.DrawContext;
+                                 ^
+    符号:   类 DrawContext
+    位置: 程序包 net.minecraft.client.gui
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamVehicleScreen.java:257: 错误: 找不到符号
+      private void drawRight(final DrawContext context, final Text text, final int right, final int y,
+                                   ^
+    符号:   类 DrawContext
+    位置: 类 BeamVehicleScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamVehicleScreen.java:264: 错误: 找不到符号
+      public void render(final DrawContext context, final int mouseX, final int mouseY, final float delta) {
+                               ^
+    符号:   类 DrawContext
+    位置: 类 BeamVehicleScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamVehicleScreen.java:310: 错误: 找不到符号
+      private void drawPresetFrame(final DrawContext context) {
+                                         ^
+    符号:   类 DrawContext
+    位置: 类 BeamVehicleScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamVehicleScreen.java:328: 错误: 找不到符号
+      private void drawScrollBar(final DrawContext context) {
+                                       ^
+    符号:   类 DrawContext
+    位置: 类 BeamVehicleScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\CategoryScreen.java:4: 错误: 找不到符号
+  import net.minecraft.client.gui.DrawContext;
+                                 ^
+    符号:   类 DrawContext
+    位置: 程序包 net.minecraft.client.gui
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\CategoryScreen.java:162: 错误: 找不到符号
+      public void render(final DrawContext context, final int mouseX, final int mouseY, final float delta) {
+                               ^
+    符号:   类 DrawContext
+    位置: 类 CategoryScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\CategoryScreen.java:182: 错误: 找不到符号
+      private void drawScrollBar(final DrawContext context) {
+                                       ^
+    符号:   类 DrawContext
+    位置: 类 CategoryScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\CollisionImpact.java:7: 错误: 找不到符号
+  import net.minecraft.entity.damage.DamageType;
+                                    ^
+    符号:   类 DamageType
+    位置: 程序包 net.minecraft.entity.damage
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\CollisionSystem.java:16: 错误: 找不到符号
+  import net.minecraft.entity.LimbAnimator;
+                             ^
+    符号:   类 LimbAnimator
+    位置: 程序包 net.minecraft.entity
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\TrainImpactDamageSource.java:6: 错误: 找不到符号
+  import net.minecraft.entity.damage.DamageType;
+                                    ^
+    符号:   类 DamageType
+    位置: 程序包 net.minecraft.entity.damage
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\TrainImpactDamageSource.java:51: 错误: 找不到符号
+      public TrainImpactDamageSource(final RegistryEntry<DamageType> type, final boolean fast) {
+                                           ^
+    符号:   类 RegistryEntry
+    位置: 类 TrainImpactDamageSource
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\TrainImpactDamageSource.java:51: 错误: 找不到符号
+      public TrainImpactDamageSource(final RegistryEntry<DamageType> type, final boolean fast) {
+                                                         ^
+    符号:   类 DamageType
+    位置: 类 TrainImpactDamageSource
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\ColorPickerScreen.java:3: 错误: 找不到符号
+  import net.minecraft.client.gui.DrawContext;
+                                 ^
+    符号:   类 DrawContext
+    位置: 程序包 net.minecraft.client.gui
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\ColorPickerScreen.java:223: 错误: 找不到符号
+      private void drawCentered(final DrawContext context, final Text text, final int cx,
+                                      ^
+    符号:   类 DrawContext
+    位置: 类 ColorPickerScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\ColorPickerScreen.java:234: 错误: 找不到符号
+      public void render(final DrawContext context, final int mouseX, final int mouseY, final float delta) {
+                               ^
+    符号:   类 DrawContext
+    位置: 类 ColorPickerScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:76: 错误: 找不到符号
+              final LiteralArgumentBuilder<FabricClientCommandSource> root) {
+                                           ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:75: 错误: 找不到符号
+      private static LiteralArgumentBuilder<FabricClientCommandSource> root(
+                                            ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:286: 错误: 找不到符号
+      private static int killSelf(final FabricClientCommandSource source, final boolean high) {
+                                        ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:337: 错误: 找不到符号
+      private static int trackbedStatus(final FabricClientCommandSource source) {
+                                              ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:355: 错误: 找不到符号
+      private static int setTrackbedWatch(final FabricClientCommandSource source, final boolean on) {
+                                                ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:389: 错误: 找不到符号
+      private static int trackbedWhere(final FabricClientCommandSource source) {
+                                             ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:425: 错误: 找不到符号
+      private static int trainsStatus(final FabricClientCommandSource source) {
+                                            ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:435: 错误: 找不到符号
+      private static int setBuiltInTrains(final FabricClientCommandSource source, final boolean on) {
+                                                ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:443: 错误: 找不到符号
+      private static int reloadTrains(final FabricClientCommandSource source) {
+                                            ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:454: 错误: 找不到符号
+      private static int rainStatus(final FabricClientCommandSource source) {
+                                          ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:459: 错误: 找不到符号
+      private static int setRainHush(final FabricClientCommandSource source, final boolean on) {
+                                           ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:474: 错误: 找不到符号
+      private static int force(final FabricClientCommandSource source, final boolean on) {
+                                     ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:482: 错误: 找不到符号
+      private static int report(final FabricClientCommandSource source) {
+                                      ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:497: 错误: 找不到符号
+      private static int flareStatus(final FabricClientCommandSource source) {
+                                           ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:545: 错误: 找不到符号
+      private static int setLightSwitch(final FabricClientCommandSource source, final String what,
+                                              ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:578: 错误: 找不到符号
+      private static int scatterStatus(final FabricClientCommandSource source) {
+                                             ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:591: 错误: 找不到符号
+      private static int scatterDebugStatus(final FabricClientCommandSource source) {
+                                                  ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:604: 错误: 找不到符号
+      private static int scatterDebug(final FabricClientCommandSource source, final String what) {
+                                            ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:610: 错误: 找不到符号
+      private static int setScatter(final FabricClientCommandSource source, final boolean on) {
+                                          ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:642: 错误: 找不到符号
+      private static int lightTestStatus(final FabricClientCommandSource source) {
+                                               ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:649: 错误: 找不到符号
+      private static int setLightTest(final FabricClientCommandSource source, final boolean on) {
+                                            ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:665: 错误: 找不到符号
+      private static int debugStatus(final FabricClientCommandSource source) {
+                                           ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:688: 错误: 找不到符号
+      private static int setDebugSpray(final FabricClientCommandSource source, final boolean on) {
+                                             ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:755: 错误: 找不到符号
+      private static int depNext(final FabricClientCommandSource source) {
+                                       ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:763: 错误: 找不到符号
+      private static int depStatus(final FabricClientCommandSource source) {
+                                         ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:771: 错误: 找不到符号
+      private static int depSet(final FabricClientCommandSource source, final String raw) {
+                                      ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:794: 错误: 找不到符号
+      private static int depDebugStatus(final FabricClientCommandSource source) {
+                                              ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:800: 错误: 找不到符号
+      private static int setDepDebug(final FabricClientCommandSource source, final boolean on) {
+                                           ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:810: 错误: 找不到符号
+      private static int set(final FabricClientCommandSource source, final String raw) {
+                                   ^
+    符号:   类 FabricClientCommandSource
+    位置: 类 Commands
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\ConfigScreen.java:5: 错误: 找不到符号
+  import net.minecraft.client.gui.DrawContext;
+                                 ^
+    符号:   类 DrawContext
+    位置: 程序包 net.minecraft.client.gui
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\ConfigScreen.java:8: 错误: 找不到符号
+  import net.minecraft.client.gui.tooltip.Tooltip;
+                                         ^
+    符号:   类 Tooltip
+    位置: 程序包 net.minecraft.client.gui.tooltip
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\ConfigScreen.java:214: 错误: 找不到符号
+      public void render(final DrawContext context, final int mouseX, final int mouseY, final float delta) {
+                               ^
+    符号:   类 DrawContext
+    位置: 类 ConfigScreen
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:14: 错误: 程序包org.joml不存在
+  import org.joml.Matrix4f;
+                 ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:15: 错误: 程序包org.joml不存在
+  import org.joml.Vector3f;
+                 ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\TrainPreview.java:18: 错误: 程序包org.joml不存在
+  import org.joml.Matrix4f;
+                 ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\bind\DisplayPushTicker.java:48: 错误: 程序包net.minecraft.registry不存在
+      private static final Map<net.minecraft.registry.RegistryKey<World>, Map<BlockPos, Set<UUID>>> IN_RANGE =
+                                                     ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\bind\LteBindCommand.java:5: 错误: 程序包net.fabricmc.fabric.api.command.v2不存在
+  import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+                                           ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\CollisionImpact.java:9: 错误: 程序包net.minecraft.registry.entry不存在
+  import net.minecraft.registry.entry.RegistryEntry;
+                                     ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\DriverKeyBypass.java:6: 错误: 程序包net.minecraft.registry不存在
+  import net.minecraft.registry.Registries;
+                               ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\TrainImpactDamageSource.java:8: 错误: 程序包net.minecraft.registry.entry不存在
+  import net.minecraft.registry.entry.RegistryEntry;
+                                     ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:12: 错误: 程序包net.fabricmc.fabric.api.client.command.v2不存在
+  import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
+                                                  ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:13: 错误: 程序包net.fabricmc.fabric.api.client.command.v2不存在
+  import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+                                                  ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\Commands.java:14: 错误: 程序包net.fabricmc.fabric.api.client.command.v2不存在
+  import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
+                                                  ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\decor\DecorBlocks.java:6: 错误: 程序包net.fabricmc.fabric.api.itemgroup.v1不存在
+  import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
+                                             ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\decor\DecorBlocks.java:12: 错误: 程序包net.minecraft.registry不存在
+  import net.minecraft.registry.Registries;
+                               ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\decor\DecorBlocks.java:13: 错误: 程序包net.minecraft.registry不存在
+  import net.minecraft.registry.Registry;
+                               ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\decor\DecorBlocks.java:14: 错误: 程序包net.minecraft.registry不存在
+  import net.minecraft.registry.RegistryKey;
+                               ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\decor\DecorBlocks.java:15: 错误: 程序包net.minecraft.registry不存在
+  import net.minecraft.registry.RegistryKeys;
+                               ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\decor\RccPlatforms.java:5: 错误: 程序包net.fabricmc.fabric.api.itemgroup.v1不存在
+  import net.fabricmc.fabric.api.itemgroup.v1.FabricItemGroup;
+                                             ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\decor\RccPlatforms.java:6: 错误: 程序包net.fabricmc.fabric.api.itemgroup.v1不存在
+  import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
+                                             ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\decor\RccPlatforms.java:14: 错误: 程序包net.minecraft.registry不存在
+  import net.minecraft.registry.Registries;
+                               ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\decor\RccPlatforms.java:15: 错误: 程序包net.minecraft.registry不存在
+  import net.minecraft.registry.Registry;
+                               ^
+  100 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights.
+
+BUILD FAILED in 10s
+1 actionable task: 1 executed

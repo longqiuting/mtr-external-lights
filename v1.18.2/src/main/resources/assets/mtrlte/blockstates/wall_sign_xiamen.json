@@ -1,0 +1,37 @@
+{
+  "__comment": "照 MTR 3.6.4.2 的 blockstates/station_name_entrance.json：属性名就是它的 propagate_property（0=矮板 / 1=高板），facing = 墙在哪一侧。2..5 是 MTR 的「无灯板」形态（只有字），照 MTR 一样不挂模型。模型换成带厦门地铁 logo 的那一份。",
+  "multipart": [
+    {
+      "when": { "facing": "north", "propagate_property": "0" },
+      "apply": { "model": "mtrlte:block/wall_sign_xiamen_short" }
+    },
+    {
+      "when": { "facing": "east", "propagate_property": "0" },
+      "apply": { "model": "mtrlte:block/wall_sign_xiamen_short", "y": 90 }
+    },
+    {
+      "when": { "facing": "south", "propagate_property": "0" },
+      "apply": { "model": "mtrlte:block/wall_sign_xiamen_short", "y": 180 }
+    },
+    {
+      "when": { "facing": "west", "propagate_property": "0" },
+      "apply": { "model": "mtrlte:block/wall_sign_xiamen_short", "y": 270 }
+    },
+    {
+      "when": { "facing": "north", "propagate_property": "1" },
+      "apply": { "model": "mtrlte:block/wall_sign_xiamen_tall" }
+    },
+    {
+      "when": { "facing": "east", "propagate_property": "1" },
+      "apply": { "model": "mtrlte:block/wall_sign_xiamen_tall", "y": 90 }
+    },
+    {
+      "when": { "facing": "south", "propagate_property": "1" },
+      "apply": { "model": "mtrlte:block/wall_sign_xiamen_tall", "y": 180 }
+    },
+    {
+      "when": { "facing": "west", "propagate_property": "1" },
+      "apply": { "model": "mtrlte:block/wall_sign_xiamen_tall", "y": 270 }
+    }
+  ]
+}

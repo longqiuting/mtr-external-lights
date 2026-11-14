@@ -1,8 +1,7 @@
 package dev.js.mtrheadlight;
 
-import dev.js.mtrheadlight.clientgui.Widgets;
-
 import net.minecraft.client.util.math.MatrixStack;
+import dev.js.mtrheadlight.clientgui.Widgets;
 import dev.js.mtrheadlight.VehicleLightOverrides.Beam;
 import net.minecraft.client.MinecraftClient;
 import dev.js.mtrheadlight.clientgui.DrawContext;

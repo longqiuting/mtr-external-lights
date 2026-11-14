@@ -1,0 +1,22 @@
+{
+  "__comment": "MTR 3.6.4.2 的 mtr:block/station_name_entrance_tall 原样：一块 16x16 的零厚度灯板（z=0.05），贴图 mtr:block/dark_blue。站名 / 品牌 logo 都由 MTR 的 RenderStationNameTiled(dispatcher, true) 画进生成贴图（logo 那张图由 StationNameEntranceLogoMixin 换成我们的），模型里没有任何 logo 元素。",
+  "textures": {
+    "particle": "mtrlte:block/dark_blue"
+  },
+  "elements": [
+    {
+      "__comment": "Light",
+      "from": [0, 0, 0.05],
+      "to": [16, 16, 0.05],
+      "faces": {
+        "north": {
+          "texture": "#particle",
+          "cullface": "north"
+        },
+        "south": {
+          "texture": "#particle"
+        }
+      }
+    }
+  ]
+}

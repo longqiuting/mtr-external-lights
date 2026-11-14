@@ -1,15 +1,11 @@
 package dev.js.mtrheadlight;
 
-import net.minecraft.text.LiteralText;
-import net.minecraft.text.TranslatableText;
-
-import dev.js.mtrheadlight.clientgui.Widgets;
-
-import net.minecraft.client.util.math.MatrixStack;
 import dev.js.mtrheadlight.clientgui.DrawContext;
+import dev.js.mtrheadlight.clientgui.Widgets;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 
@@ -18,6 +14,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import net.minecraft.text.TranslatableText;
+import net.minecraft.text.LiteralText;
 
 /**
  * 「导入资源包」页：选一个<b>没有</b>被游戏加载的 MTR 资源包（zip 或文件夹），
@@ -151,7 +149,10 @@ final class PackImportScreen extends Screen {
     }
 
     @Override
-    public void render(final MatrixStack matrices, final int mouseX, final int mouseY, final float delta) {
+    public void render(final MatrixStack matrices, final int mouseX, final int mouseY,
+                        final float delta) {
+        // 1.18.2 的 Screen#render 收 MatrixStack（没有 1.20.1 的 DrawContext）；
+        // 替身包一层，屏幕内部的绘制代码一行不用改。
         final DrawContext context = new DrawContext(matrices);
         this.renderBackground(matrices);
         final int centre = this.width / 2;

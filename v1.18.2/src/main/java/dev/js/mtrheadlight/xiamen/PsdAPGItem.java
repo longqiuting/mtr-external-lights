@@ -1,8 +1,6 @@
 // Xiamen PSD placement item — same rules as MTR's ItemPSDAPGBase.
 package dev.js.mtrheadlight.xiamen;
 
-import net.minecraft.text.TranslatableText;
-
 import java.util.List;
 
 import mtr.block.BlockPSDAPGDoorBase;
@@ -22,6 +20,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.world.World;
 import org.jetbrains.annotations.Nullable;
+import net.minecraft.text.TranslatableText;
 
 /**
  * MTR {@code mtr.item.ItemPSDAPGBase} 的等价物 —— 屏蔽门的一整套放置逻辑。
@@ -145,8 +144,6 @@ public class PsdAPGItem extends BlockItem {
                 }
             }
             for (int y = 0; y < height; y++) {
-                // 1.19.2 没有 BlockState#isReplaceable()（1.19.4 才加），走 Material：
-                // 空气 / 草丛 / 雪层 / 水草这类「可以盖过去」的方块都是 REPLACEABLE 材质。
                 if (world.getBlockState(offsetPos.up(y)).getMaterial().isReplaceable()) {
                     continue;
                 }

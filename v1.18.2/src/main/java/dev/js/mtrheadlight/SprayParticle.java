@@ -270,6 +270,8 @@ public final class SprayParticle extends SpriteBillboardParticle {
         final float dy = (float) (MathHelper.lerp(tickDelta, this.prevPosY, this.y) - cameraPos.getY());
         final float dz = (float) (MathHelper.lerp(tickDelta, this.prevPosZ, this.z) - cameraPos.getZ());
 
+        // 1.18.2 的 Camera#getRotation() 返回原版 net.minecraft.util.math.Quaternion，
+        // 不是 JOML 的（org.joml 要到 1.19.3 才进依赖树），所以统一先转成替身四元数。
         final Quaternionf rotation;
         if (this.angle == 0.0F) {
             rotation = new Quaternionf(camera.getRotation());

@@ -40,8 +40,11 @@ final class BeamSnap {
     static final int RIGHT = 5;
     static final int COUNT = 6;
 
-    /** 移动吸附步长（格）：按住 Shift 时位置就近取整到它的整数倍。 */
-    static final double MOVE_STEP = 0.5D;
+    /**
+     * 移动吸附步长（格）：默认 1/16。量化算法只有一份，在 {@link BeamGizmo#quantize}
+     * （默认 1/16、Shift 1/64；旋转默认 2.5°、Shift 0.5°）。
+     */
+    static final double MOVE_STEP = BeamGizmo.MOVE_STEP;
 
     /** 每个方向的 <b>头灯</b> {@code [yaw, pitch]}（度），下标与 {@link #FRONT}..{@link #RIGHT} 一致。 */
     private static final double[][] ANGLES = {
@@ -113,9 +116,9 @@ final class BeamSnap {
         return rot;
     }
 
-    /** 就近取整到 {@link #MOVE_STEP} 的整数倍（0.5 格步进）。 */
+    /** 就近取整到 {@link #MOVE_STEP} 的整数倍（抓手实际用的是 {@link BeamGizmo#quantize}）。 */
     static double stepped(final double value) {
-        return Math.round(value / MOVE_STEP) * MOVE_STEP;
+        return BeamGizmo.quantize(0.0D, value, MOVE_STEP);
     }
 
     private static double clamp(final double value, final double min, final double max) {

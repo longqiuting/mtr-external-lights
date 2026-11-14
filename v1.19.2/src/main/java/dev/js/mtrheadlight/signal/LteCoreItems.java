@@ -1,16 +1,22 @@
 package dev.js.mtrheadlight.signal;
 
+import dev.js.mtrheadlight.compat.ItemGroupTabs;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+
+import dev.js.mtrheadlight.LteLog;
 import dev.js.mtrheadlight.TabIcons;
 import dev.js.mtrheadlight.bind.BeamEditorItem;
 import dev.js.mtrheadlight.bind.LteDashboardItem;
 import dev.js.mtrheadlight.bind.PidsConnectorItem;
 import dev.js.mtrheadlight.bind.ProjectorConnectorItem;
-// 1.19.2 没有 fabric-item-group-api-v1（那是 1.19.3 才有的），页签走老线的
-// FabricItemGroupBuilder + appendItems；原版 Registration 只剩 Registry.ITEM。
-import net.fabricmc.fabric.api.client.itemgroup.FabricItemGroupBuilder;
+import dev.js.mtrheadlight.compat.ItemGroupEvents;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemGroup;
 import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
+import net.minecraft.util.registry.Registry;
 import net.minecraft.util.registry.Registry;
 import net.minecraft.util.registry.RegistryKey;
 import net.minecraft.text.Text;
@@ -62,13 +68,39 @@ public final class LteCoreItems {
     /** 页签 id：{@code mtrlte:tools}。 */
     public static final Identifier TOOLS_TAB_ID = new Identifier("mtrlte", "tools");
 
+    /** LTE logo 方块的 id（{@code dev.js.mtrheadlight.logo.LogoObjects#LTE_ID}，这里写字面量避免类初始化环）。 */
+    private static final Identifier LTE_LOGO_ID = new Identifier("mtrlte", "lte_logo");
+
+    /** LTE 贴墙标识的 id（{@code dev.js.mtrheadlight.xiamen.sign.WallSignObjects}，同上）。 */
+    private static final Identifier WALL_SIGN_LTE_ID = new Identifier("mtrlte", "wall_sign_lte");
+
+    /**
+     * 「LTE 工具」页签的最终顺序（用户点名，从前往后）：
+     * <ol>
+     *   <li>{@code lte_logo} —— LTE 标志方块；</li>
+     *   <li>{@code wall_sign_lte} —— LTE 贴墙标识；</li>
+     *   <li>{@code lte_dashboard} —— LTE 仪表板；</li>
+     *   <li>{@code beam_editor} —— 车灯 / 光束编辑器；</li>
+     *   <li>{@code signal_linker} → {@code projector_connector} → {@code pids_connector}
+     *       —— 三个连接器，内部顺序不变。</li>
+     * </ol>
+     * 由 {@link #pinToolsTabOrder()} 在<b>所有往这个页签加条目的模块都注册完之后</b>（{@code WallSignObjects}）
+     * 才挂上回调 —— 回调按注册顺序执行，早了就看不见后加的条目。
+     */
+    private static final List<Identifier> TOOLS_TAB_ORDER = List.of(
+            LTE_LOGO_ID,
+            WALL_SIGN_LTE_ID,
+            DASHBOARD_ID,
+            BEAM_EDITOR_ID,
+            SIGNAL_LINKER_ID,
+            PROJECTOR_CONNECTOR_ID,
+            PIDS_CONNECTOR_ID);
+
     private static SignalLinkItem signalLinker;
     private static ProjectorConnectorItem projectorConnector;
     private static PidsConnectorItem pidsConnector;
     private static LteDashboardItem dashboard;
     private static BeamEditorItem beamEditor;
-    /** 1.19.4 的页签不是 registry 条目，自己留一份引用（1.20.1 用 Registry.ITEM_GROUP.get()）。 */
-    private static ItemGroup toolsTab;
     private static boolean registered;
 
     private LteCoreItems() {
@@ -116,24 +148,65 @@ public final class LteCoreItems {
         // 页签图标：不是本页签里的任何物品，而是一个只画图标的物品（见 TabIcons 的类注释）。
         TabIcons.register();
 
-        // 1.19.2 的页签：FabricItemGroupBuilder.create(id) —— 页签的显示名由
-        // 「itemGroup.<namespace>.<path>」这个翻译键决定（这里就是 itemGroup.mtrlte.tools），
-        // 所以没有 1.19.4 的 .displayName(..)。appendItems 收的是 List<ItemStack>，
-        // 追加时机由 fabric 的 mixin 在填创造栏时回调，不需要 1.19.3 的 ItemGroupEvents。
-        toolsTab = FabricItemGroupBuilder.create(TOOLS_TAB_ID)
-                .icon(() -> new ItemStack(TabIcons.tools()))
-                .appendItems(entries -> {
-                    entries.add(new ItemStack(signalLinker));
-                    entries.add(new ItemStack(projectorConnector));
-                    entries.add(new ItemStack(pidsConnector));
-                    entries.add(new ItemStack(dashboard));
-                    entries.add(new ItemStack(beamEditor));
-                })
-                .build();
+        // 1.19.2 没有页签注册表：建页签这一步由 ItemGroupTabs 代做（进 ItemGroup.GROUPS）。
+        ItemGroupTabs.create(TOOLS_TAB_ID, () -> new ItemStack(TabIcons.tools()));
+
+        ItemGroupEvents.modifyEntriesEvent(TOOLS_TAB_ID)
+                .register(entries -> {
+                    entries.add(signalLinker);
+                    entries.add(projectorConnector);
+                    entries.add(pidsConnector);
+                    entries.add(dashboard);
+                    entries.add(beamEditor);
+                });
+    }
+
+    /**
+     * 把「LTE 工具」页签重排成 {@link #TOOLS_TAB_ORDER}：LTE logo → LTE 贴墙标识 → 仪表板 →
+     * 光束编辑器 → 三个连接器（连接器内部顺序不变）。
+     *
+     * <h2>为什么不是「谁后注册谁在后」</h2>
+     * <p>页签条目由 {@code ItemGroupEvents.modifyEntriesEvent} 的回调按<b>注册顺序</b>拼出来：
+     * {@code LteCoreItems} 先加五个物品、{@code LogoObjects} 把 LTE logo 插到 0、
+     * {@code WallSignObjects} 再把贴墙标识追加到末尾 —— 不加约束的话贴墙标识会沉到最后，
+     * 而用户要的是第 2 位。这里跟 {@code LogoObjects#pinCoreTabOrder()} 一个做法：
+     * 拿 {@code entries.getDisplayStacks()}（页签正在拼的可变列表）→ 按顺序把那几件摘出来 →
+     * 一次性插回下标 0。其余条目保持原有相对顺序，只被「往下推」。
+     *
+     * <p>由 {@code WallSignObjects.register()} 在它自己加完条目之后调用（那是最后一个往这个页签
+     * 加东西的模块）。
+     */
+    public static void pinToolsTabOrder() {
+        try {
+            ItemGroupEvents.modifyEntriesEvent(TOOLS_TAB_ID)
+                    .register(entries -> {
+                        final List<ItemStack> stacks = entries.getDisplayStacks();
+                        final List<ItemStack> front = new ArrayList<>(TOOLS_TAB_ORDER.size());
+                        for (final Identifier id : TOOLS_TAB_ORDER) {
+                            final Item item = Registry.ITEM.get(id);
+                            if (item == null || item == Items.AIR) {
+                                // 没注册（例如某次构建裁掉了贴墙标识）：跳过，不影响其余排序。
+                                continue;
+                            }
+                            for (final Iterator<ItemStack> it = stacks.iterator(); it.hasNext(); ) {
+                                final ItemStack stack = it.next();
+                                if (stack.isOf(item)) {
+                                    front.add(stack);
+                                    it.remove();
+                                }
+                            }
+                        }
+                        if (!front.isEmpty()) {
+                            stacks.addAll(0, front);
+                        }
+                    });
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] tools tab order: could not pin the LTE tools tab", t);
+        }
     }
 
     /** 页签在 registry 里的那一份（调试 / 其它模组想往里加东西时用）。 */
     public static ItemGroup tab() {
-        return toolsTab;
+        return ItemGroupTabs.get(TOOLS_TAB_ID);
     }
 }

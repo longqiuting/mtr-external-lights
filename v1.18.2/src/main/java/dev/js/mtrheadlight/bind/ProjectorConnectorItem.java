@@ -1,8 +1,5 @@
 package dev.js.mtrheadlight.bind;
 
-import net.minecraft.text.LiteralText;
-import net.minecraft.text.TranslatableText;
-
 import dev.js.mtrheadlight.LteLog;
 import mtr.data.Station;
 import net.minecraft.client.item.TooltipContext;
@@ -22,6 +19,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
+import net.minecraft.text.TranslatableText;
+import net.minecraft.text.LiteralText;
 
 /**
  * 投影机连接器（{@code mtrlte:projector_connector}）：把 MTR 的到站投影机绑到「某个站台所属的车站」。

@@ -1,6 +1,7 @@
 package dev.js.mtrheadlight.mixin.mtr;
 
 import dev.js.mtrheadlight.xiamen.XiamenRouteScope;
+import dev.js.mtrheadlight.xiamen.sign.WallSignLogos;
 import mtr.client.ClientCache;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -28,14 +29,14 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 @Mixin(value = ClientCache.class, remap = false)
 public abstract class RouteMapCacheKeyMixin {
 
-    /** {@code route_map_…} / {@code direction_arrow_…} 的 key：我们的那张加 {@code _lte} 后缀。 */
+    /** {@code route_map_…} / {@code direction_arrow_…} / {@code station_name_entrance_…} 的 key：我们的加后缀。 */
     @Redirect(
-            method = {"getRouteMap", "getDirectionArrow"},
+            method = {"getRouteMap", "getDirectionArrow", "getStationNameEntrance"},
             at = @At(value = "INVOKE", target = "Ljava/lang/String;format", remap = false),
             remap = false)
     private static String lte$scopedKey(final String format, final Object[] args) {
         final String key = String.format(format, args);
-        final String suffix = XiamenRouteScope.cacheKeySuffix();
+        final String suffix = XiamenRouteScope.cacheKeySuffix() + WallSignLogos.cacheKeySuffix();
         return suffix.isEmpty() ? key : key + suffix;
     }
 }

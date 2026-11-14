@@ -1,8 +1,5 @@
 package dev.js.mtrheadlight.signal;
 
-import net.minecraft.text.LiteralText;
-import net.minecraft.text.TranslatableText;
-
 import mtr.block.BlockNode;
 import mtr.block.BlockSignalLightBase;
 import mtr.block.BlockSignalSemaphoreBase;
@@ -27,6 +24,8 @@ import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
 
 import java.util.List;
+import net.minecraft.text.TranslatableText;
+import net.minecraft.text.LiteralText;
 
 /**
  * 信号连接器（{@code mtrlte:signal_linker}）：两次右键完成一次绑定。三种顺序都认，先点的那个是

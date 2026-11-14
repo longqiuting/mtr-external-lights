@@ -1,20 +1,18 @@
 package dev.js.mtrheadlight;
 
-import net.minecraft.text.LiteralText;
-
-import dev.js.mtrheadlight.clientgui.Widgets;
-
-import net.minecraft.client.util.math.MatrixStack;
 import dev.js.mtrheadlight.clientgui.DrawContext;
+import dev.js.mtrheadlight.clientgui.Widgets;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
+import net.minecraft.text.LiteralText;
 
 /**
  * Colour editor for one beam colour: a swatch grid <b>and</b> a hex field, so a colour that is not
@@ -236,7 +234,10 @@ public final class ColorPickerScreen extends Screen {
     }
 
     @Override
-    public void render(final MatrixStack matrices, final int mouseX, final int mouseY, final float delta) {
+    public void render(final MatrixStack matrices, final int mouseX, final int mouseY,
+                        final float delta) {
+        // 1.18.2 的 Screen#render 收 MatrixStack（没有 1.20.1 的 DrawContext）；
+        // 替身包一层，屏幕内部的绘制代码一行不用改。
         final DrawContext context = new DrawContext(matrices);
         context.drawTexture(OPTIONS_BACKGROUND, 0, 0, 0, 0, this.width, this.height, 32, 32);
         context.fillGradient(0, 0, this.width, this.height, 0xC0101010, 0xD0101010);

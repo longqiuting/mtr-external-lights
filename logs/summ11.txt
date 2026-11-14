@@ -1,0 +1,32 @@
+
+## charger/PowerBankProjectileEntity.java  (4)
+   152: 找不到符号 src:living.damage(DamageSource.thrownProjectile(this, owner), BLAST_DAMAGE); sym=变量 DamageSource at=类 PowerBankProjectileEntity   <<<
+   201: 找不到符号 src:if (!current.isAir() && !current.isReplaceable()) { sym=方法 isReplaceable() at=类型为BlockState的变量 current   <<<
+   152: 找不到符号 src:living.damage(DamageSource.thrownProjectile(this, owner), BLAST_DAMAGE); sym=变量 DamageSource at=类 PowerBankProjectileEntity
+   201: 找不到符号 src:if (!current.isAir() && !current.isReplaceable()) { sym=方法 isReplaceable() at=类型为BlockState的变量 current
+
+## mtrheadlight/BeamVehicleScreen.java  (2)
+   169: 找不到符号 src:this.searchField.setPlaceholder(tr("beam.search")); sym=方法 setPlaceholder(MutableText) at=类型为TextFieldWidget的变量 searchField   <<<
+   169: 找不到符号 src:this.searchField.setPlaceholder(tr("beam.search")); sym=方法 setPlaceholder(MutableText) at=类型为TextFieldWidget的变量 searchField
+
+## mtrheadlight/SidingScreen.java  (2)
+   318: 找不到符号 src:this.searchField.setPlaceholder(tr("sidings.search").asString()); sym=方法 setPlaceholder(String) at=类型为TextFieldWidget的变量 searchField   <<<
+   318: 找不到符号 src:this.searchField.setPlaceholder(tr("sidings.search").asString()); sym=方法 setPlaceholder(String) at=类型为TextFieldWidget的变量 searchField
+
+## pids/PidsXiamenNet.java  (2)
+   134: 找不到符号 src:final World world = player.getServerWorld(); sym=方法 getServerWorld() at=类型为ServerPlayerEntity的变量 player   <<<
+   134: 找不到符号 src:final World world = player.getServerWorld(); sym=方法 getServerWorld() at=类型为ServerPlayerEntity的变量 player
+
+## ticket/XiamenTicketGates.java  (2)
+   184: 找不到符号 src:new XiamenTicketGateSide(Block.Settings.create().strength(2.0F).requiresTool().nonOpaque(), sym=方法 create() at=类 Settings   <<<
+   184: 找不到符号 src:new XiamenTicketGateSide(Block.Settings.create().strength(2.0F).requiresTool().nonOpaque(), sym=方法 create() at=类 Settings
+
+=== top messages ===
+2x  找不到符号 src:this.searchField.setPlaceholder(tr("beam.search")); sym=方法 setPlaceholder(MutableText) at=类型为TextFieldWidget的变量 searchField
+2x  找不到符号 src:this.searchField.setPlaceholder(tr("sidings.search").asString()); sym=方法 setPlaceholder(String) at=类型为TextFieldWidget的变量 searchField
+2x  找不到符号 src:living.damage(DamageSource.thrownProjectile(this, owner), BLAST_DAMAGE); sym=变量 DamageSource at=类 PowerBankProjectileEntity
+2x  找不到符号 src:if (!current.isAir() && !current.isReplaceable()) { sym=方法 isReplaceable() at=类型为BlockState的变量 current
+2x  找不到符号 src:final World world = player.getServerWorld(); sym=方法 getServerWorld() at=类型为ServerPlayerEntity的变量 player
+2x  找不到符号 src:new XiamenTicketGateSide(Block.Settings.create().strength(2.0F).requiresTool().nonOpaque(), sym=方法 create() at=类 Settings
+
+total errors: 12, files: 5

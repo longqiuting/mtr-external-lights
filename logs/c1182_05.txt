@@ -1,0 +1,342 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.14/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Configure project :
+Fabric Loom: 1.11.8
+
+> Task :compileJava
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:16: 错误: 程序包org.joml不存在
+import org.joml.Matrix4f;
+               ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:17: 错误: 程序包org.joml不存在
+import org.joml.Vector3f;
+               ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamPackWriter.java:12: 错误: 找不到符号
+import net.minecraft.resource.InputSupplier;
+                             ^
+  符号:   类 InputSupplier
+  位置: 程序包 net.minecraft.resource
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamPackWriter.java:965: 错误: 找不到符号
+    private static String readAll(final InputSupplier<InputStream> supplier) {
+                                        ^
+  符号:   类 InputSupplier
+  位置: 类 BeamPackWriter
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\bind\LteBindCommand.java:5: 错误: 程序包net.fabricmc.fabric.api.command.v2不存在
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+                                         ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\CollisionSystem.java:16: 错误: 找不到符号
+import net.minecraft.entity.LimbAnimator;
+                           ^
+  符号:   类 LimbAnimator
+  位置: 程序包 net.minecraft.entity
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:12: 错误: 找不到符号
+import net.minecraft.client.gl.ShaderProgram;
+                              ^
+  符号:   类 ShaderProgram
+  位置: 程序包 net.minecraft.client.gl
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:19: 错误: 程序包org.joml不存在
+import org.joml.Matrix4f;
+               ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:115: 错误: 找不到符号
+    private static final Matrix4f VIEW_PROJ = new Matrix4f();
+                         ^
+  符号:   类 Matrix4f
+  位置: 类 ScatterPass
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:116: 错误: 找不到符号
+    private static final Matrix4f INVERSE = new Matrix4f();
+                         ^
+  符号:   类 Matrix4f
+  位置: 类 ScatterPass
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:745: 错误: 找不到符号
+    private static Matrix4f viewMatrix(final WorldRenderContext context,
+                   ^
+  符号:   类 Matrix4f
+  位置: 类 ScatterPass
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:772: 错误: 找不到符号
+    private static boolean rigid(final Matrix4f m) {
+                                       ^
+  符号:   类 Matrix4f
+  位置: 类 ScatterPass
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:7: 错误: 找不到符号
+import net.minecraft.client.gl.ShaderProgram;
+                              ^
+  符号:   类 ShaderProgram
+  位置: 程序包 net.minecraft.client.gl
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:12: 错误: 程序包org.joml不存在
+import org.joml.Matrix4f;
+               ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:91: 错误: 找不到符号
+    private static ShaderProgram program;
+                   ^
+  符号:   类 ShaderProgram
+  位置: 类 ScatterProgram
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:285: 错误: 找不到符号
+    private static GlUniform require(final ShaderProgram loaded, final String name) {
+                                           ^
+  符号:   类 ShaderProgram
+  位置: 类 ScatterProgram
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:312: 错误: 找不到符号
+    static void uniforms(final Matrix4f inverseViewProj, final float maxRay,
+                               ^
+  符号:   类 Matrix4f
+  位置: 类 ScatterProgram
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:448: 错误: 找不到符号
+    static ShaderProgram program() {
+           ^
+  符号:   类 ShaderProgram
+  位置: 类 ScatterProgram
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:493: 错误: 找不到符号
+    private static void closeQuietly(final ShaderProgram loaded) {
+                                           ^
+  符号:   类 ShaderProgram
+  位置: 类 ScatterProgram
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnRoofRenderer.java:4: 错误: 程序包org.joml不存在
+import org.joml.Matrix3f;
+               ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnRoofRenderer.java:5: 错误: 程序包org.joml不存在
+import org.joml.Matrix4f;
+               ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnRoofRenderer.java:279: 错误: 找不到符号
+    private static Matrix4f screenBasis() {
+                   ^
+  符号:   类 Matrix4f
+  位置: 类 DepOnRoofRenderer
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnWallRenderer.java:4: 错误: 程序包org.joml不存在
+import org.joml.Matrix3f;
+               ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnWallRenderer.java:5: 错误: 程序包org.joml不存在
+import org.joml.Matrix4f;
+               ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnWallRenderer.java:349: 错误: 找不到符号
+    private static Matrix4f screenBasis() {
+                   ^
+  符号:   类 Matrix4f
+  位置: 类 DepOnWallRenderer
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnWallRenderer.java:393: 错误: 找不到符号
+    private static void vertex(final VertexConsumer buffer, final Matrix4f position, final Matrix3f normal,
+                                                                  ^
+  符号:   类 Matrix4f
+  位置: 类 DepOnWallRenderer
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnWallRenderer.java:393: 错误: 找不到符号
+    private static void vertex(final VertexConsumer buffer, final Matrix4f position, final Matrix3f normal,
+                                                                                           ^
+  符号:   类 Matrix3f
+  位置: 类 DepOnWallRenderer
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\eyecandy\EyecandyBlocks.java:656: 错误: 找不到符号
+    private static void addAll(final ItemGroup.Entries entries, final EyecandyEntry.Pack pack) {
+                                              ^
+  符号:   类 Entries
+  位置: 类 ItemGroup
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:4: 错误: 程序包org.joml不存在
+import org.joml.Matrix4f;
+               ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:5: 错误: 程序包org.joml不存在
+import org.joml.Vector4f;
+               ^
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:172: 错误: 找不到符号
+        private final Matrix4f world;
+                      ^
+  符号:   类 Matrix4f
+  位置: 类 ClippingProvider
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:177: 错误: 找不到符号
+                         final Matrix4f world) {
+                               ^
+  符号:   类 Matrix4f
+  位置: 类 ClippingProvider
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:208: 错误: 找不到符号
+        private final Matrix4f world;
+                      ^
+  符号:   类 Matrix4f
+  位置: 类 ClippingConsumer
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:236: 错误: 找不到符号
+        private final Vector4f vector = new Vector4f();
+                      ^
+  符号:   类 Vector4f
+  位置: 类 ClippingConsumer
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:239: 错误: 找不到符号
+                         final Matrix4f world) {
+                               ^
+  符号:   类 Matrix4f
+  位置: 类 ClippingConsumer
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:256: 错误: 找不到符号
+        public VertexConsumer vertex(final Matrix4f matrix, final float x, final float y, final float z) {
+                                           ^
+  符号:   类 Matrix4f
+  位置: 类 ClippingConsumer
+36 个错误
+
+> Task :compileJava FAILED
+
+[Incubating] Problems report is available at: file:///D:/MC-MTR-JS/mtr-headlight/v1.18.2/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileJava'.
+> Compilation failed; see the compiler output below.
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamPackWriter.java:12: 错误: 找不到符号
+  import net.minecraft.resource.InputSupplier;
+                               ^
+    符号:   类 InputSupplier
+    位置: 程序包 net.minecraft.resource
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamPackWriter.java:965: 错误: 找不到符号
+      private static String readAll(final InputSupplier<InputStream> supplier) {
+                                          ^
+    符号:   类 InputSupplier
+    位置: 类 BeamPackWriter
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\collision\CollisionSystem.java:16: 错误: 找不到符号
+  import net.minecraft.entity.LimbAnimator;
+                             ^
+    符号:   类 LimbAnimator
+    位置: 程序包 net.minecraft.entity
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:12: 错误: 找不到符号
+  import net.minecraft.client.gl.ShaderProgram;
+                                ^
+    符号:   类 ShaderProgram
+    位置: 程序包 net.minecraft.client.gl
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:115: 错误: 找不到符号
+      private static final Matrix4f VIEW_PROJ = new Matrix4f();
+                           ^
+    符号:   类 Matrix4f
+    位置: 类 ScatterPass
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:116: 错误: 找不到符号
+      private static final Matrix4f INVERSE = new Matrix4f();
+                           ^
+    符号:   类 Matrix4f
+    位置: 类 ScatterPass
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:745: 错误: 找不到符号
+      private static Matrix4f viewMatrix(final WorldRenderContext context,
+                     ^
+    符号:   类 Matrix4f
+    位置: 类 ScatterPass
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:772: 错误: 找不到符号
+      private static boolean rigid(final Matrix4f m) {
+                                         ^
+    符号:   类 Matrix4f
+    位置: 类 ScatterPass
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:7: 错误: 找不到符号
+  import net.minecraft.client.gl.ShaderProgram;
+                                ^
+    符号:   类 ShaderProgram
+    位置: 程序包 net.minecraft.client.gl
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:91: 错误: 找不到符号
+      private static ShaderProgram program;
+                     ^
+    符号:   类 ShaderProgram
+    位置: 类 ScatterProgram
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:285: 错误: 找不到符号
+      private static GlUniform require(final ShaderProgram loaded, final String name) {
+                                             ^
+    符号:   类 ShaderProgram
+    位置: 类 ScatterProgram
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:312: 错误: 找不到符号
+      static void uniforms(final Matrix4f inverseViewProj, final float maxRay,
+                                 ^
+    符号:   类 Matrix4f
+    位置: 类 ScatterProgram
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:448: 错误: 找不到符号
+      static ShaderProgram program() {
+             ^
+    符号:   类 ShaderProgram
+    位置: 类 ScatterProgram
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:493: 错误: 找不到符号
+      private static void closeQuietly(final ShaderProgram loaded) {
+                                             ^
+    符号:   类 ShaderProgram
+    位置: 类 ScatterProgram
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnRoofRenderer.java:279: 错误: 找不到符号
+      private static Matrix4f screenBasis() {
+                     ^
+    符号:   类 Matrix4f
+    位置: 类 DepOnRoofRenderer
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnWallRenderer.java:349: 错误: 找不到符号
+      private static Matrix4f screenBasis() {
+                     ^
+    符号:   类 Matrix4f
+    位置: 类 DepOnWallRenderer
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnWallRenderer.java:393: 错误: 找不到符号
+      private static void vertex(final VertexConsumer buffer, final Matrix4f position, final Matrix3f normal,
+                                                                    ^
+    符号:   类 Matrix4f
+    位置: 类 DepOnWallRenderer
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnWallRenderer.java:393: 错误: 找不到符号
+      private static void vertex(final VertexConsumer buffer, final Matrix4f position, final Matrix3f normal,
+                                                                                             ^
+    符号:   类 Matrix3f
+    位置: 类 DepOnWallRenderer
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\eyecandy\EyecandyBlocks.java:656: 错误: 找不到符号
+      private static void addAll(final ItemGroup.Entries entries, final EyecandyEntry.Pack pack) {
+                                                ^
+    符号:   类 Entries
+    位置: 类 ItemGroup
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:172: 错误: 找不到符号
+          private final Matrix4f world;
+                        ^
+    符号:   类 Matrix4f
+    位置: 类 ClippingProvider
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:177: 错误: 找不到符号
+                           final Matrix4f world) {
+                                 ^
+    符号:   类 Matrix4f
+    位置: 类 ClippingProvider
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:208: 错误: 找不到符号
+          private final Matrix4f world;
+                        ^
+    符号:   类 Matrix4f
+    位置: 类 ClippingConsumer
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:236: 错误: 找不到符号
+          private final Vector4f vector = new Vector4f();
+                        ^
+    符号:   类 Vector4f
+    位置: 类 ClippingConsumer
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:239: 错误: 找不到符号
+                           final Matrix4f world) {
+                                 ^
+    符号:   类 Matrix4f
+    位置: 类 ClippingConsumer
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:256: 错误: 找不到符号
+          public VertexConsumer vertex(final Matrix4f matrix, final float x, final float y, final float z) {
+                                             ^
+    符号:   类 Matrix4f
+    位置: 类 ClippingConsumer
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:16: 错误: 程序包org.joml不存在
+  import org.joml.Matrix4f;
+                 ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:17: 错误: 程序包org.joml不存在
+  import org.joml.Vector3f;
+                 ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\bind\LteBindCommand.java:5: 错误: 程序包net.fabricmc.fabric.api.command.v2不存在
+  import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+                                           ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:19: 错误: 程序包org.joml不存在
+  import org.joml.Matrix4f;
+                 ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:12: 错误: 程序包org.joml不存在
+  import org.joml.Matrix4f;
+                 ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnRoofRenderer.java:4: 错误: 程序包org.joml不存在
+  import org.joml.Matrix3f;
+                 ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnRoofRenderer.java:5: 错误: 程序包org.joml不存在
+  import org.joml.Matrix4f;
+                 ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnWallRenderer.java:4: 错误: 程序包org.joml不存在
+  import org.joml.Matrix3f;
+                 ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\dep\DepOnWallRenderer.java:5: 错误: 程序包org.joml不存在
+  import org.joml.Matrix4f;
+                 ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:4: 错误: 程序包org.joml不存在
+  import org.joml.Matrix4f;
+                 ^
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:5: 错误: 程序包org.joml不存在
+  import org.joml.Vector4f;
+                 ^
+  36 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights.
+
+BUILD FAILED in 9s
+1 actionable task: 1 executed

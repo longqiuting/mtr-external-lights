@@ -1,16 +1,12 @@
 package dev.js.mtrheadlight;
 
-import net.minecraft.text.LiteralText;
-import net.minecraft.text.TranslatableText;
-
-import dev.js.mtrheadlight.clientgui.Widgets;
-
-import net.minecraft.client.util.math.MatrixStack;
 import dev.js.mtrheadlight.VehicleLightOverrides.Beam;
 import dev.js.mtrheadlight.clientgui.DrawContext;
+import dev.js.mtrheadlight.clientgui.Widgets;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.SliderWidget;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
@@ -19,6 +15,8 @@ import org.lwjgl.glfw.GLFW;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import net.minecraft.text.TranslatableText;
+import net.minecraft.text.LiteralText;
 
 /**
  * 光束编辑的第 3 层：<b>一束光束</b>。
@@ -360,7 +358,8 @@ final class BeamEditScreen extends Screen {
     }
 
     private void reinit() {
-        this.init(this.client, this.width, this.height); // 1.18.2 没有 clearAndInit()：init 自己会 clearChildren
+        this.clearChildren();
+        this.init();
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -368,7 +367,10 @@ final class BeamEditScreen extends Screen {
     // ---------------------------------------------------------------------------------------------
 
     @Override
-    public void render(final MatrixStack matrices, final int mouseX, final int mouseY, final float delta) {
+    public void render(final MatrixStack matrices, final int mouseX, final int mouseY,
+                        final float delta) {
+        // 1.18.2 的 Screen#render 收 MatrixStack（没有 1.20.1 的 DrawContext）；
+        // 替身包一层，屏幕内部的绘制代码一行不用改。
         final DrawContext context = new DrawContext(matrices);
         context.drawTexture(OPTIONS_BACKGROUND, 0, 0, 0, 0, this.width, this.height, 32, 32);
         context.fillGradient(0, 0, this.width, this.height, 0xC0101010, 0xD0101010);

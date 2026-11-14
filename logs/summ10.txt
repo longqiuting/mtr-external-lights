@@ -1,0 +1,200 @@
+
+## sss/ScatterPass.java  (12)
+   373: 找不到符号 src:VIEW_PROJ.set(RenderSystem.getProjectionMatrix()).mul(view); sym=方法 set(net.minecraft.util.math.Matrix4f) at=类型为dev.js.mtrheadlight.clientgui.Matrix4f的变量 VIEW_PROJ   <<<
+   374: 找不到符号 src:INVERSE.set(VIEW_PROJ).invert(); sym=方法 set(Matrix4f) at=类型为Matrix4f的变量 INVERSE   <<<
+   645: 找不到符号 src:BufferRenderer.drawWithGlobalProgram(built); sym=变量 built at=类 ScatterPass   <<<
+   747: 不兼容的类型: net.minecraft.util.math.Matrix4f无法转换为dev.js.mtrheadlight.clientgui.Matrix4f src:candidate = context.matrixStack().peek().getPositionMatrix();   <<<
+   756: 不兼容的类型: net.minecraft.util.math.Matrix4f无法转换为dev.js.mtrheadlight.clientgui.Matrix4f src:final Matrix4f renderSystem = RenderSystem.getModelViewMatrix();   <<<
+   764: 找不到符号    <<<
+   747: 不兼容的类型: net.minecraft.util.math.Matrix4f无法转换为dev.js.mtrheadlight.clientgui.Matrix4f src:candidate = context.matrixStack().peek().getPositionMatrix();
+   756: 不兼容的类型: net.minecraft.util.math.Matrix4f无法转换为dev.js.mtrheadlight.clientgui.Matrix4f src:final Matrix4f renderSystem = RenderSystem.getModelViewMatrix();
+   645: 找不到符号 src:BufferRenderer.drawWithGlobalProgram(built); sym=变量 built at=类 ScatterPass
+   373: 找不到符号 src:VIEW_PROJ.set(RenderSystem.getProjectionMatrix()).mul(view); sym=方法 set(net.minecraft.util.math.Matrix4f) at=类型为dev.js.mtrheadlight.clientgui.Matrix4f的变量 VIEW_PROJ
+   374: 找不到符号 src:INVERSE.set(VIEW_PROJ).invert(); sym=方法 set(Matrix4f) at=类型为Matrix4f的变量 INVERSE
+   764: 找不到符号 
+
+## mtrheadlight/TrainPreview.java  (6)
+   305: 找不到符号 src:if (MinecraftClient.getInstance().getResourceManager().getResource(id).isPresent()) { sym=方法 isPresent() at=接口 Resource   <<<
+   456: 不兼容的类型: dev.js.mtrheadlight.clientgui.Matrix4f无法转换为net.minecraft.util.math.Matrix4f src:matrices.multiplyPositionMatrix(camera.toPixels(centreX, centreY));   <<<
+   457: 不兼容的类型: dev.js.mtrheadlight.clientgui.Matrix4f无法转换为net.minecraft.util.math.Matrix4f src:matrices.multiplyPositionMatrix(camera.rotation());   <<<
+   456: 不兼容的类型: dev.js.mtrheadlight.clientgui.Matrix4f无法转换为net.minecraft.util.math.Matrix4f src:matrices.multiplyPositionMatrix(camera.toPixels(centreX, centreY));
+   457: 不兼容的类型: dev.js.mtrheadlight.clientgui.Matrix4f无法转换为net.minecraft.util.math.Matrix4f src:matrices.multiplyPositionMatrix(camera.rotation());
+   305: 找不到符号 src:if (MinecraftClient.getInstance().getResourceManager().getResource(id).isPresent()) { sym=方法 isPresent() at=接口 Resource
+
+## security/LiquidScannerBlock.java  (6)
+   307: 找不到符号 src:world.scheduleBlockTick(pos, this, LAMP_TICKS); sym=方法 scheduleBlockTick(BlockPos,LiquidScannerBlock,int) at=类型为World的变量 world   <<<
+   359: 找不到符号 src:final ItemStack scanned = held.copyWithCount(1); sym=方法 copyWithCount(int) at=类型为ItemStack的变量 held   <<<
+   364: 找不到符号 src:world.playSound(null, pos, SoundEvents.BLOCK_NOTE_BLOCK_PLING.value(), sym=方法 value() at=类型为SoundEvent的变量 BLOCK_NOTE_BLOCK_PLING   <<<
+   307: 找不到符号 src:world.scheduleBlockTick(pos, this, LAMP_TICKS); sym=方法 scheduleBlockTick(BlockPos,LiquidScannerBlock,int) at=类型为World的变量 world
+   359: 找不到符号 src:final ItemStack scanned = held.copyWithCount(1); sym=方法 copyWithCount(int) at=类型为ItemStack的变量 held
+   364: 找不到符号 src:world.playSound(null, pos, SoundEvents.BLOCK_NOTE_BLOCK_PLING.value(), sym=方法 value() at=类型为SoundEvent的变量 BLOCK_NOTE_BLOCK_PLING
+
+## mtrheadlight/TrainNames.java  (6)
+   132: 找不到符号 src:if (text.getContent() instanceof TranslatableText content) { sym=方法 getContent() at=类型为Text的变量 text   <<<
+   139: 找不到符号 src:final String fallback = content.getFallback(); sym=方法 getFallback() at=类型为TranslatableText的变量 content   <<<
+   167: 不兼容的类型: Resource无法转换为Optional<Resource> src:final Optional<Resource> resource = manager.getResource(   <<<
+   167: 不兼容的类型: Resource无法转换为Optional<Resource> src:final Optional<Resource> resource = manager.getResource(
+   132: 找不到符号 src:if (text.getContent() instanceof TranslatableText content) { sym=方法 getContent() at=类型为Text的变量 text
+   139: 找不到符号 src:final String fallback = content.getFallback(); sym=方法 getFallback() at=类型为TranslatableText的变量 content
+
+## charger/PowerBankProjectileEntity.java  (6)
+   81: 找不到符号 src:this.stack = stack.copyWithCount(1); sym=方法 copyWithCount(int) at=类型为ItemStack的变量 stack   <<<
+   151: 找不到符号 src:living.damage(world.getDamageSources().thrown(this, owner), BLAST_DAMAGE); sym=方法 getDamageSources() at=类型为World的变量 world   <<<
+   200: 找不到符号 src:if (!current.isAir() && !current.isReplaceable()) { sym=方法 isReplaceable() at=类型为BlockState的变量 current   <<<
+   81: 找不到符号 src:this.stack = stack.copyWithCount(1); sym=方法 copyWithCount(int) at=类型为ItemStack的变量 stack
+   151: 找不到符号 src:living.damage(world.getDamageSources().thrown(this, owner), BLAST_DAMAGE); sym=方法 getDamageSources() at=类型为World的变量 world
+   200: 找不到符号 src:if (!current.isAir() && !current.isReplaceable()) { sym=方法 isReplaceable() at=类型为BlockState的变量 current
+
+## drinks/DrinksMachineBlock.java  (6)
+   282: 找不到符号 src:return state.isAir() || state.isReplaceable(); sym=方法 isReplaceable() at=类型为BlockState的变量 state   <<<
+   471: 找不到符号 src:world.playSound(null, base, SoundEvents.BLOCK_NOTE_BLOCK_BELL.value(), SoundCategory.BLOCKS, 0.9F, 1.4F); sym=方法 value() at=类型为SoundEvent的变量 BLOCK_NOTE_BLOCK_BELL   <<<
+   474: 找不到符号 src:world.scheduleBlockTick(base, DrinksMachineObjects.bottom(), OPEN_TICKS); sym=方法 scheduleBlockTick(BlockPos,DrinksMachineBlock,int) at=类型为World的变量 world   <<<
+   282: 找不到符号 src:return state.isAir() || state.isReplaceable(); sym=方法 isReplaceable() at=类型为BlockState的变量 state
+   471: 找不到符号 src:world.playSound(null, base, SoundEvents.BLOCK_NOTE_BLOCK_BELL.value(), SoundCategory.BLOCKS, 0.9F, 1.4F); sym=方法 value() at=类型为SoundEvent的变量 BLOCK_NOTE_BLOCK_BELL
+   474: 找不到符号 src:world.scheduleBlockTick(base, DrinksMachineObjects.bottom(), OPEN_TICKS); sym=方法 scheduleBlockTick(BlockPos,DrinksMachineBlock,int) at=类型为World的变量 world
+
+## xiamen/PsdAPGItem.java  (6)
+   94: 找不到符号 src:Direction playerFacing = context.getPlayerLookDirection(); sym=方法 getPlayerLookDirection() at=类型为ItemUsageContext的变量 context   <<<
+   134: 找不到符号 src:Direction facing = context.getPlayerLookDirection(); sym=方法 getPlayerLookDirection() at=类型为ItemUsageContext的变量 context   <<<
+   147: 找不到符号 src:if (world.getBlockState(offsetPos.up(y)).isReplaceable()) { sym=方法 isReplaceable() at=类 BlockState   <<<
+   94: 找不到符号 src:Direction playerFacing = context.getPlayerLookDirection(); sym=方法 getPlayerLookDirection() at=类型为ItemUsageContext的变量 context
+   134: 找不到符号 src:Direction facing = context.getPlayerLookDirection(); sym=方法 getPlayerLookDirection() at=类型为ItemUsageContext的变量 context
+   147: 找不到符号 src:if (world.getBlockState(offsetPos.up(y)).isReplaceable()) { sym=方法 isReplaceable() at=类 BlockState
+
+## sss/ScatterProgram.java  (4)
+   276: 不兼容的类型: Resource无法转换为Optional<Resource> src:base.getResource(new Identifier(NAMESPACE, id.getPath()));   <<<
+   278: 不兼容的类型: lambda 表达式中的返回类型错误 src:return own;   <<<
+   276: 不兼容的类型: Resource无法转换为Optional<Resource> src:base.getResource(new Identifier(NAMESPACE, id.getPath()));
+   278: 不兼容的类型: lambda 表达式中的返回类型错误 src:return own;
+
+## dep/DepOnWallRenderer.java  (4)
+   375: 找不到符号 src:RenderLayer.getEntityTranslucentEmissive(TEXTURE)); sym=方法 getEntityTranslucentEmissive(Identifier) at=类 RenderLayer   <<<
+   429: 找不到符号 src:RenderLayer.getEntityTranslucentEmissive(LED_TEXTURE)); sym=方法 getEntityTranslucentEmissive(Identifier) at=类 RenderLayer   <<<
+   375: 找不到符号 src:RenderLayer.getEntityTranslucentEmissive(TEXTURE)); sym=方法 getEntityTranslucentEmissive(Identifier) at=类 RenderLayer
+   429: 找不到符号 src:RenderLayer.getEntityTranslucentEmissive(LED_TEXTURE)); sym=方法 getEntityTranslucentEmissive(Identifier) at=类 RenderLayer
+
+## pids/PidsXiamenText.java  (4)
+   149: 对于draw(String,float,float,int,boolean,Matrix4f,VertexConsumerProvider,TextLayerType,int,int), 找不到合适的方法 src:textRenderer.draw(text, 0.0F, 0.0F, color, false,   <<<
+   258: 找不到符号 src:matrix.transform(this.vector); sym=方法 transform(Vector4f) at=类型为Matrix4f的变量 matrix   <<<
+   149: 对于draw(String,float,float,int,boolean,Matrix4f,VertexConsumerProvider,TextLayerType,int,int), 找不到合适的方法 src:textRenderer.draw(text, 0.0F, 0.0F, color, false,
+   258: 找不到符号 src:matrix.transform(this.vector); sym=方法 transform(Vector4f) at=类型为Matrix4f的变量 matrix
+
+## pids/PidsXiamenTicker.java  (4)
+   294: 找不到符号 src:if (resource.isEmpty()) { sym=方法 isEmpty() at=类型为Resource的变量 resource   <<<
+   298: 找不到符号 src:try (InputStream in = resource.get().getInputStream()) { sym=方法 get() at=类型为Resource的变量 resource   <<<
+   294: 找不到符号 src:if (resource.isEmpty()) { sym=方法 isEmpty() at=类型为Resource的变量 resource
+   298: 找不到符号 src:try (InputStream in = resource.get().getInputStream()) { sym=方法 get() at=类型为Resource的变量 resource
+
+## ticket/XiamenTicketGateSounds.java  (4)
+   55: 找不到符号 src:CRT_TICKET = Registry.register(Registry.SOUND_EVENT, CRT_TICKET_ID, SoundEvent.of(CRT_TICKET_ID)); sym=方法 of(Identifier) at=类 SoundEvent   <<<
+   57: 找不到符号 src:SoundEvent.of(CRT_TICKET_ERROR_ID)); sym=方法 of(Identifier) at=类 SoundEvent   <<<
+   55: 找不到符号 src:CRT_TICKET = Registry.register(Registry.SOUND_EVENT, CRT_TICKET_ID, SoundEvent.of(CRT_TICKET_ID)); sym=方法 of(Identifier) at=类 SoundEvent
+   57: 找不到符号 src:SoundEvent.of(CRT_TICKET_ERROR_ID)); sym=方法 of(Identifier) at=类 SoundEvent
+
+## mtrheadlight/BeamPackScope.java  (2)
+   379: 不兼容的类型: String[]无法转换为String src:try (InputStream in = pack.openRoot(segments).get()) {   <<<
+   379: 不兼容的类型: String[]无法转换为String src:try (InputStream in = pack.openRoot(segments).get()) {
+
+## mtrheadlight/BeamVehicleScreen.java  (2)
+   169: 找不到符号 src:this.searchField.setPlaceholder(tr("beam.search")); sym=方法 setPlaceholder(MutableText) at=类型为TextFieldWidget的变量 searchField   <<<
+   169: 找不到符号 src:this.searchField.setPlaceholder(tr("beam.search")); sym=方法 setPlaceholder(MutableText) at=类型为TextFieldWidget的变量 searchField
+
+## bind/LteBindCommand.java  (2)
+   40: 不兼容的类型: lambda 表达式中的参数类型不兼容 src:CommandRegistrationCallback.EVENT.register(dispatcher ->   <<<
+   40: 不兼容的类型: lambda 表达式中的参数类型不兼容 src:CommandRegistrationCallback.EVENT.register(dispatcher ->
+
+## collision/CollisionImpact.java  (2)
+   1139: 找不到符号 src:final DamageSource source = target.getWorld().getDamageSources().fall(); sym=方法 getDamageSources() at=类 World   <<<
+   1139: 找不到符号 src:final DamageSource source = target.getWorld().getDamageSources().fall(); sym=方法 getDamageSources() at=类 World
+
+## mtrheadlight/LightFlare.java  (2)
+   885: 找不到符号 src:if (client.getResourceManager().getResource(TEXTURE).isEmpty()) { sym=方法 isEmpty() at=接口 Resource   <<<
+   885: 找不到符号 src:if (client.getResourceManager().getResource(TEXTURE).isEmpty()) { sym=方法 isEmpty() at=接口 Resource
+
+## server/LteServer.java  (2)
+   243: 找不到符号 src:final net.minecraft.server.world.ServerWorld world = player.getServerWorld(); sym=方法 getServerWorld() at=类型为ServerPlayerEntity的变量 player   <<<
+   243: 找不到符号 src:final net.minecraft.server.world.ServerWorld world = player.getServerWorld(); sym=方法 getServerWorld() at=类型为ServerPlayerEntity的变量 player
+
+## mtrheadlight/SidingInfo.java  (2)
+   13: 找不到符号 src:return siding.getTrainCars(); sym=方法 getTrainCars() at=类型为Siding的变量 siding   <<<
+   13: 找不到符号 src:return siding.getTrainCars(); sym=方法 getTrainCars() at=类型为Siding的变量 siding
+
+## mtrheadlight/SidingScreen.java  (2)
+   318: 找不到符号 src:this.searchField.setPlaceholder(tr("sidings.search")); sym=方法 setPlaceholder(MutableText) at=类型为TextFieldWidget的变量 searchField   <<<
+   318: 找不到符号 src:this.searchField.setPlaceholder(tr("sidings.search")); sym=方法 setPlaceholder(MutableText) at=类型为TextFieldWidget的变量 searchField
+
+## signal/SignalLinkNet.java  (2)
+   237: 找不到符号 src:final Map rails = data.getRailsMap(); sym=方法 getRailsMap() at=类型为RailwayData的变量 data   <<<
+   237: 找不到符号 src:final Map rails = data.getRailsMap(); sym=方法 getRailsMap() at=类型为RailwayData的变量 data
+
+## eyecandy/PsdDoorProbe.java  (2)
+   169: 找不到符号 src:return Integer.valueOf(door.getOpenValue()); sym=方法 getOpenValue() at=类型为TileEntityPSDAPGDoorBase的变量 door   <<<
+   169: 找不到符号 src:return Integer.valueOf(door.getOpenValue()); sym=方法 getOpenValue() at=类型为TileEntityPSDAPGDoorBase的变量 door
+
+## fangsu/FangsuPsdDoorBlock.java  (2)
+   382: 找不到符号 src:return this.animation.update(this.getOpenValue() / (float) MAX_OPEN_VALUE, ticks, tickDelta); sym=方法 getOpenValue()   <<<
+   382: 找不到符号 src:return this.animation.update(this.getOpenValue() / (float) MAX_OPEN_VALUE, ticks, tickDelta); sym=方法 getOpenValue()
+
+## machine/XiamenBalanceMachineBlock.java  (2)
+   71: 找不到符号 src:net.minecraft.sound.SoundEvent.of(new net.minecraft.util.Identifier("mtrlte", "ticket_processor_entry")), sym=方法 of(Identifier) at=类 SoundEvent   <<<
+   71: 找不到符号 src:net.minecraft.sound.SoundEvent.of(new net.minecraft.util.Identifier("mtrlte", "ticket_processor_entry")), sym=方法 of(Identifier) at=类 SoundEvent
+
+## pids/PidsXiamenAds.java  (2)
+   336: 找不到符号 src:state = client.getResourceManager().getResource(ad.image()).isPresent() sym=方法 isPresent() at=接口 Resource src:D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenAdsScreen.java:218: 错误: 无法将类 PackScreen中的构造器 PackScreen应用到给定类型;   <<<
+   336: 找不到符号 src:state = client.getResourceManager().getResource(ad.image()).isPresent() sym=方法 isPresent() at=接口 Resource   <<<
+
+## pids/PidsXiamenAdsScreen.java  (2)
+   218: 无法将类 PackScreen中的构造器 PackScreen应用到给定类型; src:client.setScreen(new PackScreen(client.getResourcePackManager(),   <<<
+   218: 无法将类 PackScreen中的构造器 PackScreen应用到给定类型; src:client.setScreen(new PackScreen(client.getResourcePackManager(),
+
+## pids/PidsXiamenNet.java  (2)
+   134: 找不到符号 src:final World world = player.getServerWorld(); sym=方法 getServerWorld() at=类型为ServerPlayerEntity的变量 player src:D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:149: 错误: 对于draw(String,float,float,int,boolean,Matrix4f,VertexConsumerProvider,TextLayerType,int,int), 找不到合适的方法   <<<
+   134: 找不到符号 src:final World world = player.getServerWorld(); sym=方法 getServerWorld() at=类型为ServerPlayerEntity的变量 player   <<<
+
+## ticket/XiamenTicketGates.java  (2)
+   184: 找不到符号 src:new XiamenTicketGateSide(Block.Settings.create().strength(2.0F).requiresTool().nonOpaque(), sym=方法 create() at=类 Settings   <<<
+   184: 找不到符号 src:new XiamenTicketGateSide(Block.Settings.create().strength(2.0F).requiresTool().nonOpaque(), sym=方法 create() at=类 Settings
+
+=== top messages ===
+2x  找不到符号 src:if (MinecraftClient.getInstance().getResourceManager().getResource(id).isPresent()) { sym=方法 isPresent() at=接口 Resource
+2x  不兼容的类型: dev.js.mtrheadlight.clientgui.Matrix4f无法转换为net.minecraft.util.math.Matrix4f src:matrices.multiplyPositionMatrix(camera.toPixels(centreX, centreY));
+2x  不兼容的类型: dev.js.mtrheadlight.clientgui.Matrix4f无法转换为net.minecraft.util.math.Matrix4f src:matrices.multiplyPositionMatrix(camera.rotation());
+2x  不兼容的类型: String[]无法转换为String src:try (InputStream in = pack.openRoot(segments).get()) {
+2x  找不到符号 src:this.searchField.setPlaceholder(tr("beam.search")); sym=方法 setPlaceholder(MutableText) at=类型为TextFieldWidget的变量 searchField
+2x  不兼容的类型: lambda 表达式中的参数类型不兼容 src:CommandRegistrationCallback.EVENT.register(dispatcher ->
+2x  找不到符号 src:final DamageSource source = target.getWorld().getDamageSources().fall(); sym=方法 getDamageSources() at=类 World
+2x  找不到符号 src:if (client.getResourceManager().getResource(TEXTURE).isEmpty()) { sym=方法 isEmpty() at=接口 Resource
+2x  找不到符号 src:world.scheduleBlockTick(pos, this, LAMP_TICKS); sym=方法 scheduleBlockTick(BlockPos,LiquidScannerBlock,int) at=类型为World的变量 world
+2x  找不到符号 src:final ItemStack scanned = held.copyWithCount(1); sym=方法 copyWithCount(int) at=类型为ItemStack的变量 held
+2x  找不到符号 src:world.playSound(null, pos, SoundEvents.BLOCK_NOTE_BLOCK_PLING.value(), sym=方法 value() at=类型为SoundEvent的变量 BLOCK_NOTE_BLOCK_PLING
+2x  找不到符号 src:final net.minecraft.server.world.ServerWorld world = player.getServerWorld(); sym=方法 getServerWorld() at=类型为ServerPlayerEntity的变量 player
+2x  找不到符号 src:return siding.getTrainCars(); sym=方法 getTrainCars() at=类型为Siding的变量 siding
+2x  找不到符号 src:this.searchField.setPlaceholder(tr("sidings.search")); sym=方法 setPlaceholder(MutableText) at=类型为TextFieldWidget的变量 searchField
+2x  找不到符号 src:final Map rails = data.getRailsMap(); sym=方法 getRailsMap() at=类型为RailwayData的变量 data
+2x  找不到符号 src:VIEW_PROJ.set(RenderSystem.getProjectionMatrix()).mul(view); sym=方法 set(net.minecraft.util.math.Matrix4f) at=类型为dev.js.mtrheadlight.clientgui.Matrix4f的变量 VIEW_PROJ
+2x  找不到符号 src:INVERSE.set(VIEW_PROJ).invert(); sym=方法 set(Matrix4f) at=类型为Matrix4f的变量 INVERSE
+2x  找不到符号 src:BufferRenderer.drawWithGlobalProgram(built); sym=变量 built at=类 ScatterPass
+2x  不兼容的类型: net.minecraft.util.math.Matrix4f无法转换为dev.js.mtrheadlight.clientgui.Matrix4f src:candidate = context.matrixStack().peek().getPositionMatrix();
+2x  不兼容的类型: net.minecraft.util.math.Matrix4f无法转换为dev.js.mtrheadlight.clientgui.Matrix4f src:final Matrix4f renderSystem = RenderSystem.getModelViewMatrix();
+2x  找不到符号 
+2x  不兼容的类型: Resource无法转换为Optional<Resource> src:base.getResource(new Identifier(NAMESPACE, id.getPath()));
+2x  不兼容的类型: lambda 表达式中的返回类型错误 src:return own;
+2x  找不到符号 src:if (text.getContent() instanceof TranslatableText content) { sym=方法 getContent() at=类型为Text的变量 text
+2x  找不到符号 src:final String fallback = content.getFallback(); sym=方法 getFallback() at=类型为TranslatableText的变量 content
+2x  不兼容的类型: Resource无法转换为Optional<Resource> src:final Optional<Resource> resource = manager.getResource(
+2x  找不到符号 src:this.stack = stack.copyWithCount(1); sym=方法 copyWithCount(int) at=类型为ItemStack的变量 stack
+2x  找不到符号 src:living.damage(world.getDamageSources().thrown(this, owner), BLAST_DAMAGE); sym=方法 getDamageSources() at=类型为World的变量 world
+2x  找不到符号 src:if (!current.isAir() && !current.isReplaceable()) { sym=方法 isReplaceable() at=类型为BlockState的变量 current
+2x  找不到符号 src:RenderLayer.getEntityTranslucentEmissive(TEXTURE)); sym=方法 getEntityTranslucentEmissive(Identifier) at=类 RenderLayer
+2x  找不到符号 src:RenderLayer.getEntityTranslucentEmissive(LED_TEXTURE)); sym=方法 getEntityTranslucentEmissive(Identifier) at=类 RenderLayer
+2x  找不到符号 src:return state.isAir() || state.isReplaceable(); sym=方法 isReplaceable() at=类型为BlockState的变量 state
+2x  找不到符号 src:world.playSound(null, base, SoundEvents.BLOCK_NOTE_BLOCK_BELL.value(), SoundCategory.BLOCKS, 0.9F, 1.4F); sym=方法 value() at=类型为SoundEvent的变量 BLOCK_NOTE_BLOCK_BELL
+2x  找不到符号 src:world.scheduleBlockTick(base, DrinksMachineObjects.bottom(), OPEN_TICKS); sym=方法 scheduleBlockTick(BlockPos,DrinksMachineBlock,int) at=类型为World的变量 world
+2x  找不到符号 src:return Integer.valueOf(door.getOpenValue()); sym=方法 getOpenValue() at=类型为TileEntityPSDAPGDoorBase的变量 door
+2x  找不到符号 src:return this.animation.update(this.getOpenValue() / (float) MAX_OPEN_VALUE, ticks, tickDelta); sym=方法 getOpenValue()
+2x  找不到符号 src:net.minecraft.sound.SoundEvent.of(new net.minecraft.util.Identifier("mtrlte", "ticket_processor_entry")), sym=方法 of(Identifier) at=类 SoundEvent
+2x  无法将类 PackScreen中的构造器 PackScreen应用到给定类型; src:client.setScreen(new PackScreen(client.getResourcePackManager(),
+2x  对于draw(String,float,float,int,boolean,Matrix4f,VertexConsumerProvider,TextLayerType,int,int), 找不到合适的方法 src:textRenderer.draw(text, 0.0F, 0.0F, color, false,
+2x  找不到符号 src:matrix.transform(this.vector); sym=方法 transform(Vector4f) at=类型为Matrix4f的变量 matrix
+
+total errors: 100, files: 28

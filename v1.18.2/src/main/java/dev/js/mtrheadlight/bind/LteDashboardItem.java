@@ -1,7 +1,5 @@
 package dev.js.mtrheadlight.bind;
 
-import net.minecraft.text.TranslatableText;
-
 import net.minecraft.client.item.TooltipContext;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.Item;
@@ -13,6 +11,7 @@ import net.minecraft.util.TypedActionResult;
 import net.minecraft.world.World;
 
 import java.util.List;
+import net.minecraft.text.TranslatableText;
 
 /**
  * LTE 仪表板（{@code mtrlte:lte_dashboard}）：拿在手上右键，打开 LTE 的配置界面。

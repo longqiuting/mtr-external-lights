@@ -6,21 +6,19 @@ import java.util.Map;
 
 import dev.js.mtrheadlight.LteLog;
 import dev.js.mtrheadlight.TabIcons;
-// 1.19.2：没有 fabric-item-group-api-v1，页签走 FabricItemGroupBuilder（见类内注释）。
-import net.fabricmc.fabric.api.client.itemgroup.FabricItemGroupBuilder;
+import dev.js.mtrheadlight.compat.LteTabs;
 import net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder;
 import net.minecraft.block.AbstractBlock;
 import net.minecraft.block.Block;
 import net.minecraft.block.MapColor;
-import net.minecraft.block.Material;
 import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemGroup;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.registry.Registry;
-import net.minecraft.util.registry.RegistryKey;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
+import net.minecraft.block.Material;
 
 /**
  * 厦门风格物件：创造模式页签 {@code mtrlte:core}（「厦门风格物件 / Xiamen Style Objects」）以及里面的方块。
@@ -56,6 +54,10 @@ import net.minecraft.util.Identifier;
  * <p>{@code BlockEntityType} 本来就支持「一个类型 + 多个方块」，所以五条线路的门扇共用一个
  * {@code mtrlte:psd_door_xiamen} 类型（<b>老存档里的方块实体 id 不变</b>，不需要任何数据迁移）。
  * 渲染器因此也只需要注册一次，线路靠方块实例区分。
+ *
+ * <p>（曾经还有一块 {@code mtrlte:psd_top_xiamen_standalone}「独立吊板」—— 把吊板拆出来单独放。
+ * 问题太多且不合算，已整体删除：方块、物品、资源、lang、注册、渲染器挂接全部移除，
+ * 屏蔽门自带的吊板（{@code psd_top_xiamen*}）完全不受影响。）
  */
 public final class XiamenObjects {
 
@@ -153,8 +155,6 @@ public final class XiamenObjects {
     private static BlockEntityType<XiamenPsdBlocks.TileEntityXiamenPSDTop> psdTopEntityType;
     private static BlockEntityType<XiamenPsdBlocks.TileEntityXiamenAPGDoor> apgDoorEntityType;
     private static BlockEntityType<XiamenPsdBlocks.TileEntityXiamenAPGGlass> apgGlassEntityType;
-    /** 1.19.4 的页签不是 registry 条目，自己留一份引用（1.20.1 用 Registry.ITEM_GROUP.get()）。 */
-    private static ItemGroup coreTab;
     private static boolean registered;
 
     private XiamenObjects() {
@@ -287,24 +287,23 @@ public final class XiamenObjects {
         // 页签图标是一个只画图标的物品（见 TabIcons 的类注释），不是这一页里的门扇 / 玻璃。
         TabIcons.register();
 
-        // 1.19.2 的页签：显示名取自「itemGroup.mtrlte.core」这个翻译键（builder 用 id 生成），
-        // 追加物品用 appendItems(List<ItemStack>)；顺序 = 页签里从左到右的顺序：
-        // 先标志，再 1/2/3/4/6 号线各一组（门扇 → 玻璃 → 端头），每组后面跟这一条线路的半高 APG。
-        coreTab = FabricItemGroupBuilder.create(CORE_TAB_ID)
-                .icon(() -> new ItemStack(TabIcons.core()))
-                .appendItems(entries -> {
-                    entries.add(new ItemStack(logo));
+        LteTabs.create(CORE_TAB_ID, () -> new ItemStack(TabIcons.core()));
+
+        // 顺序 = 页签里从左到右的顺序：先标志，再 1/2/3/4/6 号线各一组（门扇 → 玻璃 → 端头），
+        // 每组后面跟这一条线路的半高 APG（同样是门扇 → 玻璃 → 端头）。
+        LteTabs.modify(CORE_TAB_ID)
+                .register(entries -> {
+                    entries.add(logo);
                     for (final XiamenLine line : XiamenLine.values()) {
                         final LineSet set = set(line);
-                        entries.add(new ItemStack(set.door));
-                        entries.add(new ItemStack(set.glass));
-                        entries.add(new ItemStack(set.end));
-                        entries.add(new ItemStack(set.apgDoor));
-                        entries.add(new ItemStack(set.apgGlass));
-                        entries.add(new ItemStack(set.apgEnd));
+                        entries.add(set.door);
+                        entries.add(set.glass);
+                        entries.add(set.end);
+                        entries.add(set.apgDoor);
+                        entries.add(set.apgGlass);
+                        entries.add(set.apgEnd);
                     }
-                })
-                .build();
+                });
 
         for (final XiamenLine line : XiamenLine.values()) {
             final LineSet set = set(line);
@@ -370,8 +369,6 @@ public final class XiamenObjects {
      * 那块是整格立方体，所以这里不能加 {@code nonOpaque()}（会漏光）。
      */
     private static XiamenLogoBlock registerLogo(Identifier id) {
-        // 1.19.4: AbstractBlock.Settings.create() 不存在（1.20 才加），用 Settings.of(Material)。
-        // 后面 mapColor/hardness/luminance 全部显式给了，材质只影响未被覆盖的默认值。
         final XiamenLogoBlock block = new XiamenLogoBlock(AbstractBlock.Settings.of(Material.STONE)
                 .mapColor(MapColor.IRON_GRAY)
                 .requiresTool()
@@ -382,8 +379,10 @@ public final class XiamenObjects {
         return block;
     }
 
-    /** 页签在 registry 里的那一份（调试用）。 */
+    /**
+     * 页签在 registry 里的那一份（调试用）。
+     */
     public static ItemGroup tab() {
-        return coreTab;
+        return LteTabs.get(CORE_TAB_ID);
     }
 }

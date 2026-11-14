@@ -1,0 +1,8 @@
+{
+  "type": "minecraft:stonecutting",
+  "ingredient": {
+    "item": "mtrlte:railing_wall_flat"
+  },
+  "result": "mtrlte:railing_wall_corner_2",
+  "count": 1
+}

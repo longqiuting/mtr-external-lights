@@ -1,0 +1,7 @@
+{
+  "parent": "mtrlte:block/ticket_machine_xiamen_top",
+  "textures": {
+    "particle": "mtrlte:block/amtr_ticket_closed",
+    "tex": "mtrlte:block/amtr_ticket_closed"
+  }
+}

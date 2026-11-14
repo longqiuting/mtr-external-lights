@@ -1,0 +1,94 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.14/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Configure project :
+Fabric Loom: 1.11.8
+
+> Task :compileJava
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamVehicleScreen.java:169: 错误: 找不到符号
+        this.searchField.setPlaceholder(tr("beam.search"));
+                        ^
+  符号:   方法 setPlaceholder(MutableText)
+  位置: 类型为TextFieldWidget的变量 searchField
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\SidingScreen.java:318: 错误: 找不到符号
+        this.searchField.setPlaceholder(tr("sidings.search").asString());
+                        ^
+  符号:   方法 setPlaceholder(String)
+  位置: 类型为TextFieldWidget的变量 searchField
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\charger\PowerBankProjectileEntity.java:152: 错误: 找不到符号
+            living.damage(DamageSource.thrownProjectile(this, owner), BLAST_DAMAGE);
+                          ^
+  符号:   变量 DamageSource
+  位置: 类 PowerBankProjectileEntity
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\charger\PowerBankProjectileEntity.java:201: 错误: 找不到符号
+        if (!current.isAir() && !current.isReplaceable()) {
+                                        ^
+  符号:   方法 isReplaceable()
+  位置: 类型为BlockState的变量 current
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenNet.java:134: 错误: 找不到符号
+            final World world = player.getServerWorld();
+                                      ^
+  符号:   方法 getServerWorld()
+  位置: 类型为ServerPlayerEntity的变量 player
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\ticket\XiamenTicketGates.java:184: 错误: 找不到符号
+                    new XiamenTicketGateSide(Block.Settings.create().strength(2.0F).requiresTool().nonOpaque(),
+                                                           ^
+  符号:   方法 create()
+  位置: 类 Settings
+注: 某些输入文件使用或覆盖了已过时的 API。
+注: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+注: D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\signal\FangsuTrafficLightMode.java使用了未经检查或不安全的操作。
+注: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
+6 个错误
+
+> Task :compileJava FAILED
+
+[Incubating] Problems report is available at: file:///D:/MC-MTR-JS/mtr-headlight/v1.18.2/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileJava'.
+> Compilation failed; see the compiler output below.
+  注: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+  注: D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\signal\FangsuTrafficLightMode.java使用了未经检查或不安全的操作。
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\charger\PowerBankProjectileEntity.java:152: 错误: 找不到符号
+              living.damage(DamageSource.thrownProjectile(this, owner), BLAST_DAMAGE);
+                            ^
+    符号:   变量 DamageSource
+    位置: 类 PowerBankProjectileEntity
+  注: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
+  注: 某些输入文件使用或覆盖了已过时的 API。
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamVehicleScreen.java:169: 错误: 找不到符号
+          this.searchField.setPlaceholder(tr("beam.search"));
+                          ^
+    符号:   方法 setPlaceholder(MutableText)
+    位置: 类型为TextFieldWidget的变量 searchField
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\SidingScreen.java:318: 错误: 找不到符号
+          this.searchField.setPlaceholder(tr("sidings.search").asString());
+                          ^
+    符号:   方法 setPlaceholder(String)
+    位置: 类型为TextFieldWidget的变量 searchField
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\charger\PowerBankProjectileEntity.java:201: 错误: 找不到符号
+          if (!current.isAir() && !current.isReplaceable()) {
+                                          ^
+    符号:   方法 isReplaceable()
+    位置: 类型为BlockState的变量 current
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenNet.java:134: 错误: 找不到符号
+              final World world = player.getServerWorld();
+                                        ^
+    符号:   方法 getServerWorld()
+    位置: 类型为ServerPlayerEntity的变量 player
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\ticket\XiamenTicketGates.java:184: 错误: 找不到符号
+                      new XiamenTicketGateSide(Block.Settings.create().strength(2.0F).requiresTool().nonOpaque(),
+                                                             ^
+    符号:   方法 create()
+    位置: 类 Settings
+  6 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights.
+
+BUILD FAILED in 10s
+1 actionable task: 1 executed

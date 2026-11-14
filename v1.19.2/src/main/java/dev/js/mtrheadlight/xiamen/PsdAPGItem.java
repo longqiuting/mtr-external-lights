@@ -143,8 +143,6 @@ public class PsdAPGItem extends BlockItem {
                 }
             }
             for (int y = 0; y < height; y++) {
-                // 1.19.2 没有 BlockState#isReplaceable()（1.19.4 才加），走 Material：
-                // 空气 / 草丛 / 雪层 / 水草这类「可以盖过去」的方块都是 REPLACEABLE 材质。
                 if (world.getBlockState(offsetPos.up(y)).getMaterial().isReplaceable()) {
                     continue;
                 }

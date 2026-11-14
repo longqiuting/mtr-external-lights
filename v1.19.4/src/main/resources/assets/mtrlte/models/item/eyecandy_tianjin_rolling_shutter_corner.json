@@ -1,0 +1,6 @@
+{
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "mtrlte:item/eyecandy_tianjin_rolling_shutter_corner"
+  }
+}

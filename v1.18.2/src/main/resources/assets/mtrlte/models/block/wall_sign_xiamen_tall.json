@@ -1,0 +1,4 @@
+{
+  "__comment": "站名出入口「高板」：几何就是 MTR 的 station_name_entrance_tall（零厚度灯板，无 logo 元素）。品牌 logo 由 MTR 的渲染器画进站名贴图，取图由 StationNameEntranceLogoMixin 按 brand 换成 mtrlte:block/xiamen_logo。",
+  "parent": "mtrlte:block/station_name_entrance_tall"
+}

@@ -1,7 +1,5 @@
 package dev.js.mtrheadlight;
 
-import net.minecraft.text.TranslatableText;
-
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -11,6 +9,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.resource.Resource;
 import net.minecraft.resource.ResourceManager;
 import net.minecraft.text.Text;
+import net.minecraft.text.TranslatableText;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.Language;
 
@@ -130,17 +129,15 @@ final class TrainNames {
             return null;
         }
         try {
-            // 1.18.2 没有 TextContent / TranslatableTextContent 这层（1.19 才拆出来）：
-            // 可翻译文本就是 {@link TranslatableText} 本身，键直接问它。
-            if (text instanceof TranslatableText translatable) {
-                final String key = translatable.getKey();
+            // 1.18.2 的 TranslatableText 直接实现 Text（没有 1.19+ 的 TextContent 这层），
+            // 也没有 getFallback()；key 查不到时就是 key 本身，语义与这里一致。
+            if (text instanceof TranslatableText content) {
+                final String key = content.getKey();
                 if (key != null && !key.isEmpty()) {
                     final String translated = Language.getInstance().get(key);
                     if (translated != null && !translated.isEmpty() && !translated.equals(key)) {
                         return translated;
                     }
-                    // 1.19.2 的 TranslatableTextContent 没有 getFallback()（1.19.4 才加），
-                    // 取不到翻译就直接用 key 本身。
                     return key;
                 }
             }
@@ -164,8 +161,9 @@ final class TrainNames {
         try {
             final MinecraftClient client = MinecraftClient.getInstance();
             final ResourceManager manager = client == null ? null : client.getResourceManager();
-            if (manager != null && manager.containsResource(new Identifier("mtr", RESOURCE_PATH))) {
-                // 1.18.2: getResource 返回 Resource 本体（没有 Optional 包装）。
+            if (manager != null) {
+                // 1.18.2 的 ResourceManager#getResource 直接返回 Resource（可为 null），
+                // 没有 1.19.4+ 的 Optional<Resource>。
                 final Resource resource = manager.getResource(
                         new Identifier("mtr", RESOURCE_PATH));
                 if (resource != null) {

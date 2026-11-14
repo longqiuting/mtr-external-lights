@@ -1,6 +1,7 @@
 package dev.js.mtrheadlight.mixin;
 
 import dev.js.mtrheadlight.MtrHeadlightClient;
+import net.minecraft.resource.Resource;
 import org.objectweb.asm.tree.ClassNode;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
 import org.spongepowered.asm.mixin.extensibility.IMixinInfo;

@@ -1,16 +1,12 @@
 package dev.js.mtrheadlight;
 
-import net.minecraft.text.LiteralText;
-import net.minecraft.text.TranslatableText;
-
-import dev.js.mtrheadlight.clientgui.Widgets;
-
-import net.minecraft.client.util.math.MatrixStack;
 import dev.js.mtrheadlight.clientgui.DrawContext;
+import dev.js.mtrheadlight.clientgui.Widgets;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
@@ -19,6 +15,8 @@ import org.lwjgl.glfw.GLFW;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import net.minecraft.text.TranslatableText;
+import net.minecraft.text.LiteralText;
 
 /**
  * 光束编辑的第 1 层：<b>选车型</b>。
@@ -168,6 +166,8 @@ final class BeamVehicleScreen extends Screen {
         this.searchField = new TextFieldWidget(this.textRenderer, this.left, SEARCH_Y,
                 Math.max(40, fieldW), SEARCH_H, tr("beam.search"));
         this.searchField.setMaxLength(64);
+        // 1.18.2 的 TextFieldWidget 没有 setPlaceholder（1.19.4+ 才有）：占位文字降级掉，
+        // 搜索框的语义靠旁边的标题与图标表达。
         this.searchField.setFocusUnlocked(true);
         this.searchField.setText(this.query);
         this.searchField.setChangedListener(this::onQueryChanged);
@@ -266,7 +266,10 @@ final class BeamVehicleScreen extends Screen {
     }
 
     @Override
-    public void render(final MatrixStack matrices, final int mouseX, final int mouseY, final float delta) {
+    public void render(final MatrixStack matrices, final int mouseX, final int mouseY,
+                        final float delta) {
+        // 1.18.2 的 Screen#render 收 MatrixStack（没有 1.20.1 的 DrawContext）；
+        // 替身包一层，屏幕内部的绘制代码一行不用改。
         final DrawContext context = new DrawContext(matrices);
         context.drawTexture(OPTIONS_BACKGROUND, 0, 0, 0, 0, this.width, this.height, 32, 32);
         context.fillGradient(0, 0, this.width, this.height, 0xC0101010, 0xD0101010);

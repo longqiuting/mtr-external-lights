@@ -1,0 +1,32 @@
+{
+  "replace": false,
+  "values": [
+    "mtrlte:liquid_scanner",
+    "mtrlte:marble_floor",
+    "mtrlte:marble_platform",
+    "mtrlte:platform",
+    "mtrlte:platform_indented",
+    "mtrlte:platform_type_quartz",
+    "mtrlte:station_sign_wall_xiamen",
+    "mtrlte:station_sign_pole_xiamen",
+    "mtrlte:station_sign_wall_jiaomei",
+    "mtrlte:station_sign_pole_jiaomei",
+    "mtrlte:wall_sign_xiamen",
+    "mtrlte:wall_sign_jiaomei",
+    "mtrlte:wall_sign_lte",
+    "mtrlte:ticket_machine_xiamen",
+    "mtrlte:balance_machine_xiamen",
+    "mtrlte:ticket_gate_xiamen_in",
+    "mtrlte:ticket_gate_xiamen_out",
+    "mtrlte:ticket_gate_brt_in",
+    "mtrlte:ticket_gate_brt_out",
+    "mtrlte:ticket_gate_xiamen_side",
+    "mtrlte:ticket_gate_brt_side",
+    "mtrlte:charger_top",
+    "mtrlte:charger_bottom",
+    "mtrlte:drinks_machine_top",
+    "mtrlte:drinks_machine_bottom",
+    "mtrlte:lte_logo",
+    "mtrlte:jiaomei_logo"
+  ]
+}

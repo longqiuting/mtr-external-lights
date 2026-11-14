@@ -10,10 +10,10 @@ import mtr.model.ModelTrainBase;
 import mtr.render.JonModelTrainRenderer;
 import net.minecraft.client.MinecraftClient;
 import dev.js.mtrheadlight.clientgui.DrawContext;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.Identifier;
 import org.joml.Matrix4f;
 import net.minecraft.util.math.RotationAxis;
@@ -398,24 +398,30 @@ final class TrainPreview {
     static void draw(final Subject subject, final DrawContext context, final Camera camera,
                      final int x0, final int y0, final int x1, final int y1,
                      final java.util.List<Beam> beams, final int selected, final int cars) {
-        draw(subject, context, camera, x0, y0, x1, y1, beams, selected, cars, false, -1);
+        draw(subject, context, camera, x0, y0, x1, y1, beams, selected, cars, GIZMO_NONE, -1);
     }
 
     /**
-     * 同上，外加选中光束的 XYZ 坐标轴手柄。
+     * 同上，外加选中光束的三轴抓手。
      *
-     * @param gizmo      true 时在选中光束的 {@code pos} 上画三根 2 格的坐标轴（X 红 / Y 绿 / Z 蓝）
-     * @param highlightAxis 需要高亮的那一根（{@link #AXIS_X}../{@link #AXIS_Z}），-1 = 都不高亮
+     * @param gizmo         {@link #GIZMO_NONE} / {@link #GIZMO_MOVE}（三根轴杆）/
+     *                      {@link #GIZMO_ROTATE}（三个对轴环）
+     * @param highlightAxis 需要高亮的那一根（{@link #AXIS_X}..{@link #AXIS_Z}），-1 = 都不高亮
      */
     static void draw(final Subject subject, final DrawContext context, final Camera camera,
                      final int x0, final int y0, final int x1, final int y1,
                      final java.util.List<Beam> beams, final int selected, final int cars,
-                     final boolean gizmo, final int highlightAxis) {
+                     final int gizmo, final int highlightAxis) {
         final int centreX = (x0 + x1) / 2;
         final int centreY = (y0 + y1) / 2;
         final int carCount = Math.max(1, Math.min(MAX_CARS, cars));
-        final double[] gizmoAt = gizmo && beams != null && selected >= 0 && selected < beams.size()
-                && beams.get(selected) != null ? beams.get(selected).pos : null;
+        final Beam gizmoBeam = gizmo != GIZMO_NONE && beams != null
+                && selected >= 0 && selected < beams.size() ? beams.get(selected) : null;
+        final double[] gizmoAt = gizmoBeam == null ? null : gizmoBeam.pos;
+        final double[] gizmoRot = gizmoBeam == null ? null : gizmoBeam.rot;
+        // 尺寸按像素密度换算：正交相机下“离得远”就等于 scale 变小，除一下屏幕尺寸就恒定了。
+        final double gizmoSize = gizmo == GIZMO_ROTATE
+                ? BeamGizmo.ringSize(camera.scale) : BeamGizmo.shaftSize(camera.scale);
 
         context.enableScissor(x0, y0, x1, y1);
         RenderSystem.enableDepthTest();
@@ -431,7 +437,8 @@ final class TrainPreview {
             drawBounds(subject, immediate, camera, centreX, centreY, 0.0D, 0.0D);
             drawBeams(immediate, camera, centreX, centreY, beams, selected, 0.0D, 0.0D);
             if (gizmoAt != null) {
-                drawAxes(immediate, camera, centreX, centreY, gizmoAt, 0.0D, 0.0D, highlightAxis);
+                drawGizmo(immediate, camera, centreX, centreY, gizmoAt, gizmoRot, 0.0D, 0.0D,
+                        gizmo, gizmoSize, highlightAxis);
             }
             RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
             context.disableScissor();
@@ -479,12 +486,28 @@ final class TrainPreview {
             }
             drawBeams(immediate, camera, centreX, centreY, beams, selected, ox, oz);
             if (gizmoAt != null) {
-                drawAxes(immediate, camera, centreX, centreY, gizmoAt, ox, oz, highlightAxis);
+                drawGizmo(immediate, camera, centreX, centreY, gizmoAt, gizmoRot, ox, oz,
+                        gizmo, gizmoSize, highlightAxis);
             }
         }
 
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         context.disableScissor();
+    }
+
+    /** 画三轴抓手：没有画布内的抓手时必须显式传 {@link #GIZMO_NONE}。 */
+    private static void drawGizmo(final VertexConsumerProvider.Immediate immediate, final Camera camera,
+                                  final int centreX, final int centreY, final double[] origin,
+                                  final double[] rot, final double ox, final double oz,
+                                  final int gizmo, final double size, final int highlight) {
+        if (origin == null) {
+            return;
+        }
+        if (gizmo == GIZMO_MOVE) {
+            drawAxes(immediate, camera, centreX, centreY, origin, ox, oz, size, highlight);
+        } else if (gizmo == GIZMO_ROTATE) {
+            drawRings(immediate, camera, centreX, centreY, origin, rot, ox, oz, size, highlight);
+        }
     }
 
     /** 车体包围盒线框。没有模型时的兜底，坐标来自 {@code partsInfo} 的统计结果。 */
@@ -537,7 +560,8 @@ final class TrainPreview {
             final double[] pos = beam.pos;
             final double[] dir = direction(beam);
             final double length = beam.length == null ? 8.0D : beam.length.doubleValue();
-            final double radius = beam.width == null ? 0.4D : beam.width.doubleValue() * 0.5D;
+            final double dot = Math.max(0.18D, Math.min(0.45D,
+                    (beam.width == null ? 1.0D : beam.width.doubleValue()) * 0.22D));
             final int rgb = beam.color == null ? 0xFFFFFF : beam.color.intValue() & 0xFFFFFF;
             final float r = ((rgb >> 16) & 0xFF) / 255.0F;
             final float g = ((rgb >> 8) & 0xFF) / 255.0F;
@@ -547,34 +571,44 @@ final class TrainPreview {
             final double ex = pos[0] + dir[0] * length;
             final double ey = pos[1] + dir[1] * length;
             final double ez = pos[2] + dir[2] * length;
+            // Direction arrow: the shaft, then a four-line arrowhead at the tip. This replaced the
+            // old wire cone (a ring at the tip plus four generatrices) - the renderer no longer draws
+            // a cone, so the preview must not suggest one.
             line(lines, matrix, pos[0], pos[1], pos[2], ex, ey, ez, r, g, b, alpha);
 
             final double[] up = Math.abs(dir[1]) > 0.95D
                     ? new double[]{1.0D, 0.0D, 0.0D} : new double[]{0.0D, 1.0D, 0.0D};
             final double[] right = normalise(cross(dir, up));
             final double[] realUp = normalise(cross(right, dir));
-            final int steps = 10;
-            double px = 0.0D;
-            double py = 0.0D;
-            double pz = 0.0D;
-            for (int step = 0; step <= steps; step++) {
-                final double angle = Math.PI * 2.0D * step / steps;
-                final double cx = ex + (right[0] * Math.cos(angle)
-                        + realUp[0] * Math.sin(angle)) * radius;
-                final double cy = ey + (right[1] * Math.cos(angle)
-                        + realUp[1] * Math.sin(angle)) * radius;
-                final double cz = ez + (right[2] * Math.cos(angle)
-                        + realUp[2] * Math.sin(angle)) * radius;
-                if (step > 0) {
-                    line(lines, matrix, px, py, pz, cx, cy, cz, r, g, b, alpha);
-                }
-                if (step == 0 || step == 2 || step == 5 || step == 7) {
-                    line(lines, matrix, pos[0], pos[1], pos[2], cx, cy, cz, r, g, b, alpha * 0.55F);
-                }
-                px = cx;
-                py = cy;
-                pz = cz;
+            final double arrow = Math.min(0.9D, Math.max(0.35D, length * 0.12D));
+            final double wing = arrow * 0.55D;
+            for (int k = 0; k < 4; k++) {
+                final double sa = k == 0 ? 1.0D : (k == 1 ? -1.0D : 0.0D);
+                final double sb = k == 2 ? 1.0D : (k == 3 ? -1.0D : 0.0D);
+                final double bx = ex - dir[0] * arrow + (right[0] * sa + realUp[0] * sb) * wing;
+                final double by = ey - dir[1] * arrow + (right[1] * sa + realUp[1] * sb) * wing;
+                final double bz = ez - dir[2] * arrow + (right[2] * sa + realUp[2] * sb) * wing;
+                line(lines, matrix, ex, ey, ez, bx, by, bz, r, g, b, alpha);
             }
+
+            // The lamp itself: a small three-axis cross (a "光点"), so the point the flare will be
+            // drawn at is visible on the model instead of only at the end of a beam.
+            final double[] sx = normalise(cross(right, realUp));
+            final float dotAlpha = Math.max(0.75F, alpha);
+            line(lines, matrix,
+                    pos[0] - right[0] * dot, pos[1] - right[1] * dot, pos[2] - right[2] * dot,
+                    pos[0] + right[0] * dot, pos[1] + right[1] * dot, pos[2] + right[2] * dot,
+                    r, g, b, dotAlpha);
+            line(lines, matrix,
+                    pos[0] - realUp[0] * dot, pos[1] - realUp[1] * dot, pos[2] - realUp[2] * dot,
+                    pos[0] + realUp[0] * dot, pos[1] + realUp[1] * dot, pos[2] + realUp[2] * dot,
+                    r, g, b, dotAlpha);
+            line(lines, matrix,
+                    pos[0] - sx[0] * dot * 0.6D, pos[1] - sx[1] * dot * 0.6D,
+                    pos[2] - sx[2] * dot * 0.6D,
+                    pos[0] + sx[0] * dot * 0.6D, pos[1] + sx[1] * dot * 0.6D,
+                    pos[2] + sx[2] * dot * 0.6D,
+                    r, g, b, dotAlpha * 0.7F);
         }
         immediate.draw();
     }
@@ -604,8 +638,14 @@ final class TrainPreview {
     // XYZ 坐标轴手柄 + 轴向约束拖拽
     // ---------------------------------------------------------------------------------------------
 
-    /** 手柄长度（格）：够长好点，又不至于盖住整束光。 */
-    static final double AXIS_LEN = 2.0D;
+    /**
+     * 抓手种类。{@link #GIZMO_MOVE} 画三根轴杆（拖动 = 只沿那根轴平移），
+     * {@link #GIZMO_ROTATE} 画三个对轴环（拖动 = 只绕那根轴转）。
+     */
+    static final int GIZMO_NONE = 0;
+    static final int GIZMO_MOVE = 1;
+    static final int GIZMO_ROTATE = 2;
+
     static final int AXIS_X = 0;
     static final int AXIS_Y = 1;
     static final int AXIS_Z = 2;
@@ -639,14 +679,16 @@ final class TrainPreview {
     }
 
     /**
-     * 在 {@code origin}（+该节车的编组偏移）上画三根 2 格的坐标轴。
+     * 在 {@code origin}（+该节车的编组偏移）上画三根坐标轴，长度 {@code len} 格
+     * （由 {@link BeamGizmo#shaftSize} 按像素密度算出来，屏幕上恒定 ≈ 48px）。
      *
      * <p>每根都带一个两笔的小箭头（末端 0.3 格处往回 ±0.18 格），屏幕上只是两三个像素的点，
-     * 但足以看出“哪头是正方向”。高亮的那根画两遍、稍微错开 0.04 格 = 视觉加粗。
+     * 但足以看出“哪头是正方向”。高亮的那根画三遍、稍微错开 0.04 格 = 视觉加粗。
      */
     private static void drawAxes(final VertexConsumerProvider.Immediate immediate, final Camera camera,
                                  final int centreX, final int centreY, final double[] origin,
-                                 final double ox, final double oz, final int highlight) {
+                                 final double ox, final double oz, final double len,
+                                 final int highlight) {
         if (origin == null) {
             return;
         }
@@ -662,11 +704,11 @@ final class TrainPreview {
             final double bx = origin[0];
             final double by = origin[1];
             final double bz = origin[2];
-            final double ex = bx + dir[0] * AXIS_LEN;
-            final double ey = by + dir[1] * AXIS_LEN;
-            final double ez = bz + dir[2] * AXIS_LEN;
+            final double ex = bx + dir[0] * len;
+            final double ey = by + dir[1] * len;
+            final double ez = bz + dir[2] * len;
             // 高亮：同一根线在垂直方向错开画两遍 = 加粗（线宽不可配，只能叠）。
-            final double spread = on ? 0.04D : 0.0D;
+            final double spread = on ? Math.max(0.02D, len * 0.02D) : 0.0D;
             for (int pass = 0; pass < (on ? 3 : 1); pass++) {
                 final double shift = pass == 0 ? 0.0D : (pass == 1 ? spread : -spread);
                 // 起点稍微离开 pos，免得三根线在原点挤成一团看不清颜色。
@@ -675,9 +717,9 @@ final class TrainPreview {
                         ex + perp[0] * shift, ey + perp[1] * shift, ez + perp[2] * shift,
                         rgb[0], rgb[1], rgb[2], on ? 1.0F : 0.75F);
             }
-            // 箭头两笔
-            final double back = 0.3D;
-            final double wing = 0.18D;
+            // 箭头两笔（大小跟着杆长走，缩放到极小时也还看得见）
+            final double back = len * 0.15D;
+            final double wing = len * 0.09D;
             for (int side = -1; side <= 1; side += 2) {
                 line(lines, matrix, ex, ey, ez,
                         ex - dir[0] * back + perp[0] * wing * side,
@@ -687,6 +729,247 @@ final class TrainPreview {
             }
         }
         immediate.draw();
+    }
+
+    /**
+     * 三个<b>对轴环</b>（旋转抓手）：X 红 / Y 绿 / Z 蓝，圆心在 {@code origin}，半径 {@code radius} 格。
+     *
+     * <p>每个环的画法与 {@link BeamGizmo#ringNormal} 一一对应 —— 环平面垂直于那一根轴，
+     * 所以“按住哪条弧”和“绕哪根轴转”在视觉上是同一件事。环在屏幕上看到的是椭圆（正交投影），
+     * 拾取用的就是同一条折线（见 {@link #pickRing}）。
+     */
+    private static void drawRings(final VertexConsumerProvider.Immediate immediate, final Camera camera,
+                                  final int centreX, final int centreY, final double[] origin,
+                                  final double[] rot, final double ox, final double oz,
+                                  final double radius, final int highlight) {
+        if (origin == null) {
+            return;
+        }
+        final VertexConsumer lines = immediate.getBuffer(RenderLayer.getLines());
+        final Matrix4f matrix = new Matrix4f(camera.toPixels(centreX, centreY))
+                .mul(beamRotate(camera));
+        matrix.translate((float) ox, 0.0F, (float) oz);
+        for (int axis = 0; axis < 3; axis++) {
+            final double[] normal = BeamGizmo.ringNormal(axis, rot);
+            final double[][] basis = BeamGizmo.planeBasis(normal);
+            final double[] u = basis[0];
+            final double[] v = basis[1];
+            final float[] rgb = AXIS_RGB[axis];
+            final boolean on = axis == highlight;
+            // 高亮：同一圈按两个半径各画一遍 = 视觉加粗（线宽不可配）。
+            final double[] radii = on ? new double[]{radius, radius * 1.022D} : new double[]{radius};
+            for (int ring = 0; ring < radii.length; ring++) {
+                final double r = radii[ring];
+                double px = 0.0D;
+                double py = 0.0D;
+                double pz = 0.0D;
+                for (int i = 0; i <= BeamGizmo.RING_SEGMENTS; i++) {
+                    final double a = 2.0D * Math.PI * i / BeamGizmo.RING_SEGMENTS;
+                    final double cos = Math.cos(a);
+                    final double sin = Math.sin(a);
+                    final double cx = origin[0] + (u[0] * cos + v[0] * sin) * r;
+                    final double cy = origin[1] + (u[1] * cos + v[1] * sin) * r;
+                    final double cz = origin[2] + (u[2] * cos + v[2] * sin) * r;
+                    if (i > 0) {
+                        line(lines, matrix, px, py, pz, cx, cy, cz,
+                                rgb[0], rgb[1], rgb[2], on ? 1.0F : 0.62F);
+                    }
+                    px = cx;
+                    py = cy;
+                    pz = cz;
+                }
+            }
+        }
+        immediate.draw();
+    }
+
+    /** 命中的那个环：{@link #axis} + 编组里的第几节车 + 按下瞬间环平面内的角度。 */
+    static final class RingHit {
+        final int axis;
+        final int car;
+        final double ox;
+        final double oz;
+        /** 屏幕上离环多远（px），几个环里取最近的那个。 */
+        final double distance;
+        /** 按下瞬间环平面内的角度（rad），拖动时用它的差当旋转量。 */
+        final double angle;
+        /** angle 是射线∩环平面解出来的（true），还是侧看时屏幕折线兜底的（false）。 */
+        final boolean planar;
+
+        RingHit(final int axis, final int car, final double ox, final double oz,
+                final double distance, final double angle, final boolean planar) {
+            this.axis = axis;
+            this.car = car;
+            this.ox = ox;
+            this.oz = oz;
+            this.distance = distance;
+            this.angle = angle;
+            this.planar = planar;
+        }
+    }
+
+    /**
+     * 环的命中检测：<b>射线 ∩ 环平面</b>，再比较「交点到圆心的距离」与半径的差。
+     *
+     * <pre>
+     *   正交相机：射线方向 u = R 的第三行（单位向量），起点 O = 视平面点的原像
+     *   平面：过圆心 base、法线 n                →  t = n·(base − O) / (n·u)
+     *   交点 P = O + u·t                         →  err = |‖P − base‖ − radius| · scale   (px)
+     *   环平面内角度 θ = atan2((P−base)·v, (P−base)·u)，{u,v} = 平面正交基
+     * </pre>
+     * 环几乎侧对屏幕时 {@code n·u ≈ 0}，平面求交会退化（P 跑到无穷远），这时退回
+     * <b>屏幕折线</b>：把同一个圆按 {@link BeamGizmo#RING_SEGMENTS} 段投到像素，量点到折线的距离。
+     * 两条路的阈值都是 {@link BeamGizmo#RING_TOL_PX}（7px），三条里取最近的一条。
+     */
+    static RingHit pickRing(final Camera camera, final double mouseX, final double mouseY,
+                            final int x0, final int y0, final int x1, final int y1,
+                            final double[] origin, final double[] rot, final double[][] offsets) {
+        if (origin == null || offsets == null) {
+            return null;
+        }
+        final int centreX = (x0 + x1) / 2;
+        final int centreY = (y0 + y1) / 2;
+        final Matrix4f matrix = new Matrix4f(camera.toPixels(centreX, centreY))
+                .mul(beamRotate(camera));
+        final double radius = BeamGizmo.ringSize(camera.scale);
+        RingHit best = null;
+        for (int car = 0; car < offsets.length; car++) {
+            final double ox = offsets[car][0];
+            final double oz = offsets[car][1];
+            final double[] base = {origin[0] + ox, origin[1], origin[2] + oz};
+            for (int axis = 0; axis < 3; axis++) {
+                final double[] sample = ringSample(camera, matrix, centreX, centreY,
+                        mouseX, mouseY, base, BeamGizmo.ringNormal(axis, rot), radius, MODE_AUTO);
+                if (!(sample[0] <= BeamGizmo.RING_TOL_PX)
+                        || (best != null && sample[0] >= best.distance)) {
+                    continue;
+                }
+                best = new RingHit(axis, car, ox, oz, sample[0], sample[1], sample[2] > 0.5D);
+            }
+        }
+        return best;
+    }
+
+    /** {@link #ringSample} 的方法选择：自动择优 / 只走平面求交 / 只走屏幕折线。 */
+    static final int MODE_AUTO = 0;
+    static final int MODE_PLANE = 1;
+    static final int MODE_SCREEN = 2;
+
+    /**
+     * 拖动中重新取「鼠标现在指向环平面内的哪个角度」。{@code planar} 必须是按下时
+     * {@link RingHit#planar} 的那个值：两种方法的角度符号约定不同，混用会让角度跳一下。
+     *
+     * @return 弧度；{@code NaN} = 这一帧解不出来（几乎正对／退化），调用方跳过即可
+     */
+    static double ringAngle(final Camera camera, final double mouseX, final double mouseY,
+                            final int x0, final int y0, final int x1, final int y1,
+                            final double[] base, final double[] normal, final boolean planar) {
+        if (base == null || normal == null) {
+            return Double.NaN;
+        }
+        final int centreX = (x0 + x1) / 2;
+        final int centreY = (y0 + y1) / 2;
+        final Matrix4f matrix = new Matrix4f(camera.toPixels(centreX, centreY))
+                .mul(beamRotate(camera));
+        final double[] sample = ringSample(camera, matrix, centreX, centreY, mouseX, mouseY,
+                base, normal, BeamGizmo.ringSize(camera.scale),
+                planar ? MODE_PLANE : MODE_SCREEN);
+        return sample[1];
+    }
+
+    /**
+     * 一个环的「屏幕误差 + 平面内角度」。
+     *
+     * @return {@code {errPx, angleRad, planarFlag}}；errPx 可能 ∞（正交视图下解不出来），
+     *         angleRad 可能 NaN（圆心正好落在光标上）
+     */
+    private static double[] ringSample(final Camera camera, final Matrix4f matrix,
+                                       final int centreX, final int centreY,
+                                       final double mouseX, final double mouseY,
+                                       final double[] base, final double[] normal,
+                                       final double radius, final int mode) {
+        double planeErr = Double.POSITIVE_INFINITY;
+        double planeAngle = Double.NaN;
+        // --- 1) 射线 ∩ 环平面 ---
+        final Matrix4f rot = beamRotate(camera);
+        double ux = rot.m02();
+        double uy = rot.m12();
+        double uz = rot.m22();
+        final double ulen = Math.sqrt(ux * ux + uy * uy + uz * uz);
+        if (ulen > 1.0E-9D) {
+            ux /= ulen;
+            uy /= ulen;
+            uz /= ulen;
+            final double denom = normal[0] * ux + normal[1] * uy + normal[2] * uz;
+            if (Math.abs(denom) >= BeamGizmo.PLANE_MIN_COS) {
+                final double vx = (mouseX - (centreX + camera.panX)) / camera.scale;
+                final double vy = -(mouseY - (centreY + camera.panY)) / camera.scale;
+                // 视平面点 (vx,vy,0) 的原像 = 射线起点。注意 rotation() 里末尾带一次
+                // translate(0,−targetY,0)，它的逆是 +targetY（漏掉这一项环的角度会系统性偏）。
+                final double oxr = vx * rot.m00() + vy * rot.m01();
+                final double oyr = vx * rot.m10() + vy * rot.m11() + camera.targetY;
+                final double ozr = vx * rot.m20() + vy * rot.m21();
+                final double t = (normal[0] * (base[0] - oxr) + normal[1] * (base[1] - oyr)
+                        + normal[2] * (base[2] - ozr)) / denom;
+                final double rx = oxr + ux * t - base[0];
+                final double ry = oyr + uy * t - base[1];
+                final double rz = ozr + uz * t - base[2];
+                final double radial = Math.sqrt(rx * rx + ry * ry + rz * rz);
+                planeErr = Math.abs(radial - radius) * camera.scale;
+                if (radial > 1.0E-6D) {
+                    final double[][] basis = BeamGizmo.planeBasis(normal);
+                    final double[] bu = basis[0];
+                    final double[] bv = basis[1];
+                    planeAngle = Math.atan2(
+                            rx * bv[0] + ry * bv[1] + rz * bv[2],
+                            rx * bu[0] + ry * bu[1] + rz * bu[2]);
+                }
+            }
+        }
+        if (mode == MODE_PLANE) {
+            return new double[]{planeErr, planeAngle, 1.0D};
+        }
+        if (mode == MODE_AUTO && planeErr <= BeamGizmo.RING_TOL_PX) {
+            // 平面有效且在阈值内就直接用平面结果：**只有它给得出拖动要的角度**，
+            // 屏幕折线只是「环侧看时还能不能点中」的兜底（那条路没有可用的角度）。
+            return new double[]{planeErr, planeAngle, 1.0D};
+        }
+        // --- 2) 屏幕折线兜底（侧看 / 平面求交退化）---
+        final double[][] basis = BeamGizmo.planeBasis(normal);
+        final double[] bu = basis[0];
+        final double[] bv = basis[1];
+        final float cx = projectX(matrix, base[0], base[1], base[2]);
+        final float cy = projectY(matrix, base[0], base[1], base[2]);
+        double screenErr = Double.POSITIVE_INFINITY;
+        float bestX = cx;
+        float bestY = cy;
+        float prevX = 0.0F;
+        float prevY = 0.0F;
+        for (int i = 0; i <= BeamGizmo.RING_SEGMENTS; i++) {
+            final double a = 2.0D * Math.PI * i / BeamGizmo.RING_SEGMENTS;
+            final double cos = Math.cos(a);
+            final double sin = Math.sin(a);
+            final double wx = base[0] + (bu[0] * cos + bv[0] * sin) * radius;
+            final double wy = base[1] + (bu[1] * cos + bv[1] * sin) * radius;
+            final double wz = base[2] + (bu[2] * cos + bv[2] * sin) * radius;
+            final float sx = projectX(matrix, wx, wy, wz);
+            final float sy = projectY(matrix, wx, wy, wz);
+            if (i > 0) {
+                final double d = pointSegment(mouseX, mouseY, prevX, prevY, sx, sy);
+                if (d < screenErr) {
+                    screenErr = d;
+                    bestX = sx;
+                    bestY = sy;
+                }
+            }
+            prevX = sx;
+            prevY = sy;
+        }
+        final double screenAngle = Math.atan2(bestY - cy, bestX - cx);
+        if (mode == MODE_SCREEN || screenErr < planeErr) {
+            return new double[]{screenErr, screenAngle, 0.0D};
+        }
+        return new double[]{planeErr, planeAngle, 1.0D};
     }
 
     /** 命中的那根轴：{@link #axis} + 属于编组里的第几节车（偏移 {@link #ox}/{@link #oz}）。 */
@@ -708,15 +991,18 @@ final class TrainPreview {
     }
 
     /**
-     * 手柄命中检测：和 {@link #pick} 同一套“投影到像素再算点到线段距离”，
-     * 只是候选从光束换成了 {@link #AXIS_LEN} 格的三根轴（每节车各一套）。
+     * 轴杆的命中检测：和 {@link #pick} 同一套“投影到像素再算点到线段距离”，
+     * 只是候选从光束换成了三根 {@code len} 格的轴（每节车各一套）。
      *
-     * @return 最近的一根，或 null（阈值 ~5 px / 0.35 格，比光束的宽容度小：三根轴挤在一起，
-     *         太宽就分不出点的是哪根）
+     * <p>正交相机下这根距离就是「鼠标射线 ↔ 轴线段」的距离（投到屏幕再量，和画出来的
+     * 像素位置逐点一致，不会出现“看着在轴上却点不中”）。
+     *
+     * @return 最近的一根，或 null（阈值 {@link BeamGizmo#AXIS_TOL_PX} = 6px，比环更严：
+     *         三根轴挤在一个点上，太宽就分不出点的是哪根）
      */
     static AxisHit pickAxis(final Camera camera, final double mouseX, final double mouseY,
                             final int x0, final int y0, final int x1, final int y1,
-                            final double[] origin, final double[][] offsets) {
+                            final double[] origin, final double[][] offsets, final double len) {
         if (origin == null || offsets == null) {
             return null;
         }
@@ -724,7 +1010,7 @@ final class TrainPreview {
         final int centreY = (y0 + y1) / 2;
         final Matrix4f matrix = new Matrix4f(camera.toPixels(centreX, centreY))
                 .mul(beamRotate(camera));
-        final double threshold = Math.max(5.0D, camera.scale * 0.35D);
+        final double threshold = BeamGizmo.AXIS_TOL_PX;
         AxisHit best = null;
         for (int car = 0; car < offsets.length; car++) {
             final double ox = offsets[car][0];
@@ -736,10 +1022,10 @@ final class TrainPreview {
             final float ay = projectY(matrix, bx, by, bz);
             for (int axis = 0; axis < 3; axis++) {
                 final double[] dir = axisUnit(axis);
-                final float bx2 = projectX(matrix, bx + dir[0] * AXIS_LEN,
-                        by + dir[1] * AXIS_LEN, bz + dir[2] * AXIS_LEN);
-                final float by2 = projectY(matrix, bx + dir[0] * AXIS_LEN,
-                        by + dir[1] * AXIS_LEN, bz + dir[2] * AXIS_LEN);
+                final float bx2 = projectX(matrix, bx + dir[0] * len,
+                        by + dir[1] * len, bz + dir[2] * len);
+                final float by2 = projectY(matrix, bx + dir[0] * len,
+                        by + dir[1] * len, bz + dir[2] * len);
                 final double d = pointSegment(mouseX, mouseY, ax, ay, bx2, by2);
                 if (d <= threshold && (best == null || d < best.distance)) {
                     best = new AxisHit(axis, car, ox, oz, d);
@@ -784,9 +1070,10 @@ final class TrainPreview {
         // 鼠标像素 → 视平面坐标（格，Y 向上）。
         final double vx = (mouseX - (centreX + camera.panX)) / camera.scale;
         final double vy = -(mouseY - (centreY + camera.panY)) / camera.scale;
-        // 视平面点 (vx, vy, 0) 的原像 = 射线起点。
+        // 视平面点 (vx, vy, 0) 的原像 = 射线起点（rotation() 末尾的 translate(0,−targetY,0)
+        // 逆转成 +targetY；这里只用 t 的差，但补上它才能和环的拾取共用同一套射线）。
         final double ox = vx * rot.m00() + vy * rot.m01();
-        final double oy = vx * rot.m10() + vy * rot.m11();
+        final double oy = vx * rot.m10() + vy * rot.m11() + camera.targetY;
         final double oz = vx * rot.m20() + vy * rot.m21();
         final double wx = base[0] - ox;
         final double wy = base[1] - oy;

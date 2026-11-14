@@ -136,8 +136,8 @@ final class TrainNames {
                     if (translated != null && !translated.isEmpty() && !translated.equals(key)) {
                         return translated;
                     }
-                    // 1.19.2 的 TranslatableTextContent 没有 getFallback()（1.19.4 才加），
-                    // 取不到翻译就直接用 key 本身。
+                    // 1.19.2 的 TranslatableTextContent 没有 getFallback()（1.19.4 才有）：
+                    // 取不到翻译就直接用 key。
                     return key;
                 }
             }

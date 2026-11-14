@@ -42,6 +42,40 @@ public final class Matrix4f {
         System.arraycopy(other.m, 0, this.m, 0, 16);
     }
 
+    /**
+     * 从原版矩阵拷贝（1.18.2 的 {@code MatrixStack.Entry#getPositionMatrix()} 返回
+     * {@code net.minecraft.util.math.Matrix4f}，不是 JOML 那个类型）。
+     */
+    public Matrix4f(final net.minecraft.util.math.Matrix4f vanilla) {
+        final FloatBuffer buf = FloatBuffer.allocate(16);
+        vanilla.writeColumnMajor(buf);
+        buf.flip();
+        buf.get(this.m);
+    }
+
+    /** JOML 的 16 参构造器；参数顺序就是内存里的列主序（{@code m00 m01 m02 m03 m10 …}）。 */
+    public Matrix4f(final float m00, final float m01, final float m02, final float m03,
+                    final float m10, final float m11, final float m12, final float m13,
+                    final float m20, final float m21, final float m22, final float m23,
+                    final float m30, final float m31, final float m32, final float m33) {
+        this.m[0] = m00;
+        this.m[1] = m01;
+        this.m[2] = m02;
+        this.m[3] = m03;
+        this.m[4] = m10;
+        this.m[5] = m11;
+        this.m[6] = m12;
+        this.m[7] = m13;
+        this.m[8] = m20;
+        this.m[9] = m21;
+        this.m[10] = m22;
+        this.m[11] = m23;
+        this.m[12] = m30;
+        this.m[13] = m31;
+        this.m[14] = m32;
+        this.m[15] = m33;
+    }
+
     /** 纯旋转矩阵。 */
     public Matrix4f(final Quaternionf rotation) {
         this.rotation(rotation);
@@ -190,6 +224,31 @@ public final class Matrix4f {
     /** 右乘绕 Z 轴旋转，弧度（JOML {@code rotateZ(float)}）。 */
     public Matrix4f rotateZ(final float radians) {
         return this.rotate(new Quaternionf().rotateZ(radians));
+    }
+
+    /** 右乘绕 X 轴旋转，弧度（JOML {@code rotateX(float)}）。 */
+    public Matrix4f rotateX(final float radians) {
+        return this.rotate(new Quaternionf().rotateX(radians));
+    }
+
+    /** 右乘绕 Y 轴旋转，弧度（JOML {@code rotateY(float)}）。 */
+    public Matrix4f rotateY(final float radians) {
+        return this.rotate(new Quaternionf().rotateY(radians));
+    }
+
+    /** 拷贝另一份替身矩阵（JOML {@code set(Matrix4fc)}）。 */
+    public Matrix4f set(final Matrix4f other) {
+        System.arraycopy(other.m, 0, this.m, 0, 16);
+        return this;
+    }
+
+    /** 从原版矩阵拷贝（1.18.2 的 {@code RenderSystem#getModelViewMatrix()} 返回它）。 */
+    public Matrix4f set(final net.minecraft.util.math.Matrix4f vanilla) {
+        final FloatBuffer buf = FloatBuffer.allocate(16);
+        vanilla.writeColumnMajor(buf);
+        buf.flip();
+        buf.get(this.m);
+        return this;
     }
 
     // ------------------------------------------------------------------ 逆

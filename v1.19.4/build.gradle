@@ -59,6 +59,10 @@ processResources {
     filesMatching("fabric.mod.json") {
         expand "version": project.version
     }
+    // LGPL / MIT 合规：许可与来源声明要随分发物一起走（与 1.20.1 一致）。
+    from(file("../LICENSE")) { into "META-INF" rename { "LICENSE-mtrlte" } }
+    from(file("../NOTICE.md")) { into "META-INF" rename { "NOTICE-mtrlte.md" } }
+    from(file("../LICENSES")) { into "META-INF/LICENSES" }
 }
 
 tasks.withType(JavaCompile).configureEach {

@@ -34,7 +34,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 @Mixin(value = ClientCache.class, remap = false)
 public abstract class RouteAsyncScopeMixin {
 
-    /** 渲染线程：读一次标记；工作线程：包一层，让 {@code XiamenRouteScope.active()} 仍然成立。 */
+    /** 渲染线程：读一次标记；工作线程：包一层，让 {@code XiamenRouteScope.active()} / {@code WallSignLogos.brand()} 仍然成立。 */
     @Redirect(
             method = "getResource",
             at = @At(value = "INVOKE",
@@ -42,15 +42,27 @@ public abstract class RouteAsyncScopeMixin {
                     remap = false),
             remap = false)
     private static <U> CompletableFuture<U> lte$carryScope(final Supplier<U> supplier) {
-        if (!XiamenRouteScope.active()) {
+        // 贴墙标识的品牌（MTR 把 logo 画进站名贴图里，取图时要靠它，见 StationNameEntranceLogoMixin）。
+        final String signLogo = dev.js.mtrheadlight.xiamen.sign.WallSignLogos.brand();
+        final boolean routeActive = XiamenRouteScope.active();
+        if (!routeActive && signLogo == null) {
             return CompletableFuture.supplyAsync(supplier);
         }
+        // v7：方向值也必须带过去 —— 条带的镜像（含终点三角）由它决定，而位图是在这个工作线程上画的。
+        final int arrow = XiamenRouteScope.arrowDirection();
         return CompletableFuture.supplyAsync(() -> {
-            XiamenRouteScope.push(true);
+            if (routeActive) {
+                XiamenRouteScope.push(true);
+                XiamenRouteScope.arrow(arrow);
+            }
+            dev.js.mtrheadlight.xiamen.sign.WallSignLogos.push(signLogo);
             try {
                 return supplier.get();
             } finally {
-                XiamenRouteScope.pop();
+                dev.js.mtrheadlight.xiamen.sign.WallSignLogos.pop();
+                if (routeActive) {
+                    XiamenRouteScope.pop();
+                }
             }
         });
     }

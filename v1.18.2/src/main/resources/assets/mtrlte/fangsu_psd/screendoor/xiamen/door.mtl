@@ -1,0 +1,12 @@
+# Made in Blockbench 4.10.3
+newmtl m_09cd4b14-3ea9-8cc4-9ff2-da25bcecce1e
+map_Kd door.png
+newmtl m_e1b2108e-f901-552d-a2e3-517d979709b4
+map_Kd dkg.png
+newmtl m_d6586abb-2021-95fd-6f7c-ec3242ea3be5
+map_Kd blk.png
+newmtl m_614e4c10-2c06-1d3f-eb30-4a3f5552a292
+map_Kd ltg.png
+newmtl m_f8937f9c-7463-e5d1-fd10-0ace726bc927
+map_Kd blue.png
+newmtl none

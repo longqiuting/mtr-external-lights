@@ -16,8 +16,8 @@ import java.util.function.Consumer;
  * 把方速（fangsu）交通灯的显示模式切到「MTR 信号联动」（{@code dispType="mtr"}）。
  *
  * <h2>为什么需要这一步（1.3.2 的 mtr 档是个空档）</h2>
- * <p>{@code BlockEntityTrafficLight.whenRendering()} 里只有一处分支（CFR 反编译
- * {@code mods/[方速MTR扩展] [MTR3]fangsu-mc1.20.1-FABRIC-1.3.2-build20261102090023.jar}）：
+ * <p>{@code BlockEntityTrafficLight.whenRendering()} 里只有一处分支（对照
+ * {@code mods/[方速MTR扩展] [MTR3]fangsu-mc1.20.1-FABRIC-1.3.2-build20261102090023.jar} 的运行时行为）：
  * <pre>
  * 119: public void whenRendering() {
  * 120:   if (markedError || !modelLoaded || content == null) return;

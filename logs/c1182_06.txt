@@ -1,0 +1,86 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.14/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Configure project :
+Fabric Loom: 1.11.8
+
+> Task :compileJava
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:12: 错误: 找不到符号
+import net.minecraft.client.gl.ShaderProgram;
+                              ^
+  符号:   类 ShaderProgram
+  位置: 程序包 net.minecraft.client.gl
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:7: 错误: 找不到符号
+import net.minecraft.client.gl.ShaderProgram;
+                              ^
+  符号:   类 ShaderProgram
+  位置: 程序包 net.minecraft.client.gl
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:91: 错误: 找不到符号
+    private static ShaderProgram program;
+                   ^
+  符号:   类 ShaderProgram
+  位置: 类 ScatterProgram
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:285: 错误: 找不到符号
+    private static GlUniform require(final ShaderProgram loaded, final String name) {
+                                           ^
+  符号:   类 ShaderProgram
+  位置: 类 ScatterProgram
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:448: 错误: 找不到符号
+    static ShaderProgram program() {
+           ^
+  符号:   类 ShaderProgram
+  位置: 类 ScatterProgram
+D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:493: 错误: 找不到符号
+    private static void closeQuietly(final ShaderProgram loaded) {
+                                           ^
+  符号:   类 ShaderProgram
+  位置: 类 ScatterProgram
+6 个错误
+
+> Task :compileJava FAILED
+
+[Incubating] Problems report is available at: file:///D:/MC-MTR-JS/mtr-headlight/v1.18.2/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileJava'.
+> Compilation failed; see the compiler output below.
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterPass.java:12: 错误: 找不到符号
+  import net.minecraft.client.gl.ShaderProgram;
+                                ^
+    符号:   类 ShaderProgram
+    位置: 程序包 net.minecraft.client.gl
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:7: 错误: 找不到符号
+  import net.minecraft.client.gl.ShaderProgram;
+                                ^
+    符号:   类 ShaderProgram
+    位置: 程序包 net.minecraft.client.gl
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:91: 错误: 找不到符号
+      private static ShaderProgram program;
+                     ^
+    符号:   类 ShaderProgram
+    位置: 类 ScatterProgram
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:285: 错误: 找不到符号
+      private static GlUniform require(final ShaderProgram loaded, final String name) {
+                                             ^
+    符号:   类 ShaderProgram
+    位置: 类 ScatterProgram
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:448: 错误: 找不到符号
+      static ShaderProgram program() {
+             ^
+    符号:   类 ShaderProgram
+    位置: 类 ScatterProgram
+  D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\sss\ScatterProgram.java:493: 错误: 找不到符号
+      private static void closeQuietly(final ShaderProgram loaded) {
+                                             ^
+    符号:   类 ShaderProgram
+    位置: 类 ScatterProgram
+  6 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights.
+
+BUILD FAILED in 7s
+1 actionable task: 1 executed

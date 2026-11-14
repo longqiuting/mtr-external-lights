@@ -1,19 +1,15 @@
 package dev.js.mtrheadlight;
 
-import net.minecraft.text.LiteralText;
-import net.minecraft.text.TranslatableText;
-
-import dev.js.mtrheadlight.clientgui.Widgets;
-
-import net.minecraft.client.util.math.MatrixStack;
 import mtr.client.ClientData;
 import mtr.data.Depot;
 import mtr.data.Siding;
 import dev.js.mtrheadlight.clientgui.DrawContext;
+import dev.js.mtrheadlight.clientgui.Widgets;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
@@ -26,6 +22,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import net.minecraft.text.TranslatableText;
+import net.minecraft.text.LiteralText;
 
 /**
  * The siding list of the "按侧线配置" screen: one row per siding, its current light state on the
@@ -317,6 +315,7 @@ public final class SidingScreen extends Screen {
         this.searchField = new TextFieldWidget(this.textRenderer, this.left, SEARCH_Y,
                 Math.max(40, fieldW), SEARCH_H, tr("sidings.search"));
         this.searchField.setMaxLength(64);
+        // 1.18.2 的 TextFieldWidget 没有 setPlaceholder（1.19.4+ 才有）：占位文字降级掉。
         // Unlocked focus so the cursor can be put in the box by a click; no text predicate, so
         // IME-composed Chinese goes in untouched.
         this.searchField.setFocusUnlocked(true);
@@ -634,7 +633,10 @@ public final class SidingScreen extends Screen {
     }
 
     @Override
-    public void render(final MatrixStack matrices, final int mouseX, final int mouseY, final float delta) {
+    public void render(final MatrixStack matrices, final int mouseX, final int mouseY,
+                        final float delta) {
+        // 1.18.2 的 Screen#render 收 MatrixStack（没有 1.20.1 的 DrawContext）；
+        // 替身包一层，屏幕内部的绘制代码一行不用改。
         final DrawContext context = new DrawContext(matrices);
         context.drawTexture(OPTIONS_BACKGROUND, 0, 0, 0, 0, this.width, this.height, 32, 32);
         context.fillGradient(0, 0, this.width, this.height, 0xC0101010, 0xD0101010);

@@ -9,7 +9,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /**
  * 驱动方速交通灯的「MTR 信号联动」档。
  *
- * <h2>注入点（CFR 反编译 fangsu 1.3.2 build20261102090023 证实）</h2>
+ * <h2>注入点（按 fangsu 1.3.2 build20261102090023 的公开行为核对）</h2>
  * <pre>
  * com.fangsu.blockEntities.BlockEntityTrafficLight
  * public void whenRendering() {                       // line 119

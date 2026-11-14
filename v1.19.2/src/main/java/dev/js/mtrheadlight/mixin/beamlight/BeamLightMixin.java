@@ -4,6 +4,7 @@ import dev.js.mtrheadlight.BeamBlockLight;
 import dev.js.mtrheadlight.HeadlightConfig;
 import dev.js.mtrheadlight.MtrHeadlightClient;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.RailBlock;
 import net.minecraft.client.render.WorldRenderer;
 import net.minecraft.client.render.chunk.ChunkRendererRegion;
 import net.minecraft.util.math.BlockPos;
@@ -83,6 +84,14 @@ public abstract class BeamLightMixin {
         }
         BeamBlockLight.noteAlive();
         if (!BeamBlockLight.active()) {
+            return;
+        }
+        // Rails themselves keep the world's own light. This hook exists to light the <em>ground</em>
+        // next to a train (ballast, platform, tunnel wall); a rail whose whole length climbs the
+        // light steps reads as the rail emitting light, which is the "铁轨还在发光" complaint. The
+        // four vanilla rail blocks are the only ones a beam may reach here, and the check is a
+        // single instanceof on a value we already hold.
+        if (state.getBlock() instanceof RailBlock) {
             return;
         }
         final HeadlightConfig cfg = MtrHeadlightClient.config();

@@ -11,7 +11,7 @@ public final class McCompat {
     public static int viewDistanceChunks() {
         try {
             return MinecraftClient.getInstance().options.getViewDistance().getValue();
-        } catch (Throwable t) {
+        } catch (RuntimeException e) {
             return 0;
         }
     }

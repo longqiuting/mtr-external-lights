@@ -1,0 +1,9 @@
+
+## ticket/XiamenTicketGates.java  (2)
+   184: 找不到符号 src:new XiamenTicketGateSide(Block.Settings.create().strength(2.0F).requiresTool().nonOpaque(), sym=方法 create() at=类 Settings   <<<
+   184: 找不到符号 src:new XiamenTicketGateSide(Block.Settings.create().strength(2.0F).requiresTool().nonOpaque(), sym=方法 create() at=类 Settings
+
+=== top messages ===
+2x  找不到符号 src:new XiamenTicketGateSide(Block.Settings.create().strength(2.0F).requiresTool().nonOpaque(), sym=方法 create() at=类 Settings
+
+total errors: 2, files: 1

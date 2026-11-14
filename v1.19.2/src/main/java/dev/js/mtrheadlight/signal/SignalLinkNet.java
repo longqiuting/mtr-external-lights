@@ -1,6 +1,5 @@
 package dev.js.mtrheadlight.signal;
 
-import dev.js.mtrheadlight.MtrCompat;
 import mtr.data.Rail;
 import mtr.data.RailwayData;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
@@ -217,6 +216,53 @@ public final class SignalLinkNet {
         }
     }
 
+    /**
+     * {@link RailwayData} 里那张「节点 → (另一端节点 → Rail)」表。
+     *
+     * <p>取法按 MTR 版本分两步（都走反射，缺哪个都不至于把类加载拖崩）：
+     * <ol>
+     *   <li>3.6.x（1.20.1 线）有 {@code public getRailsMap()}；</li>
+     *   <li>3.2.x（1.19.2 / 1.18.2 线）没有这个方法，表在
+     *       {@code RailwayDataModuleBase#rails}（{@code protected final Map}）里，
+     *       {@code RailwayData.railwayDataRailActionsModule} 就继承它。</li>
+     * </ol>
+     *
+     * @return 表本体；两版都拿不到时 {@code null}（调用方按「没有轨道」处理）
+     */
+    private static Map<?, ?> railsMap(final RailwayData data) {
+        try {
+            final Method getter = data.getClass().getMethod("getRailsMap");
+            final Object value = getter.invoke(data);
+            if (value instanceof Map<?, ?> map) {
+                return map;
+            }
+        } catch (final Throwable ignored) {
+            // 3.2.x：没有这个方法，往下走字段那条路。
+        }
+        try {
+            final Object module = data.railwayDataRailActionsModule;
+            if (module == null) {
+                return null;
+            }
+            for (Class<?> type = module.getClass(); type != null && type != Object.class;
+                 type = type.getSuperclass()) {
+                try {
+                    final java.lang.reflect.Field field = type.getDeclaredField("rails");
+                    field.setAccessible(true);
+                    final Object value = field.get(module);
+                    if (value instanceof Map<?, ?> map) {
+                        return map;
+                    }
+                } catch (final NoSuchFieldException ignored) {
+                    // 继续往父类找。
+                }
+            }
+        } catch (final Throwable ignored) {
+            // 反射被挡（模块系统 / 混淆差异）：当作没有轨道表。
+        }
+        return null;
+    }
+
     /** 该节点上接了几段轨道（没有轨道的孤立节点绑了也没意义）。 */
     public static boolean hasRail(final World world, final BlockPos node) {
         return !railsAt(world, node).isEmpty();
@@ -235,7 +281,7 @@ public final class SignalLinkNet {
             if (data == null) {
                 return Collections.emptyList();
             }
-            final Map rails = MtrCompat.railsMap(data);
+            final Map rails = railsMap(data);
             if (rails == null) {
                 return Collections.emptyList();
             }

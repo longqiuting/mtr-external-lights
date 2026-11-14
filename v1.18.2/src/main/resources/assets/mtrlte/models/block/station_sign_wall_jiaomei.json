@@ -1,0 +1,7 @@
+{
+  "parent": "mtrlte:block/station_sign_wall",
+  "textures": {
+    "particle": "mtrlte:block/station_sign_jiaomei",
+    "sign": "mtrlte:block/station_sign_jiaomei"
+  }
+}

@@ -5,7 +5,9 @@ import dev.js.mtrheadlight.LteLog;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.util.registry.RegistryEntry;
 import net.minecraft.util.math.Box;
+
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -132,6 +134,24 @@ public final class CollisionImpact {
 
     /** 状态表上限，防止异常实体把内存撑大。 */
     private static final int MAX_STATES = 512;
+
+    /**
+     * 「从车顶掉下来」的伤害尺度：车速从伤害起点 {@code trainCollisionPushOnlyMaxKmh} 升到
+     * {@code trainCollisionLaunchMaxKmh} 的过程中，一次落地伤害从 0 线性涨到「一条血 × 本值」。
+     * 取 1.0 = 到 {@code launchMax} 前一刻正好打掉满血（与撞击「一次撞击最多打掉一条血」同一量级）。
+     */
+    private static final double ROOF_FALL_SCALE = 1.0D;
+
+    /**
+     * 高速（{@code ≥ trainCollisionLaunchMaxKmh}）从车顶掉下来的伤害：一条血 × 本值 + 常数。
+     *
+     * <p>与「必死那一击」（见 {@link #damage}）同一量级 —— 护甲 / 保护附魔 / 吸收 / 外部减伤都压不住。
+     * 需求是「高速移动时直接死亡」，这一档不允许出现「飞出去但没死」。
+     */
+    private static final double ROOF_FALL_FATAL_SCALE = 8.0D;
+
+    /** 见 {@link #ROOF_FALL_FATAL_SCALE}。 */
+    private static final float ROOF_FALL_FATAL_FLAT = 20.0F;
 
     /** 「没有这个时间戳」的哨兵（不取 0，0 是合法 tick 计数）。 */
     private static final long NEVER = Long.MIN_VALUE / 4L;
@@ -1059,6 +1079,84 @@ public final class CollisionImpact {
     }
 
     /**
+     * 「从车顶摔下来」的一次落地伤害（hp），<b>在落地那一 tick 一次打完</b>。
+     *
+     * <h2>与撞击同一套档位</h2>
+     *
+     * <pre>
+     * v &lt; pushOnlyMax (5)             0        —— 慢车 / 停车：原版摔落伤害已经够
+     * pushOnlyMax ≤ v &lt; launchMax     一条血 × (v − v0) / (launchMax − v0) · ROOF_FALL_SCALE
+     * v ≥ launchMax (80)              一条血 × 8 + 20（必死，护甲/减伤压不住）
+     * </pre>
+     *
+     * <p>为什么不用 {@link #damagePerSecond} 那套 hp/s：那是「持续接触」的速率，一条血要靠
+     * {@code trainCollisionHurtTicks}（默认 6 s）积出来。从车顶掉下来是一件<b>一次性</b>的事 ——
+     * 落地那一 tick 就该出结果，所以这里把同一根指数曲线在 {@code [v0, launchMax]} 上归一化成
+     * 「这一次摔掉多少比例的血」。想要更轻/更重的整体手感，改 {@link #ROOF_FALL_SCALE} 即可。
+     *
+     * @return 这一次落地要打的伤害（hp）；0 = 这一档不该额外扣血
+     */
+    public static float roofFallHp(final LivingEntity entity, final HeadlightConfig cfg,
+                                   final double speedKmh) {
+        if (entity == null || cfg == null || dead(entity)) {
+            return 0.0F;
+        }
+        final double v0 = cfg.trainCollisionPushOnlyMaxKmhClamped();
+        if (!(speedKmh > v0)) {
+            return 0.0F;
+        }
+        final double max = Math.max(1.0D, Math.min(200.0D, entity.getMaxHealth()));
+        final double launch = cfg.trainCollisionLaunchMaxKmhClamped();
+        if (speedKmh >= launch) {
+            return (float) (max * ROOF_FALL_FATAL_SCALE + ROOF_FALL_FATAL_FLAT);
+        }
+        final double t = launch > v0 ? (speedKmh - v0) / (launch - v0) : 1.0D;
+        final double frac = Math.max(0.0D, Math.min(1.0D, t));
+        return (float) (max * ROOF_FALL_SCALE * frac);
+    }
+
+    /**
+     * 把一次「从车顶摔下来」的伤害打到实体上。
+     *
+     * <p>和 {@link #applyDamage} 的三处区别：
+     * <ol>
+     *   <li>伤害源是原版 {@code fall} —— 死亡消息是「XXX 摔死了」，不是「被列车撞死」；</li>
+     *   <li>不走进 {@link State} 的累计 / 结算窗口：这是一次性的落地伤害，不需要 10 tick 节流，
+     *       也不该把撞击的「本次接触累计」算进去；</li>
+     *   <li>打之前把 {@code fallDistance} 清零 —— 我们自己结算这次摔落，别再叠一条原版摔落伤害
+     *       （两条一起结算时原版那条还会把死亡文案抢过去）。</li>
+     * </ol>
+     * 创造 / 旁观 / 无敌标志 / {@code abilities.invulnerable} 的保护与撞击完全一致
+     * （{@link #damageable}，{@code damageInCreative} 打开时创造玩家也会被摔死）。
+     *
+     * @return true = 伤害真的结算了；false = 被免疫 / 被原版无敌帧吞掉 / 目标已死
+     */
+    public static boolean applyRoofFall(final LivingEntity target, final float hp,
+                                        final HeadlightConfig cfg) {
+        if (target == null || !(hp > 0.0F) || dead(target) || !damageable(target, cfg)) {
+            return false;
+        }
+        final DamageSource source = DamageSource.FALL;
+        final float before = target.getHealth();
+        final boolean lethal = hp >= before;
+        if (lethal) {
+            // 落地这一 tick 往往还有别的伤害（原版摔落、撞击）先结算过：致死笔不能被无敌帧吞掉。
+            target.timeUntilRegen = 0;
+        }
+        target.fallDistance = 0.0F;
+        boolean landed;
+        try {
+            landed = damageIgnoringCreativeInvuln(target, source, hp,
+                    cfg != null && cfg.damageInCreative);
+        } catch (Throwable t) {
+            landed = false;
+            LteLog.LOGGER.warn("[lte] roof-fall: threw " + t, t);
+        }
+        logDamage(target, source, hp, before, landed, lethal);
+        return landed;
+    }
+
+    /**
      * 真正调用原版 {@code damage()}，并在 {@code damageInCreative} 打开时绕过创造玩家的
      * {@code abilities.invulnerable}。
      *
@@ -1127,10 +1225,12 @@ public final class CollisionImpact {
             // 拿不到就算了。
         }
         try {
-            // 语言文件里的键：从我们自己那两个常量反查，和 source 的实际类名一起打，便于对照。
-            key = TrainImpactDamageSource.KEY_SLOW;
+            // 语言文件里的键：撞击走我们自己那两个常量；其它源（车顶摔落用的原版 {@code fall}）
+            // 直接记原版的文案键，免得日志里把「摔死了」记成「被列车撞死」。
             if (source instanceof TrainImpactDamageSource impact) {
                 key = impact.high() ? TrainImpactDamageSource.KEY_FAST : TrainImpactDamageSource.KEY_SLOW;
+            } else {
+                key = source.getName();
             }
         } catch (Throwable ignored) {
             // 忽略。
@@ -1272,10 +1372,10 @@ public final class CollisionImpact {
         }
     }
 
-    /** 原版 {@code generic} 类型 + 我们自己的死亡消息。 */
+    /** 原版 {@code generic} 那种「不是某个实体打的」伤害 + 我们自己的死亡消息。 */
     private static DamageSource sourceFor(final LivingEntity target, final boolean high) {
-        // 1.19.2 没有 DamageType 注册表：伤害源直接是我们的 DamageSource 子类
-        // （死亡消息在 getDeathMessage 里覆写，效果与 1.19.4 传 generic 类型一致）。
+        // 1.18.2 的 DamageSource 不需要从 DamageType 注册表取条目（那是 1.19.4+ 的写法），
+        // 自定义 name 直接进构造器；死亡文案仍由 TrainImpactDamageSource 覆写。
         return new TrainImpactDamageSource(high);
     }
 }

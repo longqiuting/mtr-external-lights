@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "mtrlte:block/empty" },
+    "facing=east": { "model": "mtrlte:block/empty" },
+    "facing=south": { "model": "mtrlte:block/empty" },
+    "facing=west": { "model": "mtrlte:block/empty" }
+  }
+}

@@ -21,7 +21,7 @@ import java.util.List;
 /**
  * 「玩家右键的这一下，点到了哪个 MTR 物件」的判定，两个连接器共用。
  *
- * <h2>类名证据（反编译 MTR-fabric-1.20.1-3.6.4.2）</h2>
+ * <h2>类名来源（MTR-fabric-1.20.1-3.6.4.2 的公开 API）</h2>
  * <table border="1">
  *   <caption>投影机与 PIDS 的真实类型</caption>
  *   <tr><th>物件</th><th>方块类</th><th>方块实体（真正存数据的地方）</th></tr>

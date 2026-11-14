@@ -1,0 +1,434 @@
+
+## mtrheadlight/BeamEditor3DScreen.java  (20)
+   768: setFocused(boolean) 在 ClickableWidget 中是 protected 访问控制 src:this.searchBox.setFocused(false);   <<<
+   1004: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()   <<<
+   2170: 找不到符号 src:context.fill(button.getX() - 1, button.getY() - 1, sym=方法 getX() at=类型为ButtonWidget的变量 button   <<<
+   2170: 找不到符号 src:context.fill(button.getX() - 1, button.getY() - 1, sym=方法 getY() at=类型为ButtonWidget的变量 button   <<<
+   2171: 找不到符号 src:button.getX() + button.getWidth() + 1, button.getY(), 0xFFFFFFFF); sym=方法 getX() at=类型为ButtonWidget的变量 button   <<<
+   2171: 找不到符号 src:button.getX() + button.getWidth() + 1, button.getY(), 0xFFFFFFFF); sym=方法 getY() at=类型为ButtonWidget的变量 button   <<<
+   2172: 找不到符号 src:context.fill(button.getX() - 1, button.getY() + button.getHeight(), sym=方法 getX() at=类型为ButtonWidget的变量 button   <<<
+   2172: 找不到符号 src:context.fill(button.getX() - 1, button.getY() + button.getHeight(), sym=方法 getY() at=类型为ButtonWidget的变量 button   <<<
+   2173: 找不到符号 src:button.getX() + button.getWidth() + 1, button.getY() + button.getHeight() + 1, sym=方法 getX() at=类型为ButtonWidget的变量 button   <<<
+   2173: 找不到符号 src:button.getX() + button.getWidth() + 1, button.getY() + button.getHeight() + 1, sym=方法 getY() at=类型为ButtonWidget的变量 button   <<<
+   1004: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()
+   768: setFocused(boolean) 在 ClickableWidget 中是 protected 访问控制 src:this.searchBox.setFocused(false); src:D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamVehicleScreen.java:178: 错误: setFocused(boolean) 在 ClickableWidget 中是 protected 访问控制 src:this.searchField.setFocused(true);   <<<
+   2170: 找不到符号 src:context.fill(button.getX() - 1, button.getY() - 1, sym=方法 getX() at=类型为ButtonWidget的变量 button
+   2170: 找不到符号 src:context.fill(button.getX() - 1, button.getY() - 1, sym=方法 getY() at=类型为ButtonWidget的变量 button
+   2171: 找不到符号 src:button.getX() + button.getWidth() + 1, button.getY(), 0xFFFFFFFF); sym=方法 getX() at=类型为ButtonWidget的变量 button
+   2171: 找不到符号 src:button.getX() + button.getWidth() + 1, button.getY(), 0xFFFFFFFF); sym=方法 getY() at=类型为ButtonWidget的变量 button
+   2172: 找不到符号 src:context.fill(button.getX() - 1, button.getY() + button.getHeight(), sym=方法 getX() at=类型为ButtonWidget的变量 button
+   2172: 找不到符号 src:context.fill(button.getX() - 1, button.getY() + button.getHeight(), sym=方法 getY() at=类型为ButtonWidget的变量 button
+   2173: 找不到符号 src:button.getX() + button.getWidth() + 1, button.getY() + button.getHeight() + 1, sym=方法 getX() at=类型为ButtonWidget的变量 button
+   2173: 找不到符号 src:button.getX() + button.getWidth() + 1, button.getY() + button.getHeight() + 1, sym=方法 getY() at=类型为ButtonWidget的变量 button
+
+## bind/LteBindCommand.java  (18)
+   40: 不兼容的类型: lambda 表达式中的参数类型不兼容 src:CommandRegistrationCallback.EVENT.register(dispatcher ->   <<<
+   74: 不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.projector_none",   <<<
+   77: 不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.projector_link",   <<<
+   85: 不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.not_a_projector")   <<<
+   92: 不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.live_platforms",   <<<
+   109: 不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.pids_none",   <<<
+   112: 不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.pids_link",   <<<
+   119: 不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.not_a_pids")   <<<
+   128: 不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.pids_live",   <<<
+   40: 不兼容的类型: lambda 表达式中的参数类型不兼容 src:CommandRegistrationCallback.EVENT.register(dispatcher ->
+   74: 不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.projector_none",
+   77: 不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.projector_link",
+   85: 不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.not_a_projector")
+   92: 不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.live_platforms",
+   109: 不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.pids_none",
+   112: 不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.pids_link",
+   119: 不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.not_a_pids")
+   128: 不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.pids_live",
+
+## xiamen/XiamenObjects.java  (18)
+   295: 对于add(XiamenLogoBlock), 找不到合适的方法 src:entries.add(logo);   <<<
+   298: 对于add(Door), 找不到合适的方法 src:entries.add(set.door);   <<<
+   299: 对于add(Glass), 找不到合适的方法 src:entries.add(set.glass);   <<<
+   300: 对于add(GlassEnd), 找不到合适的方法 src:entries.add(set.end);   <<<
+   301: 对于add(ApgDoor), 找不到合适的方法 src:entries.add(set.apgDoor);   <<<
+   302: 对于add(ApgGlass), 找不到合适的方法 src:entries.add(set.apgGlass);   <<<
+   303: 对于add(ApgEnd), 找不到合适的方法 src:entries.add(set.apgEnd);   <<<
+   371: 找不到符号 src:final XiamenLogoBlock block = new XiamenLogoBlock(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings   <<<
+   385: 找不到符号 src:return Registry.ITEM_GROUP.get(CORE_TAB_ID); sym=变量 ITEM_GROUP at=类 Registry   <<<
+   295: 对于add(XiamenLogoBlock), 找不到合适的方法 src:entries.add(logo);
+   298: 对于add(Door), 找不到合适的方法 src:entries.add(set.door);
+   299: 对于add(Glass), 找不到合适的方法 src:entries.add(set.glass);
+   300: 对于add(GlassEnd), 找不到合适的方法 src:entries.add(set.end);
+   301: 对于add(ApgDoor), 找不到合适的方法 src:entries.add(set.apgDoor);
+   302: 对于add(ApgGlass), 找不到合适的方法 src:entries.add(set.apgGlass);
+   303: 对于add(ApgEnd), 找不到合适的方法 src:entries.add(set.apgEnd);
+   385: 找不到符号 src:return Registry.ITEM_GROUP.get(CORE_TAB_ID); sym=变量 ITEM_GROUP at=类 Registry src:D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamEditor3DScreen.java:768: 错误: setFocused(boolean) 在 ClickableWidget 中是 protected 访问控制   <<<
+   371: 找不到符号 src:final XiamenLogoBlock block = new XiamenLogoBlock(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+
+## sss/ScatterPass.java  (12)
+   373: 找不到符号 src:VIEW_PROJ.set(RenderSystem.getProjectionMatrix()).mul(view); sym=方法 set(net.minecraft.util.math.Matrix4f) at=类型为dev.js.mtrheadlight.clientgui.Matrix4f的变量 VIEW_PROJ   <<<
+   374: 找不到符号 src:INVERSE.set(VIEW_PROJ).invert(); sym=方法 set(Matrix4f) at=类型为Matrix4f的变量 INVERSE   <<<
+   645: 找不到符号 src:BufferRenderer.drawWithGlobalProgram(built); sym=变量 built at=类 ScatterPass   <<<
+   747: 不兼容的类型: net.minecraft.util.math.Matrix4f无法转换为dev.js.mtrheadlight.clientgui.Matrix4f src:candidate = context.matrixStack().peek().getPositionMatrix();   <<<
+   756: 不兼容的类型: net.minecraft.util.math.Matrix4f无法转换为dev.js.mtrheadlight.clientgui.Matrix4f src:final Matrix4f renderSystem = RenderSystem.getModelViewMatrix();   <<<
+   764: 找不到符号    <<<
+   747: 不兼容的类型: net.minecraft.util.math.Matrix4f无法转换为dev.js.mtrheadlight.clientgui.Matrix4f src:candidate = context.matrixStack().peek().getPositionMatrix();
+   756: 不兼容的类型: net.minecraft.util.math.Matrix4f无法转换为dev.js.mtrheadlight.clientgui.Matrix4f src:final Matrix4f renderSystem = RenderSystem.getModelViewMatrix();
+   645: 找不到符号 src:BufferRenderer.drawWithGlobalProgram(built); sym=变量 built at=类 ScatterPass
+   373: 找不到符号 src:VIEW_PROJ.set(RenderSystem.getProjectionMatrix()).mul(view); sym=方法 set(net.minecraft.util.math.Matrix4f) at=类型为dev.js.mtrheadlight.clientgui.Matrix4f的变量 VIEW_PROJ
+   374: 找不到符号 src:INVERSE.set(VIEW_PROJ).invert(); sym=方法 set(Matrix4f) at=类型为Matrix4f的变量 INVERSE
+   764: 找不到符号 
+
+## security/LiquidScannerBlock.java  (10)
+   198: 找不到符号 src:super(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings   <<<
+   266: 找不到符号 src:final Direction facing = ctx.getHorizontalPlayerFacing().getOpposite(); sym=方法 getHorizontalPlayerFacing() at=类型为ItemPlacementContext的变量 ctx   <<<
+   306: 找不到符号 src:world.scheduleBlockTick(pos, this, LAMP_TICKS); sym=方法 scheduleBlockTick(BlockPos,LiquidScannerBlock,int) at=类型为World的变量 world   <<<
+   358: 找不到符号 src:final ItemStack scanned = held.copyWithCount(1); sym=方法 copyWithCount(int) at=类型为ItemStack的变量 held   <<<
+   363: 找不到符号 src:world.playSound(null, pos, SoundEvents.BLOCK_NOTE_BLOCK_PLING.value(), sym=方法 value() at=类型为SoundEvent的变量 BLOCK_NOTE_BLOCK_PLING   <<<
+   198: 找不到符号 src:super(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+   266: 找不到符号 src:final Direction facing = ctx.getHorizontalPlayerFacing().getOpposite(); sym=方法 getHorizontalPlayerFacing() at=类型为ItemPlacementContext的变量 ctx
+   306: 找不到符号 src:world.scheduleBlockTick(pos, this, LAMP_TICKS); sym=方法 scheduleBlockTick(BlockPos,LiquidScannerBlock,int) at=类型为World的变量 world
+   358: 找不到符号 src:final ItemStack scanned = held.copyWithCount(1); sym=方法 copyWithCount(int) at=类型为ItemStack的变量 held
+   363: 找不到符号 src:world.playSound(null, pos, SoundEvents.BLOCK_NOTE_BLOCK_PLING.value(), sym=方法 value() at=类型为SoundEvent的变量 BLOCK_NOTE_BLOCK_PLING
+
+## charger/PowerBankProjectileEntity.java  (8)
+   81: 找不到符号 src:this.stack = stack.copyWithCount(1); sym=方法 copyWithCount(int) at=类型为ItemStack的变量 stack   <<<
+   134: 找不到符号 src:igniteLandingTile(server, BlockPos.ofFloored(at.x, at.y, at.z)); sym=方法 ofFloored(double,double,double) at=类 BlockPos   <<<
+   151: 找不到符号 src:living.damage(world.getDamageSources().thrown(this, owner), BLAST_DAMAGE); sym=方法 getDamageSources() at=类型为World的变量 world   <<<
+   200: 找不到符号 src:if (!current.isAir() && !current.isReplaceable()) { sym=方法 isReplaceable() at=类型为BlockState的变量 current   <<<
+   81: 找不到符号 src:this.stack = stack.copyWithCount(1); sym=方法 copyWithCount(int) at=类型为ItemStack的变量 stack
+   134: 找不到符号 src:igniteLandingTile(server, BlockPos.ofFloored(at.x, at.y, at.z)); sym=方法 ofFloored(double,double,double) at=类 BlockPos
+   151: 找不到符号 src:living.damage(world.getDamageSources().thrown(this, owner), BLAST_DAMAGE); sym=方法 getDamageSources() at=类型为World的变量 world
+   200: 找不到符号 src:if (!current.isAir() && !current.isReplaceable()) { sym=方法 isReplaceable() at=类型为BlockState的变量 current
+
+## drinks/DrinksMachineBlock.java  (8)
+   282: 找不到符号 src:return state.isAir() || state.isReplaceable(); sym=方法 isReplaceable() at=类型为BlockState的变量 state   <<<
+   317: 找不到符号 src:final Direction facing = ctx.getHorizontalPlayerFacing().getOpposite(); sym=方法 getHorizontalPlayerFacing() at=类型为ItemPlacementContext的变量 ctx   <<<
+   471: 找不到符号 src:world.playSound(null, base, SoundEvents.BLOCK_NOTE_BLOCK_BELL.value(), SoundCategory.BLOCKS, 0.9F, 1.4F); sym=方法 value() at=类型为SoundEvent的变量 BLOCK_NOTE_BLOCK_BELL   <<<
+   474: 找不到符号 src:world.scheduleBlockTick(base, DrinksMachineObjects.bottom(), OPEN_TICKS); sym=方法 scheduleBlockTick(BlockPos,DrinksMachineBlock,int) at=类型为World的变量 world   <<<
+   282: 找不到符号 src:return state.isAir() || state.isReplaceable(); sym=方法 isReplaceable() at=类型为BlockState的变量 state
+   317: 找不到符号 src:final Direction facing = ctx.getHorizontalPlayerFacing().getOpposite(); sym=方法 getHorizontalPlayerFacing() at=类型为ItemPlacementContext的变量 ctx
+   471: 找不到符号 src:world.playSound(null, base, SoundEvents.BLOCK_NOTE_BLOCK_BELL.value(), SoundCategory.BLOCKS, 0.9F, 1.4F); sym=方法 value() at=类型为SoundEvent的变量 BLOCK_NOTE_BLOCK_BELL
+   474: 找不到符号 src:world.scheduleBlockTick(base, DrinksMachineObjects.bottom(), OPEN_TICKS); sym=方法 scheduleBlockTick(BlockPos,DrinksMachineBlock,int) at=类型为World的变量 world
+
+## mtrheadlight/TrainPreview.java  (6)
+   305: 找不到符号 src:if (MinecraftClient.getInstance().getResourceManager().getResource(id).isPresent()) { sym=方法 isPresent() at=接口 Resource   <<<
+   456: 不兼容的类型: dev.js.mtrheadlight.clientgui.Matrix4f无法转换为net.minecraft.util.math.Matrix4f src:matrices.multiplyPositionMatrix(camera.toPixels(centreX, centreY));   <<<
+   457: 不兼容的类型: dev.js.mtrheadlight.clientgui.Matrix4f无法转换为net.minecraft.util.math.Matrix4f src:matrices.multiplyPositionMatrix(camera.rotation());   <<<
+   456: 不兼容的类型: dev.js.mtrheadlight.clientgui.Matrix4f无法转换为net.minecraft.util.math.Matrix4f src:matrices.multiplyPositionMatrix(camera.toPixels(centreX, centreY));
+   457: 不兼容的类型: dev.js.mtrheadlight.clientgui.Matrix4f无法转换为net.minecraft.util.math.Matrix4f src:matrices.multiplyPositionMatrix(camera.rotation());
+   305: 找不到符号 src:if (MinecraftClient.getInstance().getResourceManager().getResource(id).isPresent()) { sym=方法 isPresent() at=接口 Resource
+
+## mtrheadlight/TrainNames.java  (6)
+   132: 找不到符号 src:if (text.getContent() instanceof TranslatableText content) { sym=方法 getContent() at=类型为Text的变量 text   <<<
+   139: 找不到符号 src:final String fallback = content.getFallback(); sym=方法 getFallback() at=类型为TranslatableText的变量 content   <<<
+   167: 不兼容的类型: Resource无法转换为Optional<Resource> src:final Optional<Resource> resource = manager.getResource(   <<<
+   167: 不兼容的类型: Resource无法转换为Optional<Resource> src:final Optional<Resource> resource = manager.getResource(
+   132: 找不到符号 src:if (text.getContent() instanceof TranslatableText content) { sym=方法 getContent() at=类型为Text的变量 text
+   139: 找不到符号 src:final String fallback = content.getFallback(); sym=方法 getFallback() at=类型为TranslatableText的变量 content
+
+## xiamen/PsdAPGItem.java  (6)
+   94: 找不到符号 src:Direction playerFacing = context.getHorizontalPlayerFacing(); sym=方法 getHorizontalPlayerFacing() at=类型为ItemUsageContext的变量 context   <<<
+   134: 找不到符号 src:Direction facing = context.getHorizontalPlayerFacing(); sym=方法 getHorizontalPlayerFacing() at=类型为ItemUsageContext的变量 context   <<<
+   147: 找不到符号 src:if (world.getBlockState(offsetPos.up(y)).isReplaceable()) { sym=方法 isReplaceable() at=类 BlockState   <<<
+   94: 找不到符号 src:Direction playerFacing = context.getHorizontalPlayerFacing(); sym=方法 getHorizontalPlayerFacing() at=类型为ItemUsageContext的变量 context
+   134: 找不到符号 src:Direction facing = context.getHorizontalPlayerFacing(); sym=方法 getHorizontalPlayerFacing() at=类型为ItemUsageContext的变量 context
+   147: 找不到符号 src:if (world.getBlockState(offsetPos.up(y)).isReplaceable()) { sym=方法 isReplaceable() at=类 BlockState
+
+## mtrheadlight/BeamVehicleScreen.java  (4)
+   169: 找不到符号 src:this.searchField.setPlaceholder(tr("beam.search")); sym=方法 setPlaceholder(MutableText) at=类型为TextFieldWidget的变量 searchField src:D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\BeamVehicleScreen.java:178: 错误: setFocused(boolean) 在 ClickableWidget 中是 protected 访问控制   <<<
+   178: setFocused(boolean) 在 ClickableWidget 中是 protected 访问控制 src:this.searchField.setFocused(true);   <<<
+   178: setFocused(boolean) 在 ClickableWidget 中是 protected 访问控制 src:this.searchField.setFocused(true); src:D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\SidingScreen.java:330: 错误: setFocused(boolean) 在 ClickableWidget 中是 protected 访问控制 src:this.searchField.setFocused(true);   <<<
+   169: 找不到符号 src:this.searchField.setPlaceholder(tr("beam.search")); sym=方法 setPlaceholder(MutableText) at=类型为TextFieldWidget的变量 searchField   <<<
+
+## mtrheadlight/CategoryScreen.java  (4)
+   217: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()   <<<
+   239: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()
+   217: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()
+   239: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()
+
+## decor/DecorBlocks.java  (4)
+   101: 找不到符号 src:new MarblePlatformBlock(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings   <<<
+   130: 找不到符号 src:return AbstractBlock.Settings.create() sym=方法 create() at=类 Settings   <<<
+   101: 找不到符号 src:new MarblePlatformBlock(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+   130: 找不到符号 src:return AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+
+## decor/RccPlatforms.java  (4)
+   147: 找不到符号 src:new RccPlatformBlock(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings   <<<
+   161: 找不到符号 src:return Registry.ITEM_GROUP.get(TAB_ID); sym=变量 ITEM_GROUP at=类 Registry   <<<
+   161: 找不到符号 src:return Registry.ITEM_GROUP.get(TAB_ID); sym=变量 ITEM_GROUP at=类 Registry
+   147: 找不到符号 src:new RccPlatformBlock(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+
+## mtrheadlight/LightFlare.java  (4)
+   694: 找不到符号 src:final Object value = client.options.getFov().getValue(); sym=方法 getFov() at=类型为GameOptions的变量 options   <<<
+   885: 找不到符号 src:if (client.getResourceManager().getResource(TEXTURE).isEmpty()) { sym=方法 isEmpty() at=接口 Resource   <<<
+   694: 找不到符号 src:final Object value = client.options.getFov().getValue(); sym=方法 getFov() at=类型为GameOptions的变量 options
+   885: 找不到符号 src:if (client.getResourceManager().getResource(TEXTURE).isEmpty()) { sym=方法 isEmpty() at=接口 Resource
+
+## mtrheadlight/RainSpray.java  (4)
+   672: 找不到符号 src:final ParticlesMode value = client == null ? null : client.options.getParticles().getValue(); sym=方法 getParticles() at=类型为GameOptions的变量 options   <<<
+   698: 找不到符号 src:if (world.isAir(BlockPos.ofFloored(x, probe, z))) { sym=方法 ofFloored(double,double,double) at=类 BlockPos   <<<
+   672: 找不到符号 src:final ParticlesMode value = client == null ? null : client.options.getParticles().getValue(); sym=方法 getParticles() at=类型为GameOptions的变量 options
+   698: 找不到符号 src:if (world.isAir(BlockPos.ofFloored(x, probe, z))) { sym=方法 ofFloored(double,double,double) at=类 BlockPos
+
+## mtrheadlight/SidingScreen.java  (4)
+   318: 找不到符号 src:this.searchField.setPlaceholder(tr("sidings.search")); sym=方法 setPlaceholder(MutableText) at=类型为TextFieldWidget的变量 searchField src:D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\SidingScreen.java:330: 错误: setFocused(boolean) 在 ClickableWidget 中是 protected 访问控制   <<<
+   330: setFocused(boolean) 在 ClickableWidget 中是 protected 访问控制 src:this.searchField.setFocused(true);   <<<
+   330: setFocused(boolean) 在 ClickableWidget 中是 protected 访问控制 src:this.searchField.setFocused(true);
+   318: 找不到符号 src:this.searchField.setPlaceholder(tr("sidings.search")); sym=方法 setPlaceholder(MutableText) at=类型为TextFieldWidget的变量 searchField   <<<
+
+## sss/ScatterProgram.java  (4)
+   276: 不兼容的类型: Resource无法转换为Optional<Resource> src:base.getResource(new Identifier(NAMESPACE, id.getPath()));   <<<
+   278: 不兼容的类型: lambda 表达式中的返回类型错误 src:return own;   <<<
+   276: 不兼容的类型: Resource无法转换为Optional<Resource> src:base.getResource(new Identifier(NAMESPACE, id.getPath()));
+   278: 不兼容的类型: lambda 表达式中的返回类型错误 src:return own;
+
+## dep/DepOnRoofBlock.java  (4)
+   155: 找不到符号 src:super(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings   <<<
+   351: 找不到符号 src:final Direction facing = facingForNormal(ctx.getHorizontalPlayerFacing().getOpposite()); sym=方法 getHorizontalPlayerFacing() at=类型为ItemPlacementContext的变量 ctx   <<<
+   155: 找不到符号 src:super(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+   351: 找不到符号 src:final Direction facing = facingForNormal(ctx.getHorizontalPlayerFacing().getOpposite()); sym=方法 getHorizontalPlayerFacing() at=类型为ItemPlacementContext的变量 ctx
+
+## dep/DepOnWallBlock.java  (4)
+   93: 找不到符号 src:super(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings   <<<
+   204: 找不到符号    <<<
+   93: 找不到符号 src:super(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+   204: 找不到符号 
+
+## dep/DepOnWallRenderer.java  (4)
+   375: 找不到符号 src:RenderLayer.getEntityTranslucentEmissive(TEXTURE)); sym=方法 getEntityTranslucentEmissive(Identifier) at=类 RenderLayer   <<<
+   429: 找不到符号 src:RenderLayer.getEntityTranslucentEmissive(LED_TEXTURE)); sym=方法 getEntityTranslucentEmissive(Identifier) at=类 RenderLayer   <<<
+   375: 找不到符号 src:RenderLayer.getEntityTranslucentEmissive(TEXTURE)); sym=方法 getEntityTranslucentEmissive(Identifier) at=类 RenderLayer
+   429: 找不到符号 src:RenderLayer.getEntityTranslucentEmissive(LED_TEXTURE)); sym=方法 getEntityTranslucentEmissive(Identifier) at=类 RenderLayer
+
+## eyecandy/EyecandyBlocks.java  (4)
+   595: 找不到符号 src:final EyecandyBlock block = new EyecandyBlock(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings   <<<
+   641: 找不到符号 src:return Registry.ITEM_GROUP.get(id); sym=变量 ITEM_GROUP at=类 Registry   <<<
+   641: 找不到符号 src:return Registry.ITEM_GROUP.get(id); sym=变量 ITEM_GROUP at=类 Registry
+   595: 找不到符号 src:final EyecandyBlock block = new EyecandyBlock(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+
+## pids/PidsXiamenAdsScreen.java  (4)
+   197: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit() src:D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenAdsScreen.java:217: 错误: 无法将类 PackScreen中的构造器 PackScreen应用到给定类型; src:client.setScreen(new PackScreen(client.getResourcePackManager(),   <<<
+   217: 无法将类 PackScreen中的构造器 PackScreen应用到给定类型; src:client.setScreen(new PackScreen(client.getResourcePackManager(),   <<<
+   217: 无法将类 PackScreen中的构造器 PackScreen应用到给定类型; src:client.setScreen(new PackScreen(client.getResourcePackManager(),
+   197: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()   <<<
+
+## pids/PidsXiamenText.java  (4)
+   149: 对于draw(String,float,float,int,boolean,Matrix4f,VertexConsumerProvider,TextLayerType,int,int), 找不到合适的方法 src:textRenderer.draw(text, 0.0F, 0.0F, color, false,   <<<
+   258: 找不到符号 src:matrix.transform(this.vector); sym=方法 transform(Vector4f) at=类型为Matrix4f的变量 matrix   <<<
+   149: 对于draw(String,float,float,int,boolean,Matrix4f,VertexConsumerProvider,TextLayerType,int,int), 找不到合适的方法 src:textRenderer.draw(text, 0.0F, 0.0F, color, false,
+   258: 找不到符号 src:matrix.transform(this.vector); sym=方法 transform(Vector4f) at=类型为Matrix4f的变量 matrix
+
+## pids/PidsXiamenTicker.java  (4)
+   294: 找不到符号 src:if (resource.isEmpty()) { sym=方法 isEmpty() at=类型为Resource的变量 resource   <<<
+   298: 找不到符号 src:try (InputStream in = resource.get().getInputStream()) { sym=方法 get() at=类型为Resource的变量 resource   <<<
+   294: 找不到符号 src:if (resource.isEmpty()) { sym=方法 isEmpty() at=类型为Resource的变量 resource
+   298: 找不到符号 src:try (InputStream in = resource.get().getInputStream()) { sym=方法 get() at=类型为Resource的变量 resource
+
+## sign/StationSignBlock.java  (4)
+   190: 找不到符号 src:return getDefaultState().with(FACING, ctx.getHorizontalPlayerFacing().getOpposite()); sym=方法 getHorizontalPlayerFacing() at=类型为ItemPlacementContext的变量 ctx   <<<
+   196: 找不到符号    <<<
+   190: 找不到符号 src:return getDefaultState().with(FACING, ctx.getHorizontalPlayerFacing().getOpposite()); sym=方法 getHorizontalPlayerFacing() at=类型为ItemPlacementContext的变量 ctx
+   196: 找不到符号 
+
+## ticket/XiamenTicketGateSounds.java  (4)
+   55: 找不到符号 src:CRT_TICKET = Registry.register(Registry.SOUND_EVENT, CRT_TICKET_ID, SoundEvent.of(CRT_TICKET_ID)); sym=方法 of(Identifier) at=类 SoundEvent   <<<
+   57: 找不到符号 src:SoundEvent.of(CRT_TICKET_ERROR_ID)); sym=方法 of(Identifier) at=类 SoundEvent src:D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\XiamenObjects.java:295: 错误: 对于add(XiamenLogoBlock), 找不到合适的方法   <<<
+   55: 找不到符号 src:CRT_TICKET = Registry.register(Registry.SOUND_EVENT, CRT_TICKET_ID, SoundEvent.of(CRT_TICKET_ID)); sym=方法 of(Identifier) at=类 SoundEvent
+   57: 找不到符号 src:SoundEvent.of(CRT_TICKET_ERROR_ID)); sym=方法 of(Identifier) at=类 SoundEvent   <<<
+
+## mtrheadlight/BeamEditScreen.java  (2)
+   361: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()   <<<
+   361: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()
+
+## mtrheadlight/BeamListScreen.java  (2)
+   295: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()   <<<
+   295: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()
+
+## mtrheadlight/BeamPackScope.java  (2)
+   379: 不兼容的类型: String[]无法转换为String src:try (InputStream in = pack.openRoot(segments).get()) {   <<<
+   379: 不兼容的类型: String[]无法转换为String src:try (InputStream in = pack.openRoot(segments).get()) {
+
+## collision/CollisionImpact.java  (2)
+   1139: 找不到符号 src:final DamageSource source = target.getWorld().getDamageSources().fall(); sym=方法 getDamageSources() at=类 World   <<<
+   1139: 找不到符号 src:final DamageSource source = target.getWorld().getDamageSources().fall(); sym=方法 getDamageSources() at=类 World
+
+## collision/CollisionSystem.java  (2)
+   2142: 找不到符号 src:final BlockPos below = BlockPos.ofFloored(x, feet - 0.02D, z); sym=方法 ofFloored(double,double,double) at=类 BlockPos   <<<
+   2142: 找不到符号 src:final BlockPos below = BlockPos.ofFloored(x, feet - 0.02D, z); sym=方法 ofFloored(double,double,double) at=类 BlockPos
+
+## mtrheadlight/ConfigScreen.java  (2)
+   222: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()   <<<
+   222: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()
+
+## logo/LogoObjects.java  (2)
+   227: 找不到符号 src:final LogoBlock block = new LogoBlock(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings   <<<
+   227: 找不到符号 src:final LogoBlock block = new LogoBlock(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+
+## mtrheadlight/McCompat.java  (2)
+   13: 无法取消引用int src:return MinecraftClient.getInstance().options.getViewDistance().getValue();   <<<
+   13: 无法取消引用int src:return MinecraftClient.getInstance().options.getViewDistance().getValue();
+
+## mtrheadlight/PackImportScreen.java  (2)
+   157: 不兼容的类型: DrawContext无法转换为MatrixStack src:this.renderBackground(context);   <<<
+   157: 不兼容的类型: DrawContext无法转换为MatrixStack src:this.renderBackground(context);
+
+## mtrheadlight/ParameterScreen.java  (2)
+   775: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()   <<<
+   775: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()
+
+## railing/RailingGlassBlocks.java  (2)
+   163: 找不到符号 src:return AbstractBlock.Settings.create() sym=方法 create() at=类 Settings   <<<
+   163: 找不到符号 src:return AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+
+## railing/RailingWallBlock.java  (2)
+   157: 找不到符号    <<<
+   157: 找不到符号 
+
+## railing/RailingWallBlocks.java  (2)
+   130: 找不到符号 src:return AbstractBlock.Settings.create() sym=方法 create() at=类 Settings   <<<
+   130: 找不到符号 src:return AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+
+## server/LteServer.java  (2)
+   243: 找不到符号 src:final net.minecraft.server.world.ServerWorld world = player.getServerWorld(); sym=方法 getServerWorld() at=类型为ServerPlayerEntity的变量 player   <<<
+   243: 找不到符号 src:final net.minecraft.server.world.ServerWorld world = player.getServerWorld(); sym=方法 getServerWorld() at=类型为ServerPlayerEntity的变量 player
+
+## mtrheadlight/SidingInfo.java  (2)
+   13: 找不到符号 src:return siding.getTrainCars(); sym=方法 getTrainCars() at=类型为Siding的变量 siding   <<<
+   13: 找不到符号 src:return siding.getTrainCars(); sym=方法 getTrainCars() at=类型为Siding的变量 siding
+
+## signal/ConnectorNodeHighlight.java  (2)
+   178: 无法取消引用int src:final int viewChunks = client.options.getViewDistance().getValue();   <<<
+   178: 无法取消引用int src:final int viewChunks = client.options.getViewDistance().getValue();
+
+## signal/LteCoreItems.java  (2)
+   206: 找不到符号 src:return Registry.ITEM_GROUP.get(TOOLS_TAB_ID); sym=变量 ITEM_GROUP at=类 Registry   <<<
+   206: 找不到符号 src:return Registry.ITEM_GROUP.get(TOOLS_TAB_ID); sym=变量 ITEM_GROUP at=类 Registry
+
+## signal/SignalLinkNet.java  (2)
+   237: 找不到符号 src:final Map rails = data.getRailsMap(); sym=方法 getRailsMap() at=类型为RailwayData的变量 data   <<<
+   237: 找不到符号 src:final Map rails = data.getRailsMap(); sym=方法 getRailsMap() at=类型为RailwayData的变量 data
+
+## charger/ChargerBlock.java  (2)
+   183: 找不到符号 src:return this.getDefaultState().with(FACING, context.getHorizontalPlayerFacing().getOpposite()); sym=方法 getHorizontalPlayerFacing() at=类型为ItemPlacementContext的变量 context   <<<
+   183: 找不到符号 src:return this.getDefaultState().with(FACING, context.getHorizontalPlayerFacing().getOpposite()); sym=方法 getHorizontalPlayerFacing() at=类型为ItemPlacementContext的变量 context
+
+## charger/ChargerObjects.java  (2)
+   158: 找不到符号 src:final AbstractBlock.Settings settings = AbstractBlock.Settings.create() sym=方法 create() at=类 Settings   <<<
+   158: 找不到符号 src:final AbstractBlock.Settings settings = AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+
+## drinks/DrinksMachineObjects.java  (2)
+   134: 找不到符号 src:return AbstractBlock.Settings.create() sym=方法 create() at=类 Settings   <<<
+   134: 找不到符号 src:return AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+
+## eyecandy/EyecandyBlock.java  (2)
+   177: 找不到符号 src:return getDefaultState().with(FACING, ctx.getHorizontalPlayerFacing().getOpposite()); sym=方法 getHorizontalPlayerFacing() at=类型为ItemPlacementContext的变量 ctx   <<<
+   177: 找不到符号 src:return getDefaultState().with(FACING, ctx.getHorizontalPlayerFacing().getOpposite()); sym=方法 getHorizontalPlayerFacing() at=类型为ItemPlacementContext的变量 ctx
+
+## eyecandy/PsdDoorProbe.java  (2)
+   169: 找不到符号 src:return Integer.valueOf(door.getOpenValue()); sym=方法 getOpenValue() at=类型为TileEntityPSDAPGDoorBase的变量 door   <<<
+   169: 找不到符号 src:return Integer.valueOf(door.getOpenValue()); sym=方法 getOpenValue() at=类型为TileEntityPSDAPGDoorBase的变量 door
+
+## fangsu/FangsuPsdGlassBlock.java  (2)
+   162: 找不到符号 src:super(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings   <<<
+   162: 找不到符号 src:super(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+
+## fangsu/FangsuPsdDoorBlock.java  (2)
+   382: 找不到符号 src:return this.animation.update(this.getOpenValue() / (float) MAX_OPEN_VALUE, ticks, tickDelta); sym=方法 getOpenValue()   <<<
+   382: 找不到符号 src:return this.animation.update(this.getOpenValue() / (float) MAX_OPEN_VALUE, ticks, tickDelta); sym=方法 getOpenValue()
+
+## fangsu/FangsuPsdEndDoorBlock.java  (2)
+   105: 找不到符号 src:super(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings   <<<
+   105: 找不到符号 src:super(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+
+## fangsu/FangsuPsdPlacement.java  (2)
+   36: 找不到符号 src:return ctx.getHorizontalPlayerFacing(); sym=方法 getHorizontalPlayerFacing() at=类型为ItemPlacementContext的变量 ctx   <<<
+   36: 找不到符号 src:return ctx.getHorizontalPlayerFacing(); sym=方法 getHorizontalPlayerFacing() at=类型为ItemPlacementContext的变量 ctx
+
+## machine/XiamenMachineBlock.java  (2)
+   224: 找不到符号    <<<
+   224: 找不到符号 
+
+## machine/XiamenBalanceMachineBlock.java  (2)
+   71: 找不到符号 src:net.minecraft.sound.SoundEvent.of(new net.minecraft.util.Identifier("mtrlte", "ticket_processor_entry")), sym=方法 of(Identifier) at=类 SoundEvent   <<<
+   71: 找不到符号 src:net.minecraft.sound.SoundEvent.of(new net.minecraft.util.Identifier("mtrlte", "ticket_processor_entry")), sym=方法 of(Identifier) at=类 SoundEvent
+
+## machine/XiamenMachines.java  (2)
+   117: 找不到符号 src:return AbstractBlock.Settings.create() sym=方法 create() at=类 Settings   <<<
+   117: 找不到符号 src:return AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+
+## pids/PidsXiamenAdPickScreen.java  (2)
+   186: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()   <<<
+   186: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()
+
+## pids/PidsXiamenAds.java  (2)
+   336: 找不到符号 src:state = client.getResourceManager().getResource(ad.image()).isPresent() sym=方法 isPresent() at=接口 Resource   <<<
+   336: 找不到符号 src:state = client.getResourceManager().getResource(ad.image()).isPresent() sym=方法 isPresent() at=接口 Resource
+
+## pids/PidsXiamenNet.java  (2)
+   134: 找不到符号 src:final World world = player.getServerWorld(); sym=方法 getServerWorld() at=类型为ServerPlayerEntity的变量 player   <<<
+   134: 找不到符号 src:final World world = player.getServerWorld(); sym=方法 getServerWorld() at=类型为ServerPlayerEntity的变量 player
+
+## pids/PidsXiamenObjects.java  (2)
+   109: 找不到符号 src:new PidsXiamenPoleBlock(AbstractBlock.Settings.create().strength(1.0F))); sym=方法 create() at=类 Settings src:D:\MC-MTR-JS\mtr-headlight\v1.18.2\src\main\java\dev\js\mtrheadlight\xiamen\pids\PidsXiamenText.java:149: 错误: 对于draw(String,float,float,int,boolean,Matrix4f,VertexConsumerProvider,TextLayerType,int,int), 找不到合适的方法   <<<
+   109: 找不到符号 src:new PidsXiamenPoleBlock(AbstractBlock.Settings.create().strength(1.0F))); sym=方法 create() at=类 Settings   <<<
+
+## pids/PidsXiamenSettingsScreen.java  (2)
+   138: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()   <<<
+   138: 找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()
+
+## sign/StationSignObjects.java  (2)
+   105: 找不到符号 src:final StationSignBlock block = new StationSignBlock(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings   <<<
+   105: 找不到符号 src:final StationSignBlock block = new StationSignBlock(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+
+## sign/WallSignObjects.java  (2)
+   133: 找不到符号 src:final WallSignBlock block = new WallSignBlock(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings   <<<
+   133: 找不到符号 src:final WallSignBlock block = new WallSignBlock(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+
+## ticket/XiamenTicketGates.java  (2)
+   184: 找不到符号 src:new XiamenTicketGateSide(Block.Settings.create().strength(2.0F).requiresTool().nonOpaque(), sym=方法 create() at=类 Settings   <<<
+   184: 找不到符号 src:new XiamenTicketGateSide(Block.Settings.create().strength(2.0F).requiresTool().nonOpaque(), sym=方法 create() at=类 Settings
+
+## ticket/XiamenTicketGateSide.java  (2)
+   104: 找不到符号 src:return this.getDefaultState().with(FACING, context.getHorizontalPlayerFacing()); sym=方法 getHorizontalPlayerFacing() at=类型为ItemPlacementContext的变量 context   <<<
+   104: 找不到符号 src:return this.getDefaultState().with(FACING, context.getHorizontalPlayerFacing()); sym=方法 getHorizontalPlayerFacing() at=类型为ItemPlacementContext的变量 context
+
+=== top messages ===
+19x  找不到符号 src:this.clearAndInit(); sym=方法 clearAndInit()
+10x  找不到符号 src:return AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+10x  找不到符号 
+10x  找不到符号 src:super(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+4x  找不到符号 src:final Direction facing = ctx.getHorizontalPlayerFacing().getOpposite(); sym=方法 getHorizontalPlayerFacing() at=类型为ItemPlacementContext的变量 ctx
+4x  找不到符号 src:return getDefaultState().with(FACING, ctx.getHorizontalPlayerFacing().getOpposite()); sym=方法 getHorizontalPlayerFacing() at=类型为ItemPlacementContext的变量 ctx
+3x  setFocused(boolean) 在 ClickableWidget 中是 protected 访问控制 src:this.searchField.setFocused(true);
+2x  找不到符号 src:context.fill(button.getX() - 1, button.getY() - 1, sym=方法 getX() at=类型为ButtonWidget的变量 button
+2x  找不到符号 src:context.fill(button.getX() - 1, button.getY() - 1, sym=方法 getY() at=类型为ButtonWidget的变量 button
+2x  找不到符号 src:button.getX() + button.getWidth() + 1, button.getY(), 0xFFFFFFFF); sym=方法 getX() at=类型为ButtonWidget的变量 button
+2x  找不到符号 src:button.getX() + button.getWidth() + 1, button.getY(), 0xFFFFFFFF); sym=方法 getY() at=类型为ButtonWidget的变量 button
+2x  找不到符号 src:context.fill(button.getX() - 1, button.getY() + button.getHeight(), sym=方法 getX() at=类型为ButtonWidget的变量 button
+2x  找不到符号 src:context.fill(button.getX() - 1, button.getY() + button.getHeight(), sym=方法 getY() at=类型为ButtonWidget的变量 button
+2x  找不到符号 src:button.getX() + button.getWidth() + 1, button.getY() + button.getHeight() + 1, sym=方法 getX() at=类型为ButtonWidget的变量 button
+2x  找不到符号 src:button.getX() + button.getWidth() + 1, button.getY() + button.getHeight() + 1, sym=方法 getY() at=类型为ButtonWidget的变量 button
+2x  找不到符号 src:if (MinecraftClient.getInstance().getResourceManager().getResource(id).isPresent()) { sym=方法 isPresent() at=接口 Resource
+2x  不兼容的类型: dev.js.mtrheadlight.clientgui.Matrix4f无法转换为net.minecraft.util.math.Matrix4f src:matrices.multiplyPositionMatrix(camera.toPixels(centreX, centreY));
+2x  不兼容的类型: dev.js.mtrheadlight.clientgui.Matrix4f无法转换为net.minecraft.util.math.Matrix4f src:matrices.multiplyPositionMatrix(camera.rotation());
+2x  不兼容的类型: String[]无法转换为String src:try (InputStream in = pack.openRoot(segments).get()) {
+2x  不兼容的类型: lambda 表达式中的参数类型不兼容 src:CommandRegistrationCallback.EVENT.register(dispatcher ->
+2x  不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.projector_none",
+2x  不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.projector_link",
+2x  不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.not_a_projector")
+2x  不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.live_platforms",
+2x  不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.pids_none",
+2x  不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.pids_link",
+2x  不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.not_a_pids")
+2x  不兼容的类型: Text 不是函数接口 src:source.sendFeedback(() -> new TranslatableText("message.mtrlte.bind.pids_live",
+2x  找不到符号 src:final DamageSource source = target.getWorld().getDamageSources().fall(); sym=方法 getDamageSources() at=类 World
+2x  找不到符号 src:final BlockPos below = BlockPos.ofFloored(x, feet - 0.02D, z); sym=方法 ofFloored(double,double,double) at=类 BlockPos
+2x  找不到符号 src:new MarblePlatformBlock(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+2x  找不到符号 src:new RccPlatformBlock(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+2x  找不到符号 src:return Registry.ITEM_GROUP.get(TAB_ID); sym=变量 ITEM_GROUP at=类 Registry
+2x  找不到符号 src:final Object value = client.options.getFov().getValue(); sym=方法 getFov() at=类型为GameOptions的变量 options
+2x  找不到符号 src:if (client.getResourceManager().getResource(TEXTURE).isEmpty()) { sym=方法 isEmpty() at=接口 Resource
+2x  找不到符号 src:final LogoBlock block = new LogoBlock(AbstractBlock.Settings.create() sym=方法 create() at=类 Settings
+2x  无法取消引用int src:return MinecraftClient.getInstance().options.getViewDistance().getValue();
+2x  不兼容的类型: DrawContext无法转换为MatrixStack src:this.renderBackground(context);
+2x  找不到符号 src:final ParticlesMode value = client == null ? null : client.options.getParticles().getValue(); sym=方法 getParticles() at=类型为GameOptions的变量 options
+2x  找不到符号 src:if (world.isAir(BlockPos.ofFloored(x, probe, z))) { sym=方法 ofFloored(double,double,double) at=类 BlockPos
+
+total errors: 258, files: 66

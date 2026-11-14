@@ -235,6 +235,8 @@ public final class SignalLinkNet {
             if (data == null) {
                 return Collections.emptyList();
             }
+            // MTR 3.2.2 的 RailwayData 没有公开 getRailsMap()（只有私有 rails 字段）：
+            // 走 common 里的 MtrCompat（先试 getter、再反射读字段，两边都成立）。
             final Map rails = MtrCompat.railsMap(data);
             if (rails == null) {
                 return Collections.emptyList();

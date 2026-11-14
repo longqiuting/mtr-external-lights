@@ -1,86 +1,75 @@
 package dev.js.mtrheadlight;
 
+import net.minecraft.util.math.Vec3d;
+
 /**
  * Version-local selection of the light backend implementation.
  *
- * <h2>LambDynamicLights is optional</h2>
- * The 1.20.1 backend ({@link Ldl2Backend}) is written against LDL's own API classes, so touching it
- * without the mod installed is a {@link NoClassDefFoundError}, not a missing method. That is why the
- * class is only named inside a {@code try} block here: with LDL absent (or too old to have the 4.x
- * behaviour API) the lookup fails, we fall back to a backend that does nothing, and every other
- * feature - the beam sheet, the cone, rail light, collision, rain - keeps working.
+ * <h2>There is exactly one backend now: real block light</h2>
+ * LambDynamicLights is <b>gone</b> from 1.20.1. It was never the right tool for a moving train
+ * light: it lights a radius around a point, a car head light is a wedge that has to reach 16 blocks
+ * and fall off along its length, and every LDL generation had a different (and partly broken) way of
+ * re-baking a chunk when a source moved - which is why this module used to carry a fourth LDL
+ * backend (deleted with this rework; the 1.18.2 / 1.19.x modules still have theirs) and a pile of notes about
+ * which one deadlocked or left the ground lit after the beam went out.
  *
- * <p>{@link #available()} is what the config screen asks before it draws the 动态光源 row: a true
- * answer means "there is an engine to switch", so the row is live; false greys it out with a
- * "需要安装 LambDynamicLights" tooltip instead of letting the player toggle something that cannot
- * happen.
+ * <p>The remaining light that lands on the world is {@link BeamBlockLight}: our own contribution to
+ * the vanilla block-light nibble while a section is meshed, driven by {@code BeamRelight}. It has no
+ * third-party dependency, no entrypoint, no reflection, and it produces exactly the shape the
+ * {@code BeamBlockLight#level} maths describes (a widening wedge, brightest on the axis).
+ *
+ * <p>This class is kept (rather than deleting the interface) because {@link LightController} still
+ * drives a per-end state machine through {@link LightBackend} - hide / update / remove on the
+ * transition tick - and that bookkeeping is worth keeping even when the sink ignores it: it is what
+ * guarantees a lamp that is switched off is not published again on the next tick.
  */
 public final class LightBackends {
-    private static LightBackend instance;
-    /** Whether {@link #backend()} found a working LambDynamicLights; set once, on first resolve. */
-    private static boolean ldlPresent;
+    private static final LightBackend BLOCK = new BlockBackend();
 
     private LightBackends() {
     }
 
     public static LightBackend backend() {
-        if (instance == null) {
-            instance = create();
-        }
-        return instance;
-    }
-
-    /** True when the active backend is LambDynamicLights (i.e. the dynamic-light switch can do anything). */
-    public static boolean available() {
-        backend();
-        return ldlPresent;
-    }
-
-    private static LightBackend create() {
-        try {
-            if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("lambdynlights")) {
-                final LightBackend ldl = new Ldl2Backend();
-                ldlPresent = true;
-                return ldl;
-            }
-        } catch (Throwable t) {
-            // NoClassDefFoundError (not installed), NoSuchMethodError (LDL older than the 4.x
-            // behaviour API): either way there is no engine to hand lights to.
-            MtrHeadlightClient.LOGGER.warn(
-                    "[lte] LambDynamicLights unavailable, dynamic lights disabled: {}",
-                    String.valueOf(t));
-        }
-        ldlPresent = false;
-        return new NoopBackend();
+        return BLOCK;
     }
 
     /**
-     * Stand-in backend for a client without LambDynamicLights. Every call is a no-op, so the light
-     * controller keeps its ordinary bookkeeping (per-train state, diagnostics) and simply has nothing
-     * to hand the lights to.
+     * Always {@code true}: the dynamic-light switch now controls {@link BeamBlockLight}, which is
+     * part of this mod. It used to be false without LambDynamicLights, and the config screen greyed
+     * the row out - there is nothing to install any more.
      */
-    private static final class NoopBackend implements LightBackend {
+    public static boolean available() {
+        return true;
+    }
+
+    /**
+     * Sink for the per-end line registrations. It stores nothing: the real light is published as a
+     * beam snapshot by {@link LightController} itself ({@link BeamBlockLight#publish}), because the
+     * block-light path needs the wedge (start, end, radius, peak) and not a generic "luminance".
+     */
+    private static final class BlockBackend implements LightBackend {
         @Override
-        public void updateLine(final String key, final net.minecraft.util.math.Vec3d start,
-                               final net.minecraft.util.math.Vec3d end, final int luminance) {
-            // No engine: nothing to register.
+        public void updateLine(final String key, final Vec3d start, final Vec3d end,
+                               final int luminance) {
+            // The wedge is already published by LightController; nothing to register per key.
         }
 
         @Override
         public void hideLine(final String key) {
-            // No engine: nothing to dim.
+            // Nothing is registered, nothing to dim - the next publish simply omits the beam.
         }
 
         @Override
         public void removeLine(final String key) {
-            // No engine: nothing to detach.
+            // Nothing is registered, nothing to detach.
         }
 
         @Override
         public void clearAll() {
-            // Nothing is ever registered.
+            // The snapshot is cleared by BeamBlockLight.clear() from LightController.clear().
         }
 
+        /** No engine-side sources: the snapshot's own beam count is what the diagnostics report. */
         @Override
         public int liveSources() {
             return 0;
@@ -88,7 +77,7 @@ public final class LightBackends {
 
         @Override
         public void tick() {
-            // No diagnostics to print.
+            // No engine to poll.
         }
     }
 }

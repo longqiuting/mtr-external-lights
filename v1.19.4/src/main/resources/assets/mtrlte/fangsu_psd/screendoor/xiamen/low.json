@@ -1,0 +1,39 @@
+{
+    "model": "mtrlte:fangsu_psd/screendoor/xiamen/door_low.obj",
+    "flipV": true,
+    "isFlexibleAvailable": false,
+    "door": {
+        "left": [
+            {
+                "id": "common",
+                "text": "low_left",
+                "contentText": "made",
+                "doors": [
+                    {
+                        "subModel": "right",
+                        "shape": [
+                            [0, 0, 14, 16, 24, 15]
+                        ],
+                        "step": 0.95
+                    }
+                ]
+            }
+        ],
+        "right": [
+            {
+                "id": "common",
+                "text": "low_right",
+                "contentText": "made",
+                "doors": [
+                    {
+                        "subModel": "left",
+                        "shape": [
+                            [0, 0, 14, 16, 24, 15]
+                        ],
+                        "step": -0.95
+                    }
+                ]
+            }
+        ]
+    }
+}

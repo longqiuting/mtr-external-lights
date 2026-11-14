@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import dev.js.mtrheadlight.collision.CarGeometry;
 import dev.js.mtrheadlight.collision.CollisionImpact;
+import dev.js.mtrheadlight.collision.DriverKeyBypass;
 import dev.js.mtrheadlight.collision.TrainTickCapture;
 
 /**
@@ -100,6 +101,40 @@ public final class ServerCollision {
     private static final java.util.Map<java.util.UUID, Long> LAST_HIT =
             new java.util.HashMap<>();
 
+    // ---- 车顶（服务端这一侧）---------------------------------------------------------------
+    //
+    // 服务端只管三件事：站在车顶上时不算被撞、从车顶掉下来时不被撞飞、落地时按车速结算摔落
+    // 伤害。车顶吸附 / 载人位移是客户端的事（位置是客户端权威的），这里不碰位置。
+    //
+    // 为什么必须有这一半：单人里客户端的撞击伤害是关掉的（{@link ServerAuthority}），伤害由这里
+    // 结算；而「从车顶掉下来」必然穿过车厢的竖直范围，旧实现会把它当成一次撞击 —— 于是人会被
+    // 侧向弹开、被 1.1 格/tick 的「跟着车走」拖着飞、50 km/h 以上还吃一记撞飞冲量。那正是
+    // 「掉下车顶像瞬移」的另一半原因（客户端那一半见 CollisionSystem#roofEscape）。
+
+    /** 「从车顶掉下来」的最低落差（格）：走上同高站台不算摔下来。 */
+    private static final double ROOF_FALL_MIN_DROP = 1.2D;
+
+    /** 掉落追踪时长（server tick，3 s）。 */
+    private static final int ROOF_FALL_TICKS = 60;
+
+    /** 每个实体一条：站的是哪节车顶 / 刚从哪节车顶掉下来。 */
+    private static final class Roof {
+        String key;
+        int index = -1;
+        double roofY = Double.NaN;
+        double speedKmh;
+        long standTick = -1L;
+        String fallKey;
+        int fallIndex = -1;
+        double fallRoofY = Double.NaN;
+        double fallSpeedKmh;
+        long fallUntil = -1L;
+        /** 最后一次被处理的 server tick（表清理用）。 */
+        long seenTick = -1L;
+    }
+
+    private static final java.util.Map<java.util.UUID, Roof> ROOFS = new java.util.HashMap<>();
+
     private ServerCollision() {
     }
 
@@ -168,6 +203,9 @@ public final class ServerCollision {
         synchronized (LAST_HIT) {
             LAST_HIT.clear();
         }
+        synchronized (ROOFS) {
+            ROOFS.clear();
+        }
         everCaptured = false;
         warnedNoData = false;
     }
@@ -200,11 +238,19 @@ public final class ServerCollision {
 
     /** 清掉 200 tick 前的撞击记录（表很小，每 tick 走一遍也无所谓）。 */
     private static void pruneHits(final long now) {
-        if (LAST_HIT.isEmpty()) {
-            return;
+        if (!LAST_HIT.isEmpty()) {
+            synchronized (LAST_HIT) {
+                LAST_HIT.entrySet().removeIf(e -> now - e.getValue().longValue() > 200L);
+            }
         }
-        synchronized (LAST_HIT) {
-            LAST_HIT.entrySet().removeIf(e -> now - e.getValue().longValue() > 200L);
+        // 车顶状态：100 tick 没被碰过的实体（走远了 / 下线了）直接丢掉。
+        if (!ROOFS.isEmpty()) {
+            synchronized (ROOFS) {
+                ROOFS.entrySet().removeIf(e -> {
+                    final Roof st = e.getValue();
+                    return st != null && st.seenTick >= 0L && now - st.seenTick > 100L;
+                });
+            }
         }
     }
 
@@ -219,6 +265,12 @@ public final class ServerCollision {
         // 死亡 / 0 血：不推、不扣、不飞。死后还被车顶着走就是「似死非死」的最后一环。
         if (!living.isAlive() || living.isDead() || living.getHealth() <= 0.0F) {
             CollisionImpact.forget(living.getUuid());
+            return;
+        }
+        // 手持 MTR 驾驶钥匙的玩家：列车碰撞整套让开（推出 / 伤害 / 撞飞 / 流血窗口），
+        // 与客户端 {@code CollisionSystem} 用同一个判定（DriverKeyBypass），两边行为一致。
+        // 只在玩家手持时成立，松手下一 tick 就恢复；生物与其它玩家完全不受影响。
+        if (DriverKeyBypass.active(living)) {
             return;
         }
         // 飞出阶段：已经不在车体里也要按撞击车速继续扣，直到死亡或状态过期。
@@ -251,7 +303,19 @@ public final class ServerCollision {
         CarGeometry.Push hit = null;
         CarGeometry.Car hitCar = null;
         double hitSpeed = 0.0D;
+        // 车顶：站在车顶上 / 刚从车顶掉下来 —— 与客户端 CollisionSystem#roofEscape 同一套规则。
+        // 这里没有「吸附」（位置是客户端权威的），只做「不算被撞」和掉落伤害结算。
+        final Roof roof = roofOf(living);
+        final CarGeometry.Car standing = onRoof(living, cars, cfg.trainCollisionHeightClamped());
+        roofTick(living, roof, standing, cfg, now);
+        if (standing != null) {
+            // 站在车顶上：车顶吸附 / 载人是客户端的事，服务端既不推也不扣。
+            return;
+        }
         for (final CarGeometry.Car car : cars) {
+            if (roofEscape(roof, living, car)) {
+                continue;
+            }
             if (!near(living, car)) {
                 continue;
             }
@@ -301,6 +365,142 @@ public final class ServerCollision {
             CollisionImpact.applyDamage(living, hp, CollisionImpact.wasFast(living.getUuid()), cfg);
             diagHp += hp;
         }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // 车顶（服务端这一侧）
+    // ---------------------------------------------------------------------------------------------
+
+    /** 这个实体的车顶状态（没有就建一条）。 */
+    private static Roof roofOf(final LivingEntity living) {
+        return ROOFS.computeIfAbsent(living.getUuid(), id -> new Roof());
+    }
+
+    /**
+     * 这个实体现在站在哪节车厢的车顶上？{@code null} = 没站在车顶上。
+     *
+     * <p>判定与客户端 {@code CollisionSystem#standOnRoof} 同一套：脚底落在
+     * {@code [roof − ROOF_TOL, roof + ROOF_ABOVE]}、水平投影在车厢里、并且不是在起跳
+     * （玩家看 {@code isOnGround()} —— 它随移动包同步上来；其它实体看竖直速度）。
+     *
+     * <p>容差不放宽：漏判的后果只是「这一节车没被 latch 住」，那种情况下车身段与玩家仍然因为
+     * <b>竖直分离</b>（脚底就在车顶平面上）不算相交，不会凭空扣血。
+     */
+    private static CarGeometry.Car onRoof(final LivingEntity living,
+                                          final List<CarGeometry.Car> cars,
+                                          final double height) {
+        for (final CarGeometry.Car car : cars) {
+            if (!near(living, car)) {
+                continue;
+            }
+            final double roof = car.roofAt(living.getX(), living.getZ(), height);
+            if (Double.isNaN(roof)) {
+                continue;
+            }
+            final double feet = living.getY();
+            if (feet < roof - CarGeometry.ROOF_TOL || feet > roof + CarGeometry.ROOF_ABOVE) {
+                continue;
+            }
+            if (living instanceof PlayerEntity) {
+                if (!living.isOnGround()) {
+                    // 起跳 / 落回车顶的滞空：那是「离开车顶」，交给掉落追踪。
+                    continue;
+                }
+            } else if (living.getVelocity().y > 0.08D) {
+                continue;
+            }
+            return car;
+        }
+        return null;
+    }
+
+    /**
+     * 车顶状态迁移 + 落地结算：站上去记账，离开的那一 tick 起开始追踪掉落，落地那一 tick 按
+     * <b>离开车顶时的车速</b>结算摔落伤害（{@link CollisionImpact#roofFallHp}）。
+     *
+     * <p>与客户端 {@code CollisionSystem} 的 {@code roofState} / {@code settleRoofFall} 一一对应，
+     * 数值也一致：单人与多人里「从车顶掉下来要掉多少血」是同一套公式。
+     */
+    private static void roofTick(final LivingEntity living, final Roof st,
+                                 final CarGeometry.Car standing, final HeadlightConfig cfg,
+                                 final long now) {
+        st.seenTick = now;
+        if (standing != null) {
+            st.key = standing.key;
+            st.index = standing.index;
+            st.roofY = standing.roofAt(living.getX(), living.getZ(),
+                    cfg.trainCollisionHeightClamped());
+            st.speedKmh = standing.speedKmh;
+            st.standTick = now;
+            clearFall(st);
+            return;
+        }
+        if (st.standTick == now - 1L) {
+            // 上一 tick 还在车顶、这一 tick 不在了：追踪这次掉落（车速取还站在上面时的值）。
+            st.fallKey = st.key;
+            st.fallIndex = st.index;
+            st.fallRoofY = st.roofY;
+            st.fallSpeedKmh = st.speedKmh;
+            st.fallUntil = now + ROOF_FALL_TICKS;
+            st.standTick = -1L;
+        }
+        if (st.fallKey == null) {
+            return;
+        }
+        if (now > st.fallUntil) {
+            clearFall(st);
+            return;
+        }
+        if (!living.isOnGround() || Double.isNaN(st.fallRoofY)) {
+            return;
+        }
+        final double drop = st.fallRoofY - living.getY();
+        final double speed = st.fallSpeedKmh;
+        clearFall(st);
+        if (!(drop >= ROOF_FALL_MIN_DROP) || !cfg.trainCollisionDamage) {
+            return;
+        }
+        final float hp = CollisionImpact.roofFallHp(living, cfg, speed);
+        if (!(hp > 0.0F)) {
+            return;
+        }
+        try {
+            LteLog.LOGGER.info("[lte] roof-fall: v={}km/h drop={} hp={} by=server",
+                    String.format(Locale.ROOT, "%.1f", Double.valueOf(speed)),
+                    String.format(Locale.ROOT, "%.2f", Double.valueOf(drop)),
+                    String.format(Locale.ROOT, "%.2f", Float.valueOf(hp)));
+        } catch (Throwable ignored) {
+            // 日志永远不许影响 tick。
+        }
+        if (CollisionImpact.applyRoofFall(living, hp, cfg)) {
+            diagHp += hp;
+        }
+    }
+
+    /** 清掉这条实体的掉落追踪。 */
+    private static void clearFall(final Roof st) {
+        st.fallKey = null;
+        st.fallIndex = -1;
+        st.fallRoofY = Double.NaN;
+        st.fallSpeedKmh = 0.0D;
+        st.fallUntil = -1L;
+    }
+
+    /** 刚从这节车顶掉下来（还没落地）？是则这一节车这一 tick 不参与撞击判定。 */
+    private static boolean roofEscape(final Roof st, final LivingEntity living,
+                                      final CarGeometry.Car car) {
+        if (st.fallKey == null || car.index != st.fallIndex || !st.fallKey.equals(car.key)) {
+            return false;
+        }
+        if (Double.isNaN(st.fallRoofY)) {
+            return false;
+        }
+        if (living.getY() >= st.fallRoofY - CarGeometry.ROOF_ABOVE) {
+            // 还在车顶平面之上（起跳 / 落回车顶的滞空）：车顶上方不该被车撞。
+            return true;
+        }
+        // 车顶平面以下：只在还悬空时放过；落地之后就恢复正常（否则人会从车体里穿过去）。
+        return !living.isOnGround();
     }
 
     /**

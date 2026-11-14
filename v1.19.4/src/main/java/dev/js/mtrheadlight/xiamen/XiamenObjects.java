@@ -12,7 +12,6 @@ import net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityT
 import net.minecraft.block.AbstractBlock;
 import net.minecraft.block.Block;
 import net.minecraft.block.MapColor;
-import net.minecraft.block.Material;
 import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemGroup;
@@ -23,6 +22,7 @@ import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
+import net.minecraft.block.Material;
 
 /**
  * 厦门风格物件：创造模式页签 {@code mtrlte:core}（「厦门风格物件 / Xiamen Style Objects」）以及里面的方块。
@@ -58,6 +58,10 @@ import net.minecraft.util.Identifier;
  * <p>{@code BlockEntityType} 本来就支持「一个类型 + 多个方块」，所以五条线路的门扇共用一个
  * {@code mtrlte:psd_door_xiamen} 类型（<b>老存档里的方块实体 id 不变</b>，不需要任何数据迁移）。
  * 渲染器因此也只需要注册一次，线路靠方块实例区分。
+ *
+ * <p>（曾经还有一块 {@code mtrlte:psd_top_xiamen_standalone}「独立吊板」—— 把吊板拆出来单独放。
+ * 问题太多且不合算，已整体删除：方块、物品、资源、lang、注册、渲染器挂接全部移除，
+ * 屏蔽门自带的吊板（{@code psd_top_xiamen*}）完全不受影响。）
  */
 public final class XiamenObjects {
 
@@ -155,9 +159,9 @@ public final class XiamenObjects {
     private static BlockEntityType<XiamenPsdBlocks.TileEntityXiamenPSDTop> psdTopEntityType;
     private static BlockEntityType<XiamenPsdBlocks.TileEntityXiamenAPGDoor> apgDoorEntityType;
     private static BlockEntityType<XiamenPsdBlocks.TileEntityXiamenAPGGlass> apgGlassEntityType;
-    /** 1.19.4 的页签不是 registry 条目，自己留一份引用（1.20.1 用 Registries.ITEM_GROUP.get()）。 */
-    private static ItemGroup coreTab;
     private static boolean registered;
+    /** 本页签（1.19.4 没有 ITEM_GROUP registry，只能自己留一份引用）。 */
+    private static ItemGroup coreTab;
 
     private XiamenObjects() {
     }
@@ -289,8 +293,8 @@ public final class XiamenObjects {
         // 页签图标是一个只画图标的物品（见 TabIcons 的类注释），不是这一页里的门扇 / 玻璃。
         TabIcons.register();
 
-        // 1.19.4（fabric-item-group-api-v1 3.0.x）没有 ITEM_GROUP registry：builder(Identifier) 收
-        // 页签 id，build() 自己把页签追加进 creative 列表，不需要 Registry.register。
+        // 1.19.4（fabric-item-group-api-v1 3.0.x）没有 ITEM_GROUP registry：
+        // FabricItemGroup.builder(id).build() 自己把页签追加进创造物品栏。
         coreTab = FabricItemGroup.builder(CORE_TAB_ID)
                 .displayName(Text.translatable("itemGroup.mtrlte.core"))
                 .icon(() -> new ItemStack(TabIcons.core()))
@@ -376,8 +380,6 @@ public final class XiamenObjects {
      * 那块是整格立方体，所以这里不能加 {@code nonOpaque()}（会漏光）。
      */
     private static XiamenLogoBlock registerLogo(Identifier id) {
-        // 1.19.4: AbstractBlock.Settings.create() 不存在（1.20 才加），用 Settings.of(Material)。
-        // 后面 mapColor/hardness/luminance 全部显式给了，材质只影响未被覆盖的默认值。
         final XiamenLogoBlock block = new XiamenLogoBlock(AbstractBlock.Settings.of(Material.STONE)
                 .mapColor(MapColor.IRON_GRAY)
                 .requiresTool()
@@ -388,7 +390,9 @@ public final class XiamenObjects {
         return block;
     }
 
-    /** 页签在 registry 里的那一份（调试用）。 */
+    /**
+     * 页签在 registry 里的那一份（调试用）。
+     */
     public static ItemGroup tab() {
         return coreTab;
     }
