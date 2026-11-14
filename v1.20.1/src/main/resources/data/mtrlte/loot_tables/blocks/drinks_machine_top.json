@@ -6,7 +6,7 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "mtrlte:drinks_machine_top"
+          "name": "mtrlte:drinks_machine_bottom"
         }
       ],
       "conditions": [

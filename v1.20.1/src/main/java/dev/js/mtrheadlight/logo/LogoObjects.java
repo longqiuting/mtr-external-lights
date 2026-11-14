@@ -75,20 +75,22 @@ public final class LogoObjects {
 
     /**
      * 「厦门风格物件」页签最前面那几件，<b>按用户点名的顺序</b>：
-     * 厦门 logo → 角美 logo → 厦门贴墙标识 → 角美贴墙标识 → LTE 贴墙标识 →
+     * 厦门 logo → 角美 logo → 厦门贴墙标识 → 角美贴墙标识 →
      * 四件站外标志（挂墙 / 杆上 × 厦门 / 角美）。
      *
-     * <p>三个贴墙标识紧跟在两个 logo 块<b>后面</b>（用户：「贴墙标识要放到两个 logo 块的后面」）——
+     * <p>两面贴墙标识紧跟在两个 logo 块<b>后面</b>（用户：「贴墙标识要放到两个 logo 块的后面」）——
      * 它们是同一族的「牌子」，排在一起才好找；四件站外标志<sub>（挂墙 / 杆上的出口牌）</sub>
-     * 不属于这一族，排在它们之后。{@code wall_sign_lte} 同时也是「LTE 工具」页签的第 2 位
-     * （{@link LteCoreItems#pinToolsTabOrder()}），两处都在，存档里是同一个方块。
+     * 不属于这一族，排在它们之后。
+     *
+     * <p><b>LTE 的东西一律不进这一页</b>（用户：「厦门地铁标签页不需要出现 LTE 相关的东西」）：
+     * {@code lte_logo} 在 {@link LteCoreItems#TOOLS_TAB_ID}「LTE 工具」页签，
+     * {@code wall_sign_lte} 也只在那一页（第 2 位，见 {@link LteCoreItems#pinToolsTabOrder()}）。
      */
     private static final List<Identifier> CORE_TAB_FRONT = List.of(
             XiamenObjects.LOGO_ID,
             JIAOMEI_ID,
             new Identifier(NAMESPACE, "wall_sign_xiamen"),
             new Identifier(NAMESPACE, "wall_sign_jiaomei"),
-            new Identifier(NAMESPACE, "wall_sign_lte"),
             new Identifier(NAMESPACE, "station_sign_wall_xiamen"),
             new Identifier(NAMESPACE, "station_sign_pole_xiamen"),
             new Identifier(NAMESPACE, "station_sign_wall_jiaomei"),

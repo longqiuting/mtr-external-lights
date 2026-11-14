@@ -1,5 +1,24 @@
 # 更新日志
 
+## 饮料售卖机重做：一个物品整台、顶部黑块、碰撞按模型（1.20.1）
+
+- **物品栏里只剩一个物品**：`mtrlte:drinks_machine_top` 不再发 BlockItem，整台机器只有
+  `mtrlte:drinks_machine_bottom` 一个物品（放下时 `onPlaced` 照旧自动补上半、拆任一半仍是拆整台、
+  掉落仍是 1 个 —— 上半的战利品表现在也指向这一个物品）。物品名改叫「饮料售卖机」。
+- **图标是整台机器**：`textures/item/drinks_machine.png`（128×128，`item/generated`），由
+  `tools/gen-drinks-machine-item.js` 把上下两份 rawmodel 拼起来做正交渲染 + 4× 超采样，不再是
+  「上半一个方块模型、下半一个方块模型」的两张半截机器。
+- **修掉顶部前沿的黑块**（真因不是法线）：`drinks_machine_top` 顶盖前沿那个面的 uv 写到了
+  `u2 = 16.5`（`bottom_*` 的底座前沿是 16.25）。uv 在游戏里是 REPEAT 采样，超界的那一条会绕回贴图
+  左边缘 —— 那张 atlas 的左上角正好是一块纯黑，于是机器正上方被染出一道黑边；Blockbench 预览是
+  clamp，所以看不出来。`tools/gen-drinks-machine.js` 现在会把越界 uv 夹回 16 并打印夹了哪几个面，
+  `tools/check-drinks-machine.js` 逐面列 uv 范围、超界直接报错。
+- **面级 `rotation` 现在生效**：`RawModelJson` 之前忽略 `faces.<dir>.rotation`，取货口翻板（opened）
+  的下表面贴图是 180° 的，会横过来；现在按 Blockbench 的「Rotate texture」顺时针转 0/90/180/270。
+- **碰撞箱从模型推**：不再写死整格。构造时取各自 rawmodel 的顶点包围盒（上半 `-8,0,0..24,16,16`，
+  下半 `-8,0,0..24,18.064,16.32`），按 facing 转 4 份 —— 一台机器在世界上占 2 格宽 × 2 格高 × 1 格深，
+  和渲染出来的一致（以前左右探出去的半格没有碰撞）。
+
 ## 默认只开光带 · 手持动态光源回归（1.20.1，配置版本 26）
 
 - **散射与灯晕解耦**：`sss/ScatterLights` 收集灯位时读的是 `beamFlare`（灯晕开关），于是「关灯晕」

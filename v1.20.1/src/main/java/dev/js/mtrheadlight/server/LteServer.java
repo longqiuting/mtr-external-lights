@@ -94,10 +94,10 @@ public final class LteServer implements ModInitializer {
             LteLog.LOGGER.warn("[lte] logo blocks unavailable", t);
         }
 
-        // 贴墙标识（厦门 / 角美 / LTE）：继承 MTR 的 station_name_entrance，站名由我们自己的
-        // WallSignRenderer 画（MTR 那个渲染器会把 MTR 原版 logo 烤进贴图）。
-        // 三面牌子都进「厦门风格物件」页签、紧跟两个 logo 块（LogoObjects.pinCoreTabOrder() 负责挪），
-        // LTE 那面另外也进「LTE 工具」页签的第 2 位（LteCoreItems.pinToolsTabOrder() 负责挪）。
+        // 贴墙标识（厦门 / 角美 / LTE）：方块直接继承 MTR 的 station_name_entrance，渲染器也是 MTR
+        // 自己的 RenderStationNameTiled(dispatcher, true) —— 放置 / 朝向 / 站名 / 刷子 / 相邻连接全走 MTR。
+        // 厦门 / 角美两面进「厦门风格物件」页签、紧跟两个 logo 块（LogoObjects.pinCoreTabOrder() 负责挪），
+        // LTE 那面只进「LTE 工具」页签的第 2 位（LteCoreItems.pinToolsTabOrder() 负责挪），不进厦门页。
         try {
             dev.js.mtrheadlight.xiamen.sign.WallSignObjects.register();
         } catch (Throwable t) {

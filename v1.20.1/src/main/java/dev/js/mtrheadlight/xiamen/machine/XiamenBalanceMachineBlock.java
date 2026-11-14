@@ -65,9 +65,10 @@ public class XiamenBalanceMachineBlock extends XiamenMachineBlock implements Blo
         if (world.isClient) {
             return ActionResult.SUCCESS;
         }
-        // 「嘟」一声（原版按钮点击音），和查询机的反馈音一致：服务端播，附近都听得到。
-        world.playSound(null, pos, net.minecraft.sound.SoundEvents.UI_BUTTON_CLICK.value(),
-                net.minecraft.sound.SoundCategory.BLOCKS, 0.6F, 1.2F);
+        // 「嘟」一声：用用户提供的读卡器提示音（assets/mtrlte/sounds/ticket_processor_entry.ogg）。
+        world.playSound(null, pos,
+                net.minecraft.sound.SoundEvent.of(new net.minecraft.util.Identifier("mtrlte", "ticket_processor_entry")),
+                net.minecraft.sound.SoundCategory.BLOCKS, 0.7F, 1.0F);
         player.sendMessage(Text.translatable("message.mtrlte.balance_machine", balanceOf(world, player)), true);
         return ActionResult.SUCCESS;
     }

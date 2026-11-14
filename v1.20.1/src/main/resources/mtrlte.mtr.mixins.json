@@ -16,7 +16,8 @@
     "RenderPsdDoorTextureMixin",
     "RouteMapArtMixin",
     "RouteMapCacheKeyMixin",
-    "RouteAsyncScopeMixin"
+    "RouteAsyncScopeMixin",
+    "StationNameEntranceLogoMixin"
   ],
   "injectors": {
     "defaultRequire": 0

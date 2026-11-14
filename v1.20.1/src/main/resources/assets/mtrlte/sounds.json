@@ -16,5 +16,13 @@
         "pitch": 0.7
       }
     ]
+  },
+  "ticket_processor_entry": {
+    "sounds": [
+      {
+        "name": "mtrlte:ticket_processor_entry",
+        "pitch": 0.5
+      }
+    ]
   }
 }

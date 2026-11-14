@@ -1,4 +1,4 @@
-// 饮料售卖机的注册：两块方块 + 两个方块物品 + 一个方块实体类型 + 创造页签条目。
+// 饮料售卖机的注册：两个方块 + **一个**方块物品 + 一个方块实体类型 + 创造页签条目。
 package dev.js.mtrheadlight.xiamen.drinks;
 
 import dev.js.mtrheadlight.LteLog;
@@ -23,24 +23,30 @@ import net.minecraft.util.Identifier;
  * <table border="1">
  *   <caption>id 一览</caption>
  *   <tr><th>id</th><th>类型</th><th>说明</th></tr>
- *   <tr><td>{@code mtrlte:drinks_machine_top}</td><td>方块 + 方块物品</td>
+ *   <tr><td>{@code mtrlte:drinks_machine_top}</td><td><b>只有方块</b></td>
  *       <td>上半（货道）：微光 {@value DrinksMachineBlock#TOP_LUMINANCE}。模型
  *       {@code rawmodels/drinks_machine_top.json}（BER 画）</td></tr>
- *   <tr><td>{@code mtrlte:drinks_machine_bottom}</td><td>方块 + 方块物品</td>
+ *   <tr><td>{@code mtrlte:drinks_machine_bottom}</td><td>方块 + <b>唯一</b>的方块物品</td>
  *       <td>下半（取货口，有 {@code open}）：微光 {@value DrinksMachineBlock#BOTTOM_LUMINANCE}。模型
  *       {@code drinks_machine_bottom_closed.json} / {@code _opened.json}</td></tr>
  *   <tr><td>{@code mtrlte:drinks_machine}</td><td>方块实体类型</td>
  *       <td>两块<b>共用</b>一个类型（各自是不同位置的实例）</td></tr>
  * </table>
  *
- * <p>两块<b>不是</b>「一个 id + half」：需求要两个 id / 两件物品，但行为是<b>联动</b>
- * （放一块自动补另一块、拆任一块拆整台，见 {@link DrinksMachineBlock}）。
+ * <h2>为什么只有一个物品</h2>
+ * <p>以前两个 id 各发一个 BlockItem，物品栏里就是<b>两个半台</b>（上半一个、下半一个），
+ * 看着像「机器被拆成两半」。现在整台机器只发<b>一个</b>物品，挂在<b>下半</b>
+ * （{@code mtrlte:drinks_machine_bottom}）：
+ * <ul>
+ *   <li>放它 → {@link DrinksMachineBlock#onPlaced} 自动把上半补上（放一块 = 放一台）；</li>
+ *   <li>拆任一半 → 掉落的都是这<b>同一个</b>物品（上半的战利品表也指向它），恒为 1 个；</li>
+ *   <li>图标是<b>整台机器</b>：{@code textures/item/drinks_machine.png}（128×128，
+ *       由 {@code tools/gen-drinks-machine-item.js} 把上下两份 rawmodel 拼起来正交渲染），
+ *       物品模型是 {@code item/generated}。上半<b>没有</b> item 模型 —— 它根本没有物品。</li>
+ * </ul>
  *
  * <p>亮度用 {@code Settings#luminance} 声明，属于<b>方块光照</b>：上下两块<b>全部</b>发微光
  * （上半 10、下半 6），与 blockstate / BER 无关。
- *
- * <p>掉落：{@code data/mtrlte/loot_tables/blocks/drinks_machine_{top,bottom}.json} 各自掉自己；
- * 另一半是被邻居更新收走的（{@code setBlockState}，不经过战利品表），所以恒为 1 个。
  *
  * <p>由 {@code LteServer} 在充电宝机之后调用；条目进「厦门风格物件」页签
  * （{@link XiamenObjects#CORE_TAB_ID}，车站设备都在这一页）。
@@ -61,8 +67,7 @@ public final class DrinksMachineObjects {
 
     private static DrinksMachineBlock top;
     private static DrinksMachineBlock bottom;
-    private static Item topItem;
-    private static Item bottomItem;
+    private static Item item;
     private static BlockEntityType<DrinksMachineBlockEntity> blockEntityType;
     private static boolean registered;
 
@@ -75,6 +80,13 @@ public final class DrinksMachineObjects {
 
     public static DrinksMachineBlock bottom() {
         return bottom;
+    }
+
+    /**
+     * 整台机器<b>唯一</b>的方块物品（挂在下半那个 id 上）。{@code register()} 之后非 null。
+     */
+    public static Item item() {
+        return item;
     }
 
     public static BlockEntityType<DrinksMachineBlockEntity> blockEntityType() {
@@ -91,12 +103,12 @@ public final class DrinksMachineObjects {
         top = Registry.register(Registries.BLOCK, TOP_ID,
                 new DrinksMachineBlock(settings(DrinksMachineBlock.TOP_LUMINANCE), true,
                         "tooltip.mtrlte.drinks_machine_top"));
-        topItem = Registry.register(Registries.ITEM, TOP_ID, new BlockItem(top, new Item.Settings()));
+        // 上半**不发物品**：整台机器只有一个物品（下半那个），放下它 onPlaced 自动补上半。
 
         bottom = Registry.register(Registries.BLOCK, BOTTOM_ID,
                 new DrinksMachineBlock(settings(DrinksMachineBlock.BOTTOM_LUMINANCE), false,
                         "tooltip.mtrlte.drinks_machine_bottom"));
-        bottomItem = Registry.register(Registries.ITEM, BOTTOM_ID, new BlockItem(bottom, new Item.Settings()));
+        item = Registry.register(Registries.ITEM, BOTTOM_ID, new BlockItem(bottom, new Item.Settings()));
 
         // 一个方块实体类型对两块方块（各自位置的实例，预设存在下段那个身上）。
         blockEntityType = Registry.register(Registries.BLOCK_ENTITY_TYPE, BE_ID,
@@ -104,16 +116,14 @@ public final class DrinksMachineObjects {
 
         try {
             ItemGroupEvents.modifyEntriesEvent(RegistryKey.of(RegistryKeys.ITEM_GROUP, XiamenObjects.CORE_TAB_ID))
-                    .register(entries -> {
-                        entries.add(bottomItem);
-                        entries.add(topItem);
-                    });
+                    .register(entries -> entries.add(item));
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] drinks machine: could not add the creative tab entries", t);
         }
 
-        LteLog.LOGGER.info("[lte] drinks machine: {} / {} / {} (luminance {}/{}, price ${})",
-                TOP_ID, BOTTOM_ID, BE_ID, DrinksMachineBlock.TOP_LUMINANCE,
+        LteLog.LOGGER.info("[lte] drinks machine: blocks {} / {}, item {} (one item for the whole machine), "
+                        + "luminance {}/{}, price ${}",
+                TOP_ID, BOTTOM_ID, BOTTOM_ID, DrinksMachineBlock.TOP_LUMINANCE,
                 DrinksMachineBlock.BOTTOM_LUMINANCE, DrinksMachineBlock.PRICE);
     }
 

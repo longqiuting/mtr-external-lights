@@ -1,5 +1,6 @@
 package dev.js.mtrheadlight.ldl;
 
+import dev.js.mtrheadlight.LteLog;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -14,6 +15,11 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
  *
  * <p>Nothing in this class touches LambDynamicLights: without it, {@link PlayerDynamicLight} answers
  * {@code false} and the tick is a single boolean check.
+ *
+ * <p>The first log line below is deliberately unconditional: it is the proof that the <b>client</b>
+ * entrypoint of this jar ran at all, which is the one thing a report about "no light" can never
+ * establish on its own. The {@code [lte] ldl: ready|missing ...} line that follows it belongs to
+ * {@link PlayerDynamicLight} and says whether LambDynamicLights handed over a manager.
  */
 public final class PlayerLightClient implements ClientModInitializer {
 
@@ -21,7 +27,9 @@ public final class PlayerLightClient implements ClientModInitializer {
     public void onInitializeClient() {
         // Resolve the branch once at startup so the log says which path this client is on, even if
         // the player never picks up a torch in this session.
-        PlayerDynamicLight.available();
+        final boolean available = PlayerDynamicLight.available();
+        LteLog.LOGGER.info("[lte] ldl: tick-handler registered (lambdynlights={} available={})",
+                PlayerDynamicLight.modPresent(), available);
         ClientTickEvents.END_CLIENT_TICK.register(PlayerDynamicLight::tick);
         // Detach on shutdown: LDL keeps the behaviour in its manager otherwise, and a manager that
         // outlives the client is the kind of thing that leaves a lit block in a fresh world.

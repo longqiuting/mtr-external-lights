@@ -52,6 +52,12 @@ import net.minecraft.util.math.Direction;
  *     正方向是右手定则（见 {@link #rotate}）；</li>
  *   <li>{@code "shade": false} → {@link RawMesh.Quad#fullBright()}；其余按面朝向量出原版那套
  *       {@code down 0.5 / up 1.0 / 南北 0.8 / 东西 0.6}；</li>
+ *   <li>{@code faces.<dir>.rotation}（0/90/180/270，Blockbench 的「Rotate texture」）→ 贴图在这个面上
+ *       顺时针转几档；{@code faces.<dir>.cullface} / {@code uvlock} 忽略（BER 不走原版剔除与锁定）；</li>
+ *   <li><b>uv 必须是 0..16</b>。超界的 uv 在游戏里会 REPEAT 采样，绕到贴图的另一边 —— 那里的颜色是给
+ *       别的面用的，多半正好是一块纯黑/空白，于是画面上莫名其妙多一块黑。素材里的越界 uv 由
+ *       {@code tools/gen-drinks-machine.js} 夹回 16（并打印夹了哪几个面），校验用
+ *       {@code tools/check-drinks-machine.js}；</li>
  *   <li>{@code rescale} 一律忽略（Blockbench 导出的都是 false，它只影响 Blockbench 自己的预览）。</li>
  * </ul>
  *
@@ -242,11 +248,24 @@ public final class RawModelJson {
             }
             final JsonObject faceJson = faces.getAsJsonObject(key);
             final float[] uv = readQuad(faceJson.getAsJsonArray("uv"));
-            final RawMesh.Quad quad = buildQuad(face, x1, y1, z1, x2, y2, z2, uv, origin, angles, rotated, fullBright);
+            // 面级 rotation：0 / 90 / 180 / 270，把贴图在这个面上顺时针转几档（Blockbench 的
+            // 「Rotate texture」。忽略它 = 半扇门上的图会被横过来贴 —— 饮料机 opened 的取货口翻板就是）。
+            final int faceRotation = readFaceRotation(faceJson);
+            final RawMesh.Quad quad = buildQuad(face, x1, y1, z1, x2, y2, z2, uv, faceRotation,
+                    origin, angles, rotated, fullBright);
             if (quad != null) {
                 out.add(quad);
             }
         }
+    }
+
+    /** {@code faces.<dir>.rotation}：0 / 90 / 180 / 270 → 0..3 档（别的值按 90 取整，缺省 0）。 */
+    private static int readFaceRotation(final JsonObject faceJson) {
+        if (!faceJson.has("rotation")) {
+            return 0;
+        }
+        final float degrees = faceJson.get("rotation").getAsFloat();
+        return ((Math.round(degrees / 90.0F) % 4) + 4) % 4;
     }
 
     /** {@code rotation} 的两种写法都读进来（角度制，轴顺序 XYZ）。 */
@@ -289,8 +308,8 @@ public final class RawModelJson {
      */
     private static RawMesh.Quad buildQuad(final Direction face, final float x1, final float y1, final float z1,
                                           final float x2, final float y2, final float z2, final float[] uv,
-                                          final float[] origin, final float[] angles, final boolean rotated,
-                                          final boolean fullBright) {
+                                          final int faceRotation, final float[] origin, final float[] angles,
+                                          final boolean rotated, final boolean fullBright) {
         final float[] r = faceRight(face);
         final float[] d = faceDown(face);
 
@@ -304,6 +323,16 @@ public final class RawModelJson {
         final float[] uus = {uv[0], uv[0], uv[2], uv[2]};
         final float[] vvs = {uv[1], uv[3], uv[3], uv[1]};
 
+        // 面级 rotation：贴图在面上顺时针转 quarter 档 → 每个角拿「原来前 quarter 个角」的 uv
+        // （TL 拿到原来 BL 的 uv，就是整体顺时针转 90°）。0 档等于不做。
+        final int quarter = faceRotation & 3;
+        final float[] ru = new float[4];
+        final float[] rv = new float[4];
+        for (int i = 0; i < 4; i++) {
+            ru[i] = uus[(i + quarter) & 3];
+            rv[i] = vvs[(i + quarter) & 3];
+        }
+
         for (int i = 0; i < 4; i++) {
             final float sx = corners[i][0];
             final float sy = corners[i][1];
@@ -316,8 +345,8 @@ public final class RawModelJson {
                 rotate(pos[i], origin, angles);
             }
 
-            uvOut[i][0] = uus[i] * UV_TO_UNIT;
-            uvOut[i][1] = vvs[i] * UV_TO_UNIT;
+            uvOut[i][0] = ru[i] * UV_TO_UNIT;
+            uvOut[i][1] = rv[i] * UV_TO_UNIT;
         }
 
         final float[] normal = {face.getOffsetX(), face.getOffsetY(), face.getOffsetZ()};

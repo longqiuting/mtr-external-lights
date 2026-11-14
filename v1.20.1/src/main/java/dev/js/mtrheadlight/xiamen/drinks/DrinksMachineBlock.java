@@ -4,6 +4,7 @@ package dev.js.mtrheadlight.xiamen.drinks;
 import java.util.List;
 
 import dev.js.mtrheadlight.bind.MtrBalance;
+import dev.js.mtrheadlight.rawmodel.RawModelJson;
 import net.minecraft.block.AbstractBlock;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockEntityProvider;
@@ -98,16 +99,34 @@ import net.minecraft.world.WorldView;
  * </ol>
  * <p>点上半和点下半<b>完全等效</b>：{@link #onUse} 一律折算到下半那格去判定 / 扣钱 / 开门。
  *
- * <h2>几何：微光 + 模型</h2>
+ * <h2>几何：微光 + 模型 + 碰撞</h2>
  * <p>世界里两块都走 BER 画原始模型（blockstate 指 {@code mtrlte:block/empty}），
  * 亮度<b>整块恒定</b>（{@link #TOP_LUMINANCE} / {@link #BOTTOM_LUMINANCE}，方块光照，
  * 不是渲染发光）：上半 10（≈ 荧石的一半，货道玻璃那一块本身是背光的）、下半 6。
  *
+ * <p><b>轮廓 / 碰撞箱从模型推</b>（不再是写死的整格）：构造时取这一块自己那份 rawmodel 的
+ * {@link RawModelJson#bounds 顶点包围盒}，按 4 个朝向各转一份存进 {@link #shapes}
+ * （与 {@code ChargerBlock} / {@code XiamenMachineBlock} 同一套 {@code (x, z) → (16 - z, x)}）。
+ * 实测（模型空间 0..16）：
+ * <table border="1">
+ *   <caption>两份模型各推出来的包围盒</caption>
+ *   <tr><th>方块</th><th>min</th><th>max</th></tr>
+ *   <tr><td>上半 {@code drinks_machine_top}</td><td>-8, 0, 0</td><td>24, 16, 16</td></tr>
+ *   <tr><td>下半 {@code drinks_machine_bottom_closed}</td><td>-8, 0, 0</td><td>24, 18.06, 16.32</td></tr>
+ * </table>
+ * <p>所以一台机器在世界上占 <b>2 格宽 × 2 格高 × 1 格深</b>（x 从 -0.5 到 +1.5 格，
+ * 也就是自己这一格 + 左右各半格）—— 这正是素材画出来的东西，和以前「每块整格、左右探出去的
+ * 半格没有碰撞」相比，现在贴图和碰撞是同一份数据。
+ * <p>下半只用<b>关着</b>那份（{@code _closed}）推：翻下来的取货口门板在 {@code _opened} 里把
+ * maxZ 顶到 19.39（多出 0.21 格），那是一个 20 tick 的瞬时状态，拿它参与碰撞等于让碰撞箱
+ * 每次卖货都往前跳一下；门板本身薄，走人穿过去不碍事。
+ *
  * <p><b>素材的宽度提醒</b>：这两份 Blockbench 模型的实际范围是
  * {@code x = -8..24}（<b>两格宽</b>）、{@code y = 0..16}、{@code z = 0..16}，
  * 也就是设计上是一台「双开门」的宽机器。这里按贴图原样 1:1 画（不压缩，压了所有面板都会被拉扁），
- * 于是模型会向左右各探出半格；碰撞 / 轮廓仍然只占<b>自己这一格</b>（中间那列是实心的）。
- * 如果以后要「塞进一格」，改 {@link DrinksMachineRenderer#MODEL_X_SCALE} 一个数即可。
+ * 于是模型会向左右各探出半格；碰撞 / 轮廓按同一份包围盒跟着探出去（见上）。
+ * 如果以后要「塞进一格」，改 {@link DrinksMachineRenderer#MODEL_X_SCALE} 一个数即可 ——
+ * 那时碰撞箱也要乘同一个缩放，两处都改。
  */
 public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEntityProvider {
 
@@ -129,8 +148,20 @@ public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEn
     /** 卖出后取货口开多久（tick）。需求：20 tick。 */
     public static final int OPEN_TICKS = 20;
 
-    /** 轮廓 / 碰撞：整格（模型中间那一列是实心柜体）。 */
-    private static final VoxelShape SHAPE = Block.createCuboidShape(0.0D, 0.0D, 0.0D, 16.0D, 16.0D, 16.0D);
+    /** 上半那份原始模型（{@code rawmodels/} 下的名字）。 */
+    public static final String TOP_MODEL = "drinks_machine_top";
+
+    /** 下半、取货口关着（常态）。 */
+    public static final String BOTTOM_CLOSED_MODEL = "drinks_machine_bottom_closed";
+
+    /** 下半、取货口翻板放下（卖出一瓶后的 {@value #OPEN_TICKS} tick）。 */
+    public static final String BOTTOM_OPENED_MODEL = "drinks_machine_bottom_opened";
+
+    /** 模型读不到时的兜底包围盒（模型空间 0..16）：整格。 */
+    private static final float[] FALLBACK_BOX = {0.0F, 0.0F, 0.0F, 16.0F, 16.0F, 16.0F};
+
+    /** 四个朝向的轮廓 / 碰撞箱（已按 {@code facing} 转好，见 {@link #rotatedBox}）。 */
+    private final VoxelShape[] shapes = new VoxelShape[4];
 
     /** 运输 / 放置音效用的提示键。 */
     private final String tooltipKey;
@@ -145,6 +176,13 @@ public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEn
         // 有 FACING 就必须给默认状态，否则 registry 冻结时崩。
         final BlockState defaults = this.stateManager.getDefaultState().with(FACING, Direction.NORTH);
         this.setDefaultState(this.top ? defaults : defaults.with(OPEN, false));
+
+        // 轮廓 / 碰撞：从这一块自己的原始模型推包围盒（顶点级 min/max，元素旋转已烘进去），
+        // 再按 4 个朝向各算一份 —— 与 ChargerBlock / XiamenMachineBlock 同一套做法。
+        final float[] box = this.top ? boxOrFallback(TOP_MODEL) : boxOrFallback(BOTTOM_CLOSED_MODEL);
+        for (int i = 0; i < 4; i++) {
+            this.shapes[i] = rotatedBox(box, i);
+        }
     }
 
     /** 是不是上半。 */
@@ -160,9 +198,9 @@ public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEn
      */
     public static String rawModel(final BlockState state) {
         if (isTopState(state)) {
-            return "drinks_machine_top";
+            return TOP_MODEL;
         }
-        return state.contains(OPEN) && state.get(OPEN) ? "drinks_machine_bottom_opened" : "drinks_machine_bottom_closed";
+        return state.contains(OPEN) && state.get(OPEN) ? BOTTOM_OPENED_MODEL : BOTTOM_CLOSED_MODEL;
     }
 
     // ------------------------------------------------------------------ 形状
@@ -178,13 +216,50 @@ public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEn
     @Override
     public VoxelShape getOutlineShape(final BlockState state, final BlockView world, final BlockPos pos,
                                       final ShapeContext context) {
-        return SHAPE;
+        return this.shapes[quarterTurns(state.get(FACING))];
     }
 
     @Override
     public VoxelShape getCollisionShape(final BlockState state, final BlockView world, final BlockPos pos,
                                         final ShapeContext context) {
-        return SHAPE;
+        return this.shapes[quarterTurns(state.get(FACING))];
+    }
+
+    /** 一个模型空间的包围盒（{@code {minX,minY,minZ,maxX,maxY,maxZ}}，1 格 = 16）；读不到就整格。 */
+    private static float[] boxOrFallback(final String model) {
+        final float[] bounds = RawModelJson.bounds(RawModelJson.id(model));
+        return bounds == null ? FALLBACK_BOX : bounds;
+    }
+
+    /** 把模型空间的包围盒按朝向转成世界坐标（每档 {@code (x, z) → (16 - z, x)}，与原版 {@code "y"} 等价）。 */
+    private static VoxelShape rotatedBox(final float[] b, final int quarterTurns) {
+        final double x1 = b[0];
+        final double y1 = b[1];
+        final double z1 = b[2];
+        final double x2 = b[3];
+        final double y2 = b[4];
+        final double z2 = b[5];
+        return switch (quarterTurns & 3) {
+            case 1 -> box(16.0D - z2, y1, x1, 16.0D - z1, y2, x2);
+            case 2 -> box(16.0D - x2, y1, 16.0D - z2, 16.0D - x1, y2, 16.0D - z1);
+            case 3 -> box(z1, y1, 16.0D - x2, z2, y2, 16.0D - x1);
+            default -> box(x1, y1, z1, x2, y2, z2);
+        };
+    }
+
+    private static VoxelShape box(final double x1, final double y1, final double z1,
+                                  final double x2, final double y2, final double z2) {
+        return Block.createCuboidShape(x1, y1, z1, x2, y2, z2);
+    }
+
+    /** facing → 形状数组下标（south = 0，与模型原生朝 +Z 一致）。 */
+    private static int quarterTurns(final Direction facing) {
+        return switch (facing) {
+            case WEST -> 1;
+            case NORTH -> 2;
+            case EAST -> 3;
+            default -> 0; // SOUTH
+        };
     }
 
     /** 空集：模型不是满方块（柜体还比一格宽），别让邻居朝我们的面被剔除。 */

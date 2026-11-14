@@ -202,8 +202,12 @@ function mesh(file) {
       const h = { north: y2 - y1, south: y2 - y1, east: y2 - y1, west: y2 - y1, up: z2 - z1, down: z2 - z1 }[face];
       const uv = fj.uv;
       const corners = [[-1, -1], [-1, 1], [1, 1], [1, -1]];
-      const us = [uv[0], uv[0], uv[2], uv[2]];
-      const vs = [uv[1], uv[3], uv[3], uv[1]];
+      const us0 = [uv[0], uv[0], uv[2], uv[2]];
+      const vs0 = [uv[1], uv[3], uv[3], uv[1]];
+      // 面级 rotation（0/90/180/270，顺时针转几档）—— 与 Java 端 RawModelJson#readFaceRotation 一致
+      const quarter = fj.rotation ? ((((Math.round(fj.rotation / 90) % 4) + 4) % 4)) : 0;
+      const us = us0.map((_, i) => us0[(i + quarter) & 3]);
+      const vs = vs0.map((_, i) => vs0[(i + quarter) & 3]);
       const pos = corners.map(([sx, sy]) => {
         const p = [
           center[0] + (sx * w * def.right[0]) / 2 + (sy * h * def.down[0]) / 2,

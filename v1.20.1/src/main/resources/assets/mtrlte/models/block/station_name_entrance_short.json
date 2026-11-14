@@ -1,33 +1,20 @@
 {
-  "__comment": "站名出入口「矮板」的几何：一块 16x8 的零厚度灯板（y 4..12）+ 一块品牌 logo。贴图全部是自己的（station_name_background / *_logo），没有任何 MTR 命名空间的引用。站名由 WallSignRenderer 按 STYLE 画在灯板正面 z≈0.15 px 处，只占左边 0.5..10.0 px，右边 10.5..15.5 px 留给 logo。",
+  "__comment": "MTR 3.6.4.2 的 mtr:block/station_name_entrance_short 原样：一块 16x8 的零厚度灯板（y 4..12，z=0.05），贴图 mtr:block/dark_blue。站名 / 品牌 logo 都由 MTR 的 RenderStationNameTiled(dispatcher, true) 画进生成贴图（logo 那张图由 StationNameEntranceLogoMixin 换成我们的），模型里没有任何 logo 元素。",
   "textures": {
-    "particle": "mtrlte:block/station_name_background",
-    "board": "mtrlte:block/station_name_background",
-    "logo": "mtrlte:block/xiamen_logo"
+    "particle": "mtrlte:block/dark_blue"
   },
   "elements": [
     {
-      "__comment": "灯板：y 4..12、z=0.05 px 两面（正面 south=+z；背面 north 带 cullface）。",
+      "__comment": "Light",
       "from": [0, 4, 0.05],
       "to": [16, 12, 0.05],
       "faces": {
         "north": {
-          "texture": "#board",
+          "texture": "#particle",
           "cullface": "north"
         },
         "south": {
-          "texture": "#board"
-        }
-      }
-    },
-    {
-      "__comment": "品牌 logo：z=0.1 px，右侧 5x5 px 竖直居中（矮板 8 px 高，5 px 的 logo 上下各留 1.5 px）。",
-      "from": [10.5, 5.5, 0.1],
-      "to": [15.5, 10.5, 0.1],
-      "faces": {
-        "south": {
-          "texture": "#logo",
-          "shade": false
+          "texture": "#particle"
         }
       }
     }

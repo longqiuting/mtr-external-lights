@@ -46,14 +46,14 @@ import net.minecraft.util.math.BlockPos;
  * {@link WallSignBlockEntity} —— 它继承 MTR 的 {@code TileEntityStationNameBase}，
  * 偏移量照抄 MTR 的出入口款（{@code yOffset = 0}、{@code zOffset = 0.00625}）。
  *
- * <h2>渲染</h2>
- * <p>站名由我们自己的 {@link WallSignRenderer} 画（{@link WallSignClient} 注册）：它继承 MTR 的
- * {@code RenderStationNameBase}，只覆写 {@code drawStationName} —— 用 {@code getStationName(...)}
- * 那张干净的白字贴图（透明底、<b>不带 logo</b>）铺满整条牌子，但只画在牌面左边那条里，
- * 右边那条留给品牌 logo。上一版直接借 MTR 的 {@code RenderStationNameTiled(dispatcher, true)}，
- * 那个会把 MTR 原版 logo（红底白 M）烤进运行时生成的贴图里，资源包换不掉。
- * 品牌 logo 不走渲染器，而是<b>画在模型上</b>（{@code models/block/station_name_entrance_{tall,short}.json}
- * 在灯板前面叠了一个引 {@code #logo} 的小方块），三个 id 各指一张贴图。
+ * <h2>渲染：MTR 的渲染器，只有 logo 那张图是我们的</h2>
+ * <p>站名不是我们画的：客户端注册的是 {@link WallSignRenderer}，它就是 MTR 的
+ * {@code RenderStationNameTiled(dispatcher, true)}（{@code showLogo = true} 正是 MTR 给出入口款用的那个，
+ * 它按 {@code STYLE} 选字号 / 字色、按 {@code getLength} 沿墙拼字），只多压了一个「这是哪张牌子」的标记。
+ * MTR 把 logo <b>画进生成贴图里</b>（{@code RouteMapGenerator.drawResource} 里写死
+ * {@code mtr:textures/block/sign/logo.png}，模型里没有 logo），那个标记让
+ * {@link dev.js.mtrheadlight.mixin.mtr.StationNameEntranceLogoMixin} 把取图换成
+ * {@code mtrlte:textures/block/<brand>_logo.png} —— 资源文件一个不改。
  */
 public class WallSignBlock extends BlockStationNameEntrance {
 

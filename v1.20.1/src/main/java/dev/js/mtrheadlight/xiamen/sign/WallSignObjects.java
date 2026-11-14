@@ -1,5 +1,5 @@
 // 贴墙标识（厦门 / 角美 / LTE）的注册：3 个方块 + 3 个物品 + 1 个方块实体类型；
-// 三面都进「厦门风格物件」页签（紧跟两个 logo 块），LTE 那面另外也进「LTE 工具」页签的第 2 位。
+// 厦门、角美进「厦门风格物件」页签的<b>末尾</b>，LTE 那面进「LTE 工具」页签的第 2 位。
 package dev.js.mtrheadlight.xiamen.sign;
 
 import java.util.ArrayList;
@@ -26,7 +26,7 @@ import net.minecraft.util.Identifier;
  * <h2>三个 id = 三张品牌 logo × 同一套 MTR「站名出入口」实现</h2>
  * <table border="1">
  *   <caption>id / 品牌 logo（行为见 {@link WallSignBlock}，渲染见 {@link WallSignClient}）</caption>
- *   <tr><th>id（{@code mtrlte:} 前缀省略）</th><th>品牌 logo（叠在 MTR 那块板上）</th></tr>
+ *   <tr><th>id（{@code mtrlte:} 前缀省略）</th><th>品牌 logo（MTR 画进站名贴图的那张，换成这个）</th></tr>
  *   <tr><td>{@code wall_sign_xiamen}</td><td>{@code block/xiamen_logo}</td></tr>
  *   <tr><td>{@code wall_sign_jiaomei}</td><td>{@code block/jiaomei_logo}</td></tr>
  *   <tr><td>{@code wall_sign_lte}</td><td>{@code block/lte_logo}</td></tr>
@@ -42,11 +42,10 @@ import net.minecraft.util.Identifier;
  *
  * <h2>页签顺序</h2>
  * <ul>
- *   <li><b>厦门风格物件</b>（{@link XiamenObjects#CORE_TAB_ID}）：三面牌子（厦门 / 角美 / LTE）紧跟在
- *       <b>两个 logo 块后面</b> —— 厦门 logo → 角美 logo → 厦门贴墙标识 → 角美贴墙标识 → LTE 贴墙标识 →
- *       四件站外标志，由 {@code LogoObjects.pinCoreTabOrder()} 统一重排；</li>
- *   <li><b>LTE 工具</b>（{@link LteCoreItems#TOOLS_TAB_ID}）：{@code wall_sign_lte} 也在这里，排<b>第 2 位</b>
- *       （LTE logo 方块之后、仪表板之前），见 {@link LteCoreItems#pinToolsTabOrder()} —— 同一个方块在两页都有。</li>
+ *   <li><b>厦门风格物件</b>（{@link XiamenObjects#CORE_TAB_ID}）：厦门 / 角美两面牌子加到<b>末尾</b>，
+ *       由 {@code LogoObjects.pinCoreTabOrder()} 统一重排（它同时决定前排的两个 logo 和四件站外标志）；</li>
+ *   <li><b>LTE 工具</b>（{@link LteCoreItems#TOOLS_TAB_ID}）：{@code wall_sign_lte} 排<b>第 2 位</b>
+ *       （LTE logo 方块之后、仪表板之前），见 {@link LteCoreItems#pinToolsTabOrder()}。</li>
  * </ul>
  */
 public final class WallSignObjects {
@@ -105,14 +104,13 @@ public final class WallSignObjects {
             LteLog.LOGGER.error("[lte] wall sign: could not register the block entity type", t);
         }
 
-        // 三面牌子都进「厦门风格物件」页签：厦门 / 角美 / LTE 是同一族，紧跟两个 logo 块之后。
-        // 最终位置由 LogoObjects.pinCoreTabOrder() 决定（它会把这五件按顺序拎到最前排）。
+        // 厦门 / 角美两面牌子进「厦门风格物件」页签。这里只保证「有位」，
+        // 最终位置由 LogoObjects.pinCoreTabOrder() 把它们挪到末尾。
         try {
             ItemGroupEvents.modifyEntriesEvent(RegistryKey.of(RegistryKeys.ITEM_GROUP, XiamenObjects.CORE_TAB_ID))
                     .register(entries -> {
                         entries.add(xiamen.item());
                         entries.add(jiaomei.item());
-                        entries.add(lte.item());
                     });
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] wall sign: could not add the creative tab entries", t);

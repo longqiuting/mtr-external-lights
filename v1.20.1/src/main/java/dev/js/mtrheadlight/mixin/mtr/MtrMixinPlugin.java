@@ -48,6 +48,10 @@ public final class MtrMixinPlugin implements IMixinConfigPlugin {
             // 线路条带重绘：只要 MTR 的线路图生成器在就应用（与列车注册表无关）。
             return HostProbe.mtrRouteMap();
         }
+        if (mixinClassName.endsWith(".StationNameEntranceLogoMixin")) {
+            // 贴墙标识换 logo：同一个线路图生成器（drawResource 就在里面），探测条件一致。
+            return HostProbe.mtrRouteMap();
+        }
         if (mixinClassName.endsWith(".BlockPlatformDoorTypeMixin")) {
             // 站台门型识别：站台方块是双端共享的类，所以用普通方块探测（dedicated server 上也要生效）。
             return HostProbe.mtrBlockPlatform();

@@ -23,9 +23,11 @@
     `"license": "All Rights Reserved"`，但该 ARR 仅覆盖 **Yomi_307 修改的那部分代码**，
     本项目**未使用**这些修改，只用了上游 MIT 的屏蔽门实现与资源文件，因此按 MIT 处理。
 - 版权：Jonathan Ho 及 MTR 贡献者
+- 另：`assets/mtrlte/sounds/ticket_processor_entry.ogg` 为 MTR 的
+  `assets/mtr/sounds/ticket_processor_entry.ogg` **逐字节复制**（MIT），在 `sounds.json`
+  注册为 `mtrlte:ticket_processor_entry`，`pitch` 与上游一致取 **0.5**（余额查询机的「嘟」声）。
 
 ## 2. 南滨创意（Nanbin Create Mod）
-
 - 许可：**MIT**（`fabric.mod.json` 明确）
 - 作者：Nanbin-Studio；贡献者 LIEH-SAD
 - 用途：闸机音效。`assets/mtrlte/sounds/crt_ticket.ogg` 是从该模组
