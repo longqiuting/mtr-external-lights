@@ -601,14 +601,6 @@ public final class ScatterPass {
 
     /** One full-screen quad in NDC. The shader builds its own rays; no geometry is involved. */
     private static void draw() {
-        final BufferBuilder buffer = Tessellator.getInstance().getBuffer();
-        buffer.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION);
-        buffer.vertex(-1.0F, -1.0F, 0.0F).next();
-        buffer.vertex(-1.0F, 1.0F, 0.0F).next();
-        buffer.vertex(1.0F, 1.0F, 0.0F).next();
-        buffer.vertex(1.0F, -1.0F, 0.0F).next();
-        // 1.18.2 的 BufferBuilder#end() 没有返回值（1.20.1 的 endNullable/BuiltBuffer 不存在），
-        // 收尾与绘制由 BufferRenderer.draw(BufferBuilder) 一次做完；空缓冲画出来是空操作。
         RenderSystem.setShader(ScatterProgram::program);
         // -1 = 这一帧还没有拷贝（只有 lighttest 会走到），绑 0 而不是把一个非法 id 交给 GL。
         final int depth = DepthCopy.texture();
@@ -641,7 +633,25 @@ public final class ScatterPass {
         RenderSystem.disableDepthTest();
         RenderSystem.depthMask(false);
         RenderSystem.disableCull();
+        final Tessellator tessellator = Tessellator.getInstance();
         try {
+            /*
+             * 1.18.2 的 buffer 生命周期：{@code begin()} 只是开始记录，{@code end()} 才把这一段
+             * 归档成一条 draw-parameters 记录，而 {@code BufferRenderer.draw(BufferBuilder)}
+             * 只做 {@code popData()} —— 取那条<b>已经归档好</b>的记录去上传，它从不替你 end()
+             * （1.20.1 的 {@code drawWithGlobalProgram} 才会）。少了 end()，
+             * {@code popData()} 读 {@code parameters.get(0)} 时列表长度是 0 →
+             * {@code IndexOutOfBoundsException: Index 0 out of bounds for length 0}，
+             * 而且 {@code building} 留在 true，下一次任何人 {@code begin()} 都抛
+             * {@code Already building!}。所以 begin / end / draw 三个调用写在同一段 try 里。
+             */
+            final BufferBuilder buffer = tessellator.getBuffer();
+            buffer.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION);
+            buffer.vertex(-1.0F, -1.0F, 0.0F).next();
+            buffer.vertex(-1.0F, 1.0F, 0.0F).next();
+            buffer.vertex(1.0F, 1.0F, 0.0F).next();
+            buffer.vertex(1.0F, -1.0F, 0.0F).next();
+            buffer.end();
             BufferRenderer.draw(buffer);
             /*
              * 读回真实的混合状态（5 秒行里的 {@code blend=}）。这条 pass 声称自己是 dst = src
@@ -652,6 +662,16 @@ public final class ScatterPass {
             diagBlendSrc = GL11.glGetInteger(GL14.GL_BLEND_SRC_RGB);
             diagBlendDst = GL11.glGetInteger(GL14.GL_BLEND_DST_RGB);
         } finally {
+            /*
+             * 异常路径（顶点写出或上传时抛了）：共享的 Tessellator buffer 必须在这里收尾，
+             * 否则 building 一直是 true，下一次任何人 begin() 立刻 Already building!。
+             * 正常路径上 end() 已经跑过、isBuilding() 是 false，这里是空操作。
+             */
+            final BufferBuilder buffer = tessellator.getBuffer();
+            if (buffer.isBuilding()) {
+                buffer.end();
+                BufferRenderer.draw(buffer);
+            }
             /*
              * Restore every piece of global state we touched. Leaving our program bound, our depth
              * texture on unit 0, or the depth mask off is exactly what made particles disappear in

@@ -22,10 +22,18 @@ import org.lwjgl.opengl.GL14;
  * <ul>
  *   <li>{@link #draw} —— 贴地光带（{@link BeamGlow}），{@code POSITION_COLOR}，无贴图；</li>
  *   <li>{@link #drawTextured} —— 灯位灯晕（{@link LightFlare}），{@code POSITION_TEXTURE_COLOR}；
- *       和上面<b>同一套</b> BufferBuilder → {@code BufferRenderer.drawWithGlobalProgram} →
- *       同一串 GL 状态与复位，区别只有 vertex format 和贴图，所以两者不可能「一条能画、一条不能」；</li>
+ *       和上面<b>同一套</b> BufferBuilder → {@link #flush}（{@code end()} + {@code BufferRenderer.draw}）
+ *       → 同一串 GL 状态与复位，区别只有 vertex format 和贴图，所以两者不可能「一条能画、一条不能」；</li>
  *   <li>{@link #drawScreenQuad} —— 屏幕空间（NDC）的纯色矩形，灯晕/散射的 lighttest 探针用。</li>
  * </ul>
+ *
+ * <h2>buffer 生命周期（1.18.2 与 1.20.1 的致命差异）</h2>
+ * 1.20.1 是 {@code drawWithGlobalProgram(builder)} 一把收尾；1.18.2 必须
+ * {@code begin → 顶点 → end() → BufferRenderer.draw(builder)} 四步齐全 ——
+ * draw 只做 {@code popData()}，<b>从不替你 end()</b>。漏掉 end() 的后果不是画不出来，是
+ * {@code IndexOutOfBoundsException: Index 0 out of bounds for length 0}（空 parameters 列表）
+ * 加上 {@code building} 永远为 true，于是下一次 {@code begin()} 抛
+ * {@code Already building!}，把整个世界的渲染一起带走。见 {@link #flush}。
  *
  * <h2>坐标空间（最容易错的地方）</h2>
  * 传进来的 {@code data} 必须是<b>相机相对</b>坐标（{@code world - camera.getPos()}）。世界渲染的
@@ -73,20 +81,54 @@ final class GlowCompat {
         RenderSystem.depthMask(false);
         RenderSystem.disableCull();
 
-        final BufferBuilder buffer = Tessellator.getInstance().getBuffer();
-        buffer.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
-        for (int i = 0; i + 6 < count; i += 7) {
-            buffer.vertex(matrix, data[i], data[i + 1], data[i + 2])
-                    .color(data[i + 3], data[i + 4], data[i + 5], data[i + 6])
-                    .next();
+        final Tessellator tessellator = Tessellator.getInstance();
+        try {
+            final BufferBuilder buffer = tessellator.getBuffer();
+            buffer.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
+            for (int i = 0; i + 6 < count; i += 7) {
+                buffer.vertex(matrix, data[i], data[i + 1], data[i + 2])
+                        .color(data[i + 3], data[i + 4], data[i + 5], data[i + 6])
+                        .next();
+            }
+        } finally {
+            // 顶点写完之后必须有人 end()，见 flush() 的说明。放在 finally 里，异常路径也不会把
+            // 共享的 Tessellator buffer 卡在 building = true。
+            try {
+                flush(tessellator);
+            } finally {
+                RenderSystem.depthMask(true);
+                RenderSystem.defaultBlendFunc();
+                RenderSystem.enableCull();
+                // 还回全局 shader 状态：调用方（以及之后渲染的粒子/天气）默认会继承它。
+                RenderSystem.setShader(GameRenderer::getPositionColorShader);
+            }
         }
-        BufferRenderer.draw(buffer);
+    }
 
-        RenderSystem.depthMask(true);
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.enableCull();
-        // 还回全局 shader 状态：调用方（以及之后渲染的粒子/天气）默认会继承它。
-        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+    /**
+     * 1.18.2 的 buffer 生命周期，<b>本文件三个 draw 方法共用这一条路</b>：
+     * {@code begin()} 只是开始记录；{@code end()} 把这一段归档成一条
+     * {@code DrawArrayParameters} 记进 {@code parameters} 列表；而
+     * {@code BufferRenderer.draw(BufferBuilder)} 做的事只是 {@code popData()} ——
+     * 从列表里取<b>已经归档好</b>的那一条去上传并调用 GL。
+     *
+     * <p>也就是说 <b>draw 从不替你 end</b>（1.20.1 的 {@code drawWithGlobalProgram} 才会）。
+     * 少了 {@code end()}，{@code popData()} 读 {@code parameters.get(0)} 时列表长度是 0 →
+     * {@code IndexOutOfBoundsException: Index 0 out of bounds for length 0}；更糟的是
+     * {@code end()} 没跑，{@code building} 仍是 true，<b>下一次任何人</b>
+     * （下一帧的我们、原版的天/粒子/文字）调 {@code begin()} 就抛
+     * {@code IllegalStateException: Already building!} —— 一次失败把整个世界渲染带崩。
+     *
+     * <p>{@code Tessellator#draw()} 就是这两步的合并（{@code buffer.end(); BufferRenderer.draw(buffer);}），
+     * 这里没有直接用它，只为在「已经 end 过」时能安全跳过，避免重复 draw 抛第二次 IOOBE。
+     */
+    private static void flush(final Tessellator tessellator) {
+        final BufferBuilder buffer = tessellator.getBuffer();
+        if (!buffer.isBuilding()) {
+            return;
+        }
+        buffer.end();
+        BufferRenderer.draw(buffer);
     }
 
     /**
@@ -95,11 +137,11 @@ final class GlowCompat {
      *
      * <p>除了 vertex format（{@code POSITION_TEXTURE_COLOR}）、程序
      * （{@code getPositionTexColorProgram}）和贴图绑定之外，其余每一行都和 {@link #draw} <b>逐字相同</b>：
-     * 同一个共享 Tessellator、同一次 {@code drawWithGlobalProgram}、同一串 GL 状态与复位。这就是
+     * 同一个共享 Tessellator、同一次 {@link #flush}、同一串 GL 状态与复位。这就是
      * 「灯晕改用光带同款渲染路径」的落地方式 —— 不是另写一条看起来差不多的路，而是把两条路合并成
      * 一个 shim 的两个 format 重载。
      *
-     * <p>贴图槽 0 必须在 {@code drawWithGlobalProgram} <b>之前</b>设好：那颗 draw 会把
+     * <p>贴图槽 0 必须在 {@code BufferRenderer.draw} <b>之前</b>设好：那颗 draw 会把
      * {@code Sampler0..11} 从 {@link RenderSystem#getShaderTexture(int)} 一起塞进程序。
      */
     static void drawTextured(final float[] data, final int count, final MatrixStack stack,
@@ -149,44 +191,53 @@ final class GlowCompat {
         RenderSystem.depthMask(false);
         RenderSystem.disableCull();
 
-        final BufferBuilder buffer = Tessellator.getInstance().getBuffer();
-        buffer.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
-        for (int i = 0; i + 8 < count; i += 9) {
-            buffer.vertex(matrix, data[i], data[i + 1], data[i + 2])
-                    .texture(data[i + 3], data[i + 4])
-                    .color(data[i + 5], data[i + 6], data[i + 7], data[i + 8])
-                    .next();
-        }
-        BufferRenderer.draw(buffer);
+        final Tessellator tessellator = Tessellator.getInstance();
+        try {
+            final BufferBuilder buffer = tessellator.getBuffer();
+            buffer.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
+            for (int i = 0; i + 8 < count; i += 9) {
+                buffer.vertex(matrix, data[i], data[i + 1], data[i + 2])
+                        .texture(data[i + 3], data[i + 4])
+                        .color(data[i + 5], data[i + 6], data[i + 7], data[i + 8])
+                        .next();
+            }
+            // end() + 上传，两个调用成对（1.18.2 的 BufferRenderer.draw 只 popData，不 end）。
+            flush(tessellator);
 
-        /*
-         * 取证：读回光栅化那一刻的真实状态。
-         *
-         * 为什么在 draw 之后读：{@code BufferRenderer.drawWithGlobalProgram} →
-         * {@code VertexBuffer.draw} 会在内部 {@code ShaderProgram.bind()}，而 bind 会把 json 里
-         * 声明的 gl 状态（blend）盖上来 —— 所以「我们 draw 前设的」从来不代表「draw 时生效的」。
-         * draw 之后、我们的还原之前，GL 里留着的就是这一次绘制真正用的状态。
-         * 这也顺便证明了 position_tex_color.json 自带的 blend 是 srcalpha / 1-srcalpha，
-         * 而不是这里设的加色。
-         */
-        diagDepthFunc = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
-        diagBlendSrc = GL11.glGetInteger(GL14.GL_BLEND_SRC_RGB);
-        diagBlendDst = GL11.glGetInteger(GL14.GL_BLEND_DST_RGB);
-        diagBlendEnabled = GL11.glIsEnabled(GL11.GL_BLEND);
-        diagCullEnabled = GL11.glIsEnabled(GL11.GL_CULL_FACE);
-        diagTextureId = RenderSystem.getShaderTexture(0);
-        diagForceOcclusion = forceOcclusion;
-        diagDepthFuncOnEntry = entryFunc;
-
-        if (forceOcclusion) {
-            forceDepthFunc(entryFunc == -1 ? GL11.GL_LEQUAL : entryFunc);
+            /*
+             * 取证：读回光栅化那一刻的真实状态。
+             *
+             * 为什么在 draw 之后读：{@code BufferRenderer.draw} → {@code VertexBuffer.draw} 会在内部
+             * {@code ShaderProgram.bind()}，而 bind 会把 json 里声明的 gl 状态（blend）盖上来 ——
+             * 所以「我们 draw 前设的」从来不代表「draw 时生效的」。draw 之后、我们的还原之前，
+             * GL 里留着的就是这一次绘制真正用的状态。
+             * 这也顺便证明了 position_tex_color.json 自带的 blend 是 srcalpha / 1-srcalpha，
+             * 而不是这里设的加色。
+             */
+            diagDepthFunc = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
+            diagBlendSrc = GL11.glGetInteger(GL14.GL_BLEND_SRC_RGB);
+            diagBlendDst = GL11.glGetInteger(GL14.GL_BLEND_DST_RGB);
+            diagBlendEnabled = GL11.glIsEnabled(GL11.GL_BLEND);
+            diagCullEnabled = GL11.glIsEnabled(GL11.GL_CULL_FACE);
+            diagTextureId = RenderSystem.getShaderTexture(0);
+            diagForceOcclusion = forceOcclusion;
+            diagDepthFuncOnEntry = entryFunc;
+        } finally {
+            try {
+                // 异常路径（顶点写炸 / draw 抛了）：这里才是唯一保证共享 buffer 被收尾的地方。
+                flush(tessellator);
+            } finally {
+                if (forceOcclusion) {
+                    forceDepthFunc(entryFunc == -1 ? GL11.GL_LEQUAL : entryFunc);
+                }
+                RenderSystem.depthMask(true);
+                RenderSystem.defaultBlendFunc();
+                RenderSystem.enableCull();
+                RenderSystem.setShaderTexture(0, 0);
+                RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
+                RenderSystem.setShader(GameRenderer::getPositionColorShader);
+            }
         }
-        RenderSystem.depthMask(true);
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.enableCull();
-        RenderSystem.setShaderTexture(0, 0);
-        RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
-        RenderSystem.setShader(GameRenderer::getPositionColorShader);
     }
 
     /**
@@ -236,7 +287,8 @@ final class GlowCompat {
             RenderSystem.depthMask(false);
             RenderSystem.disableCull();
 
-            final BufferBuilder buffer = Tessellator.getInstance().getBuffer();
+            final Tessellator tessellator = Tessellator.getInstance();
+            final BufferBuilder buffer = tessellator.getBuffer();
             buffer.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
             final Matrix4f identity = new Matrix4f();
             identity.loadIdentity();
@@ -244,13 +296,17 @@ final class GlowCompat {
             buffer.vertex(identity, x0, y1, 0.0F).color(r, g, b, a).next();
             buffer.vertex(identity, x1, y1, 0.0F).color(r, g, b, a).next();
             buffer.vertex(identity, x1, y0, 0.0F).color(r, g, b, a).next();
-            BufferRenderer.draw(buffer);
-
-            RenderSystem.depthMask(true);
-            RenderSystem.enableDepthTest();
-            RenderSystem.defaultBlendFunc();
-            RenderSystem.enableCull();
+            try {
+                flush(tessellator);
+            } finally {
+                RenderSystem.depthMask(true);
+                RenderSystem.enableDepthTest();
+                RenderSystem.defaultBlendFunc();
+                RenderSystem.enableCull();
+            }
         } finally {
+            // 异常路径：共享的 Tessellator buffer 不许停在 building 状态（见 flush()）。
+            flush(Tessellator.getInstance());
             // 顺序要紧：先还原矩阵（下一次 VertexBuffer.draw 会重新上传它们），再还原 shader 状态。
             modelView.load(savedModelView);
             projection.load(savedProjection);

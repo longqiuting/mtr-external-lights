@@ -235,6 +235,15 @@ public final class LteServer implements ModInitializer {
             LteLog.LOGGER.warn("[lte] fangsu psd doors unavailable", t);
         }
 
+        // 创造页签自检：1.19.2 的页签内容只在对创造栏填充时才拼，光看启动日志看不出对不对。
+        // 这里把每个页签的静态条目列表提前拼好并打 `[lte] tab <id>: N items` —— 一眼就能看出
+        // 哪一页是空的（拼好的列表会被缓存，开创造栏时直接整批 add，不做第二遍工作）。
+        try {
+            dev.js.mtrheadlight.compat.ItemGroupTabs.logContents();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] creative tab contents could not be built", t);
+        }
+
         try {
             ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
                 try {

@@ -1,6 +1,7 @@
 // 方速屏蔽门方块 —— 继承 MTR 的 BlockPSDAPGDoorBase，只把「几何 / 碰撞 / 右键」换成方速那一套。
 package dev.js.mtrheadlight.xiamen.fangsu;
 
+import dev.js.mtrheadlight.LteLog;
 import dev.js.mtrheadlight.MtrCompatValues;
 
 import java.util.ArrayList;
@@ -339,9 +340,22 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
         setOpenAt(world, other, value);
     }
 
+    /**
+     * 我们这一边正在写 {@code setOpen}（刷子手动开关）。
+     *
+     * <p>只给诊断行用：列车驱动同样走 {@code setOpen}，两者唯一的区别是调用者，
+     * 所以拿一个开关把「手动」标出来，日志里 {@code train=manual|driver} 才不会骗人。
+     */
+    private static boolean manualSet;
+
     private static void setOpenAt(final World world, final BlockPos pos, final int value) {
         if (world.getBlockEntity(pos) instanceof TileEntityPSDAPGDoorBase door) {
-            door.setOpen(value);
+            manualSet = true;
+            try {
+                door.setOpen(value);
+            } finally {
+                manualSet = false;
+            }
         }
     }
 
@@ -370,6 +384,12 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
         /** 客户端插值（按时间推进，见 {@link FangsuPsdProgress}）。 */
         private final FangsuPsdProgress animation = new FangsuPsdProgress();
 
+        /** 上一次打诊断行的世界时间（tick）；{@code Long.MIN_VALUE} = 还没打过。服务端 / 客户端各一份。 */
+        private long lastLogTick = Long.MIN_VALUE;
+
+        /** 上一次看过（或打过）的 open 值，用来只在「值变了」的那一下打一行。 */
+        private int lastLogValue = Integer.MIN_VALUE;
+
         public FangsuPsdDoorEntity(final BlockPos pos, final BlockState state) {
             super(FangsuPsdBlocks.entityType(), pos, state);
         }
@@ -381,7 +401,78 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
          * @param tickDelta  当前帧的 partialTick
          */
         public float progress(final long ticks, final float tickDelta) {
-            return this.animation.update(MtrCompatValues.openValue(this, 1.0F) / (float) MAX_OPEN_VALUE, ticks, tickDelta);
+            final int open = MtrCompatValues.openValue(this, 1.0F);
+            final float progress = this.animation.update(open / (float) MAX_OPEN_VALUE, ticks, tickDelta);
+            logClient(open, progress, ticks);
+            return progress;
+        }
+
+        /**
+         * 服务端：<b>列车</b>（{@code TrainServer#openDoors}）或刷子（我们自己的
+         * {@code setOpenAt}）写进来的目标值。
+         *
+         * <p>这里只额外做一件事：值一变就打一行诊断
+         * <pre>[lte] fangsu door: openValue=32 state=facing=north,half=lower,unlocked=true,temp=false train=driver</pre>
+         * 每扇门每秒最多一行（{@link #LOG_INTERVAL_TICKS}）。{@code train=driver} 表示
+         * 「MTR 的列车写的」—— 列车不在站时 MTR 根本不会调 {@code setOpen}，所以这一行出现
+         * 就说明扫描 / {@code instanceof} / 方块实体注册这三关都过了，问题只能在客户端。
+         */
+        @Override
+        public void setOpen(final int value) {
+            super.setOpen(value);
+            logServer(value, manualSet ? "manual" : "driver");
+        }
+
+        /** 诊断行最小间隔（tick）。 */
+        private static final int LOG_INTERVAL_TICKS = 20;
+
+        private void logServer(final int value, final String train) {
+            final World world = getWorld();
+            if (world == null || world.isClient) {
+                return;
+            }
+            if (!shouldLog(value, world.getTime())) {
+                return;
+            }
+            LteLog.LOGGER.info("[lte] fangsu door: openValue={} state={} train={}",
+                    value, describe(getCachedState()), train);
+        }
+
+        private void logClient(final int value, final float progress, final long ticks) {
+            final World world = getWorld();
+            if (world == null || !world.isClient) {
+                return;
+            }
+            if (!shouldLog(value, ticks)) {
+                return;
+            }
+            LteLog.LOGGER.info("[lte] fangsu door: openValue={} state={} train=seen progress={}",
+                    value, describe(getCachedState()),
+                    String.format(java.util.Locale.ROOT, "%.2f", progress));
+        }
+
+        /** 值变了、且距上次至少 {@link #LOG_INTERVAL_TICKS} tick，才值得打一行。 */
+        private boolean shouldLog(final int value, final long ticks) {
+            if (value == this.lastLogValue) {
+                return false;
+            }
+            if (this.lastLogTick != Long.MIN_VALUE && ticks - this.lastLogTick < LOG_INTERVAL_TICKS) {
+                return false;
+            }
+            this.lastLogValue = value;
+            this.lastLogTick = ticks;
+            return true;
+        }
+
+        /** {@code facing=north,half=lower,unlocked=true,temp=false}（{@code temp} 只有 3.2.x 有）。 */
+        private static String describe(final BlockState state) {
+            if (state == null) {
+                return "-";
+            }
+            return "facing=" + IBlock.getStatePropertySafe(state, FACING)
+                    + ",half=" + IBlock.getStatePropertySafe(state, HALF)
+                    + ",unlocked=" + IBlock.getStatePropertySafe(state, UNLOCKED)
+                    + ",temp=" + (state.contains(TEMP) ? state.get(TEMP) : "-");
         }
     }
 }
