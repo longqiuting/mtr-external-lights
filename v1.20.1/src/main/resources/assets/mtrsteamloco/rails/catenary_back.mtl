@@ -1,0 +1,8 @@
+# Made in Blockbench 4.12.5
+newmtl m_38cc0518-b782-d5ae-606e-668986103bf7
+map_Kd texture_ce.png
+newmtl m_2f77b118-d529-7cf6-18af-fbacb25012d2
+map_Kd catenary_pole_top.png
+newmtl m_0997598b-73c9-ec5e-429c-32696aa1b0ea
+map_Kd catenary_rack.png
+newmtl none
