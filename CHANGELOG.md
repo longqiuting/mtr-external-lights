@@ -1,5 +1,23 @@
 # 更新日志
 
+## 默认只开光带 · 手持动态光源回归（1.20.1，配置版本 26）
+
+- **散射与灯晕解耦**：`sss/ScatterLights` 收集灯位时读的是 `beamFlare`（灯晕开关），于是「关灯晕」
+  顺手把空气散射一起关掉了 —— 现在只读 `beamScatter`，与光带 / 灯晕完全正交。帧级门 `drawScatter()`
+  本来就读对了，破例的只有这一处。
+- **默认值改为只开光带**：`beamBand=true` / `beamFlare=false` / `beamScatter=false`。旧配置里的 `true`
+  与「没写过」字节相同、无法区分，所以版本 26 迁移按旧默认值折算：等于旧默认（true）的灯晕 / 散射落到
+  false，并在日志里说明（`版本 26：默认只开光带 …`）。要开回来就在「光源」页点那一行，从 v26 起手写的
+  `true` 会被保留。
+- **恢复玩家手持动态光源**（`playerDynamicLight`，默认开）：手持发光方块（火把 / 灯笼 / 营火 / 萤石 …，
+  判据是方块默认光等级）时在玩家身上挂一个动态光源。**依赖 LambDynamicLights（mod id `lambdynlights`），
+  不装就静默不生效**：LDL 相关代码全部关在 `dev.js.mtrheadlight.ldl.LdlPlayerLight` 里，`PlayerDynamicLight`
+  用 `try/catch Throwable` 包住每一次调用，启动日志有一行 `player dynamic light: off - …` 说明走哪条分支。
+  配置界面没装 LDL 时这一行置灰并标「（需装 LDL）」，不会点了没反应。
+- **「光源」页重排**：同一分区里所有开关在上（总开关 / 车灯模式 / 光带 / 灯晕 / 空气散射 / 照亮表面 /
+  方块打光 / 手持动态光源），所有滑块在下（距离、亮度、照射长度、光束几何、散射强度与半径），最后才是
+  颜色与动作入口（车头车尾颜色、光束编辑、立即重载光源）。
+
 ## 车灯开关拆分与清理（1.20.1）
 
 - **光带 / 灯晕 / 散射拆成三个独立开关**（配置 `beamBand` / `beamFlare` / `beamScatter`，默认全开）。

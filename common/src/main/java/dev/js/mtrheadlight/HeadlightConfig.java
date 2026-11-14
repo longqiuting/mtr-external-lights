@@ -25,7 +25,7 @@ import java.util.Map;
 public final class HeadlightConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     /** Bumped when a default changes in a way an existing file has to be migrated onto. */
-    private static final int CONFIG_VERSION = 25;
+    private static final int CONFIG_VERSION = 26;
 
     /**
      * 灯晕的硬像素底：无论配置写多少，一盏通过全部判定的灯在屏幕上至少占这么多 GUI 像素高。
@@ -71,6 +71,21 @@ public final class HeadlightConfig {
      * entirely ours, so turning it off proves the same thing without a foreign engine in the way.
      */
     public boolean ldlRegisterSources = true;
+
+    /**
+     * <b>玩家手持动态光源</b>（{@code dev.js.mtrheadlight.ldl.PlayerDynamicLight}，MC 1.20.1 专用）。
+     *
+     * <p>手里拿着会发光的方块（火把 / 灯笼 / 营火 / 萤石 …，判据是方块的默认光等级 &gt; 0）时，
+     * 在玩家身上挂一个动态点光源 —— 举着火把走夜路的那点光是玩家早就习惯的，本模组 1.20.1 重构
+     * 删掉 LambDynamicLights 时把它一并带走了，这一个开关把它接回来。
+     *
+     * <p><b>依赖 LambDynamicLights（mod id {@code lambdynlights}）才会生效</b>：不装时这个字段照常
+     * 读、照常存，只是没人消费它 —— 那条路径整个被 {@code try/catch NoClassDefFoundError} 包着，
+     * 启动日志里会有一行 {@code [lte] player dynamic light: ...} 说明走的是哪条分支。它和
+     * {@link #enabled}（列车灯总开关）<b>互不影响</b>：列车灯全关掉时玩家自己手里的火把照样亮 ——
+     * 「关灯」关的是车，不是玩家的火把。
+     */
+    public boolean playerDynamicLight = true;
 
 
     /** Only lights for transport mode TRAIN (ignore boats / cable cars / planes). */
@@ -192,12 +207,12 @@ public final class HeadlightConfig {
     public Map<Long, SidingSettings> sidingSettings = new LinkedHashMap<>();
 
     // ---------------------------------------------------------------------------------------------
-    // 三件可见的光效：光带 / 灯晕 / 散射 —— 三个独立开关，默认全开
+    // 三件可见的光效：光带 / 灯晕 / 散射 —— 三个独立开关，默认<b>只开光带</b>
     // ---------------------------------------------------------------------------------------------
 
     /**
      * <b>光带</b>：从车头沿车体朝向直线推出的贴地带状面片（{@code BeamGlow}）。近看有"灯光打在
-     * 地上"的体积感，是玩家公认最好看的一版。<b>默认开。</b>
+     * 地上"的体积感，是玩家公认最好看的一版。<b>默认开 —— 而且是唯一默认开的那一件。</b>
      *
      * <p>三件光效互相正交：这个开关只管光带，和 {@link #beamFlare} / {@link #beamScatter} 互不
      * 影响，任意组合都能画出来。以前是一个三态"光样式"（BAND / FLARE / BOTH），玩家要试组合只能
@@ -207,22 +222,24 @@ public final class HeadlightConfig {
 
     /**
      * <b>灯晕</b>：每个物理灯位一张面向相机的加色贴图（{@code LightFlare}）。远看/侧看都是一颗
-     * 亮灯，几何量最小。<b>默认开。</b>
+     * 亮灯，几何量最小。<b>默认关（配置版本 26 起；v25 及以前默认开）。</b>
      *
-     * <p>与光带互相独立：关掉光带不影响灯晕，反之亦然。逐侧线可以再收紧
-     * （{@link SidingSettings#beamFlare}），覆盖只能让它更严，不能把全局关掉的重新打开。
+     * <p>与光带互相独立：关掉灯晕不影响光带，也<b>不影响散射</b>（散射自己读
+     * {@link #beamScatter}，一个字都不读这个字段 —— 这正是版本 26 修掉的那个耦合）。逐侧线可以
+     * 再收紧（{@link SidingSettings#beamFlare}），覆盖只能让它更严，不能把全局关掉的重新打开。
      */
-    public boolean beamFlare = true;
+    public boolean beamFlare = false;
 
     /**
      * <b>散射</b>：世界画完之后的一次全屏 pass（{@code dev.js.mtrheadlight.sss.ScatterPass}）——
-     * 车灯在空气里的光雾，以及它照亮的地面 / 墙面。<b>默认开。</b>
+     * 车灯在空气里的光雾，以及它照亮的地面 / 墙面。<b>默认关（配置版本 26 起；v25 及以前默认开）。</b>
      *
-     * <p>与光带 / 灯晕完全独立：它是屏幕空间后处理，不画任何几何，所以三件可以任意叠加。只有全局
-     * 值（一次全屏 pass，代价和"哪条侧线的车"无关）。开光影（Iris / OptiFine）时整个 pass 会被跳过
-     * 并只写一行日志：光影自己拥有 framebuffer 与深度缓冲。
+     * <p>与光带 / 灯晕完全独立：它是屏幕空间后处理，不画任何几何，所以三件可以任意叠加。灯位是从
+     * {@code TrainLamps} 那套灯阵里收的，收的时候只看这一个字段（以前错看了 {@code beamFlare}，
+     * 于是「关灯晕」把空气散射一起关掉）。只有全局值（一次全屏 pass，代价和"哪条侧线的车"无关）。
+     * 开光影（Iris / OptiFine）时整个 pass 会被跳过并只写一行日志：光影自己拥有 framebuffer 与深度缓冲。
      */
-    public boolean beamScatter = true;
+    public boolean beamScatter = false;
 
     // ---------------------------------------------------------------------------------------------
     // 帧级「这一帧画不画」—— 每个渲染器只调对应的一条，这三行就是全部可见光效的闸门，
@@ -241,6 +258,9 @@ public final class HeadlightConfig {
 
     /** 散射这一帧跑不跑（{@code sss.ScatterPass.render} 的帧级门）：总开关 + 自己的开关。 */
     public boolean drawScatter() {
+        // 只读 beamScatter：灯晕、光带、任何侧线覆盖都不参与 —— 三件光效正交，
+        // 「关掉灯晕顺手把空气散射也关了」曾经就是这里（以及 ScatterLights.collect）读到
+        // beamFlare 造成的。
         return enabled && beamScatter;
     }
 
@@ -2040,6 +2060,9 @@ public final class HeadlightConfig {
         // Version 25 replaces the three-state lightStyle enum with three independent switches
         // (beamBand / beamFlare / beamScatter) and drops the rail-bake subsystem (rails no longer
         // glow); see the block at the end of this method.
+        // Version 26 flips the shipped defaults from "all three on" to "only the band on"
+        // (beamFlare / beamScatter both false) and appends playerDynamicLight (default true, only
+        // active when LambDynamicLights is installed); see the last block of this method.
         if (configVersion < 21) {
             // Version 21 turns the beam cone off by default (still experimental) and appends
             // rainSprayLowSpeedBoost. true was the shipped default of beamCone, so an old file
@@ -2102,6 +2125,33 @@ public final class HeadlightConfig {
             if (Math.abs(beamFlareSize - 0.9D) < 1.0E-9D) {
                 beamFlareSize = 1.4D;
             }
+        }
+        if (configVersion < 26) {
+            // Version 26 把默认值从「三件全开」改成「只开光带」：
+            //   beamBand    true -> true   （不变）
+            //   beamFlare   true -> false
+            //   beamScatter true -> false
+            //
+            // 老文件里的 true 和新装的「没写过」是同一串字节，<b>没法区分</b>，所以按 v21 / v24 的
+            // 同一条规则处理：等于旧默认值就当作「没手动改过」，直接落到新默认；只有人手写过
+            // false 的文件才保留 false（那本来就和结果一致）。也就是说，一个曾经把灯晕打开的玩家
+            // 升级后会觉得灯晕"又关了" —— 这一行日志就是给这种情况的解释，界面上那一行也还在。
+            // 逐侧线的 beamFlare 覆盖一律不动：那永远是玩家一个一个点出来的。
+            final boolean flareWasDefault = beamFlare;
+            final boolean scatterWasDefault = beamScatter;
+            if (flareWasDefault) {
+                beamFlare = false;
+            }
+            if (scatterWasDefault) {
+                beamScatter = false;
+            }
+            LteLog.LOGGER.info(
+                    "[lte] 版本 26：默认只开光带（光带={} 灯晕={} 散射={}）；"
+                            + "旧文件里的 灯晕={} 散射={} 若为旧默认值 true 已按新默认改为 false，"
+                            + "要开回来请在「光源」页把对应的那一行点开",
+                    Boolean.valueOf(beamBand), Boolean.valueOf(beamFlare),
+                    Boolean.valueOf(beamScatter), Boolean.valueOf(flareWasDefault),
+                    Boolean.valueOf(scatterWasDefault));
         }
         configVersion = CONFIG_VERSION;
         return true;

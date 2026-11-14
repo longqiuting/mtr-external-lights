@@ -1,0 +1,7 @@
+{
+  "__comment": "站名出入口「高板」+ LTE logo。几何在父模型里（照 MTR 的 station_name_entrance_tall），这里只换 logo 贴图。",
+  "parent": "mtrlte:block/station_name_entrance_tall",
+  "textures": {
+    "logo": "mtrlte:block/lte_logo"
+  }
+}

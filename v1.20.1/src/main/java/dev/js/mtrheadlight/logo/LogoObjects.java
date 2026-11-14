@@ -33,8 +33,9 @@ import net.minecraft.util.Identifier;
  *       <td>{@code mtrlte:core}「厦门风格物件」（{@link XiamenObjects#CORE_TAB_ID}）</td></tr>
  * </table>
  *
- * <p>「厦门风格物件」页签<b>最前排</b>的顺序由 {@link #pinCoreTabOrder()} 统一重排
- * （两个 logo → 厦门 / 角美的贴墙标识 → 四件站外标志），不依赖「谁先注册谁在前」。
+ * <p>「厦门风格物件」页签的<b>最前排</b>顺序由 {@link #pinCoreTabOrder()} 统一重排
+ * （两个 logo → 四件站外标志）；厦门 / 角美两个贴墙标识被排到该页<b>末尾</b>
+ * （{@link #CORE_TAB_TAIL}），不依赖「谁先注册谁在前」。
  *
  * <p>方块和物品用同一个 id（本模组一贯的规矩）。两个方块除了贴图没有别的区别，
  * 所以同一个 {@link LogoBlock} 类实例化两次。
@@ -74,20 +75,29 @@ public final class LogoObjects {
 
     /**
      * 「厦门风格物件」页签最前面那几件，<b>按用户点名的顺序</b>：
-     * 两个 logo → 厦门 / 角美的贴墙标识 → 四件站外标志（挂墙 / 杆上 × 厦门 / 角美）。
+     * 两个 logo → 四件站外标志（挂墙 / 杆上 × 厦门 / 角美）。
      *
-     * <p>{@code wall_sign_lte} 不在这里 —— 它是本模组自己的牌子，进「LTE 工具」页签；
-     * 这里的两个 logo 都在厦门页（LTE logo 在工具页）。
+     * <p>两个贴墙标识<b>不在这里</b> —— 用户要求它们排在厦门组<b>后面</b>，见 {@link #CORE_TAB_TAIL}。
+     * {@code wall_sign_lte} 也不在厦门页：它是本模组自己的牌子，进「LTE 工具」页签。
      */
     private static final List<Identifier> CORE_TAB_FRONT = List.of(
             XiamenObjects.LOGO_ID,
             JIAOMEI_ID,
-            new Identifier(NAMESPACE, "wall_sign_xiamen"),
-            new Identifier(NAMESPACE, "wall_sign_jiaomei"),
             new Identifier(NAMESPACE, "station_sign_wall_xiamen"),
             new Identifier(NAMESPACE, "station_sign_pole_xiamen"),
             new Identifier(NAMESPACE, "station_sign_wall_jiaomei"),
             new Identifier(NAMESPACE, "station_sign_pole_jiaomei"));
+
+    /**
+     * 「厦门风格物件」页签<b>末尾</b>那几件：厦门 / 角美两个贴墙标识（用户要求排在厦门组后面）。
+     *
+     * <p>顺序就是列表顺序：厦门在前、角美紧跟其后。{@link #pinCoreTabOrder()} 会把它们从列表里
+     * 摘出来、原样追加到末尾 —— 之后再注册进这个页签的模块（闸机 / 安检 / eyecandy …）会排在它们后面，
+     * 也就是说「厦门那一组」的东西都在它们前面，这正是用户要的。
+     */
+    private static final List<Identifier> CORE_TAB_TAIL = List.of(
+            new Identifier(NAMESPACE, "wall_sign_xiamen"),
+            new Identifier(NAMESPACE, "wall_sign_jiaomei"));
 
     private LogoObjects() {
     }
@@ -150,12 +160,13 @@ public final class LogoObjects {
     }
 
     /**
-     * 把「厦门风格物件」页签最前面那几件<b>重排</b>成用户要的顺序（两个 logo → 两个贴墙标识 →
-     * 四件站外标志），而不是依赖「谁先注册谁在前」。
+     * 把「厦门风格物件」页签重排成用户要的样子：
+     * <b>最前排</b> {@link #CORE_TAB_FRONT}（两个 logo → 四件站外标志），
+     * <b>末尾</b> {@link #CORE_TAB_TAIL}（厦门 / 角美两个贴墙标识）。
      *
      * <p>做法：拿 {@code entries.getDisplayStacks()}（页签正在拼的可变列表）→ 把我们关心的那几件
-     * 按 {@link #CORE_TAB_FRONT} 的顺序摘出来 → 原样（是同一个 {@link ItemStack} 实例，NBT 都不丢）
-     * 一次性插回下标 0。其余条目保持原有相对顺序，只被「往下推」。
+     * 按列表顺序摘出来 → 原样（是同一个 {@link ItemStack} 实例，NBT 都不丢）
+     * 一次性插回下标 0 / 追加到末尾。其余条目保持原有相对顺序，只被「往下推」。
      *
      * <h2>为什么单独一个方法、由 {@code LteServer} 在站外标志之后调</h2>
      * <p>{@code ItemGroupEvents.modifyEntriesEvent} 的回调<b>按注册顺序</b>执行，回调里才看得见
@@ -172,25 +183,38 @@ public final class LogoObjects {
                         final List<ItemStack> stacks = entries.getDisplayStacks();
                         final List<ItemStack> front = new ArrayList<>(CORE_TAB_FRONT.size());
                         for (final Identifier id : CORE_TAB_FRONT) {
-                            final Item item = Registries.ITEM.get(id);
-                            if (item == null || item == Items.AIR) {
-                                // 方块没注册（被别的模块挡了 / 版本差异）：跳过，不影响其余排序。
-                                continue;
-                            }
-                            for (final Iterator<ItemStack> it = stacks.iterator(); it.hasNext();) {
-                                final ItemStack stack = it.next();
-                                if (stack.isOf(item)) {
-                                    front.add(stack);
-                                    it.remove();
-                                }
-                            }
+                            remember(stacks, id, front);
                         }
                         if (!front.isEmpty()) {
                             stacks.addAll(0, front);
                         }
+                        // 末尾：两个贴墙标识（厦门组之后）。
+                        final List<ItemStack> tail = new ArrayList<>(CORE_TAB_TAIL.size());
+                        for (final Identifier id : CORE_TAB_TAIL) {
+                            remember(stacks, id, tail);
+                        }
+                        if (!tail.isEmpty()) {
+                            stacks.addAll(tail);
+                        }
                     });
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] core tab order: could not pin the front of the xiamen tab", t);
+        }
+    }
+
+    /** 把 {@code id} 那一件从 {@code stacks} 里摘出来放进 {@code out}（同一个实例，NBT 不丢）。 */
+    private static void remember(final List<ItemStack> stacks, final Identifier id, final List<ItemStack> out) {
+        final Item item = Registries.ITEM.get(id);
+        if (item == null || item == Items.AIR) {
+            // 方块没注册（被别的模块挡了 / 版本差异）：跳过，不影响其余排序。
+            return;
+        }
+        for (final Iterator<ItemStack> it = stacks.iterator(); it.hasNext();) {
+            final ItemStack stack = it.next();
+            if (stack.isOf(item)) {
+                out.add(stack);
+                it.remove();
+            }
         }
     }
 

@@ -47,8 +47,11 @@ dependencies {
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-    // 没有 LambDynamicLights 依赖：1.20.1 起动态光源由本模组自己的真实方块光照
-    // （BeamBlockLight + BeamRelight）提供，不再引入任何第三方光照 API。
+    // LambDynamicLights API（从 lambdynamiclights-4.4.0+1.20.1.jar 的 META-INF/jars 里取出）：
+    // **可选**依赖，只为了「玩家手持动态光源」这一件功能（dev.js.mtrheadlight.ldl 包）。
+    // 列车灯不需要它 —— 1.20.1 的真实照亮由本模组自己的 BeamBlockLight + BeamRelight 提供。
+    // 运行期由已安装的 LDL 提供；不装时 ldl 包里的类一行都不会执行（见 PlayerDynamicLight）。
+    modCompileOnly files("../libs/lambdynamiclights-api-4.4.0+1.20.1.jar")
     // MTR 用 compileOnly 跳过 remap（它内部有方法名与 vanilla 映射冲突，Loom 会判定 remap 失败）；
     // 它的签名引用 intermediary 名的 MC 类型，所以需要配套的 intermediary MC jar。
     // MTR 用 compileOnly 跳过 remap。named jar 必须排在 intermediary 前面，否则 com.mojang.*

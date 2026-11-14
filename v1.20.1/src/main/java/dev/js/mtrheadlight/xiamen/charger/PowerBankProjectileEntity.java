@@ -1,6 +1,10 @@
-// 被扔出去的充电宝：落地小范围「爆」一下（只伤生物、不点火、不炸方块）。
+// 被扔出去的充电宝：落地小范围「爆」一下（只伤生物、不炸方块），并在落点点燃一格火焰。
 package dev.js.mtrheadlight.xiamen.charger;
 
+import net.minecraft.block.AbstractFireBlock;
+import net.minecraft.block.Block;
+import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.FlyingItemEntity;
@@ -13,6 +17,7 @@ import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
@@ -37,8 +42,10 @@ import net.minecraft.world.World;
  *   <li><b>伤害</b>：半径 {@value #BLAST_RADIUS} 格内的 {@link LivingEntity}（生物与玩家）
  *       各吃 {@value #BLAST_DAMAGE} 点，来源是 {@code DamageSources.thrown(this, owner)}；
  *       投掷者本人（{@code getOwner()}）<b>永远</b>跳过；</li>
- *   <li><b>不动世界</b>：不调 {@code createExplosion}、不 {@code setBlockState}，
- *       所以既不会点燃火焰方块，也不会破坏方块 —— 只借用一个爆炸的声光效果。</li>
+ *   <li><b>点火</b>：落点<b>最多一格</b>真正的 {@link Blocks#FIRE} 方块
+ *       （{@link #igniteLandingTile}）—— 有支撑才点，没支撑就一格都不点；</li>
+ *   <li><b>不炸方块</b>：不调 {@code createExplosion}，除了上面那一格火之外不碰世界 ——
+ *       机器、箱子、地形都完好。</li>
  * </ul>
  *
  * <h2>为什么不做数据同步</h2>
@@ -123,6 +130,8 @@ public class PowerBankProjectileEntity extends ThrownEntity implements FlyingIte
             server.spawnParticles(ParticleTypes.SMOKE, at.x, at.y + 0.1D, at.z, 8, 0.35D, 0.1D, 0.35D, 0.01D);
             world.playSound(null, at.x, at.y, at.z, SoundEvents.ENTITY_GENERIC_EXPLODE,
                     SoundCategory.PLAYERS, 0.7F, 1.5F);
+            // 「爆炸之后」点火：只在这一刻、只放一格（见 igniteLandingTile）。
+            igniteLandingTile(server, BlockPos.ofFloored(at.x, at.y, at.z));
         }
 
         // 半径 2 格内的活物（生物 + 玩家），投掷者本人除外。
@@ -143,6 +152,58 @@ public class PowerBankProjectileEntity extends ThrownEntity implements FlyingIte
         }
 
         this.discard();
+    }
+
+    // ------------------------------------------------------------------ 点火
+
+    /**
+     * 在落点点燃<b>一格</b>火。
+     *
+     * <h2>为什么要挑位置</h2>
+     * <p>投掷物「撞到方块」那一刻的位置正好压在方块表面上，向下一取整可能落在
+     * 地面方块<b>里面</b>，也可能落在地面上那一格空气里 —— 取决于它从哪个角度撞的。
+     * 所以按三个候选顺序试，<b>第一个成功的立刻 return</b>，这就是「最多一格」的保证：
+     * <ol>
+     *   <li>落点本身（撞在地面上一格空气的常见情况）；</li>
+     *   <li>落点下方一格；</li>
+     *   <li>落点上方一格（落点算到地面方块内部时，火该点在它顶上）。</li>
+     * </ol>
+     *
+     * <p>三个都放不下（例如空中撞到生物、脚下没有实心面）就<b>一格都不放</b> ——
+     * 宁可没火，也不要在空气里塞一个下一 tick 就自己灭掉的火方块。
+     */
+    private static void igniteLandingTile(final ServerWorld world, final BlockPos landing) {
+        for (final BlockPos candidate : new BlockPos[] {landing, landing.down(), landing.up()}) {
+            if (ignite(world, candidate)) {
+                return;
+            }
+        }
+    }
+
+    /**
+     * 在 {@code pos} 点一格火，放不下返回 {@code false}。
+     *
+     * <p>两道判定缺一不可：
+     * <ul>
+     *   <li>位置必须是空气或可替换方块（草 / 花 / 雪片…），实心方块里不能塞火；</li>
+     *   <li>{@code FireBlock#canPlaceAt}（1.20.1：下方是完整实心面
+     *       <b>或</b>四周有可燃物）—— 这条和火方块自己的 {@code scheduledTick} 用的
+     *       是同一个判定，所以通过它放下的火<b>不会</b>下一 tick 就因为「没支撑」消失。</li>
+     * </ul>
+     *
+     * <p>状态用 {@link AbstractFireBlock#getState} 现算（原版打火石同款）：它会把
+     * {@code up} 与四邻的火焰连接属性按现场邻居写好，比 {@code getDefaultState()} 更像
+     * 「真的被点着了」。
+     */
+    private static boolean ignite(final ServerWorld world, final BlockPos pos) {
+        final BlockState current = world.getBlockState(pos);
+        if (!current.isAir() && !current.isReplaceable()) {
+            return false;
+        }
+        if (!Blocks.FIRE.getDefaultState().canPlaceAt(world, pos)) {
+            return false;
+        }
+        return world.setBlockState(pos, AbstractFireBlock.getState(world, pos), Block.NOTIFY_ALL);
     }
 
     // ------------------------------------------------------------------ NBT

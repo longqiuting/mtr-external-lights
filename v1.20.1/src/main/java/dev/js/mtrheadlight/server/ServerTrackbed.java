@@ -13,8 +13,10 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.WeakHashMap;
 
 /**
@@ -72,9 +74,30 @@ public final class ServerTrackbed {
 
     private static final Map<ServerWorld, Map<Long, RailBed>> BEDS = new WeakHashMap<>();
 
+    /**
+     * <b>每个实体的延续状态</b>（{@code lastRail} + 弧长）—— 服务端这一套。玩家那份在
+     * {@code collision.Trackbed}（客户端只处理本地玩家）；掉落物 / 生物 / 下落的方块各自一条链，
+     * 所以按 UUID 存，不按轨道位置。
+     */
+    private static final Map<UUID, Held> FOLLOW = new HashMap<>();
+
+    /** 一条延续状态 + 它最后一次被用到的 tick（走过的东西要过期回收）。 */
+    private static final class Held {
+        final RailBed.Follow state;
+        final long tick;
+
+        Held(final RailBed.Follow state, final long tick) {
+            this.state = state;
+            this.tick = tick;
+        }
+    }
+
     private static int diagItems;
     private static int diagMobs;
     private static int diagPlayers;
+    private static int diagOk;
+    private static int diagLost;
+    private static int diagHop;
 
     private ServerTrackbed() {
     }
@@ -141,6 +164,12 @@ public final class ServerTrackbed {
             }
         }
         diagPlayers = Math.max(diagPlayers, seen);
+        // 走过的东西别一直留着：40 tick 没用到的延续状态就丢掉（实体卸载 / 离开轨道 / 飞到别处）。
+        if (now % 20L == 0L) {
+            synchronized (FOLLOW) {
+                FOLLOW.entrySet().removeIf(entry -> entry.getValue().tick < now - 40L);
+            }
+        }
     }
 
     /** 把一个实体吸到轨面上；返回 true 表示真的动了。 */
@@ -152,8 +181,31 @@ public final class ServerTrackbed {
         final double z = entity.getZ();
         final int cellX = entity.getBlockX() >> 4;
         final int cellZ = entity.getBlockZ() >> 4;
-        final RailBed.Sample sample = bed(world, cellX, cellZ)
-                .nearestCell(rails, now, cellX, cellZ, x, feet, z);
+        // 状态延续（服务端这一套）：先接着这个实体上一 tick 踩着的那条轨道走，再回退查表，
+        // 最后才用端点键跨段。三级顺序与客户端完全一致（同一份 RailBed.follow）。
+        final UUID id = entity.getUuid();
+        final Held held;
+        synchronized (FOLLOW) {
+            held = FOLLOW.get(id);
+        }
+        final RailBed.Step step = bed(world, cellX, cellZ)
+                .follow(rails, now, held == null ? null : held.state, x, feet, z);
+        synchronized (FOLLOW) {
+            if (step.follow != null) {
+                FOLLOW.put(id, new Held(step.follow, now));
+            } else {
+                FOLLOW.remove(id);
+            }
+        }
+        if (step.kind == RailBed.Kind.HOP) {
+            diagHop++;
+        }
+        if (step.follow != null) {
+            diagOk++;
+        } else if (held != null) {
+            diagLost++;
+        }
+        final RailBed.Sample sample = step.sample;
         if (sample == null) {
             return false;
         }
@@ -164,8 +216,16 @@ public final class ServerTrackbed {
         final double from = entity.prevY;
         // 与客户端玩家同一条判定（纯函数）：上坡抬一步 / 从上方扫掠穿过 / 往下贴着走。
         // 不看 onGround（下落中的方块、被推着走的生物本来就没有 it），也不拿 y 做阈值。
-        final RailBed.Verdict verdict = RailBed.verdict(feet - surface, v.y,
+        RailBed.Verdict verdict = RailBed.verdict(feet - surface, v.y,
                 Double.isNaN(from) ? Double.NaN : from - surface, stepUp);
+        // 状态延续出来的轨面：允许从轨面以下 1.5 格拉回来（与客户端第 1.5 步同一条规则）。
+        // 一旦漏一 tick 掉到轨面下，verdict 的下界（一级台阶）就再也不放行了。
+        if (verdict != RailBed.Verdict.SNAP && step.continued()
+                && sample.distance <= RailBed.HALF_WIDTH && v.y <= 0.02D
+                && feet - surface >= -RailBed.FOLLOW_BELOW
+                && feet - surface <= RailBed.STICK) {
+            verdict = RailBed.Verdict.SNAP;
+        }
         if (verdict != RailBed.Verdict.SNAP) {
             return false;
         }
@@ -234,19 +294,29 @@ public final class ServerTrackbed {
         synchronized (BEDS) {
             BEDS.clear();
         }
+        synchronized (FOLLOW) {
+            FOLLOW.clear();
+        }
         MtrServerData.reset();
         diagItems = 0;
         diagMobs = 0;
         diagPlayers = 0;
+        diagOk = 0;
+        diagLost = 0;
+        diagHop = 0;
     }
 
-    /** 诊断：这一窗里被接住的物品 / 生物，以及附近玩家数（取峰值）。 */
+    /** 诊断：这一窗里被接住的物品 / 生物、附近玩家数（取峰值）、以及延续链的 ok/lost/hop。 */
     public static String diagLine() {
         final String line = "trackbed: players=" + diagPlayers
-                + " items=" + diagItems + " mobs=" + diagMobs;
+                + " items=" + diagItems + " mobs=" + diagMobs
+                + " ok=" + diagOk + " lost=" + diagLost + " hop=" + diagHop;
         diagItems = 0;
         diagMobs = 0;
         diagPlayers = 0;
+        diagOk = 0;
+        diagLost = 0;
+        diagHop = 0;
         return line;
     }
 

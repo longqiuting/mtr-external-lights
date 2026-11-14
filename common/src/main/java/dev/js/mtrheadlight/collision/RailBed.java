@@ -289,11 +289,17 @@ public final class RailBed {
     /** 缓存里的一条候选：轨道几何 + 它到<b>缓存锚点</b>的真实距离（排序 / 诊断用）。 */
     private static final class Cand {
         final Entry entry;
+        /** 表里这条轨道的两个端点键（跨段寻路用；MTR 的表双向，两个方向都有）。 */
+        final BlockPos start;
+        final BlockPos end;
         /** 到锚点的真实折线距离（格）。 */
         final double anchorDistance;
 
-        Cand(final Entry entry, final double anchorDistance) {
+        Cand(final Entry entry, final BlockPos start, final BlockPos end,
+             final double anchorDistance) {
             this.entry = entry;
+            this.start = start;
+            this.end = end;
             this.anchorDistance = anchorDistance;
         }
     }
@@ -379,6 +385,62 @@ public final class RailBed {
      * 超过就说明这个人真的在道床外面。
      */
     public static final int RESCUE_GRACE = 20;
+
+    // -----------------------------------------------------------------------------------------
+    // 状态延续（上一 tick 踩着的那条轨道 + 弧长参数）
+    // -----------------------------------------------------------------------------------------
+
+    /**
+     * <b>延续的横向容差</b>（格）：沿<b>同一条</b>轨道按弧长推进之后，玩家的水平位置离这条轨道的
+     * 折线不超过这么远，就认为「还在这一段上」。
+     *
+     * <p>比 {@link #HALF_WIDTH}（1.3）宽 0.3：接缝处两条轨道的法向差半个弧度，按横向列算出来的
+     * {@code offset} 会有几十厘米的假偏差，而到折线的真实距离不会 —— 延续用的是后者。
+     * 它只决定「这一次延续算不算数」；真正踩不踩在道床上仍然由调用方按 {@link #HALF_WIDTH} 判。
+     */
+    public static final double FOLLOW_REACH = 1.6D;
+
+    /**
+     * 延续允许脚底比轨面<b>低</b>多少格。
+     *
+     * <p>1.5 而不是一步 {@code STEP_UP}（1.0）：{@code verdict} 的下界一旦漏掉一 tick，人就会掉到
+     * 轨面 1 格以下，之后每 tick 都是 {@code dy} —— 「直道整段没有碰撞箱」就是这么来的。延续模型
+     * 既然知道「脚下这一段就是那条轨道」，就该把人拉回来，而不是继续按窗口拒绝。
+     */
+    public static final double FOLLOW_BELOW = 1.5D;
+
+    /** 延续允许脚底比轨面<b>高</b>多少格（下坡那几步 / 从上方贴回来）。 */
+    public static final double FOLLOW_ABOVE = 1.0D;
+
+    /**
+     * <b>跨段半径</b>（格）：当前轨道末端离玩家不超过这么远，才认为「这条走到头了，接着找下一条」。
+     * 超出就说明人不在这条轨道的末端附近，跨段没有意义（交给查表）。
+     */
+    public static final double HOP_REACH = 2.5D;
+
+    /**
+     * 跨段时的「行进方向」下限：玩家相对端点的单位向量与端点切向的点积不得小于它。
+     *
+     * <p>略微为负（-0.35），因为走到接缝上时人往往刚好压在端点上（距离 ≈ 0，方向没有意义），
+     * 而「还没走到头」的人会是 -1 附近 —— 两者分得很开。
+     */
+    public static final double HOP_AHEAD = -0.35D;
+
+    /** 单 tick 推进入窗的上限（格）：比这更快就是传送，交给查表从头开始。 */
+    private static final double ADVANCE_MAX = 2.0D;
+
+    /** 推进窗口的额外余量（格）：转身、横向蹭动时弧长参数会略偏离位移量。 */
+    private static final double ADVANCE_SLACK = 0.6D;
+
+    /**
+     * 延续时「人已经走出这段末端 / 起点」的容差（格）：投影被钳在端点、而且到端点的距离超过它，
+     * 就认为这一段到头了（交回上一级去跨段），而不是继续把端点当成人在的地方。
+     *
+     * <p>取 {@link #HALF_WIDTH}（1.3）而不是更小的值：小于半宽时「人还站在这一段的上方」（只是压在
+     * 端点上，轨面高度一样），按老规矩接住不会有任何视觉跳动；一旦超过半宽，横向列本来也会判
+     * {@code LATERAL}，那时候唯一正确的做法是跨段去下一条。
+     */
+    private static final double END_LEAVE = HALF_WIDTH;
 
     /**
      * 一次接触判定的结论（取证用）。几何命中之后，剩下的就是「脚底与轨面的关系」这一件事。
@@ -513,6 +575,121 @@ public final class RailBed {
         return startDy <= RESCUE_DROP || vy <= -RESCUE_DROP;
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // 状态延续：一次命中的「轨道 + 弧长」，下一 tick 从这里接着走
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * 这一 tick 是靠哪一级接上的（诊断与「真掉」计数都按它分桶）。
+     */
+    public enum Kind {
+        /** 第 1 级：沿上一 tick 那条轨道按弧长推进 —— <b>不查表</b>。 */
+        CONTINUE,
+        /** 第 2 级：延续不成，回退到现有查表（候选集 + 横向列）。 */
+        TABLE,
+        /** 第 3 级：查表也没命中，但人就在上一段末端 2.5 格内 —— 用<b>端点键</b>找下一条。 */
+        HOP,
+        /** 三级全失败：真的没接上（这一 tick 会掉）。 */
+        LOST;
+
+        /** 诊断里的短名：{@code cont|table|hop|lost}。 */
+        public String shortName() {
+            switch (this) {
+                case CONTINUE:
+                    return "cont";
+                case TABLE:
+                    return "table";
+                case HOP:
+                    return "hop";
+                default:
+                    return "lost";
+            }
+        }
+    }
+
+    /**
+     * <b>延续状态</b>：上一 tick 踩着的那条轨道 + 它在轨道上的弧长参数。
+     *
+     * <p>它是「不查表」的全部秘密：有这一份，下一 tick 就只需要在<b>同一条</b>轨道的折线上做一次
+     * 局部投影（{@link RailBed#advance}），不碰 {@code ClientData.RAILS}、不碰候选缓存、也不受
+     * 「缓存按锚点重建」的边界影响。跨段时用 {@link #start}/{@link #end} 两个<b>端点键</b>直接查表
+     * 拿到下一条（MTR 的表是双向的：两个端点都是键），同样不需要候选集。
+     *
+     * <p>客户端一个玩家一份（{@code Trackbed}），服务端每个实体一份（{@code ServerTrackbed}）。
+     * 对象不可变的部分（轨道 / 几何 / 端点键）全在构造时定下，{@link #s} 每次命中重建一个新对象 ——
+     * 所以两个线程各拿各的，不会互相改到。
+     */
+    public static final class Follow {
+        /** 轨道对象本身（身份就是「同一条轨道」，{@code getPosition} 的唯一入口）。 */
+        final Rail rail;
+        /** 这条轨道的缓存几何（折线 + 高程曲线两端）。 */
+        final Entry entry;
+        /** 表里这条轨道的两个端点键（双向表：两个方向都有）。 */
+        final BlockPos start;
+        final BlockPos end;
+        /** 弧长参数（格，0 – 全长）。 */
+        final double s;
+        /** 该处的轨面高度（格）。 */
+        final double y;
+        /** 上一次命中的水平位置（算下一 tick 的前进量）。 */
+        final double x;
+        final double z;
+
+        Follow(final Rail rail, final Entry entry, final BlockPos start, final BlockPos end,
+               final double s, final double y, final double x, final double z) {
+            this.rail = rail;
+            this.entry = entry;
+            this.start = start;
+            this.end = end;
+            this.s = s;
+            this.y = y;
+            this.x = x;
+            this.z = z;
+        }
+
+        /** 弧长参数（格）。 */
+        public double s() {
+            return s;
+        }
+
+        /** 该处的轨面高度（格）。 */
+        public double y() {
+            return y;
+        }
+
+        /** 这条轨道的全长（格）。 */
+        public double length() {
+            return entry == null ? 0.0D : entry.length;
+        }
+
+        /** 诊断用的段标识：{@code arc/7.85} / {@code straight/10.00}。 */
+        public String seg() {
+            return entry == null ? "-"
+                    : (entry.straight ? "straight/" : "arc/") + fmt(entry.length);
+        }
+    }
+
+    /** {@link #follow} 的一次结果：命中的列 + 更新后的状态 + 是靠哪一级接上的。 */
+    public static final class Step {
+        /** 更新后的延续状态；{@code null} = 断了（这一 tick 没接上）。 */
+        public final Follow follow;
+        /** 这一 tick 的横向列（可能为 {@code null}，也可能超出半宽 —— 诊断照报）。 */
+        public final Sample sample;
+        /** 接上的那一级。 */
+        public final Kind kind;
+
+        Step(final Follow follow, final Sample sample, final Kind kind) {
+            this.follow = follow;
+            this.sample = sample;
+            this.kind = kind;
+        }
+
+        /** 这一次命中是不是「状态延续」出来的（{@link Kind#CONTINUE} / {@link Kind#HOP}）。 */
+        public boolean continued() {
+            return kind == Kind.CONTINUE || kind == Kind.HOP;
+        }
+    }
+
     private List<Cand> cache = List.of();
     private Object cacheMap;
     private double cacheX = Double.NaN;
@@ -553,6 +730,14 @@ public final class RailBed {
     private double lastDistance = Double.NaN;
     private double lastOffset = Double.NaN;
     private double lastAlong = Double.NaN;
+
+    /**
+     * 上一次查表<b>选中</b>的那条轨道与它的两个端点键 —— {@link #follow} 的第 2 级要把它变成延续
+     * 状态（{@code probe} 每次查询都重置）。
+     */
+    private Entry lastEntry;
+    private BlockPos lastStart;
+    private BlockPos lastEnd;
 
     /** 丢掉缓存（换维度 / 换世界）。 */
     public void reset() {
@@ -686,6 +871,7 @@ public final class RailBed {
         Sample best = null;
         // 接缝选边：距离相同时，优先「投影落在轨道内部」的那条。
         boolean bestInterior = false;
+        Cand bestCand = null;
         for (final Cand cand : cache) {
             final Entry entry = cand.entry;
             // 高度先过一遍：坡道上同一条轨道两端高程不同，所以用 [minY, maxY] 的区间判定。
@@ -724,6 +910,7 @@ public final class RailBed {
                             && sample.interior() && !bestInterior)) {
                 best = sample;
                 bestInterior = sample.interior();
+                bestCand = cand;
             }
         }
         // 取证值先落下来（可能超出 HALF_WIDTH，诊断行需要「差一点」这种读数），再决定是否命中。
@@ -731,16 +918,285 @@ public final class RailBed {
         lastDistance = best == null ? Double.NaN : best.distance;
         lastOffset = best == null ? Double.NaN : best.offset;
         lastAlong = best == null ? Double.NaN : best.along;
+        lastEntry = bestCand == null ? null : bestCand.entry;
+        lastStart = bestCand == null ? null : bestCand.start;
+        lastEnd = bestCand == null ? null : bestCand.end;
         lastHit = best != null && best.distance <= HALF_WIDTH;
         return best;
     }
 
+    /** 清理上一次查询的取证数据（表不可用 / 换世界）。 */
     private void clearLast() {
         lastHit = false;
         lastY = Double.NaN;
         lastDistance = Double.NaN;
         lastOffset = Double.NaN;
         lastAlong = Double.NaN;
+        lastEntry = null;
+        lastStart = null;
+        lastEnd = null;
+    }
+
+    /**
+     * 状态延续命中时把这一列的读数写进取证字段。
+     *
+     * <p>延续成功的那一 tick <b>不会</b>走 {@link #probe}，所以 {@code lastY}/{@code lastDist}/
+     * {@code lastOff} 不写的话会停在上一 tick 的查表结果上 —— {@code /mtr_lte trackbed status}
+     * 那一行的 {@code hit=} / {@code y=} / {@code dist=} 就会和 {@code drop=} 对不上。
+     * 只动读数，不碰 {@code lastEntry/lastStart/lastEnd}（那三个只属于查表）。
+     */
+    void noteSample(final Sample sample) {
+        lastHit = sample != null && sample.distance <= HALF_WIDTH;
+        lastY = sample == null ? Double.NaN : sample.y;
+        lastDistance = sample == null ? Double.NaN : sample.distance;
+        lastOffset = sample == null ? Double.NaN : sample.offset;
+        lastAlong = sample == null ? Double.NaN : sample.along;
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // 状态延续：延续 → 回退查表 → 跨段
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * <b>状态延续</b>：这一 tick 的轨面从哪来。判定顺序是三级，哪一级先接上就用哪一级：
+     *
+     * <ol>
+     *   <li><b>延续</b>（{@link Kind#CONTINUE}）：拿上一 tick 的 {@link Follow}（轨道对象 + 弧长
+     *       {@code s}），按这一 tick 的水平位移把窗口推到 {@code s ± (位移 + 0.6)}，只在<b>这一段</b>
+     *       的折线上做一次局部投影（{@link #advance}）。<b>完全不查表</b>，所以轨道表 / 候选缓存在
+     *       接缝处重建到哪一半都不影响它；接受条件是横向 ≤ {@link #FOLLOW_REACH}（1.6）、
+     *       脚底 − 轨面 ∈ [−{@link #FOLLOW_BELOW}, +{@link #FOLLOW_ABOVE}]（−1.5 … +1.0）。</li>
+     *   <li><b>回退查表</b>（{@link Kind#TABLE}）：延续不成（这条走到头了 / 人离开超过 1.6 格）才走
+     *       原来的候选集查询（{@link #probe}）；命中且满足同一套接受条件就把它的轨道 / 端点键 /
+     *       弧长接成新状态。</li>
+     *   <li><b>跨段</b>（{@link Kind#HOP}）：查表也没命中，但人就在上一段<b>末端 2.5 格</b>内、而且
+     *       已经在行进方向上越过了那个端点 —— 那就用<b>端点键</b>直接查表（MTR 的表是双向的，
+     *       {@code rails.get(端点)} 就是「所有以这个点为端点的轨道」），把投影落到下一条上。
+     *       这一级不经过候选缓存，所以「缓存重建刚好跨在接缝上」这类问题不会再漏。</li>
+     * </ol>
+     *
+     * <p>三级都失败 → {@link Kind#LOST}：状态清空（{@code follow == null}），下一 tick 从查表重新
+     * 开始；这也正是诊断行里 {@code lost=N} 数的东西（真掉）。
+     *
+     * @param railsMap {@code Map<BlockPos, Map<BlockPos, Rail>>}（客户端 {@code ClientData.RAILS} /
+     *                 服务端 {@code RailwayData#getRailsMap()}）
+     * @param prev     上一 tick 的延续状态（第一次踩上去时是 {@code null}）
+     * @param feet     脚底 y（判断延续是否还在可站立窗口内）
+     */
+    public Step follow(final Object railsMap, final long tick, final Follow prev, final double x,
+                       final double feet, final double z) {
+        // 每 100 tick（5 秒）复核一次「手里这条轨道还在表里」：轨道被编辑 / 客户端整表重载之后，
+        // 手里那个 Rail 对象可能已经不在 {@code ClientData.RAILS} 里，继续沿它推进会把人托在一条
+        // 不存在的轨道上。复核失败<b>只</b>跳过第 1 级（第 2、3 级照走），所以重建那一瞬间也不会漏人。
+        final boolean verified = tick % 100L != 0L || present(railsMap, prev);
+        // 1) 延续：同一条轨道，按弧长推进，不查表。
+        if (verified && prev != null && prev.entry != null) {
+            final Sample advanced = advance(prev, x, feet, z);
+            if (advanced != null) {
+                return new Step(new Follow(prev.rail, prev.entry, prev.start, prev.end,
+                        advanced.along, advanced.y, x, z), advanced, Kind.CONTINUE);
+            }
+        }
+        // 2) 回退：现有查表（候选集 + 横向列）。命中够近才接成新状态。
+        final Sample table = probe(railsMap, tick, x, feet, z);
+        if (table != null && accept(table, feet) && lastEntry != null) {
+            return new Step(new Follow(lastEntry.rail, lastEntry, lastStart, lastEnd,
+                    table.along, table.y, x, z), table, Kind.TABLE);
+        }
+        // 3) 跨段：用端点键找下一条，不经过候选集。
+        final Step hop = hopOne(railsMap, prev, x, feet, z);
+        if (hop != null) {
+            return hop;
+        }
+        // 三级全失败：查表结果照样带回去（可能是个 dist > halfW 的「差一点」，诊断要用）。
+        return new Step(null, table, Kind.LOST);
+    }
+
+    /** 这条轨道还在表里吗（{@code rails.get(start).get(end) == follow.rail}，身份比较）。 */
+    private static boolean present(final Object railsMap, final Follow follow) {
+        if (!(railsMap instanceof Map) || follow == null || follow.start == null
+                || follow.end == null) {
+            return false;
+        }
+        try {
+            final Object inner = ((Map<?, ?>) railsMap).get(follow.start);
+            return inner instanceof Map && ((Map<?, ?>) inner).get(follow.end) == follow.rail;
+        } catch (Throwable t) {
+            return false;   // 表正在别处被改：当作不在，各级会各自重来
+        }
+    }
+
+    /**
+     * 第 1 级：在<b>同一条</b>轨道上按弧长推进。
+     *
+     * <p>窗口 = 「这一 tick 的水平位移」+ {@link #ADVANCE_SLACK}，往两边都给（人会转身、会横向蹭），
+     * 然后只在这个窗口里做投影 —— 得到的新 {@code s} 就是「从上一 tick 那个点顺着轨道走了这么远」。
+     * 不查表、不用候选集，也不看 {@code onGround}。
+     */
+    private Sample advance(final Follow prev, final double x, final double feet, final double z) {
+        final Entry entry = prev.entry;
+        final double dx = x - prev.x;
+        final double dz = z - prev.z;
+        final double moved = Math.sqrt(dx * dx + dz * dz);
+        final double window = Math.min(moved, ADVANCE_MAX) + ADVANCE_SLACK;
+        final Sample sample = column(entry, x, z,
+                Math.max(0.0D, prev.s - window), Math.min(entry.length, prev.s + window));
+        // 到头了（投影钳在端点、人已经走出去）由 accept 统一判掉 → 这里只留「接上了没有」。
+        return sample != null && accept(sample, feet) ? sample : null;
+    }
+
+    /**
+     * 第 3 级的一步：在上一段的<b>端点键</b>上找下一条轨道。
+     *
+     * <p>数据结构就是轨道表本身：{@code Map<BlockPos, Map<BlockPos, Rail>>}，MTR 把它<b>双向</b>
+     * 填满（{@code rails.get(A)} 里既有 {@code A→B} 也有反向伙伴 {@code A→Z}），所以
+     * {@code rails.get(端点)} 一次 Map 查表就给出「所有贴着这个端点的轨道」，不需要扫表、也不需要
+     * 候选缓存。要挡掉的两类东西：
+     * <ul>
+     *   <li><b>回头那条</b>：{@code other.equals(back)} 就是「从这条端点原路返回」的反向伙伴；
+     *       放进来会让人原地在两条轨道之间来回跳。</li>
+     *   <li><b>岔道里方向不对的那条</b>：端点切向与下一段切向的点积必须为正（{@code > 0.25}，
+     *       夹角小于 75°）—— 接上去下一 tick 会倒着走。</li>
+     * </ul>
+     *
+     * <p>剩下按「到折线的真实距离」取最近（并列时取转角更小的那条）。
+     */
+    private Step hopOne(final Object railsMap, final Follow prev, final double x,
+                        final double feet, final double z) {
+        if (!(railsMap instanceof Map) || prev == null || prev.entry == null
+                || prev.start == null || prev.end == null) {
+            return null;
+        }
+        final Entry entry = prev.entry;
+        final int last = entry.xs.length - 1;
+        final double dStart = Math.sqrt(sq(x - entry.xs[0]) + sq(z - entry.zs[0]));
+        final double dEnd = Math.sqrt(sq(x - entry.xs[last]) + sq(z - entry.zs[last]));
+        final boolean atEnd = dEnd <= dStart;
+        // 人必须在这条轨道的某一端 2.5 格内 —— 否则「这条走到头了」这个前提不成立。
+        if (!(Math.min(dStart, dEnd) <= HOP_REACH)) {
+            return null;
+        }
+        final BlockPos key = atEnd ? prev.end : prev.start;
+        final BlockPos back = atEnd ? prev.start : prev.end;
+        // 行进方向：人得已经走到端点外侧（站着不动 / 刚好压在端点上也算）。
+        final double[] tangent = tangentAtEnd(entry, atEnd);
+        final double ax = x - (atEnd ? entry.xs[last] : entry.xs[0]);
+        final double az = z - (atEnd ? entry.zs[last] : entry.zs[0]);
+        final double ad = Math.sqrt(ax * ax + az * az);
+        if (ad > 1.0E-6D && (ax * tangent[0] + az * tangent[1]) / ad < HOP_AHEAD) {
+            return null;
+        }
+        final Object innerRaw;
+        try {
+            innerRaw = ((Map<?, ?>) railsMap).get(key);
+        } catch (Throwable t) {
+            warnOnce(t);
+            return null;
+        }
+        if (!(innerRaw instanceof Map)) {
+            return null;   // 这个端点没有别的轨道（线路尽头）
+        }
+        Follow bestFollow = null;
+        Sample best = null;
+        double bestTurn = Double.MAX_VALUE;
+        for (final Map.Entry<?, ?> inner : ((Map<?, ?>) innerRaw).entrySet()) {
+            final Object railRaw = inner.getValue();
+            final Object otherRaw = inner.getKey();
+            if (!(railRaw instanceof Rail) || !(otherRaw instanceof BlockPos)) {
+                continue;
+            }
+            final Rail rail = (Rail) railRaw;
+            if (rail == prev.rail) {
+                continue;
+            }
+            final BlockPos other = (BlockPos) (Object) otherRaw;
+            if (other.equals(back)) {
+                continue;   // 回头那条（表是双向的，这一对互为反向伙伴）
+            }
+            try {
+                if (!physical(rail)) {
+                    continue;
+                }
+                final double length = rail.getLength();
+                if (!(length > 1.0E-3D) || Double.isNaN(length) || Double.isInfinite(length)) {
+                    continue;
+                }
+                final Entry next = geometry(rail, length);
+                if (next == null) {
+                    continue;
+                }
+                final Sample sample = column(next, x, z);
+                if (sample == null || !accept(sample, feet)) {
+                    continue;
+                }
+                final double[] nt = tangentAt(next, sample.along);
+                final double dot = tangent[0] * nt[0] + tangent[1] * nt[1];
+                if (!(dot > 0.25D)) {
+                    continue;   // 岔道上方向不对的那条：接上去下一 tick 会倒着走
+                }
+                final double turn = 1.0D - dot;
+                if (best == null || sample.distance < best.distance - SEAM_TIE
+                        || (sample.distance <= best.distance + SEAM_TIE && turn < bestTurn)) {
+                    best = sample;
+                    bestTurn = turn;
+                    bestFollow = new Follow(rail, next, key, other, sample.along, sample.y, x, z);
+                }
+            } catch (Throwable t) {
+                // 单条坏轨道只丢它自己（与 build 里同一条规矩）。
+                warnOnce(t);
+            }
+        }
+        return bestFollow == null ? null : new Step(bestFollow, best, Kind.HOP);
+    }
+
+    /** 延续的接受条件（第 1、2、3 级共用）：横向 ≤ {@link #FOLLOW_REACH}、高度在窗口里。 */
+    private static boolean accept(final Sample sample, final double feet) {
+        if (!(sample.distance <= FOLLOW_REACH)) {
+            return false;
+        }
+        // 投影被钳在轨道端点、人已经走出端点 {@link #END_LEAVE} 格以外：这一条已经走到头了，
+        // 不算「接上」。没有这条，回退查表会一直把「已经走完的那条」重新选中（横向距离从 0.4
+        // 一路拖到 1.6），跨段永远轮不到 —— 接缝那一两个 tick 就是这么掉的。
+        if ((sample.along <= END_EPS || sample.along >= sample.length - END_EPS)
+                && sample.distance > END_LEAVE) {
+            return false;
+        }
+        final double dy = feet - sample.y;
+        return dy >= -FOLLOW_BELOW && dy <= FOLLOW_ABOVE;
+    }
+
+    /** 折线在弧长 {@code s} 处的单位切向（按<b>行进方向</b>，对不上任何线段时返回 0）。 */
+    private static double[] tangentAt(final Entry entry, final double s) {
+        final int last = entry.xs.length - 1;
+        for (int i = 0; i < last; i++) {
+            if (s <= entry.ss[i + 1] || i == last - 1) {
+                return unit(entry.xs[i + 1] - entry.xs[i], entry.zs[i + 1] - entry.zs[i]);
+            }
+        }
+        return new double[]{0.0D, 0.0D};
+    }
+
+    /**
+     * 端点处沿<b>行进方向</b>的单位切向：{@code atEnd} 取最后一段的方向，否则取第一段的<b>反</b>方向
+     * （在起点往回走时，行进方向与这条轨道的正向相反）。
+     */
+    private static double[] tangentAtEnd(final Entry entry, final boolean atEnd) {
+        final int last = entry.xs.length - 1;
+        final int i = atEnd ? last - 1 : 0;
+        final double[] t = unit(entry.xs[i + 1] - entry.xs[i], entry.zs[i + 1] - entry.zs[i]);
+        final double dir = atEnd ? 1.0D : -1.0D;
+        return new double[]{dir * t[0], dir * t[1]};
+    }
+
+    /** 归一化；长度退化时给 (0,0)（调用方按「没有方向」处理）。 */
+    private static double[] unit(final double dx, final double dz) {
+        final double len = Math.sqrt(dx * dx + dz * dz);
+        return len > 1.0E-9D ? new double[]{dx / len, dz / len} : new double[]{0.0D, 0.0D};
+    }
+
+    /** 平方（几何里到处都是 ({@code dx*dx + dz*dz})，省几个重复表达式）。 */
+    private static double sq(final double v) {
+        return v * v;
     }
 
     /**
@@ -895,6 +1351,18 @@ public final class RailBed {
      * 这样<b>每一段都有一个连续解</b>，不会出现「最近采样点跳了一格、y 突然变了半格」。
      */
     private static Sample column(final Entry entry, final double qx, final double qz) {
+        return column(entry, qx, qz, 0.0D, entry.length);
+    }
+
+    /**
+     * 和上面同一个投影，但只扫弧长落在 {@code [sLo, sHi]} 里的那几段折线。
+     *
+     * <p>状态延续只用它：人这一 tick 只可能前进零点几格，所以「上一 tick 的 {@link Follow#s} ± 窗口」
+     * 之外的那些段根本不用算 —— 既快，又保证<b>不会</b>被同一根弯道另一头那一段抢走（一条 U 形轨道
+     * 的两臂在空间上可能只隔 3 格）。
+     */
+    private static Sample column(final Entry entry, final double qx, final double qz,
+                                 final double sLo, final double sHi) {
         final int last = entry.xs.length - 1;
         if (last < 1) {
             return null;
@@ -903,6 +1371,10 @@ public final class RailBed {
         double bestOffset = 0.0D;
         double bestAlong = 0.0D;
         for (int i = 0; i < last; i++) {
+            // 窗口外整段跳过（一条轨道的折线顶点是弧长升序的，所以这只是一个区间判断）。
+            if (entry.ss[i + 1] < sLo - 1.0E-9D || entry.ss[i] > sHi + 1.0E-9D) {
+                continue;
+            }
             final double x1 = entry.xs[i];
             final double z1 = entry.zs[i];
             final double ex = entry.xs[i + 1] - x1;
@@ -1112,7 +1584,7 @@ public final class RailBed {
         if (sample == null || sample.distance > reach) {
             return null;
         }
-        return new Cand(entry, sample.distance);
+        return new Cand(entry, start, end, sample.distance);
     }
 
     /**

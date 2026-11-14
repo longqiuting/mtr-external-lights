@@ -94,8 +94,9 @@ public final class LteServer implements ModInitializer {
             LteLog.LOGGER.warn("[lte] logo blocks unavailable", t);
         }
 
-        // 贴墙标识（厦门 / 角美 / LTE）：薄灯箱板，进「厦门风格物件」页签。
-        // 必须紧跟在 LogoObjects 之后 —— 页签条目按注册顺序插入，这样三个标识正好排两个 logo 方块后面。
+        // 贴墙标识（厦门 / 角美 / LTE）：继承 MTR 的 station_name_entrance，站名由 MTR 的渲染器画。
+        // 厦门 / 角美两面牌子在本页**末尾**（LogoObjects.pinCoreTabOrder() 负责挪），
+        // LTE 那面进「LTE 工具」页签的第 2 位（LteCoreItems.pinToolsTabOrder() 负责挪）。
         try {
             dev.js.mtrheadlight.xiamen.sign.WallSignObjects.register();
         } catch (Throwable t) {
@@ -165,7 +166,8 @@ public final class LteServer implements ModInitializer {
             LteLog.LOGGER.warn("[lte] station sign blocks unavailable", t);
         }
 
-        // 「厦门风格物件」页签最前面的顺序（用户点名）：两个 logo → 两个贴墙标识 → 四件站外标志。
+        // 「厦门风格物件」页签的顺序（用户点名）：最前排两个 logo → 四件站外标志；
+        // 两个贴墙标识（厦门 / 角美）排到本页末尾。
         // 这里必须排在 LogoObjects / WallSignObjects / StationSignObjects 之后 —— 页签条目的回调
         // 按注册顺序执行，重排的那一次得看得见它们；之后再注册的模块只会往末尾加，排不回来。
         try {

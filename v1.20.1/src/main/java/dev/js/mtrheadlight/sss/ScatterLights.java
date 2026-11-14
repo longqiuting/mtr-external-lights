@@ -101,9 +101,15 @@ final class ScatterLights {
                 continue;
             }
             final HeadlightConfig.Effective eff = cfg.effectiveFor(train.sidingId);
-            // 总开关 + 灯晕：散射围着每一盏点亮的灯积分，灯晕关掉时没有灯位要收集
-            // （帧级门 drawScatter() 已经拦了整帧，这里再收一次是为了不让侧线的覆盖放宽它）。
-            if (!eff.enabled || !cfg.beamFlare) {
+            /*
+             * 总开关 + 散射自己的开关，<b>只有这两个</b>。
+             *
+             * 以前这里写的是 cfg.beamFlare：散射要围着"亮着的灯位"积分，于是拿灯晕开关当代理，
+             * 结果「关灯晕」把空气散射一起关掉了 —— 三件光效说好正交，这里是唯一破例的地方。
+             * 现在读 beamScatter（帧级门 drawScatter() 读的是同一个字段，这里再收一次只是不让
+             * 任何侧线覆盖放宽它），灯晕开不开都影响不到这一帧的灯阵。
+             */
+            if (!eff.enabled || !cfg.beamScatter) {
                 continue;
             }
             final boolean reversed = DepartureState.reversed(train, train.isReversed()) ^ cfg.swapEnds;

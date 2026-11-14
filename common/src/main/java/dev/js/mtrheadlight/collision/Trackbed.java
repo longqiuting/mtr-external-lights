@@ -29,6 +29,25 @@ import java.util.Locale;
  *       所以坡道上「脚下这一点」永远是对的，坡度自然跟随，不需要任何 y 阈值。</li>
  * </ul>
  *
+ * <h2>状态延续：记着上一段，不再每 tick 从零查表</h2>
+ * 轨道表查询在<b>弯道接直道的接缝</b>上不可靠（候选缓存按锚点重建，直道可能正好落在重建边界上）。
+ * 所以主路径改成<b>状态延续</b>：每个玩家记一份 {@code lastRail}（{@link RailBed.Follow}：轨道对象 +
+ * 弧长 {@code s} + 该处轨面 y），下一 tick 先沿着它往前走。三级顺序（{@link RailBed#follow}）：
+ * <ol>
+ *   <li><b>延续</b>：用上一 tick 的位移把 {@code s} 推到 {@code s ± (位移 + 0.6)}，只在<b>同一条</b>
+ *       轨道的折线上做一次局部投影 —— <b>不查表</b>；横向 ≤ 1.6、脚底 − 轨面 ∈ [−1.5, +1.0] 就接；</li>
+ *   <li><b>回退查表</b>：延续不成（走到这条的头了）才走上面的候选集查询；</li>
+ *   <li><b>跨段</b>：查表也没命中、但人就在上一段<b>末端 2.5 格</b>内且已经在行进方向上越过了端点 ——
+ *       用<b>端点键</b>查 {@code rails.get(端点)} 直接拿下一条（MTR 的表双向，两个端点都是键），
+ *       不经过候选缓存。</li>
+ * </ol>
+ * 一旦重新命中就把 {@code lastRail/s/y} 换成新的。服务端那份在 {@code server.ServerTrackbed}，
+ * 按实体 UUID 各一份。
+ *
+ * <p><b>每 5 秒一行的汇总</b>（{@code CollisionSystem#tick} 无条件打，不看任何开关）：
+ * <pre>[lte] trackbed follow: rail=yes seg=arc/7.85 s=3.20 y=64.00 ok=380 lost=0 hop=2 table=1</pre>
+ * {@code lost} 就是<b>真掉</b>（上一 tick 还踩着、这一 tick 三级全断）。
+ *
  * <h2>{@code /mtr_lte trackbed status}</h2>
  * 用户报「站在轨道上、上坡/过弯就掉下去」时，这一行就是答案所在：
  * <pre>[lte] trackbed: pos=(x, y, z) rails=N hit=yes|no y=… dist=… off=… halfW=… dy=… vy=…
@@ -165,6 +184,25 @@ public final class Trackbed {
     private static volatile String tableText = "";
     private static volatile long tableTick = 0L;
 
+    // ---------------------------------------------------------------------------------------------
+    // 状态延续（本地玩家的 lastRail）：上一 tick 踩着的那条轨道 + 弧长
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * 本地玩家的延续状态。客户端只处理本地玩家，所以一份就够；服务端那份在
+     * {@code server.ServerTrackbed} 里按实体各一份。
+     */
+    private static volatile RailBed.Follow followState;
+
+    /** 上一 tick 是靠哪一级接上的（{@code describe} 的 {@code follow=}）。 */
+    private static volatile RailBed.Kind followKind = RailBed.Kind.LOST;
+
+    // 自上一行 {@code follow} 汇总以来的计数（无开关，每 5 秒打一行）。
+    private static int followOk;
+    private static int followLost;
+    private static int followHop;
+    private static int followTable;
+
     // 自上一行诊断以来的计数（{@code drops=}）。按结论分桶，一眼看出是哪一种。
     private static final int[] COUNTS = new int[RailBed.Verdict.values().length];
 
@@ -182,6 +220,9 @@ public final class Trackbed {
         railsTotalTick = Long.MIN_VALUE;
         tableText = "";
         tableTick = 0L;
+        followState = null;
+        followKind = RailBed.Kind.LOST;
+        clearFollowCounters();
         clearStep();
         clearCounters();
     }
@@ -406,8 +447,9 @@ public final class Trackbed {
      * {@code rails} 缓存候选条数、{@code scanned} 这次建缓存扫过多少条轨道、{@code skipped} 有多少条
      * 因为是单条异常被跳过（不为 0 就说明数据里有坏轨道）、{@code hit} 是否命中半宽、{@code y} 轨面高度、{@code dist}
      * 横向距离、{@code off} 有符号横向偏移、{@code halfW} 半宽、{@code dy} 脚底 − 轨面、
-     * {@code onGround}/{@code moved} 这一 tick 的状态、{@code drop} 最新结论、
-     * {@code snapped} 上一个完整 tick 有没有真被按上去、{@code drops} 各结论计数。
+     * {@code onGround}/{@code moved} 这一 tick 的状态、{@code drop} 最新结论、{@code follow} 这一 tick
+     * 是靠哪一级接上的（{@code cont|table|hop|lost}）、{@code snapped} 上一个完整 tick 有没有真被按
+     * 上去、{@code drops} 各结论计数。
      */
     public static String describe(final boolean isSnapped) {
         return "[lte] trackbed: pos=(" + number(lastX) + ", " + number(lastFeet) + ", "
@@ -425,6 +467,7 @@ public final class Trackbed {
                 + " onGround=" + (lastOnGround ? "true" : "false")
                 + " moved=" + number(lastMoved)
                 + " drop=" + lastVerdict.shortName()
+                + " follow=" + followKind.shortName()
                 + " snapped=" + (isSnapped ? "true" : "false")
                 + " drops=" + counts();
     }
@@ -455,6 +498,114 @@ public final class Trackbed {
     private static String signed(final double value) {
         return Double.isNaN(value) ? "-"
                 : String.format(Locale.ROOT, "%+.2f", Double.valueOf(value));
+    }
+
+    /**
+     * <b>状态延续</b>：这一 tick 的轨面从哪来 —— <b>先接着上一段走，再查表</b>。
+     *
+     * <p>这是「弯道接直道的直道段掉下去」这一类问题的根本改法：轨道表查询在接缝处不可靠
+     * （候选缓存按锚点重建、正好跨在接缝上），所以主路径不再是每 tick 从零查表，而是记着上一 tick
+     * 踩着的那条轨道 + 弧长 {@code s}，沿着它往前走。三级顺序见 {@link RailBed#follow}：
+     * <ol>
+     *   <li><b>延续</b>（不查表）：同一条轨道上按这一 tick 的位移把 {@code s} 推到
+     *       {@code s ± (位移 + 0.6)}，只在那一小段折线上做投影；横向 ≤ 1.6、脚底 − 轨面 ∈
+     *       [−1.5, +1.0] 就接；</li>
+     *   <li><b>回退查表</b>：延续不成（走到这条的头了）才走原来的候选集查询；</li>
+     *   <li><b>跨段</b>：查表也没命中，但人就在上一段末端 2.5 格内、且已在行进方向上越过端点 ——
+     *       用<b>端点键</b>（{@code rails.get(端点)}）直接拿下一条，不经过候选缓存。</li>
+     * </ol>
+     *
+     * <p>一旦重新命中就把 {@code lastRail/s/y} 换成新的，所以「过了接缝之后」的每一 tick 都在
+     * 延续链上，不再依赖查表。
+     *
+     * <p>返回值和 {@link #probe} 一样：<b>不过滤半宽</b>（诊断要分得开 {@code lat} 和 {@code nohit}）。
+     */
+    public static Sample follow(final ClientWorld world, final long tick, final double x,
+                                final double y, final double z) {
+        if (world == null) {
+            return null;
+        }
+        final Object rails = rails();
+        if (rails == null) {
+            followState = null;
+            followKind = RailBed.Kind.LOST;
+            return null;
+        }
+        final boolean had = followState != null;
+        final RailBed.Step step = BED.follow(rails, tick, followState, x, y, z);
+        switch (step.kind) {
+            case CONTINUE:
+                followOk++;
+                break;
+            case TABLE:
+                followOk++;
+                followTable++;
+                break;
+            case HOP:
+                followOk++;
+                followHop++;
+                break;
+            default:
+                // 上一 tick 还踩着、这一 tick 三级全断 = 真掉（站在野地里不算）。
+                if (had) {
+                    followLost++;
+                }
+                break;
+        }
+        followState = step.follow;
+        followKind = step.kind;
+        final RailBed.Sample sample = step.sample;
+        // 延续/跨段那一 tick 没有走 probe，读数要自己写回去（status 行的 hit=/y=/dist= 才对得上）。
+        if (step.kind != RailBed.Kind.LOST) {
+            BED.noteSample(sample);
+        }
+        return sample == null ? null
+                : new Sample(sample.y, sample.distance, sample.offset, sample.along,
+                        sample.length);
+    }
+
+    /**
+     * <b>每 5 秒一行的延续汇总</b>（不依赖任何开关，{@code CollisionSystem#tick} 无条件打）：
+     * <pre>[lte] trackbed follow: rail=yes seg=arc/7.85 s=3.20 y=64.00 ok=380 lost=0 hop=2 table=1</pre>
+     * <ul>
+     *   <li>{@code rail=yes|no} —— 现在手里有没有 {@code lastRail}（{@code no} = 没踩着任何轨道）；</li>
+     *   <li>{@code seg=} / {@code s=} / {@code y=} —— 那条轨道的形状 + 全长、弧长参数、该处轨面高度；</li>
+     *   <li>{@code ok=} 接上的 tick 数（三级合计）、{@code lost=} <b>真掉</b>的 tick 数（上一 tick
+     *       还踩着、这一 tick 三级全断）、{@code hop=} 跨段次数、{@code table=} 回退查表次数。</li>
+     * </ul>
+     * 走一遍出问题的直道之后：{@code ok} 应该一直涨、{@code lost=0}；{@code lost} 不为 0 就是这条
+     * 链条真的断了（而且这一 tick 人会往下掉）。
+     */
+    public static String followLine() {
+        final RailBed.Follow follow = followState;
+        final String line = "[lte] trackbed follow: rail=" + (follow == null ? "no" : "yes")
+                + " seg=" + (follow == null ? "-" : follow.seg())
+                + " s=" + (follow == null ? "-" : number(follow.s()))
+                + " y=" + (follow == null ? "-" : number(follow.y()))
+                + " ok=" + followOk
+                + " lost=" + followLost
+                + " hop=" + followHop
+                + " table=" + followTable;
+        clearFollowCounters();
+        return line;
+    }
+
+    /** 打一行汇总就清零（{@code ok/lost/hop/table} 都是「自上一行以来」）。 */
+    private static void clearFollowCounters() {
+        followOk = 0;
+        followLost = 0;
+        followHop = 0;
+        followTable = 0;
+    }
+
+    /**
+     * 这一 tick 的轨面是不是「状态延续」出来的（{@link RailBed.Kind#CONTINUE} /
+     * {@link RailBed.Kind#HOP}）：是的话，这一 tick 的轨面<b>不依赖查表</b>，可以按
+     * {@link RailBed#FOLLOW_BELOW} 把人从轨面以下 1.5 格拉回来（见
+     * {@code CollisionSystem#trackbed} 的第 1.5 步）。
+     */
+    public static boolean continued() {
+        return followKind == RailBed.Kind.CONTINUE || followKind == RailBed.Kind.HOP;
     }
 
     /**

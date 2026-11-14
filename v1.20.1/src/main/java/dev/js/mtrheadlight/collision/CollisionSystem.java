@@ -680,6 +680,11 @@ public final class CollisionSystem {
         }
         // 道床：这一 tick 的移动都跑完了，把按压状态转成「上一 tick」。
         Trackbed.endTick();
+        // 状态延续的汇总：不看任何开关，每 5 秒一行（rail= seg= s= y= ok= lost= hop=）。
+        // 它是「直道到底还掉不掉」的唯一读法：走一遍出问题的那段，lost 一直是 0 就说明延续链没断。
+        if (ticks % DIAG_PERIOD == 0L) {
+            MtrHeadlightClient.LOGGER.info(Trackbed.followLine());
+        }
         // 取证窗口（{@code /mtr_lte trackbed status}）：每 5 秒一行结论 + 各结论计数。
         // 放在诊断早退之前 —— 它和 {@code collisionDiagnostics} 是两个开关。
         if (Trackbed.watch() && ticks % DIAG_PERIOD == 0L) {
@@ -2055,7 +2060,7 @@ public final class CollisionSystem {
         final boolean onGround = player.isOnGround();
         final double moved = movedSinceStart(feet, x, z);
         final double vy = player.getVelocity().y;
-        final Trackbed.Sample sample = Trackbed.probe(world, ticks, x, feet, z);
+        final Trackbed.Sample sample = Trackbed.follow(world, ticks, x, feet, z);
         final double railY = sample == null ? Double.NaN : sample.y;
         final double surface = sample == null ? Double.NaN : railY + cfg.trackbedThicknessClamped();
         final double dy = sample == null ? Double.NaN : feet - surface;
@@ -2069,6 +2074,17 @@ public final class CollisionSystem {
             verdict = RailBed.Verdict.LATERAL;
         } else {
             verdict = RailBed.verdict(dy, vy, startDy, cfg.trackbedStepUpClamped());
+        }
+        // 1.5) 状态延续的直接吸附：这一 tick 的轨面是「接着上一 tick 那条轨道走」出来的
+        //      （continue / hop），人已经掉到轨面以下 1.5 格以内 —— 直接抬回去。
+        //      这条是「掉下去就再也上不来」那个死循环的出口：verdict 的下界只有一级台阶（1.0），
+        //      一旦漏掉一 tick，人就掉到 -1.2，之后每 tick 都是 dy、整段直道都没有碰撞箱。
+        //      条件收得很紧：横向仍在 HALF_WIDTH 内、不是起跳（vy > 0.02 一律让开）、上限只到
+        //      STICK（0.6）—— 所以它只会把人从轨道<b>下面</b>拉回轨面，不会从上方把人按下来。
+        if (!verdict.snaps() && sample != null && Trackbed.continued()
+                && sample.distance <= Trackbed.HALF_WIDTH
+                && vy <= 0.02D && dy >= -RailBed.FOLLOW_BELOW && dy <= RailBed.STICK) {
+            verdict = RailBed.Verdict.SNAP;
         }
         // 2) 下落安全网：常规判定说「不在窗口里」之后的最后一道兜底 —— 这一 tick 人从道床面上方
         //    掉了下来、真的穿过了轨面、横向 2.5 格以内，就无条件接住。它不看 dy 的 -stepUp 下界，

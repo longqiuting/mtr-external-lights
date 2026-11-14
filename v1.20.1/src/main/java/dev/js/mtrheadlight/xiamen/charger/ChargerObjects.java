@@ -113,11 +113,11 @@ public final class ChargerObjects {
         registered = true;
 
         top = Registry.register(Registries.BLOCK, TOP_ID,
-                new ChargerBlock(settings(), true, "charger_top", "tooltip.mtrlte.charger_top"));
+                new ChargerBlock(settings(true), true, "charger_top", "tooltip.mtrlte.charger_top"));
         topItem = Registry.register(Registries.ITEM, TOP_ID, new BlockItem(top, new Item.Settings()));
 
         bottom = Registry.register(Registries.BLOCK, BOTTOM_ID,
-                new ChargerBlock(settings(), false, "charger_bottom", "tooltip.mtrlte.charger_bottom"));
+                new ChargerBlock(settings(false), false, "charger_bottom", "tooltip.mtrlte.charger_bottom"));
         bottomItem = Registry.register(Registries.ITEM, BOTTOM_ID, new BlockItem(bottom, new Item.Settings()));
 
         // 一个方块实体类型对两块方块（各自位置的实例）。
@@ -151,13 +151,20 @@ public final class ChargerObjects {
                 TOP_ID, BOTTOM_ID, POWER_BANK_ID, PROJECTILE_ID);
     }
 
-    /** 两块各一份设置（不能共用一个实例，见 {@code XiamenMachines#settings()}）。 */
-    private static AbstractBlock.Settings settings() {
-        return AbstractBlock.Settings.create()
+    /**
+     * 两块各一份设置（不能共用一个实例，见 {@code XiamenMachines#settings()}）。
+     *
+     * @param glowing 是否自带亮度：只有上半部分为 {@code true}
+     *                （{@link ChargerBlock#TOP_LUMINANCE}，下半部分保持 0）
+     */
+    private static AbstractBlock.Settings settings(final boolean glowing) {
+        final AbstractBlock.Settings settings = AbstractBlock.Settings.create()
                 .mapColor(MapColor.YELLOW)
                 .requiresTool()
                 .strength(2.0F)
                 .sounds(BlockSoundGroup.METAL)
                 .nonOpaque();
+        // 方块光照（不是渲染发光）：整块恒定等级，与 blockstate / BER 无关。
+        return glowing ? settings.luminance(state -> ChargerBlock.TOP_LUMINANCE) : settings;
     }
 }

@@ -1,5 +1,6 @@
 package dev.js.mtrheadlight;
 
+import dev.js.mtrheadlight.ldl.PlayerDynamicLight;
 import dev.js.mtrheadlight.mtr.BuiltInTrains;
 import mtr.data.Siding;
 import net.minecraft.client.MinecraftClient;
@@ -422,42 +423,54 @@ public final class ParameterScreen extends Screen {
         this.rows.clear();
         switch (this.category) {
             case LIGHT:
-                this.rows.add(Row.toggle(ConfigWriteTarget.MASTER, ConfigWriteTarget.DISTANCE));
+                /*
+                 * 排版规则（用户要求）：同一个分区里 **所有开关在上面，所有滑块在下面**。
+                 * 所以这里按三块顺序排，不再有「左边开关 + 右边滑块」的混排行：
+                 *   1) 开关：总开关 / 车灯模式（三态按钮）/ 光带 / 灯晕 / 空气散射 / 散射·照亮表面
+                 *      / 方块打光 / 手持动态光源
+                 *   2) 滑块：渲染距离、车灯亮度、照射长度、光束几何、散射强度/半径
+                 *   3) 颜色 + 动作：车头/车尾颜色、光束编辑、立即重载光源
+                 * 侧线页缺的只是「全局限定」的那几行（车灯模式 / 散射三行 / 手持光），块内顺序完全相同。
+                 */
+                this.rows.add(Row.toggleWide(ConfigWriteTarget.MASTER));
                 // 车灯模式（自动 / 常亮 / 关闭）从「其他」搬到这里：它决定的就是灯什么时候亮，
-                // 属于光源。它没有侧线覆盖，所以只在全局页出现（侧线页多一行不可点的行没有意义）。
+                // 属于光源。它没有侧线覆盖，所以只在全局页出现。
                 if (isGlobal()) {
                     this.rows.add(Row.mode());
                 }
-                // 三件可见光效各有自己的开关，三行排在一起、默认全开、互不影响，所以任意组合
-                // 都能直接点出来（以前是一个三态「光样式」按钮，试组合只能一直点它）。
-                // 逐侧线只能再收紧光带 / 灯晕（散射是全局唯一的全屏 pass，侧线页不生成这一行）。
-                this.rows.add(Row.toggle(ConfigWriteTarget.LIGHT_BAND, ConfigWriteTarget.HEAD_LENGTH));
+                // 三件可见光效各有自己的开关，默认只开光带，互不影响（矩阵一样的组合都能点出来）。
+                this.rows.add(Row.toggleWide(ConfigWriteTarget.LIGHT_BAND));
                 this.rows.add(Row.toggleWide(ConfigWriteTarget.BEAM_FLARE));
                 if (isGlobal()) {
                     this.rows.add(Row.toggleWide(ConfigWriteTarget.SCATTER));
+                    // 表面项是散射的第二个开关（光雾 / 照亮表面两层），所以紧跟在散射下面。
+                    this.rows.add(Row.toggleWide(ConfigWriteTarget.SCATTER_SURFACE));
                 }
-                // 动态照亮 + 车灯亮度：真实方块光照是"照在地上"的那一层，所以紧跟两个可见开关。
-                // 光柱那一行已随光柱一起删除（体积光锥不再绘制）。
-                this.rows.add(Row.toggle(ConfigWriteTarget.DYNAMIC_LIGHT, ConfigWriteTarget.LUMINANCE));
-                this.rows.add(Row.color(true));
-                this.rows.add(Row.color(false));
+                // 真实照亮：写进区块网格的方块光照，"照在地上"的那一层，一直是开关。
+                this.rows.add(Row.toggleWide(ConfigWriteTarget.DYNAMIC_LIGHT));
+                if (isGlobal()) {
+                    // 手持动态光源：全局开关，需要 LambDynamicLights；没装时这一行置灰并注明。
+                    this.rows.add(Row.toggleWideNeedsLdl(ConfigWriteTarget.PLAYER_DYNAMIC_LIGHT));
+                }
+                // ---- 滑块（数值）全部在开关之下 ----
+                this.rows.add(Row.value(ConfigWriteTarget.DISTANCE));
+                this.rows.add(Row.value(ConfigWriteTarget.LUMINANCE));
+                this.rows.add(Row.value(ConfigWriteTarget.HEAD_LENGTH));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_DISTANCE));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_HEAD_LENGTH));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_TAIL_LENGTH));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_WIDTH));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_HEAD_HEIGHT));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_TAIL_HEIGHT));
-                // 散射的参数（开关在光源分区最上面三行里）：强度一行、半径一行，都是全局值 ——
-                // 它是一次全屏 pass，和「哪条侧线的车」无关；行放在光束几何之后、编辑器入口之前，
-                // 因为它读的是同一批灯位（TrainLamps），只是画法在几何层之外。
+                // 散射的两个参数（全局值：一次全屏 pass，和「哪条侧线的车」无关）。
                 if (isGlobal()) {
                     this.rows.add(Row.value(ConfigWriteTarget.SCATTER_STRENGTH));
-                    // 表面项（车灯真的照亮地面/墙面）单独一行：它和光雾是同一次 pass 的两层，
-                    // 关掉它只少「逐灯 spot + 法线 + N·L」那块数学，光雾照旧，所以值得一个开关。
-                    this.rows.add(Row.toggleWide(ConfigWriteTarget.SCATTER_SURFACE));
                     this.rows.add(Row.value(ConfigWriteTarget.SCATTER_RADIUS));
                 }
-                // 光束编辑：逐车型、逐束的几何 / 颜色 / 长度，入口放在光源分区最底部。
+                // ---- 颜色与动作（既不是开关也不是滑块，统一放在最下面）----
+                this.rows.add(Row.color(true));
+                this.rows.add(Row.color(false));
+                // 光束编辑：逐车型、逐束的几何 / 颜色 / 长度。
                 this.rows.add(Row.worldAction(tr("btn.beamEditor"), this::openBeamEditor));
                 // 立即重载光源：从「其他」搬到这里 —— 它重载的就是这一页在改的那套光源
                 // （LightController 的缓存）。全局动作，侧线页不生成（侧线页只留可覆盖的行）。
@@ -556,8 +569,12 @@ public final class ParameterScreen extends Screen {
             }
             case ROW_TOGGLE_WIDE: {
                 // 两边格合成一个按钮：这一行没有数值可配，强塞一个无关滑块只会误导。
+                final boolean ldlMissing = row.needsLdl && !PlayerDynamicLight.modPresent();
+                final Text wideLabel = ldlMissing
+                        ? toggleLabel(row.toggle).copy().append(tr("hint.needsLdl"))
+                        : toggleLabel(row.toggle);
                 final ButtonWidget button = addButton(this.colX, y,
-                        this.colW - RESET_W - GAP, ROW_H, toggleLabel(row.toggle), b -> {
+                        this.colW - RESET_W - GAP, ROW_H, wideLabel, b -> {
                             this.target.writeToggle(row.toggle,
                                     !this.target.readToggle(row.toggle));
                             if (row.toggle == ConfigWriteTarget.BUILTIN_TRAINS) {
@@ -567,6 +584,11 @@ public final class ParameterScreen extends Screen {
                         });
                 if (row.toggle == ConfigWriteTarget.DAMAGE_IN_CREATIVE) {
                     button.setTooltip(Tooltip.of(tr("hint.damageInCreative")));
+                }
+                if (ldlMissing) {
+                    // 「点了没反应」是最糟的三种状态之一：置灰 + 一句为什么。
+                    button.active = false;
+                    button.setTooltip(Tooltip.of(tr("hint.needsLdlTooltip")));
                 }
                 addResetButton(row, y);
                 break;
@@ -806,6 +828,11 @@ public final class ParameterScreen extends Screen {
                 // 同上，全局开关；它只关「照亮表面」那一层，光雾留着。
                 return tr(this.target.readToggle(which)
                         ? "opt.scatterSurface.on" : "opt.scatterSurface.off");
+            case ConfigWriteTarget.PLAYER_DYNAMIC_LIGHT:
+                // 全局开关（侧线页不生成这一行）。没装 LDL 时这一行会被置灰并补一句
+                // 「需要 LDL」—— 文字仍然由这里给出，见 buildRow 的 ROW_TOGGLE_WIDE。
+                return tr(this.target.readToggle(which)
+                        ? "opt.playerLight.on" : "opt.playerLight.off");
             default:
                 return follow(this.target.readToggle(which)
                         ? tr("opt.band.on") : tr("opt.band.off"), which);
@@ -1372,48 +1399,61 @@ public final class ParameterScreen extends Screen {
         final boolean head;
         /** True for the per-siding entry: disabled (and annotated) outside a save. */
         final boolean needsWorld;
+        /**
+         * True for a row whose feature only works with LambDynamicLights installed
+         * ({@link ConfigWriteTarget#PLAYER_DYNAMIC_LIGHT}): without it the row is greyed out and
+         * says so, instead of accepting clicks that do nothing.
+         */
+        final boolean needsLdl;
         final Text label;
         final Runnable action;
 
         private Row(final int kind, final int toggle, final int value, final boolean head,
-                    final boolean needsWorld, final Text label, final Runnable action) {
+                    final boolean needsWorld, final boolean needsLdl, final Text label,
+                    final Runnable action) {
             this.kind = kind;
             this.toggle = toggle;
             this.value = value;
             this.head = head;
             this.needsWorld = needsWorld;
+            this.needsLdl = needsLdl;
             this.label = label;
             this.action = action;
         }
 
         static Row toggle(final int toggle, final int value) {
-            return new Row(ROW_TOGGLE, toggle, value, false, false, Text.empty(), null);
+            return new Row(ROW_TOGGLE, toggle, value, false, false, false, Text.empty(), null);
         }
 
         /** 只有开关、右边没有滑块的一行（光柱 / 车体碰撞 / 道床 / 内置车型屏蔽 …）。 */
         static Row toggleWide(final int toggle) {
-            return new Row(ROW_TOGGLE_WIDE, toggle, -1, false, false, Text.empty(), null);
+            return new Row(ROW_TOGGLE_WIDE, toggle, -1, false, false, false, Text.empty(), null);
+        }
+
+        /** {@link #toggleWide} 的一行，但没有 LambDynamicLights 时置灰并注明原因。 */
+        static Row toggleWideNeedsLdl(final int toggle) {
+            return new Row(ROW_TOGGLE_WIDE, toggle, -1, false, false, true, Text.empty(), null);
         }
 
         static Row value(final int value) {
-            return new Row(ROW_VALUE, -1, value, false, false, Text.empty(), null);
+            return new Row(ROW_VALUE, -1, value, false, false, false, Text.empty(), null);
         }
 
         static Row color(final boolean head) {
-            return new Row(ROW_COLOR, -1, -1, head, false, Text.empty(), null);
+            return new Row(ROW_COLOR, -1, -1, head, false, false, Text.empty(), null);
         }
 
         static Row action(final Text label, final Runnable action) {
-            return new Row(ROW_ACTION, -1, -1, false, false, label, action);
+            return new Row(ROW_ACTION, -1, -1, false, false, false, label, action);
         }
 
         static Row worldAction(final Text label, final Runnable action) {
-            return new Row(ROW_ACTION, -1, -1, false, true, label, action);
+            return new Row(ROW_ACTION, -1, -1, false, true, false, label, action);
         }
 
         /** 三态值一行（车灯模式），按钮整行宽。 */
         static Row mode() {
-            return new Row(ROW_CYCLE, -1, ConfigWriteTarget.HEADLIGHT_MODE, false, false,
+            return new Row(ROW_CYCLE, -1, ConfigWriteTarget.HEADLIGHT_MODE, false, false, false,
                     Text.empty(), null);
         }
     }

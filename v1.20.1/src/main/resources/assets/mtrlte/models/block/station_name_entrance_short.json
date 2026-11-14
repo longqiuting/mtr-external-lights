@@ -1,7 +1,8 @@
 {
-  "__comment": "MTR 4.0.5 的 mtr:block/station_name_entrance_short 原样拷贝（只把贴图命名空间改成 mtrlte）。零厚度发光板，站名由 WallSignRenderer 画。",
+  "__comment": "MTR 3.6.4.2 的 mtr:block/station_name_entrance_short 原样（零厚度发光板 y=4..12，z=0.05），再叠一个引 #logo 的品牌 logo 小方块。",
   "textures": {
-    "particle": "mtrlte:block/dark_blue"
+    "particle": "mtrlte:block/dark_blue",
+    "logo": "mtrlte:block/xiamen_logo"
   },
   "elements": [
     {
@@ -15,6 +16,17 @@
         },
         "south": {
           "texture": "#particle"
+        }
+      }
+    },
+    {
+      "__comment": "Brand logo：板前面 z=0.1，右侧竖直居中（矮板只有 y 4..12，所以中心取 8），5x5 px。",
+      "from": [10.5, 5, 0.1],
+      "to": [15.5, 10, 0.1],
+      "faces": {
+        "south": {
+          "texture": "#logo",
+          "shade": false
         }
       }
     }

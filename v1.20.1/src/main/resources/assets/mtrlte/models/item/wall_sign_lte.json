@@ -1,5 +1,5 @@
 {
-  "parent": "mtrlte:block/station_name_entrance_tall",
+  "parent": "mtrlte:block/wall_sign_lte_tall",
   "display": {
     "gui": {
       "rotation": [30, 45, 0],

@@ -61,7 +61,15 @@ import net.minecraft.world.World;
  *       见 {@link MtrBalance}），不满 10 分钟不扣；</li>
  *   <li><b>手持别的东西</b> → 一句提示，不误触。</li>
  * </ol>
- * <p>下半部分只在右键时回一句「请右键上半部分」—— 它没有任何交互。
+ * <p>下半部分 {@code charger_bottom} <b>没有任何交互</b>：它的 {@code onUse} 直接
+ * {@link ActionResult#PASS}（原版默认值），等于一个普通方块 —— 空手右键没反应，
+ * 手里拿着方块就照常放着对方块。没有提示消息、不读余额、不碰 NBT。
+ *
+ * <h2>光</h2>
+ * <p>只有上半部分自带亮度 {@value #TOP_LUMINANCE}（方块光源等级 7，约等于蜡烛 / 火把的一半），
+ * 是给「租借机在用」的一点微光；下半部分与普通方块一样亮度 0。亮度用
+ * {@code AbstractBlock.Settings#luminance} 声明，属于<b>方块光照</b>，
+ * 不经过 BER、也不改 blockstate（两份 blockstate 依然只有 {@code facing}）。
  *
  * <h2 id="fee">计费</h2>
  * <p>{@code fee = floor(持有毫秒 / 600000) × 2}。时间来自物品 NBT 里的 {@code rentedAt}
@@ -72,6 +80,12 @@ public class ChargerBlock extends HorizontalFacingBlock implements BlockEntityPr
 
     /** 四向（与 {@code HorizontalFacingBlock.FACING} 同一个属性实例）。 */
     public static final DirectionProperty FACING = HorizontalFacingBlock.FACING;
+
+    /**
+     * 上半部分的自发光等级（方块光照 0..15，7 ≈ 火把的一半）。
+     * 只由 {@link ChargerObjects} 在注册上半块时通过 {@code Settings#luminance} 用上。
+     */
+    public static final int TOP_LUMINANCE = 7;
 
     /** 模型读不到时的兜底包围盒（模型空间 0..16）：x 3..13、整格高、z 3..13。 */
     private static final float[] FALLBACK_BOX = {3.0F, 0.0F, 3.0F, 13.0F, 16.0F, 13.0F};
@@ -194,18 +208,21 @@ public class ChargerBlock extends HorizontalFacingBlock implements BlockEntityPr
 
     // ------------------------------------------------------------------ 右键
 
+    /**
+     * 右键：<b>只有上半部分</b>有交互。
+     *
+     * <p>下半部分直接走原版 {@code PASS}（也就是 {@code AbstractBlock#onUse} 的默认实现）：
+     * 客户端与服务端都会当作「这个方块没兴趣」，于是行为和一个普通方块完全一样 ——
+     * 空手右键什么也不发生，手里拿着方块就照常放着对方块。这里不再有任何提示消息。
+     */
     @Override
     public ActionResult onUse(final BlockState state, final World world, final BlockPos pos,
                               final PlayerEntity player, final Hand hand, final BlockHitResult hit) {
-        if (hand != Hand.MAIN_HAND) {
+        if (!this.top || hand != Hand.MAIN_HAND) {
             return ActionResult.PASS;
         }
         // 余额 / NBT / 扣费全在服务端；客户端只做挥手（返回 SUCCESS 免得顺手放方块）。
         if (world.isClient) {
-            return ActionResult.SUCCESS;
-        }
-        if (!this.top) {
-            player.sendMessage(Text.translatable("message.mtrlte.charger.use_top"), true);
             return ActionResult.SUCCESS;
         }
 
