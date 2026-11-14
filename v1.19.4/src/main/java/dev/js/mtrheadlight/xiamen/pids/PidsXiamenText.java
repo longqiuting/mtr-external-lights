@@ -134,7 +134,16 @@ final class PidsXiamenText {
     }
 
     /**
-     * 真正落笔（{@code TextRenderer.draw} 的 1.20.1 签名：text, x, y, color, shadow, matrix, provider, layer, bg, light）。
+     * 真正落笔。
+     *
+     * <p><b>1.19.4 的真实签名</b>（{@code javap} 1.19.4 yarn+build.2 named jar，十个参数）：
+     * <pre>
+     * TextRenderer.draw(String, float x, float y, int color, boolean shadow,
+     *                   <b>org.joml.Matrix4f</b> matrix, VertexConsumerProvider,
+     *                   <b>TextRenderer.TextLayerType</b>, int backgroundColor, int light)
+     * </pre>
+     * 也就是：1.19.4 已经和 1.20.1 同形（JOML {@code Matrix4f} + {@code TextLayerType} 枚举），
+     * 只有 1.18.2 / 1.19.2 是「{@code net.minecraft.util.math.Matrix4f} + boolean seeThrough」。
      *
      * @param stack 坐标系载体：不裁切时是渲染器那张（含世界变换）；裁切时是新建的本地栈
      *              （只有 translate + scale，顶点 = 屏幕 px，由 ClippingConsumer 再乘世界矩阵）
@@ -146,10 +155,14 @@ final class PidsXiamenText {
         try {
             stack.translate(x, yTop, 0.0F);
             stack.scale(scale, scale, 1.0F);
-            textRenderer.draw(text, 0.0F, 0.0F, color, false,
+            // 逐位写清楚，不靠位置猜：
+            final boolean shadow = false;                                  // 屏幕上的字不带阴影
+            final TextRenderer.TextLayerType layerType = TextRenderer.TextLayerType.NORMAL;
+            final int backgroundColor = 0;                                 // 不画字底
+            final int light = PidsXiamenLayout.FULL_LIGHT;                 // 0xF000F0，满亮
+            textRenderer.draw(text, 0.0F, 0.0F, color, shadow,
                     stack.peek().getPositionMatrix(), provider,
-                    TextRenderer.TextLayerType.NORMAL, 0,
-                    PidsXiamenLayout.FULL_LIGHT);
+                    layerType, backgroundColor, light);
         } finally {
             stack.pop();
         }

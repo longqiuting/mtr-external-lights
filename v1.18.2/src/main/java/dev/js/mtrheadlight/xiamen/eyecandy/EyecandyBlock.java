@@ -174,7 +174,7 @@ public class EyecandyBlock extends Block implements BlockEntityProvider {
      */
     @Override
     public BlockState getPlacementState(final ItemPlacementContext ctx) {
-        return getDefaultState().with(FACING, ctx.getPlayerLookDirection().getOpposite());
+        return getDefaultState().with(FACING, ctx.getPlayerFacing().getOpposite());
     }
 
     /** 空壳方块实体（BER 的锚点，见 {@link EyecandyBlockEntity}）。 */

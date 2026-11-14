@@ -94,6 +94,10 @@ public final class PidsXiamenTicker {
     /** 临时插播（{@code null} = 用资源包那套）。 */
     private static volatile List<Message> override;
 
+    /** 一次性落笔诊断的闸门（每 JVM 只打一行，见 {@link #draw}）。 */
+    private static final java.util.concurrent.atomic.AtomicBoolean LOGGED =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
     private PidsXiamenTicker() {
     }
 
@@ -198,6 +202,16 @@ public final class PidsXiamenTicker {
             if (t < timing.scroll()[i]) {
                 final float progress = (float) (t / timing.scroll()[i]);
                 final float x = innerRight - progress * (innerWidth + timing.width()[i]);
+                // 一次性的落笔诊断：标语这条是唯一「自己量字宽 + 自己裁边」的路径，
+                // 出问题时分不清「文字本身不对」还是「排版/裁边不对」。这里把
+                // 实际要画的字符串、字符数、TextRenderer 量出来的宽度、字号和裁切窗口打一行，
+                // 下次进游戏看日志就能直接定位（每 JVM 只打一次）。
+                if (LOGGED.compareAndSet(false, true)) {
+                    final String shown = list.get(i).text();
+                    LteLog.LOGGER.info("[lte] xiamen pids ticker: text=\"{}\" chars={} width={}px sizePx={} bar=[{},{}] x={}",
+                            shown, shown == null ? 0 : shown.length(),
+                            textRenderer.getWidth(shown), sizePx, innerLeft, innerRight, x);
+                }
                 PidsXiamenText.drawRun(matrices, textRenderer, immediate,
                         new PidsXiamenText.Segment[]{
                                 new PidsXiamenText.Segment(list.get(i).text(), sizePx, list.get(i).color())

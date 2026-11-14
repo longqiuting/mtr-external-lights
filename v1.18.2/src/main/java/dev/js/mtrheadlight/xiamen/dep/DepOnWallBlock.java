@@ -202,7 +202,7 @@ public class DepOnWallBlock extends HorizontalFacingBlock implements BlockEntity
         final Direction side = ctx.getSide();
         final Direction facing = side.getAxis().isHorizontal()
                 ? side
-                : ctx.getPlayerLookDirection().getOpposite();
+                : ctx.getPlayerFacing().getOpposite();
         final BlockState state = getDefaultState().with(FACING, facing);
         return hasSupport(state, ctx.getWorld(), ctx.getBlockPos()) ? state : null;
     }

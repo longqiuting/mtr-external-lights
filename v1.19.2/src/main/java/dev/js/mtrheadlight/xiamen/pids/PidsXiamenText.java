@@ -134,7 +134,17 @@ final class PidsXiamenText {
     }
 
     /**
-     * 真正落笔（{@code TextRenderer.draw} 的 1.20.1 签名：text, x, y, color, shadow, matrix, provider, layer, bg, light）。
+     * 真正落笔。
+     *
+     * <p><b>1.19.2 的真实签名</b>（{@code javap} 1.19.2 yarn+build.28 named jar，十个参数）：
+     * <pre>
+     * TextRenderer.draw(String, float x, float y, int color, boolean shadow,
+     *                   net.minecraft.util.math.Matrix4f matrix, VertexConsumerProvider,
+     *                   <b>boolean seeThrough</b>, int backgroundColor, int light)
+     * </pre>
+     * 和 1.18.2 同形；第 8 位是<b>布尔</b>（{@code true} = 穿墙层，{@code false} = 普通层），
+     * 旧版没有 {@code TextLayerType} 枚举，所以 {@code NORMAL} 写成 {@code false}。
+     * 第 9 位是底色（0 = 不画），第 10 位是亮度 —— 按位次硬凑会把这两者和「是否穿墙」互换。
      *
      * @param stack 坐标系载体：不裁切时是渲染器那张（含世界变换）；裁切时是新建的本地栈
      *              （只有 translate + scale，顶点 = 屏幕 px，由 ClippingConsumer 再乘世界矩阵）
@@ -146,12 +156,14 @@ final class PidsXiamenText {
         try {
             stack.translate(x, yTop, 0.0F);
             stack.scale(scale, scale, 1.0F);
-            textRenderer.draw(text, 0.0F, 0.0F, color, false,
+            // 逐位写清楚，不靠位置猜：
+            final boolean shadow = false;                 // 屏幕上的字不带阴影
+            final boolean seeThrough = false;             // = 1.20.1 的 TextLayerType.NORMAL
+            final int backgroundColor = 0;                // 不画字底
+            final int light = PidsXiamenLayout.FULL_LIGHT; // 0xF000F0，满亮
+            textRenderer.draw(text, 0.0F, 0.0F, color, shadow,
                     stack.peek().getPositionMatrix(), provider,
-                    // 1.19.2 的 draw(..) 第 8 个参数是 seeThrough（1.20.1 换成了 TextLayerType）。
-                    // 屏幕上这块字不做「穿墙透视」，所以一直是 false。
-                    false, 0,
-                    PidsXiamenLayout.FULL_LIGHT);
+                    seeThrough, backgroundColor, light);
         } finally {
             stack.pop();
         }

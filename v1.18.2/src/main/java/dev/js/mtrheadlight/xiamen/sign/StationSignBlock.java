@@ -187,13 +187,13 @@ public class StationSignBlock extends HorizontalFacingBlock {
     public BlockState getPlacementState(final ItemPlacementContext ctx) {
         if (!this.wallMounted) {
             // 杆上款：牌面朝玩家，哪都能放。
-            return getDefaultState().with(FACING, ctx.getPlayerLookDirection().getOpposite());
+            return getDefaultState().with(FACING, ctx.getPlayerFacing().getOpposite());
         }
         final Direction side = ctx.getSide();
         // 点墙的某一侧 → 新方块在墙的外面，墙就在新方块的 side.getOpposite() 那一侧。
         final Direction wall = side.getAxis().isHorizontal()
                 ? side.getOpposite()
-                : ctx.getPlayerLookDirection();
+                : ctx.getPlayerFacing();
         final BlockState state = getDefaultState().with(FACING, wall);
         return hasSupport(state, ctx.getWorld(), ctx.getBlockPos()) ? state : null;
     }

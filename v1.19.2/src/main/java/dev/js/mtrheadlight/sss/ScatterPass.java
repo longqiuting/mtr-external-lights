@@ -171,6 +171,15 @@ public final class ScatterPass {
     private static boolean diagBlendEnabled;
     private static int diagBlendSrc = -1;
     private static int diagBlendDst = -1;
+    /**
+     * 深度重建矩阵的健康度：{@code inverseErr = |inv(proj*view) * (proj*view) - I|} 的最大元素偏差。
+     * 1.19.2 上这条链曾经有两处静默坏死（{@code writeColumnMajor} 抛异常、{@code invert()} 对投影矩阵
+     * 无效），两者都不会在别处留下痕迹 —— 这个数字是它们在 5 秒行里唯一能被看见的地方。
+     */
+    private static boolean inverseOk;
+    private static float inverseErr = Float.POSITIVE_INFINITY;
+    /** 导出矩阵失败只报一次（见 {@code rigid()}）。 */
+    private static boolean rigidFailureLogged;
 
     private ScatterPass() {
     }
@@ -368,12 +377,19 @@ public final class ScatterPass {
              * Depth reconstruction matrix: inverse(projection * view). Everything stays
              * camera-relative - the lamp positions are already relative to the camera - so no large
              * world coordinates ever reach a float in the shader.
+             *
+             * 1.19.2：这里用 {@link dev.js.mtrheadlight.compat.Matrices#invert} 而不是
+             * {@code Matrix4f#invert()}。后者对带投影行的矩阵给出的逆差一个统一缩放
+             * （实测 {@code inv*vp = 0.0132*I}），对着色器里的方向/距离恰好无害，但会让
+             * {@code inverse=} 这一格永远判不出来 —— 而这一格正是为了「矩阵悄悄坏了」准备的。
              */
             final Matrix4f view = viewMatrix(context, client);
             VIEW_PROJ.load(RenderSystem.getProjectionMatrix());
             VIEW_PROJ.multiply(view);
-            INVERSE.load(VIEW_PROJ);
-            INVERSE.invert();
+            inverseOk = dev.js.mtrheadlight.compat.Matrices.invert(VIEW_PROJ, INVERSE);
+            inverseErr = inverseOk
+                    ? dev.js.mtrheadlight.compat.Matrices.inverseError(INVERSE, VIEW_PROJ)
+                    : Float.POSITIVE_INFINITY;
             lastMatrix = viewSource == null ? "unknown" : viewSource;
 
             /*
@@ -456,8 +472,9 @@ public final class ScatterPass {
      * 每帧几盏灯、两份拷贝成不成、litPx、深度重建矩阵来自哪个候选。
      *
      * <pre>
-     *   [lte] scatter pass: frames=300 lights=4 depth=1920x1080 ok color=1920x1080 ok blend=replace
-     *                       litPx≈15234 matrix=context maxLights=4 avgMs=0.42 surface=on pack=false reason=ok
+     *   [lte] scatter: frames=300 lights=4 program=ok depth=1920x1080 ok color=1920x1080 ok
+     *                  litPx≈15234 inverse=ok blend=replace matrix=context calls=301 maxLights=4
+     *                  avgMs=0.42 surface=on debug=off pack=false reason=ok
      *   [lte] scatter light0: pos=(…) dir=(…) rgb=(…) power=… radius=… beam=… coneDeg=20.0/56.6 depthErr=ok
      * </pre>
      *
@@ -494,14 +511,22 @@ public final class ScatterPass {
         // 这一窗口结束，下一次 pass 画完时把「上传了什么 / GPU 里是什么」打一行。
         uploadLogWanted = true;
         ScatterProgram.requestReadback();
+        /*
+         * 一行定位用的格式（1.19.2 起统一）：
+         *   [lte] scatter: frames= lights= program=ok|fail(…) depth=… color=… litPx=… …
+         * frames=0 时 reason= 就是答案：program=failed(…) / depth-copy-failed / color-copy-failed /
+         * no-lights / exception:… / shader-pack(…)。1.19.2 上真正坏过的两项（深度重建矩阵的
+         * 导出与求逆）落在 inverse= 这一格：inverse=bad(0.99) 就是「矩阵是错的、画面不会有光」。
+         */
         MtrHeadlightClient.LOGGER.info(String.format(Locale.ROOT,
-                "[lte] scatter pass: frames=%d lights=%d depth=%s color=%s blend=%s "
-                        + "litPx=%s matrix=%s calls=%d maxLights=%d avgMs=%.2f surface=%s "
-                        + "debug=%s pack=%s reason=%s",
-                Integer.valueOf(frames), Integer.valueOf(lastLights), depthText(), colorText(),
-                blendText(), litPixels(cfg), lastMatrix, Integer.valueOf(calls),
-                Integer.valueOf(maxLights), Double.valueOf(avg), cfg.scatterSurface ? "on" : "off",
-                debugName(), Boolean.valueOf(shaderPackActive()), lastReason));
+                "[lte] scatter: frames=%d lights=%d program=%s depth=%s color=%s litPx=%s "
+                        + "inverse=%s blend=%s matrix=%s calls=%d maxLights=%d avgMs=%.2f "
+                        + "surface=%s debug=%s pack=%s reason=%s",
+                Integer.valueOf(frames), Integer.valueOf(lastLights), ScatterProgram.status(),
+                depthText(), colorText(), litPixels(cfg), inverseText(), blendText(), lastMatrix,
+                Integer.valueOf(calls), Integer.valueOf(maxLights), Double.valueOf(avg),
+                cfg.scatterSurface ? "on" : "off", debugName(), Boolean.valueOf(shaderPackActive()),
+                lastReason));
         MtrHeadlightClient.LOGGER.info("[lte] scatter light0: {} depthErr={}",
                 light0, lastDepthError < 0 ? "none"
                         : (lastDepthError == 0 ? "ok" : "0x" + Integer.toHexString(lastDepthError)));
@@ -599,6 +624,26 @@ public final class ScatterPass {
             return "none";
         }
         return ColorCopy.width() + "x" + ColorCopy.height() + " ok";
+    }
+
+    /**
+     * 深度重建矩阵是否可信：{@code ok} / {@code bad(0.99)} / {@code singular} / {@code none}
+     * （本窗口一帧都没走到这里）。
+     *
+     * <p>这一格是给「画面一盏灯都照不到，但日志里别的都对」那种情况准备的：一个错的
+     * {@code uInvViewProj} 不会报错、不会掉帧，只会把每个像素的视线投到一个没有几何的地方。
+     */
+    private static String inverseText() {
+        if (lastMatrix.equals("unknown")) {
+            return "none";
+        }
+        if (!inverseOk) {
+            return "singular";
+        }
+        if (inverseErr < 1.0E-3F) {
+            return "ok";
+        }
+        return String.format(Locale.ROOT, "bad(%.3f)", Float.valueOf(inverseErr));
     }
 
     /** One full-screen quad in NDC. The shader builds its own rays; no geometry is involved. */
@@ -782,9 +827,23 @@ public final class ScatterPass {
         if (m == null) {
             return false;
         }
-        // 1.19.2 没有 mXY() 这类元素访问器：整体导出成列主序 16 个数再读
-        // （e[row + 4 * column]）。
-        final float[] e = dev.js.mtrheadlight.compat.Matrices.columnMajor(m);
+        /*
+         * 1.19.2 没有 mXY() 这类元素访问器：整体导出成列主序 16 个数再读
+         * （e[row + 4 * column]）。
+         *
+         * 这一段曾经在建矩阵之外的地方把整条 pass 打死：导出用的
+         * {@code Matrices.columnMajor} 在 1.19.2 上抛 {@code BufferUnderflowException}，
+         * 而这里在 {@code render()} 的 try 里 —— 结果是每一帧都「安静地」抛出去、
+         * frames 永远是 0、画面上什么也没有。判据是<b>辅助函数</b>，永远不该有能力关掉 pass，
+         * 所以这里兜住一切。
+         */
+        final float[] e;
+        try {
+            e = dev.js.mtrheadlight.compat.Matrices.columnMajor(m);
+        } catch (Throwable t) {
+            noteRigidFailure(t);
+            return false;
+        }
         if (Math.abs(e[3]) > 1.0E-3F || Math.abs(e[7]) > 1.0E-3F
                 || Math.abs(e[11]) > 1.0E-3F || Math.abs(e[15] - 1.0F) > 1.0E-3F) {
             return false;
@@ -793,6 +852,17 @@ public final class ScatterPass {
                 - e[4] * (e[1] * e[10] - e[9] * e[2])
                 + e[8] * (e[1] * e[6] - e[5] * e[2]);
         return Math.abs(Math.abs(det) - 1.0F) < 0.05F;
+    }
+
+    /** 「本该不可能发生」的那一类：判据自己出错，说明导出矩阵的那条路坏了。 */
+    private static void noteRigidFailure(final Throwable t) {
+        if (rigidFailureLogged) {
+            return;
+        }
+        rigidFailureLogged = true;
+        MtrHeadlightClient.LOGGER.error("[lte] scatter: cannot read the view matrix back out of "
+                + "Matrix4f ({}: {}) - the reconstruction falls back to the rebuilt camera matrix",
+                t.getClass().getSimpleName(), firstLine(t));
     }
 
     /** One line per session: which source the reconstruction matrix came from. */
@@ -831,6 +901,7 @@ public final class ScatterPass {
         sb.append(" surface=").append(cfg.scatterSurface ? "on" : "off");
         sb.append(" color=").append(colorText());
         sb.append(" litPx=").append(litPixels(cfg));
+        sb.append(" inverse=").append(inverseText());
         sb.append(" matrix=").append(lastMatrix);
         sb.append(" debug=").append(debugName());
         sb.append(" uniforms[").append(ScatterProgram.locations()).append(']');

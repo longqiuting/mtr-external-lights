@@ -154,7 +154,7 @@ public class RailingWallBlock extends Block {
         // 点侧面 = 想贴那面墙，扶手贴在对侧；点顶面 / 底面 = 取玩家朝向（身前那一侧）。
         final Direction facing = side.getAxis().isHorizontal()
                 ? side.getOpposite()
-                : ctx.getPlayerLookDirection();
+                : ctx.getPlayerFacing();
         return getDefaultState().with(FACING, facing);
     }
 

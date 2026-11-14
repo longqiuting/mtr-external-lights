@@ -33,6 +33,6 @@ final class FangsuPsdPlacement {
 
     /** 放置时该给 {@code FACING} 的方向。 */
     static Direction facingOf(final ItemPlacementContext ctx) {
-        return ctx.getPlayerLookDirection();
+        return ctx.getPlayerFacing();
     }
 }

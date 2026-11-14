@@ -349,7 +349,7 @@ public class DepOnRoofBlock extends HorizontalFacingBlock implements BlockEntity
      */
     @Override
     public BlockState getPlacementState(final ItemPlacementContext ctx) {
-        final Direction facing = facingForNormal(ctx.getPlayerLookDirection().getOpposite());
+        final Direction facing = facingForNormal(ctx.getPlayerFacing().getOpposite());
         final BlockState state = getDefaultState().with(FACING, facing);
         return hasSupport(ctx.getWorld(), ctx.getBlockPos()) ? state : null;
     }

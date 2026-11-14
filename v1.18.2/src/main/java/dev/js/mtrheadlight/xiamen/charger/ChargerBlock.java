@@ -180,7 +180,7 @@ public class ChargerBlock extends HorizontalFacingBlock implements BlockEntityPr
 
     @Override
     public BlockState getPlacementState(final ItemPlacementContext context) {
-        return this.getDefaultState().with(FACING, context.getPlayerLookDirection().getOpposite());
+        return this.getDefaultState().with(FACING, context.getPlayerFacing().getOpposite());
     }
 
     @Override

@@ -315,7 +315,7 @@ public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEn
             // 上半要占 pos 上面那一格（或者下半上面那格），太高的地方一律不给放。
             return null;
         }
-        final Direction facing = ctx.getPlayerLookDirection().getOpposite();
+        final Direction facing = ctx.getPlayerFacing().getOpposite();
         if (this.top) {
             // 下半放下面（常规）；下面被占了就整台往上挪一格，那时上半要落在 pos.up()。
             if (!free(world.getBlockState(pos.down())) && !free(world.getBlockState(pos.up()))) {

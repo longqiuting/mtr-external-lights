@@ -265,7 +265,7 @@ public final class LiquidScannerBlock extends HorizontalFacingBlock implements B
      */
     @Override
     public BlockState getPlacementState(final ItemPlacementContext ctx) {
-        final Direction facing = ctx.getPlayerLookDirection().getOpposite();
+        final Direction facing = ctx.getPlayerFacing().getOpposite();
         return getDefaultState().with(FACING, facing);
     }
 

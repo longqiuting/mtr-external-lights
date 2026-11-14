@@ -221,7 +221,7 @@ public abstract class XiamenMachineBlock extends HorizontalFacingBlock {
             return null;
         }
         return getDefaultState()
-                .with(FACING, ctx.getPlayerLookDirection().getOpposite())
+                .with(FACING, ctx.getPlayerFacing().getOpposite())
                 .with(HALF, DoubleBlockHalf.LOWER);
     }
 
