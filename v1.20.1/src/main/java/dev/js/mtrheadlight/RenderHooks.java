@@ -136,6 +136,11 @@ public final class RenderHooks {
         //    在进世界之前就写在日志里，而且玩家的 GL 上下文由客户端线程持有；
         //  * LAST 才是真正的 pass：世界已经画完、GUI 还没开始，主 framebuffer 仍绑着，深度还是
         //    这一帧的深度。没有点亮的灯时它直接返回，不建 framebuffer、不拷深度、不绑程序。
+        //
+        // 光影包（Iris / OptiFine）接管时 LAST 落在<b>它的</b>世界渲染之内，写进去的颜色会被它的
+        // composite 覆盖，所以那条路分两段：LAST 只采深度（ScatterPass.render 里），颜色合成推到
+        // GameRenderer#renderWorld 返回之后 —— 由 GameRendererScatterMixin 调
+        // ScatterPass.renderDeferred()（见 mtrlte.scatter.mixins.json）。无光影时这一段是空操作。
         try {
             ClientTickEvents.END_CLIENT_TICK.register(ScatterPass::tick);
         } catch (Throwable t) {
