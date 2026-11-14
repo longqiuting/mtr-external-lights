@@ -104,7 +104,9 @@ public class XiamenTicketMachineBlock extends XiamenMachineBlock {
     }
 
     public XiamenTicketMachineBlock(final AbstractBlock.Settings settings) {
-        super(settings, LOWER_BOX, UPPER_BOX, "tooltip.mtrlte.ticket_machine_xiamen");
+        // 微光：上段（屏幕）8 级、下段 6 级；节能关机态（ui=eco）整机断电 → 0（不发光）。
+        super(settings.luminance(state -> state.contains(UI) && state.get(UI).poweredOff()
+                ? 0 : screenGlowOf(state)), LOWER_BOX, UPPER_BOX, "tooltip.mtrlte.ticket_machine_xiamen");
 
     }
 

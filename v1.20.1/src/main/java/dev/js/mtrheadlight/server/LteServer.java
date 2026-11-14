@@ -94,9 +94,10 @@ public final class LteServer implements ModInitializer {
             LteLog.LOGGER.warn("[lte] logo blocks unavailable", t);
         }
 
-        // 贴墙标识（厦门 / 角美 / LTE）：继承 MTR 的 station_name_entrance，站名由 MTR 的渲染器画。
-        // 厦门 / 角美两面牌子在本页**末尾**（LogoObjects.pinCoreTabOrder() 负责挪），
-        // LTE 那面进「LTE 工具」页签的第 2 位（LteCoreItems.pinToolsTabOrder() 负责挪）。
+        // 贴墙标识（厦门 / 角美 / LTE）：继承 MTR 的 station_name_entrance，站名由我们自己的
+        // WallSignRenderer 画（MTR 那个渲染器会把 MTR 原版 logo 烤进贴图）。
+        // 三面牌子都进「厦门风格物件」页签、紧跟两个 logo 块（LogoObjects.pinCoreTabOrder() 负责挪），
+        // LTE 那面另外也进「LTE 工具」页签的第 2 位（LteCoreItems.pinToolsTabOrder() 负责挪）。
         try {
             dev.js.mtrheadlight.xiamen.sign.WallSignObjects.register();
         } catch (Throwable t) {
@@ -190,6 +191,13 @@ public final class LteServer implements ModInitializer {
             dev.js.mtrheadlight.xiamen.charger.ChargerObjects.register();
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] power bank charger unavailable", t);
+        }
+
+        // 饮料售卖机（上下两块联动）：空手右键 3 元出一瓶随机正面药水，刷子右键换药水池。
+        try {
+            dev.js.mtrheadlight.xiamen.drinks.DrinksMachineObjects.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] drinks machine unavailable", t);
         }
 
         // 安检类方块（液体安检机）：方块 + 物品 + 创造页签条目，排在厦门那一组之后注册。

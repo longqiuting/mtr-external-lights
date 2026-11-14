@@ -36,7 +36,9 @@ import net.minecraft.util.Identifier;
  *   <li>{@code sounds(BlockSoundGroup.METAL)}：地铁站里的机器都是铁壳；</li>
  *   <li>{@code nonOpaque()}：模型不是满方块（正面有斜出去的屏幕 / 操作台），
  *       不这样邻居朝我们的面会被按满方块剔除，缝隙里能看穿邻居；</li>
- *   <li>不发光的：屏幕的亮是贴图画出来的，方块本身不打光，免得夜里整块机器像灯一样亮。</li>
+ *   <li>发微弱<b>方块光</b>（{@code luminance}）：上段（屏幕那半）8 级、下段 6 级 ——
+ *       夜里机器自己照亮周围一圈，但不像灯那样刺眼（见 {@link XiamenMachineBlock#screenGlow}）；
+ *       售票机切到节能关机（{@code ui=eco}）时整机断电，两段都不发光。</li>
  * </ul>
  *
  * <p>由 {@code LteServer} 在 {@code StationSignObjects.register()} 之后调用，两个物品进

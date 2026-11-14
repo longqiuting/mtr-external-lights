@@ -55,6 +55,7 @@
       "dev.js.mtrheadlight.logo.LogoClient",
       "dev.js.mtrheadlight.xiamen.machine.XiamenMachinesClient",
       "dev.js.mtrheadlight.xiamen.charger.ChargerClient",
+      "dev.js.mtrheadlight.xiamen.drinks.DrinksMachineClient",
       "dev.js.mtrheadlight.security.SecurityClient",
       "dev.js.mtrheadlight.xiamen.fangsu.FangsuPsdClient"
     ],

@@ -58,6 +58,12 @@ import net.minecraft.world.World;
  * <h2>放置 / 掉落</h2>
  * <p>任意位置可放，掉自己（{@code data/mtrlte/loot_tables/blocks/eyecandy_*.json} 一张一个）。
  * 不继承任何 MTR 的方块类 —— 这些是纯装饰，不参与线路 / 列车 / 屏蔽门逻辑。
+ *
+ * <h2>方块微光（{@link EyecandyEntry#glow()}）</h2>
+ * <p>描述文件里可选的 {@code "glow": n} 是<b>方块自发光等级</b>（0..15，不写 = 0）：构造时
+ * {@code settings.luminance(state -> entry.glow())}，所以整格方块自己去照亮周围（地铁站里带屏幕的
+ * 机器夜里是亮的）。目前只有 {@code xiamen_metro_pm_kiosk}（P+M 查询机）写了 7 级，其余 58 件一个
+ * 字段都没有 → 不碰 settings → 和以前一样不发光。
  */
 public class EyecandyBlock extends Block implements BlockEntityProvider {
 
@@ -87,7 +93,9 @@ public class EyecandyBlock extends Block implements BlockEntityProvider {
      */
     public EyecandyBlock(final Settings settings, final EyecandyEntry entry,
                          final List<double[]> boxes, final boolean collides) {
-        super(settings);
+        // 方块微光：描述文件里写了 "glow" 的物件（目前只有 P+M 查询机）注册期就把 luminance 塞进
+        // settings —— 也就是它自己发方块光照。没写的 58 件不碰 settings，走原版「不发光」的路径。
+        super(entry.glow() > 0 ? settings.luminance(state -> entry.glow()) : settings);
         this.entry = entry;
         this.collides = collides;
         this.shapes = new VoxelShape[4];

@@ -40,9 +40,17 @@ import net.minecraft.util.Identifier;
  *   "translation": [0, 0, 0],               // 格
  *   "rotation":    [0, 0, 0],               // 度，XYZ 欧拉
  *   "scale":       [1, 1, 1],
- *   "mirror":      [false, false, false]
+ *   "mirror":      [false, false, false],
+ *   "glow":        7                          // 可选：方块自发光等级 0..15（不写 = 0，不发光）
  * }
  * </pre>
+ *
+ * <h2>{@code glow}：方块微光（可选）</h2>
+ * <p>写 {@code "glow": 7} 的物件在<b>注册期</b>就拿 {@code settings.luminance(state -> entry.glow())}
+ * 建方块（见 {@link EyecandyBlock} 构造器），也就是它自己会发出 7 级<b>方块光照</b> —— 地铁站里那些
+ * 带屏幕 / 灯箱的机器（P+M 查询机）夜里是亮的。
+ * <p>目前只有 {@code xiamen_metro_pm_kiosk} 写了这一项；其余 58 件没有这个字段 → 默认 0 →
+ * 走原版「不发光」的路径，一行代码都不用改。值超出 0..15 会被夹到范围内（原版光照只有 4 个 bit）。
  *
  * <p>物体摆在哪基本由素材决定：模型烘进 {@code .obj} 就那一副样子，位置只靠这里的 {@code translation}
  * 平移 —— 桥墩（{@code bridge_pier_20}）就是靠 {@code [0,2,0]} 把素材里「挂在放置点以下」的模型
@@ -71,7 +79,7 @@ import net.minecraft.util.Identifier;
  */
 public record EyecandyEntry(Pack pack, String key, String displayName, Identifier modelId, Identifier texture,
                             boolean flipV, float[] scale, float[] rotation, float[] translation,
-                            boolean[] mirror, Identifier blockId) {
+                            boolean[] mirror, int glow, Identifier blockId) {
 
     /** 两套素材：一份描述文件 = 一个页签。 */
     public enum Pack {
@@ -121,6 +129,7 @@ public record EyecandyEntry(Pack pack, String key, String displayName, Identifie
                         triple(json, "rotation", 0.0F),
                         triple(json, "translation", 0.0F),
                         bools(json, "mirror"),
+                        glow(json),
                         new Identifier(EyecandyBlocks.NAMESPACE,
                                 "eyecandy_" + item.getKey().toLowerCase(Locale.ROOT))));
             }
@@ -160,6 +169,22 @@ public record EyecandyEntry(Pack pack, String key, String displayName, Identifie
 
     private static boolean bool(final JsonObject json, final String key, final boolean fallback) {
         return json.has(key) && !json.get(key).isJsonNull() ? json.get(key).getAsBoolean() : fallback;
+    }
+
+    /**
+     * 可选字段 {@code glow}：方块自发光等级。
+     *
+     * @return {@code 0..15}（没写 / 不是数字 / 写 null → {@code 0} = 不发光）；超出范围的夹回 0..15
+     */
+    private static int glow(final JsonObject json) {
+        if (!json.has("glow") || json.get("glow").isJsonNull()) {
+            return 0;
+        }
+        try {
+            return Math.max(0, Math.min(15, json.get("glow").getAsInt()));
+        } catch (final RuntimeException e) {
+            return 0;
+        }
     }
 
     private static float[] triple(final JsonObject json, final String key, final float fallback) {

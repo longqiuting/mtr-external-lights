@@ -24,6 +24,8 @@
     "mtrlte:ticket_gate_brt_side",
     "mtrlte:charger_top",
     "mtrlte:charger_bottom",
+    "mtrlte:drinks_machine_top",
+    "mtrlte:drinks_machine_bottom",
     "mtrlte:lte_logo",
     "mtrlte:jiaomei_logo"
   ]

@@ -1,5 +1,5 @@
 // 贴墙标识（厦门 / 角美 / LTE）的注册：3 个方块 + 3 个物品 + 1 个方块实体类型；
-// 厦门、角美进「厦门风格物件」页签的<b>末尾</b>，LTE 那面进「LTE 工具」页签的第 2 位。
+// 三面都进「厦门风格物件」页签（紧跟两个 logo 块），LTE 那面另外也进「LTE 工具」页签的第 2 位。
 package dev.js.mtrheadlight.xiamen.sign;
 
 import java.util.ArrayList;
@@ -42,10 +42,11 @@ import net.minecraft.util.Identifier;
  *
  * <h2>页签顺序</h2>
  * <ul>
- *   <li><b>厦门风格物件</b>（{@link XiamenObjects#CORE_TAB_ID}）：厦门 / 角美两面牌子加到<b>末尾</b>，
- *       由 {@code LogoObjects.pinCoreTabOrder()} 统一重排（它同时决定前排的两个 logo 和四件站外标志）；</li>
- *   <li><b>LTE 工具</b>（{@link LteCoreItems#TOOLS_TAB_ID}）：{@code wall_sign_lte} 排<b>第 2 位</b>
- *       （LTE logo 方块之后、仪表板之前），见 {@link LteCoreItems#pinToolsTabOrder()}。</li>
+ *   <li><b>厦门风格物件</b>（{@link XiamenObjects#CORE_TAB_ID}）：三面牌子（厦门 / 角美 / LTE）紧跟在
+ *       <b>两个 logo 块后面</b> —— 厦门 logo → 角美 logo → 厦门贴墙标识 → 角美贴墙标识 → LTE 贴墙标识 →
+ *       四件站外标志，由 {@code LogoObjects.pinCoreTabOrder()} 统一重排；</li>
+ *   <li><b>LTE 工具</b>（{@link LteCoreItems#TOOLS_TAB_ID}）：{@code wall_sign_lte} 也在这里，排<b>第 2 位</b>
+ *       （LTE logo 方块之后、仪表板之前），见 {@link LteCoreItems#pinToolsTabOrder()} —— 同一个方块在两页都有。</li>
  * </ul>
  */
 public final class WallSignObjects {
@@ -104,13 +105,14 @@ public final class WallSignObjects {
             LteLog.LOGGER.error("[lte] wall sign: could not register the block entity type", t);
         }
 
-        // 厦门 / 角美两面牌子进「厦门风格物件」页签。这里只保证「有位」，
-        // 最终位置由 LogoObjects.pinCoreTabOrder() 把它们挪到末尾。
+        // 三面牌子都进「厦门风格物件」页签：厦门 / 角美 / LTE 是同一族，紧跟两个 logo 块之后。
+        // 最终位置由 LogoObjects.pinCoreTabOrder() 决定（它会把这五件按顺序拎到最前排）。
         try {
             ItemGroupEvents.modifyEntriesEvent(RegistryKey.of(RegistryKeys.ITEM_GROUP, XiamenObjects.CORE_TAB_ID))
                     .register(entries -> {
                         entries.add(xiamen.item());
                         entries.add(jiaomei.item());
+                        entries.add(lte.item());
                     });
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] wall sign: could not add the creative tab entries", t);

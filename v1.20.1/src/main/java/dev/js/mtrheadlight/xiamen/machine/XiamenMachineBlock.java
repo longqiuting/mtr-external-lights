@@ -88,6 +88,32 @@ public abstract class XiamenMachineBlock extends HorizontalFacingBlock {
     /** 物品提示的翻译键（{@code tooltip.mtrlte.<id>}），{@code null} = 不显示。 */
     private final String tooltipKey;
 
+    /** 上段（屏幕那半）的自发光等级：方块光照 8 级 —— 夜里机器自己亮一圈，但不像火把那样刺眼。 */
+    protected static final int SCREEN_GLOW_UPPER = 8;
+
+    /** 下段（操作台 / 读卡区那半）的自发光等级：6 级，比屏幕暗一档。 */
+    protected static final int SCREEN_GLOW_LOWER = 6;
+
+    /**
+     * 给「机器方块」加上微光：按 {@code half} 取 {@link #SCREEN_GLOW_UPPER} / {@link #SCREEN_GLOW_LOWER}。
+     *
+     * <p>两格高 = 两个方块，所以<b>上下两块各发各的光</b>（方块光照是逐格算的）；屏幕那半亮一档，
+     * 机身下段暗一档。这是<b>方块光照</b>（{@code luminance}），不是贴图自发光 —— 怪物会以为这里
+     * 天没黑透，但这正是地铁站里机器该有的样子。
+     *
+     * <p>写成 {@code settings} 的修饰而不是覆写 {@code getLuminance}：{@code AbstractBlock} 的
+     * 光照也是从 {@code Settings} 里读的，这里只是把值提前塞进去，方块类本体不用开分支。
+     */
+    protected static AbstractBlock.Settings screenGlow(final AbstractBlock.Settings settings) {
+        return settings.luminance(XiamenMachineBlock::screenGlowOf);
+    }
+
+    /** 某个状态该发几级光（上段 8、下段 6）；状态里还没有 {@code half} 时按下段算。 */
+    protected static int screenGlowOf(final BlockState state) {
+        return state.contains(HALF) && state.get(HALF) == DoubleBlockHalf.UPPER
+                ? SCREEN_GLOW_UPPER : SCREEN_GLOW_LOWER;
+    }
+
     /**
      * @param settings  方块设置（硬度 / 声音 / nonOpaque 这些，见 {@link XiamenMachines}）
      * @param lowerBox  下段模型的包围盒 {@code {minX, maxX, minZ, maxZ}}（1/16 格，模型空间）

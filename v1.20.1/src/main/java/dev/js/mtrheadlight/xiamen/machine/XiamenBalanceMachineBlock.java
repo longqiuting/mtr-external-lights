@@ -39,7 +39,8 @@ public class XiamenBalanceMachineBlock extends XiamenMachineBlock implements Blo
     private static final double[] UPPER_BOX = {1.0D, 15.0D, 0.0D, 11.7D};
 
     public XiamenBalanceMachineBlock(final AbstractBlock.Settings settings) {
-        super(settings, LOWER_BOX, UPPER_BOX, "tooltip.mtrlte.balance_machine_xiamen");
+        // 微光：上段（屏幕）8 级、下段（读卡区）6 级 —— 与售票机同一套（见 XiamenMachineBlock#screenGlow）。
+        super(screenGlow(settings), LOWER_BOX, UPPER_BOX, "tooltip.mtrlte.balance_machine_xiamen");
 
     }
 
@@ -64,6 +65,9 @@ public class XiamenBalanceMachineBlock extends XiamenMachineBlock implements Blo
         if (world.isClient) {
             return ActionResult.SUCCESS;
         }
+        // 「嘟」一声（原版按钮点击音），和查询机的反馈音一致：服务端播，附近都听得到。
+        world.playSound(null, pos, net.minecraft.sound.SoundEvents.UI_BUTTON_CLICK.value(),
+                net.minecraft.sound.SoundCategory.BLOCKS, 0.6F, 1.2F);
         player.sendMessage(Text.translatable("message.mtrlte.balance_machine", balanceOf(world, player)), true);
         return ActionResult.SUCCESS;
     }

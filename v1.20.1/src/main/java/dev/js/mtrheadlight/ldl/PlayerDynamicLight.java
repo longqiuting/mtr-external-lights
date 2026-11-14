@@ -9,6 +9,7 @@ import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.item.BlockItem;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.registry.Registries;
 import net.minecraft.util.math.Vec3d;
 
 /**
@@ -19,24 +20,36 @@ import net.minecraft.util.math.Vec3d;
  * light - judged by <em>the block's own default light level</em>, so torches (14), lanterns (15),
  * soul lanterns (10), campfires (15), glowstone and every modded light block are covered without a
  * hard-coded item list - one dynamic light follows the player. Left or right hand, whichever is
- * brighter. It is deliberately <b>not</b> gated by {@link HeadlightConfig#enabled}: that master switch
- * is about trains, and "turn the train lights off" must never take the player's own torch away.
+ * brighter. It is deliberately <b>not</b> gated by {@link HeadlightConfig#enabled}: that master
+ * switch is about trains, and "turn the train lights off" must never take the player's own torch
+ * away.
  *
  * <h2>Optional dependency</h2>
  * The light is published through LambDynamicLights 4.x ({@code lambdynlights}). Not installed means
  * the feature is inert - not broken: this class names no LDL type, the whole LDL side lives in
  * {@link LdlPlayerLight}, and every call into it sits inside {@code try/catch Throwable}. A client
- * without LDL therefore logs one line at startup and never touches the API classes:
+ * without LDL therefore logs one line at startup and never touches the API classes.
+ *
+ * <h2>The one line that says whether it works</h2>
+ * Every state change prints exactly one INFO line, so a bug report carries its own diagnosis:
  * <pre>
- *   [lte] player dynamic light: off - LambDynamicLights (lambdynlights) is not installed ...
+ *   [lte] ldl: ready   mod=lambdynlights light=14 item=minecraft:torch
+ *   [lte] ldl: ready   mod=lambdynlights light=0  item=none
+ *   [lte] ldl: missing mod=none light=0 item=none
+ *   [lte] ldl: missing mod=lambdynlights light=0 item=none note=no-initializer-callback
  * </pre>
- * The config key is read and saved either way, so installing LDL later needs no config edit.
+ * {@code ready} means LDL handed us its behaviour manager (its {@code lambdynlights:initializer}
+ * entrypoint called back) and {@code light=} is the level we actually published. {@code missing}
+ * with {@code mod=none} is the normal "no LDL installed" case; {@code missing} with
+ * {@code mod=lambdynlights} plus {@code note=no-initializer-callback} is the failure that used to be
+ * silent - the mod is there but our entrypoint was never invoked.
  *
  * <h2>Not the same thing as LDL's own item lights</h2>
- * LDL also lights items on its own (including the one in your hand). This path exists so the effect
- * is guaranteed by <em>us</em> - it is what the config row switches off, and it keeps working when
- * LDL's item luminance data for a modded light block is missing. Turning the row off only removes our
- * behaviour; LDL's vanilla item lighting is its own setting.
+ * LDL also lights items on its own (including the one in your hand) through its entity pipeline. This
+ * path exists so the effect is guaranteed by <em>us</em>: it is what the config row switches off, it
+ * survives LDL's entity-pipeline problems, and it keeps working when LDL's item luminance data for a
+ * modded light block is missing. Turning the row off only removes our behaviour; LDL's vanilla item
+ * lighting is its own setting.
  */
 public final class PlayerDynamicLight {
 
@@ -46,22 +59,35 @@ public final class PlayerDynamicLight {
     /** The API library ships inside the mod jar as {@code META-INF/jars}; presence is not a separate check. */
     public static final String LDL_API_MOD_ID = "lambdynlights_api";
 
+    /** Ticks to wait for the {@code lambdynlights:initializer} callback before reporting it as missing. */
+    private static final int CALLBACK_GRACE_TICKS = 100;
+
     private static boolean modChecked;
     private static boolean modLoaded;
 
     /** Set once an LDL call blew up: stop trying for the rest of the session instead of spamming. */
     private static boolean tripped;
 
-    private static boolean loggedOn;
+    /** Ticks seen while LDL was loaded but its behaviour manager had not been handed over yet. */
+    private static int ticksWithoutCallback;
+
+    /** Last published level, 0-15; also the {@code light=} value in the log line. */
     private static int lastPublished;
+
+    /** Last world seen by {@link #tick}; a change means LDL dropped our behaviour. */
+    private static Object lastWorld;
+
+    /** The {@code ready|missing mod=.. light=.. item=..} line is printed only when this tuple changes. */
+    private static String lastReport;
 
     private PlayerDynamicLight() {
     }
 
     /**
      * Whether a light can be published at all: LDL loaded <em>and</em> it already handed us its
-     * behaviour manager (its {@code lambdynlights:initializer} entrypoint runs on its own schedule,
-     * so "installed" and "ready" are two different questions - only the second one is asked per tick).
+     * behaviour manager (its {@code lambdynlights:initializer} entrypoint runs from LDL's own client
+     * initialiser, so "installed" and "ready" are two different questions - only the second one is
+     * asked per tick).
      */
     public static boolean available() {
         if (!modChecked) {
@@ -72,10 +98,8 @@ public final class PlayerDynamicLight {
                 modLoaded = false;
             }
             if (!modLoaded) {
-                LteLog.LOGGER.info("[lte] player dynamic light: off - LambDynamicLights ({}) is not "
-                        + "installed, so the held-item light stays inert (config key "
-                        + "playerDynamicLight is still honoured/saved; nothing else changes)",
-                        LDL_MOD_ID);
+                // No LDL at all: the feature is inert by design, and this is the whole story.
+                report(false, "none", 0, "none", null);
             }
         }
         if (!modLoaded || tripped) {
@@ -107,32 +131,50 @@ public final class PlayerDynamicLight {
     }
 
     /** Called by {@link PlayerLightInitializer} once LDL hands over its manager. */
-    static void reportInstalled() {
-        if (!loggedOn) {
-            loggedOn = true;
-            LteLog.LOGGER.info("[lte] player dynamic light: on - LambDynamicLights {} behaviour manager "
-                            + "registered; held light blocks (torch / lantern / campfire / ...) light the "
-                            + "ground while the playerDynamicLight row is on",
-                    LDL_API_MOD_ID);
-        }
+    static void onInitializerRan() {
+        ticksWithoutCallback = 0;
+        report(true, LDL_MOD_ID, lastPublished, "none", null);
     }
 
     /** Once per client tick, from {@code PlayerLightClient}. Never throws. */
     public static void tick(final MinecraftClient client) {
         try {
+            final Object world = client == null ? null : client.world;
+            if (world != lastWorld) {
+                // LDL emptied its light source set inside setWorld (see LdlPlayerLight#resetAttachment).
+                lastWorld = world;
+                lastPublished = 0;
+                if (modLoaded && !tripped) {
+                    try {
+                        LdlPlayerLight.resetAttachment();
+                    } catch (Throwable ignored) {
+                        // API missing: nothing was ever registered.
+                    }
+                }
+            }
             final HeadlightConfig cfg = MtrHeadlightClient.config();
             final ClientPlayerEntity player = client == null ? null : client.player;
-            if (cfg == null || !cfg.playerDynamicLight || player == null || !available()) {
-                publish(0, 0.0D, 0.0D, 0.0D);
+            if (cfg == null || !cfg.playerDynamicLight || player == null) {
+                publish(0, 0.0D, 0.0D, 0.0D, "none");
+                return;
+            }
+            if (!available()) {
+                // Distinguish "no LDL" (logged once at startup) from "LDL present but our initializer
+                // never ran" - the latter is the failure mode that used to be completely silent.
+                if (modLoaded && !tripped && ++ticksWithoutCallback == CALLBACK_GRACE_TICKS) {
+                    report(false, LDL_MOD_ID, 0, "none", "no-initializer-callback");
+                }
+                publish(0, 0.0D, 0.0D, 0.0D, "none");
                 return;
             }
             final Vec3d pos = player.getPos();
-            publish(luminanceOf(player), pos.x, pos.y, pos.z);
+            final ItemStack held = brighterHand(player);
+            publish(luminanceOf(held), pos.x, pos.y, pos.z, idOf(held));
         } catch (Throwable t) {
             // A dynamic light must never be able to take the client down.
             tripped = true;
             LteLog.LOGGER.warn("[lte] player dynamic light: stopped after an error ({})", t.toString());
-            publish(0, 0.0D, 0.0D, 0.0D);
+            publish(0, 0.0D, 0.0D, 0.0D, "none");
         }
     }
 
@@ -149,24 +191,65 @@ public final class PlayerDynamicLight {
         }
     }
 
-    private static void publish(final int luminance, final double x, final double y, final double z) {
+    private static void publish(final int luminance, final double x, final double y, final double z,
+                                final String itemId) {
         if (!modLoaded || tripped) {
             return;
         }
         try {
             final int published = LdlPlayerLight.set(x, y, z, luminance);
-            if (published != lastPublished) {
-                lastPublished = published;
-                if (published > 0) {
-                    LteLog.LOGGER.debug("[lte] player dynamic light: held light level {}", published);
-                } else {
-                    LteLog.LOGGER.debug("[lte] player dynamic light: detached (nothing lit in hand)");
-                }
+            final boolean changed = published != lastPublished;
+            lastPublished = published;
+            if (changed) {
+                report(LdlPlayerLight.ready(), LDL_MOD_ID, published, itemId, null);
+            } else if (published > 0) {
+                // Same level, but the hand may have moved to another light of equal brightness.
+                report(true, LDL_MOD_ID, published, itemId, null);
             }
         } catch (Throwable t) {
             tripped = true;
             LteLog.LOGGER.warn("[lte] player dynamic light: publishing failed ({}) - feature off for this "
                     + "session, the client keeps running", t.toString());
+        }
+    }
+
+    /**
+     * One INFO line per state change: {@code [lte] ldl: ready|missing mod=&lt;id&gt; light=&lt;level&gt; item=&lt;id&gt;}.
+     * A repeated identical tuple is dropped, so holding a torch does not write a line per tick.
+     */
+    private static void report(final boolean ready, final String modId, final int light,
+                               final String itemId, final String note) {
+        final String key = (ready ? "ready" : "missing") + '|' + modId + '|' + light + '|' + itemId
+                + '|' + note;
+        if (key.equals(lastReport)) {
+            return;
+        }
+        lastReport = key;
+        if (note == null) {
+            LteLog.LOGGER.info("[lte] ldl: {} mod={} light={} item={}",
+                    ready ? "ready" : "missing", modId, light, itemId);
+        } else {
+            LteLog.LOGGER.info("[lte] ldl: {} mod={} light={} item={} note={}",
+                    ready ? "ready" : "missing", modId, light, itemId, note);
+        }
+    }
+
+    /** The hand with the brighter light item; main hand wins ties. */
+    private static ItemStack brighterHand(final ClientPlayerEntity player) {
+        final ItemStack main = player.getMainHandStack();
+        final ItemStack off = player.getOffHandStack();
+        return luminanceOf(off) > luminanceOf(main) ? off : main;
+    }
+
+    /** Registry id of the held item for the log line ({@code minecraft:torch}); "none" when empty. */
+    private static String idOf(final ItemStack stack) {
+        if (stack == null || stack.isEmpty()) {
+            return "none";
+        }
+        try {
+            return Registries.ITEM.getId(stack.getItem()).toString();
+        } catch (Throwable t) {
+            return "?";
         }
     }
 

@@ -1,6 +1,12 @@
-// 校验贴墙标识（wall_sign_*）的静态一致性：MTR 4.0.5 站名出入口模型 ↔ blockstate 的
-// style × facing 变体 ↔ Java 里的 VoxelShape 常量 / 属性定义、贴图引用、item 模型、战利品表、
-// lang、pickaxe 标签。不启动游戏。
+// 校验贴墙标识（wall_sign_*）的静态一致性：我们自己那份「站名出入口」模型（灯板 + 品牌 logo）
+// ↔ blockstate 的 propagate_property × facing 变体 ↔ Java（继承 MTR 的 BlockStationNameEntrance、
+// 自己的 WallSignRenderer）、贴图引用、item 模型、战利品表、lang、pickaxe 标签。不启动游戏。
+//
+// 关键不变量（用户提的「logo 读到 MTR 原版 / 背景混进别的贴图」就是这几条崩了）：
+//   1. 模型（含子模型的覆盖）里一个 mtr: 前缀都不许有；
+//   2. 每个 textures 值都必须以 mtrlte: 开头、且 png 真的存在；
+//   3. 渲染器不许用 getStationNameEntrance(...)（那张贴图里烤着 MTR 的 logo），必须用 getStationName(...)；
+//   4. 模型的 logo quad 必须落在灯板前面（z 更大）、站名平面（0.15 px）后面，且 x 不与站名带重叠。
 const fs = require("fs");
 const path = require("path");
 
@@ -9,13 +15,13 @@ const ROOT = path.join(VER, "src/main/resources");
 const JAVA = path.join(VER, "src/main/java/dev/js/mtrheadlight/xiamen/sign");
 const IDS = ["xiamen", "jiaomei", "lte"];
 
-// 与 WallSignBlock 的常量一一对应（1/16 格）：z 取 0..1（Java 给了一格厚的可选中薄板，
-// 模型是零厚度的 0.05，所以 z 方向放 1 格容差）。
-const SHAPE = {
-  short: { minX: 0, maxX: 16, minY: 4, maxY: 12, minZ: 0, maxZ: 1 },
-  tall: { minX: 0, maxX: 16, minY: 0, maxY: 16, minZ: 0, maxZ: 1 },
+// 灯板在模型里的 y 范围 —— 与 MTR 的 BlockStationNameEntrance#getOutlineShape 一一对应
+// （我们继承它、一行都不重写，所以模型必须和它的 4..12 / 0..16 对得上）。
+const BOARD = {
+  short: { minY: 4, maxY: 12 },
+  tall: { minY: 0, maxY: 16 },
 };
-const MODELS = { 0: "station_name_entrance_short", 1: "station_name_entrance_tall" };
+const MODELS = { 0: "short", 1: "tall" };
 
 const read = (rel) => JSON.parse(fs.readFileSync(path.join(ROOT, rel), "utf8"));
 const exists = (rel) => fs.existsSync(path.join(ROOT, rel));
@@ -39,13 +45,14 @@ const rotPoint = (x, z, deg) => {
 const resolveModel = (ref, depth = 0) => {
   const [ns, name] = ref.split(":").length === 1 ? ["minecraft", ref] : ref.split(":");
   const file = `assets/${ns}/models/${name}.json`;
-  if (!exists(file)) return { file, data: null };
+  if (!exists(file)) return { file, data: null, chain: [ref] };
   const data = read(file);
-  if (data.elements) return { file, data };
+  if (data.elements) return { file, data, chain: [ref] };
   if (data.parent && depth < 8) {
     const parent = resolveModel(data.parent, depth + 1);
     return {
       file,
+      chain: [ref, ...parent.chain],
       data: {
         ...parent.data,
         ...data,
@@ -54,31 +61,49 @@ const resolveModel = (ref, depth = 0) => {
       },
     };
   }
-  return { file, data };
+  return { file, data, chain: [ref] };
 };
 
-const near = (a, b, tol) => Math.abs(a - b) < tol;
+const num = (src, name) => {
+  const m = new RegExp(name + "\\s*=\\s*(-?[0-9.]+)F").exec(src);
+  return m ? Number(m[1]) : null;
+};
 
 // ---------------------------------------------------------------- Java 源头
 
 const blockSrc = readText(path.join(JAVA, "WallSignBlock.java"));
 console.log("\n[Java: WallSignBlock]");
-check(/IntProperty\.of\("style",\s*0,\s*1\)/.test(blockSrc), '属性 style = IntProperty.of("style", 0, 1)（0 矮 / 1 高）');
-check(/IntProperty\.of\("link",\s*0,\s*63\)/.test(blockSrc), '属性 link = IntProperty.of("link", 0, 63)（6 位掩码）');
-check(/1 << direction\.getId\(\)/.test(blockSrc), "位 = 1 << Direction#getId()");
-check(/checkHoldingBrush\(world, player/.test(blockSrc), "刷子 = IBlock.checkHoldingBrush（MTR 的画笔，自带服务端守卫）");
-check(/\(state\.get\(STYLE\) \+ 1\) % 2/.test(blockSrc), "刷子循环 = style 0 → 1 → 0");
-check(/rotateYClockwise\(\)/.test(blockSrc) && /rotateYCounterclockwise\(\)/.test(blockSrc), "切换后沿墙向左右两侧传播");
-check(/computeLink\(/.test(blockSrc) && /getStateForNeighborUpdate/.test(blockSrc), "邻居更新里重算连接掩码");
-check(/VoxelShapes\.empty\(\)/.test(blockSrc), "碰撞形状为空（薄牌面不挡人，与 MTR 一致）");
+check(/extends BlockStationNameEntrance/.test(blockSrc), "继承 MTR 的 BlockStationNameEntrance（形状/连接/刷子全用它的）");
+check(/createBlockEntity\(/.test(blockSrc), "只覆写 createBlockEntity（换成我们自己的方块实体类型）");
+check(!/luminance\(/.test(blockSrc), "没有 luminance（MTR 那块板不是自发光方块）");
+check(!/IntProperty\.of\(\"link\"/.test(blockSrc), "没有自己造 link 属性（MTR 不存连接状态，渲染时现数）");
+
+const beSrc = readText(path.join(JAVA, "WallSignBlockEntity.java"));
+console.log("\n[Java: WallSignBlockEntity]");
+check(/extends BlockStationNameBase\.TileEntityStationNameBase/.test(beSrc), "继承 MTR 的 TileEntityStationNameBase");
+check(/super\(WallSignObjects\.entityType\(\),\s*pos,\s*state,\s*0\.0F,\s*0\.00625F,\s*false\)/.test(beSrc),
+  "yOffset=0 / zOffset=0.00625 / 单面（与 MTR 出入口款一致）");
+// 站名平面在模型空间里的 z（px）：板在 0.05，MTR 把它画在「方块中心 - zOffset(0.00625) - 0.003125」处。
+const namePlaneZ = (0.00625 + 0.003125) * 16;
 
 const rendererSrc = readText(path.join(JAVA, "WallSignRenderer.java"));
 console.log("\n[Java: WallSignRenderer]");
-check(/RailwayData\.getStation\(ClientData\.STATIONS,\s*ClientData\.DATA_CACHE,\s*pos\)/.test(rendererSrc),
-  "站名 = RailwayData.getStation(ClientData.STATIONS, ClientData.DATA_CACHE, pos)");
-check(/gui\.mtr\.untitled/.test(rendererSrc), "没车站时用 MTR 的 gui.mtr.untitled");
-check(/textRenderer\.draw\(/.test(rendererSrc), "站名落笔走 TextRenderer.draw");
-check(/run\.anchor\(\)/.test(rendererSrc), "只有连接组里左下角那一格落笔（站名不重复）");
+check(/extends RenderStationNameBase/.test(rendererSrc), "继承 MTR 的 RenderStationNameBase");
+check(/protected void drawStationName\(/.test(rendererSrc), "覆写 drawStationName");
+check(/getStationName\(/.test(rendererSrc), "站名用 getStationName(...)（透明底、不带 logo）");
+check(!/getStationNameEntrance\(/.test(rendererSrc),
+  "不许用 getStationNameEntrance(...)（那张贴图左边烤着 MTR 的红底白 M logo）");
+check(/RenderTrains\.scheduleRender\(/.test(rendererSrc) && /QueuedRenderLayer\.INTERIOR/.test(rendererSrc),
+  "走 RenderTrains.scheduleRender(INTERIOR)（和 MTR 的站名同一条提交路径）");
+check(/BlockStationNameEntrance\.STYLE/.test(rendererSrc), "按 BlockStationNameEntrance.STYLE 选高矮");
+check(/private static int length\(/.test(rendererSrc), "自己数整条牌子的格数（照抄 MTR 的 getLength）");
+
+const TEXT_LEFT = num(rendererSrc, "TEXT_LEFT");
+const TEXT_RIGHT = num(rendererSrc, "TEXT_RIGHT");
+const TEXT_H_TALL = num(rendererSrc, "TEXT_HEIGHT_TALL");
+const TEXT_H_SHORT = num(rendererSrc, "TEXT_HEIGHT_SHORT");
+check(TEXT_LEFT !== null && TEXT_RIGHT !== null && TEXT_H_TALL !== null && TEXT_H_SHORT !== null,
+  `渲染器的版面常量可读：TEXT_LEFT=${TEXT_LEFT} TEXT_RIGHT=${TEXT_RIGHT} 高=${TEXT_H_TALL} 矮=${TEXT_H_SHORT}`);
 
 // ---------------------------------------------------------------- 每个方块
 
@@ -86,68 +111,65 @@ for (const id of IDS) {
   const name = `wall_sign_${id}`;
   console.log(`\n[${name}]`);
 
-  // ---- blockstate：multipart，8 条（2 形态 × 4 朝向）
+  // ---- blockstate：multipart，8 条（2 形态 × 4 朝向），which model 是本 id 自己那份
   const bs = read(`assets/mtrlte/blockstates/${name}.json`);
   const parts = bs.multipart || [];
-  check(Array.isArray(parts) && parts.length === 8, `blockstate 是 multipart 且有 8 条（2 形态 × 4 朝向），实际 ${parts.length}`);
+  check(parts.length === 8, `blockstate 是 multipart 且有 8 条（2 形态 × 4 朝向），实际 ${parts.length}`);
 
   for (const part of parts) {
     const when = part.when || {};
-    const style = Number(when.style);
-    const facing = when.facing;
+    const style = Number(when.propagate_property);
     const y = (part.apply || {}).y || 0;
-    const expectedModel = `mtrlte:block/${MODELS[style]}`;
-    check((part.apply || {}).model === expectedModel,
-      `style=${when.style}/${facing}: 指向 ${expectedModel}`);
+    const expectedModel = `mtrlte:block/${name}_${MODELS[style]}`;
+    check((part.apply || {}).model === expectedModel, `propagate_property=${when.propagate_property}/${when.facing}: 指向 ${expectedModel}`);
 
     const model = resolveModel(expectedModel);
-    check(!!model.data && !!model.data.elements, `  模型 ${expectedModel} 可解析且有 elements`);
+    check(!!model.data && !!model.data.elements, `  模型 ${expectedModel} 可解析且有 elements（链 ${model.chain.join(" → ")}）`);
 
-    // 旋转后的几何包围盒
-    const shape = style === 0 ? SHAPE.short : SHAPE.tall;
-    let box = { x1: 99, x2: -99, y1: 99, y2: -99, z1: 99, z2: -99 };
-    for (const el of model.data.elements) {
-      for (const corner of [el.from, el.to]) {
-        const [x, z] = rotPoint(corner[0], corner[2], y);
-        box = {
-          x1: Math.min(box.x1, x), x2: Math.max(box.x2, x),
-          y1: Math.min(box.y1, corner[1]), y2: Math.max(box.y2, corner[1]),
-          z1: Math.min(box.z1, z), z2: Math.max(box.z2, z),
-        };
-      }
-    }
-    // 模型是零厚度的一张纸，旋转 90/180/270 之后在那个轴上会退化成一条线（0.05 或 15.95），
-    // 所以 x / z 只要求「落在 Java 形状里、容差 1 格」；y 必须精确相等（高矮形态就靠它区分）。
-    // Java 的形状常量写在**模型空间**（未旋转），这里用同一套 rotPoint 把它转到当前变体的朝向上再比。
-    const [sx1, sz1] = rotPoint(shape.minX, shape.minZ, y);
-    const [sx2, sz2] = rotPoint(shape.maxX, shape.maxZ, y);
-    const exp = {
-      x1: Math.min(sx1, sx2), x2: Math.max(sx1, sx2),
-      z1: Math.min(sz1, sz2), z2: Math.max(sz1, sz2),
-    };
-    const okX = box.x1 >= exp.x1 - 1 && box.x2 <= exp.x2 + 1;
-    const okY = near(box.y1, shape.minY, 1e-6) && near(box.y2, shape.maxY, 1e-6);
-    const okZ = box.z1 >= exp.z1 - 1 && box.z2 <= exp.z2 + 1;
-    check(okX && okY && okZ,
-      `  y=${y}: 包围盒 [${box.x1},${box.y1},${box.z1}]→[${box.x2},${box.y2},${box.z2}] 落在 VoxelShape 常量内（y 精确）`);
+    // 灯板的几何包围盒（只用来确认模型没被改成别的厚度 / 高度）
+    const board = model.data.elements.find((el) => el.from[2] === el.to[2]);
+    const h = BOARD[MODELS[style]];
+    check(!!board && board.from[1] === h.minY && board.to[1] === h.maxY,
+      `  灯板 y ${h.minY}..${h.maxY}（与 MTR getOutlineShape 一致），实际 ${board ? board.from[1] + ".." + board.to[1] : "找不到零厚度元素"}`);
+    check(!!board && Math.abs(board.from[2] - board.to[2]) < 1e-9, "  灯板零厚度（与 MTR 原模型一致）");
+    check(!!board && board.faces.north && board.faces.north.cullface === "north", "  灯板 north 面 cullface=north（贴墙不画）");
+    void y;
   }
 
-  // ---- 贴图引用：全部是 mtrlte 自己的，且文件存在；模型里不许有 mtr: 前缀
+  // ---- 贴图引用 + logo 位置（对每个形态各查一遍）
   for (const style of [0, 1]) {
-    const model = resolveModel(`mtrlte:block/${MODELS[style]}`);
-    check(!JSON.stringify(model.data).includes('"mtr:'), `${MODELS[style]}: 模型里没有 mtr: 前缀`);
-    for (const tex of Object.values(model.data.textures || {})) {
-      check(tex.startsWith("mtrlte:"), `${MODELS[style]}: 贴图 ${tex} 没有跨模组引用`);
-      check(exists(`assets/mtrlte/textures/${tex.split(":")[1]}.png`), `${MODELS[style]}: 贴图文件存在 ${tex}`);
+    const tag = `${name}_${MODELS[style]}`;
+    const model = resolveModel(`mtrlte:block/${tag}`);
+    const json = JSON.stringify(model.data);
+    check(!json.includes('"mtr:') && !json.includes("mtr:block/"), `${tag}: 模型（含父模型覆盖后）里没有 mtr: 前缀`);
+    for (const [key, tex] of Object.entries(model.data.textures || {})) {
+      check(tex.startsWith("mtrlte:"), `${tag}: textures.${key} = ${tex} 没有跨模组引用`);
+      check(exists(`assets/mtrlte/textures/${tex.split(":")[1]}.png`), `${tag}: textures.${key} 的文件存在（${tex}）`);
     }
-    const plate = model.data.elements[0];
-    check(plate.faces.north && plate.faces.north.cullface === "north", `${MODELS[style]}: north 面 cullface=north（贴墙不画）`);
-    check(Math.abs(plate.from[2] - plate.to[2]) < 1e-9, `${MODELS[style]}: 零厚度（与 MTR 原模型一致）`);
+    check(model.data.textures.board === "mtrlte:block/station_name_background", `${tag}: 灯板底图 = station_name_background`);
+    check(model.data.textures.logo === `mtrlte:block/${id}_logo`, `${tag}: 品牌 logo = ${id}_logo`);
+
+    const board = model.data.elements.find((el) => el.faces && el.faces.north);
+    const logo = model.data.elements.find((el) => el.faces && !el.faces.north);
+    check(!!logo, `${tag}: 有 logo quad（只有 south 面的那一块）`);
+    if (board && logo) {
+      check(logo.from[2] > board.from[2], `${tag}: logo z=${logo.from[2]} 在灯板 z=${board.from[2]} 前面`);
+      check(logo.from[2] < namePlaneZ - 0.01, `${tag}: logo z=${logo.from[2]} 在站名平面 z=${namePlaneZ} 后面（不会盖住字）`);
+      const logoX1 = logo.from[0] / 16 - 0.5;
+      const logoX2 = logo.to[0] / 16 - 0.5;
+      check(logoX1 > TEXT_RIGHT + 1e-4,
+        `${tag}: logo x ${logoX1.toFixed(5)}..${logoX2.toFixed(5)} 在站名带右边界 ${TEXT_RIGHT} 之外（不重叠）`);
+      const halfH = (MODELS[style] === "tall" ? TEXT_H_TALL : TEXT_H_SHORT) / 2;
+      const logoY1 = 0.5 - logo.to[1] / 16; // 局部 +y 与模型 +y 反号
+      const logoY2 = 0.5 - logo.from[1] / 16;
+      check(logoY1 >= -halfH - 1e-4 && logoY2 <= halfH + 1e-4,
+        `${tag}: logo 竖直范围 ${logoY1.toFixed(3)}..${logoY2.toFixed(3)} 在站名带 ±${halfH} 之内（同一水平带）`);
+    }
   }
 
   // ---- item 模型
   const item = read(`assets/mtrlte/models/item/${name}.json`);
-  check(item.parent === "mtrlte:block/station_name_entrance_tall", `item 模型 parent=${item.parent}`);
+  check(item.parent === `mtrlte:block/${name}_tall`, `item 模型 parent=${item.parent}`);
   check(!!item.display && !!item.display.gui && !!item.display.thirdperson_righthand, "item 模型有 3D display（gui/thirdperson）");
 
   // ---- 战利品表 / lang / 标签

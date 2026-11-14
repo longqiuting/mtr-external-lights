@@ -33,9 +33,9 @@ import net.minecraft.util.Identifier;
  *       <td>{@code mtrlte:core}「厦门风格物件」（{@link XiamenObjects#CORE_TAB_ID}）</td></tr>
  * </table>
  *
- * <p>「厦门风格物件」页签的<b>最前排</b>顺序由 {@link #pinCoreTabOrder()} 统一重排
- * （两个 logo → 四件站外标志）；厦门 / 角美两个贴墙标识被排到该页<b>末尾</b>
- * （{@link #CORE_TAB_TAIL}），不依赖「谁先注册谁在前」。
+ * <p>「厦门风格物件」页签的<b>最前排</b>顺序由 {@link #pinCoreTabOrder()} 统一重排：
+ * 厦门 logo → 角美 logo → 厦门贴墙标识 → 角美贴墙标识 → LTE 贴墙标识 → 四件站外标志，
+ * 不依赖「谁先注册谁在前」。
  *
  * <p>方块和物品用同一个 id（本模组一贯的规矩）。两个方块除了贴图没有别的区别，
  * 所以同一个 {@link LogoBlock} 类实例化两次。
@@ -75,29 +75,34 @@ public final class LogoObjects {
 
     /**
      * 「厦门风格物件」页签最前面那几件，<b>按用户点名的顺序</b>：
-     * 两个 logo → 四件站外标志（挂墙 / 杆上 × 厦门 / 角美）。
+     * 厦门 logo → 角美 logo → 厦门贴墙标识 → 角美贴墙标识 → LTE 贴墙标识 →
+     * 四件站外标志（挂墙 / 杆上 × 厦门 / 角美）。
      *
-     * <p>两个贴墙标识<b>不在这里</b> —— 用户要求它们排在厦门组<b>后面</b>，见 {@link #CORE_TAB_TAIL}。
-     * {@code wall_sign_lte} 也不在厦门页：它是本模组自己的牌子，进「LTE 工具」页签。
+     * <p>三个贴墙标识紧跟在两个 logo 块<b>后面</b>（用户：「贴墙标识要放到两个 logo 块的后面」）——
+     * 它们是同一族的「牌子」，排在一起才好找；四件站外标志<sub>（挂墙 / 杆上的出口牌）</sub>
+     * 不属于这一族，排在它们之后。{@code wall_sign_lte} 同时也是「LTE 工具」页签的第 2 位
+     * （{@link LteCoreItems#pinToolsTabOrder()}），两处都在，存档里是同一个方块。
      */
     private static final List<Identifier> CORE_TAB_FRONT = List.of(
             XiamenObjects.LOGO_ID,
             JIAOMEI_ID,
+            new Identifier(NAMESPACE, "wall_sign_xiamen"),
+            new Identifier(NAMESPACE, "wall_sign_jiaomei"),
+            new Identifier(NAMESPACE, "wall_sign_lte"),
             new Identifier(NAMESPACE, "station_sign_wall_xiamen"),
             new Identifier(NAMESPACE, "station_sign_pole_xiamen"),
             new Identifier(NAMESPACE, "station_sign_wall_jiaomei"),
             new Identifier(NAMESPACE, "station_sign_pole_jiaomei"));
 
     /**
-     * 「厦门风格物件」页签<b>末尾</b>那几件：厦门 / 角美两个贴墙标识（用户要求排在厦门组后面）。
+     * 「厦门风格物件」页签<b>末尾</b>那几件：留空。
      *
-     * <p>顺序就是列表顺序：厦门在前、角美紧跟其后。{@link #pinCoreTabOrder()} 会把它们从列表里
-     * 摘出来、原样追加到末尾 —— 之后再注册进这个页签的模块（闸机 / 安检 / eyecandy …）会排在它们后面，
-     * 也就是说「厦门那一组」的东西都在它们前面，这正是用户要的。
+     * <p>上一版把厦门 / 角美两个贴墙标识放在这里（页签最末），用户反馈「放错位置了，要放到两个 logo 块的后面」，
+     * 于是它们被挪进了 {@link #CORE_TAB_FRONT}。列表留着（{@link #pinCoreTabOrder()} 仍然会按它重排），
+     * 以后有要压到最末的东西往这里加就行。
      */
-    private static final List<Identifier> CORE_TAB_TAIL = List.of(
-            new Identifier(NAMESPACE, "wall_sign_xiamen"),
-            new Identifier(NAMESPACE, "wall_sign_jiaomei"));
+    private static final List<Identifier> CORE_TAB_TAIL = List.of();
+
 
     private LogoObjects() {
     }

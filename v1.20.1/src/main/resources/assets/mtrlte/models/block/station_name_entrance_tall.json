@@ -1,28 +1,29 @@
 {
-  "__comment": "MTR 3.6.4.2 的 mtr:block/station_name_entrance_tall 原样（零厚度发光板 z=0.05，north=cullface/south=正面），再在板前面叠一个引 #logo 的品牌 logo 小方块。字号/字色/站名全部由 MTR 的 RenderStationNameTiled 画，这里只有模型。",
+  "__comment": "站名出入口「高板」的几何：一块 16x16 的零厚度灯板 + 一块品牌 logo。贴图全部是自己的（station_name_background / *_logo），没有任何 MTR 命名空间的引用。站名本身不在这里 —— 由 WallSignRenderer 按 STYLE 在灯板正面 z≈0.15 px 处画，只占左边 0.5..10.0 px 那条，右边 10.5..15.5 px 留给 logo。",
   "textures": {
-    "particle": "mtrlte:block/dark_blue",
+    "particle": "mtrlte:block/station_name_background",
+    "board": "mtrlte:block/station_name_background",
     "logo": "mtrlte:block/xiamen_logo"
   },
   "elements": [
     {
-      "__comment": "Light",
+      "__comment": "灯板：z=0.05 px 两面（正面 south=+z 是牌面；背面 north 贴墙，带 cullface 让墙挡住时省一层）。",
       "from": [0, 0, 0.05],
       "to": [16, 16, 0.05],
       "faces": {
         "north": {
-          "texture": "#particle",
+          "texture": "#board",
           "cullface": "north"
         },
         "south": {
-          "texture": "#particle"
+          "texture": "#board"
         }
       }
     },
     {
-      "__comment": "Brand logo：贴在板前面 z=0.1（板 0.05、MTR 的名字在 0.15），牌子右侧竖直居中，5x5 px。挖空贴图 → 方块走 cutout。",
-      "from": [10.5, 6, 0.1],
-      "to": [15.5, 11, 0.1],
+      "__comment": "品牌 logo：z=0.1 px（在灯板 0.05 前面、站名 0.15 后面，且 x 不与站名那条重叠），右侧 5x5 px 竖直居中。挖空 PNG → 方块走 cutout。",
+      "from": [10.5, 5.5, 0.1],
+      "to": [15.5, 10.5, 0.1],
       "faces": {
         "south": {
           "texture": "#logo",

@@ -284,6 +284,7 @@
     "model": "mtrsteamloco:eyecandies/pm.obj",
     "textureId": "mtrsteamloco:eyecandies/pmtexture.png",
     "flipV": true,
+    "glow": 7,
     "shape": "0,0,0,16,24,16/0,0,0,16,24,16",
     "collisionShape": "0,0,0,16,24,16/0,0,0,16,24,16",
     "translation": [
