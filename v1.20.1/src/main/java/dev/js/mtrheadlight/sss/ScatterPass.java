@@ -23,9 +23,8 @@ import org.lwjgl.opengl.GL14;
 import java.util.Locale;
 
 /**
- * <b>Full-screen screen-space lamp lighting for the train lamps</b> - the two things a billboard
- * flare cannot do: the light the lamps throw <em>onto</em> the ground, walls and car bodies
- * (surface term) and the light they scatter <em>in the air</em> (volume term).
+ * <b>Full-screen screen-space lamp lighting for the train lamps</b> - the light the lamps throw
+ * <em>onto</em> the ground, walls and car bodies, which a billboard flare cannot do.
  *
  * <h2>Where the pass sits</h2>
  * {@code WorldRenderEvents.LAST}: every framebuffer write of the frame is finished (terrain,
@@ -34,8 +33,8 @@ import java.util.Locale;
  * about to read. The GUI and the hand come later, which is what makes this a scene-wide effect
  * rather than an overlay.
  *
- * <h2>The two terms</h2>
- * <b>Surface</b> - the lamps really light what is on screen. For the pixel's own surface point
+ * <h2>The one remaining term: surface</h2>
+ * The lamps really light what is on screen. For the pixel's own surface point
  * {@code P} (rebuilt from the depth copy) the normal comes from {@code dFdx(P) x dFdy(P)}, and each
  * lamp contributes
  * {@code spot(smoothstep of the cone) * distance window * 1/(1+d^2/9) * max(N.L, 0)}. Multiplied by
@@ -43,36 +42,26 @@ import java.util.Locale;
  * platform answers darkly and a white wall answers brightly, and both follow the geometry, because
  * the normal is the real surface normal of the frame.
  *
- * <b>Volume</b> - "light in the air": the part of a lamp's glowing sphere the view ray crosses.
- *
  * <pre>
- *   per pixel:   p(t) = originNear + t*rd,  t in [0, sceneDepth],  rd from inverse(proj*view)
- *   per lamp:    sphere |p - L| &lt; R  -&gt; chord [t0, t1] of the ray inside it, cut at sceneDepth
- *                tau  = (chord / R) * cone * window * phase * transmittance * intensity
- *   total:       colour = 1 - exp(-sum tau * gain)     (per channel, additive over the scene)
+ *   per lamp:    P      = rd * tHit                       (from inverse(proj*view) + the depth copy)
+ *                axis   = normalize(uLightDir[i].xyz)     (out of the lamp)
+ *                spot   = smoothstep(cosOuter, cosInner, dot(axis, lamp -&gt; P))
+ *                win    = 1 - smoothstep over the last 40% of the beam length
+ *                att    = 1 / (1 + |lamp - P|^2 / attRef)
+ *                surface += colour * power * spot * win * att * max(N.L, 0)
+ *   composite:   added = surface * (scene * 8.0 + 0.05)
+ *                lit   = scene + (1 - exp(-added * strength)) * (1 - 0.5 * scene)
  * </pre>
  *
- * <ul>
- *   <li><b>chord</b>: how much of the ray is inside the lamp's volume. It peaks for a ray through the
- *       centre and goes to zero at the silhouette, so the glow has a soft, physically-shaped edge
- *       instead of a hard disc - and it is exactly the "how much air does this pixel look through"
- *       quantity, which is why the result reads as volume, not as a decal.</li>
- *   <li><b>cone</b>: the lamp's own heading gates the volume ({@code smoothstep} between an inner and
- *       an outer cosine), so a head light throws a wedge of fog and a lamp pointing away from the
- *       pixel's ray does not light it. Air right next to the lamp still glows (the halo).</li>
- *   <li><b>window</b>: fades the last part of the beam length, so the beam's end cannot pop.</li>
- *   <li><b>phase</b>: forward scattering (Henyey-Greenstein, normalised to 1 at g=0). Looking into a
- *       head light is much brighter than seeing it from the side - the cue that makes a light feel
- *       like it is shining <em>at you</em> through the air.</li>
- *   <li><b>transmittance</b>: {@code exp(-k * distance from the lamp)}, i.e. the medium between the
- *       lamp and the scattering point absorbs; combined with the final {@code 1 - exp(-sum)} this is
- *       the same two-sided exponential a single-scattering integral produces.</li>
- *   <li><b>falloff</b>: {@code 1 / (1 + d^2 / 9)} - the lamp lights the medium with ~1/d^2 irradiance,
- *       so the air at the lamp is far brighter than the air three blocks away. Without it the effect
- *       is a uniformly bright ball, which reads as a decal instead of fog.</li>
- *   <li><b>sceneDepth</b>: the ray stops at the first surface, so a wall, platform or car body cuts
- *       the glow exactly where it cuts the view - the reason this is worth doing on the GPU at all.</li>
- * </ul>
+ * <h2>The volume term is gone</h2>
+ * Up to 1.0.63 this pass also integrated a <b>volume</b> term - the chord of each lamp's glowing
+ * sphere along the view ray, gated by a Henyey-Greenstein phase and a transmittance exponential -
+ * i.e. "light in the air". The user's verdict on the result was that the haze it drew looked worse
+ * than no haze at all, so it was deleted outright (fragment stage, uniforms
+ * {@code uParams.x/y/w}, and the {@code volumeSum} accumulator in the composite). What is left is
+ * the surface term only, and {@code scatterStrength} is now purely the surface gain. Do not
+ * reintroduce it as "just a little haze": a screen-space glow around a lamp that is already drawn as
+ * a billboard flare double-counts the light and reads as fog.
  *
  * <h2>Why the colour attachment is copied, never sampled in place</h2>
  * The surface term needs the albedo of the pixel it lights, and that pixel is <b>in the attachment
@@ -87,7 +76,7 @@ import java.util.Locale;
  * a core shader says "blending disabled, dst = src" ( {@code GlBlendState#blendDisabled} ):
  *
  * <pre>
- *   added = volumeSum * 1.6 + surfaceSum * (scene * 6.0 + 0.03)
+ *   added = surfaceSum * (scene * 8.0 + 0.05)
  *   lit   = scene + (1 - exp(-added * strength)) * (1 - 0.5 * scene)
  * </pre>
  *
@@ -98,10 +87,9 @@ import java.util.Locale;
  *
  * <h2>Cost</h2>
  * One full-screen quad, one depth blit, one colour blit, and at most {@value ScatterLights#MAX} lamps
- * in the fragment loop (the loop is shared by both terms - the surface term adds no second pass and
- * no second lamp loop). No texture fetch inside the loop, no per-lamp draw. {@code scatterSurface}
- * off skips the whole surface block (a uniform branch, so the per-lamp normal/spot/N-dot-L work is
- * not executed at all) while the blits and the volume stay. Zero lamps means the method returns
+ * in the fragment loop. No texture fetch inside the loop, no per-lamp draw. {@code scatterSurface}
+ * off skips the whole per-lamp block (a uniform branch, so the normal/spot/N-dot-L work is not
+ * executed at all) and the pass writes the scene back unchanged. Zero lamps means the method returns
  * before touching GL - no copies, no framebuffer, no program bind. A shader pack (Iris/OptiFine)
  * owns the pipeline and the depth buffer, so the pass is skipped there with one log line.
  */
@@ -109,21 +97,9 @@ public final class ScatterPass {
 
     /** Longest view ray integrated, blocks. Also the cut for a sky pixel (depth == 1). */
     static final float MAX_RAY = 96.0F;
-    /** Extinction of the medium between the lamp and the scattering point, per block. */
-    private static final float EXTINCTION = 0.075F;
-    /** Henyey-Greenstein anisotropy: forward-peaked, but not a laser. */
-    private static final float PHASE_G = 0.55F;
-    /** Inner / outer cosine of the lamp's scattering cone (~20 deg / ~57 deg). */
+    /** Inner / outer cosine of the lamp's light cone (~20 deg / ~57 deg), the surface term's spot. */
     private static final float COS_INNER = 0.94F;
     private static final float COS_OUTER = 0.55F;
-    /** HG can spike hard head-on; cap it so a lamp staring at the camera does not bloom the screen. */
-    private static final float PHASE_MAX = 4.0F;
-    /**
-     * Volume calibration: {@code uParams.x}. The user's {@code scatterStrength} is applied in the
-     * composite ({@link #strength}), so this stays a constant and the volume term keeps its old
-     * look at strength = 1.
-     */
-    private static final float VOLUME_GAIN = 1.6F;
     /**
      * Surface attenuation reference, blocks squared: the surface term uses
      * {@code 1 / (1 + d^2 / 9)}, i.e. half strength at 3 blocks, a fifth at 6 - roughly the 1/d^2
@@ -399,9 +375,9 @@ public final class ScatterPass {
              */
             final boolean coverage = debugMode == 0
                     && (probeRequested || (cfg.scatterSurface && litProbeDue()));
-            ScatterProgram.uniforms(INVERSE, VOLUME_GAIN, EXTINCTION, MAX_RAY, PHASE_G,
-                    COS_INNER, COS_OUTER, strength(cfg), ATTENUATION_REF, cfg.scatterSurface,
-                    coverage, debugMode, lights, LIGHT_POS, LIGHT_DIR, LIGHT_COLOR);
+            ScatterProgram.uniforms(INVERSE, MAX_RAY, COS_INNER, COS_OUTER, strength(cfg),
+                    ATTENUATION_REF, cfg.scatterSurface, coverage, debugMode, lights,
+                    LIGHT_POS, LIGHT_DIR, LIGHT_COLOR);
 
             draw();
             if (uploadLogWanted) {
@@ -739,7 +715,8 @@ public final class ScatterPass {
 
     /**
      * The user's {@code scatterStrength}, clamped, so a hand-edited json cannot turn the screen into
-     * a white card. It is the {@code k} of the composite {@code 1 - exp(-added * k)} for both terms.
+     * a white card. It is the {@code k} of the composite {@code 1 - exp(-added * k)}, and with the
+     * volume term gone it scales the surface light and nothing else.
      */
     private static float strength(final HeadlightConfig cfg) {
         return (float) cfg.scatterStrengthClamped();

@@ -48,9 +48,17 @@ import java.util.List;
  * face    = head ? pose.carStart(car) : pose.carEnd(car)   // rail point ON that car's end face
  * out     = head ? pose.carBodyForward(car) : -pose.carBodyForward(car)   // unit, includes grade
  * right   = normalize(out x (0,1,0))             // horizontal, so a lamp never banks
- * lamp    = face + right * lateral + (0, height, 0) - out * (inset + FLARE_GAP)
+ * lamp    = face + right * lateral + (0, height, 0) + out * (|inset| + FLARE_GAP)
  * dir     = out, then rotated by the entry's own yaw/pitch if it declares a rot
  * </pre>
+ *
+ * <p><b>Why {@code + out} and not {@code - out}.</b> {@code out} is the <em>outward</em> normal of the
+ * car's end face (see the {@code out} assignment in {@link #place}: {@code +chord} for the head,
+ * {@code -chord} for the tail), so pushing the lamp along {@code +out} puts it in front of the face,
+ * in the air, where it belongs. The previous version did {@code base - out * back}, i.e. it pushed
+ * the lamp <b>into</b> the car body - which is exactly the report this fixes: the flare and the
+ * (now removed) air haze appeared <em>inside</em> the car. A lamp at {@code base=(0,0,0)} with
+ * {@code out=(1,0,0)} and nothing measured therefore sits at {@code x = +FLARE_GAP = +0.08}.
  *
  * <p><b>Why the car body chord and not the rail tangent.</b> MTR rotates the car body by the chord
  * between its own two faces ({@code Train#calculateCar}: yaw from {@code positions[car]} and
@@ -242,21 +250,26 @@ public final class TrainLamps {
                 ? clamp(cfg.heightOffset, MIN_LAMP_HEIGHT, MAX_LAMP_HEIGHT)
                 : clamp(r.height, MIN_LAMP_HEIGHT, MAX_LAMP_HEIGHT);
         /*
-         * Positive inset = behind the car face, negative = in front of it (a model whose nose
-         * overhangs MTR's car pitch, see BuiltinLights#slot). Bounded on both sides: a lamp may sit
-         * up to 1.5 blocks inside (a recessed lamp) and 2 blocks ahead (never further - that would
-         * detach the glow from the car).
+         * The lamp sits in front of the car's end face, never inside it.
+         *
+         * `inset` is the measurement, not a direction: `VehicleLights` and `BuiltinLights` compute it
+         * as the distance between the lamp boxes' centroid and the end face, and its sign depends on
+         * which side of that face the model put them (a flush lamp = 0, a recessed one = positive, a
+         * nose that overhangs MTR's car pitch = negative). Absolute value on purpose: either way the
+         * glow must end up OUTSIDE, because a lamp 8 cm inside the shell is a lamp nobody sees - that
+         * is the bug the sign flip in this version fixes. Bounded at MAX_LAMP_AHEAD so a wild model
+         * measurement cannot detach the glow from the car.
          */
-        final double back = clamp(r.inset, -MAX_LAMP_AHEAD, 1.5D) + FLARE_GAP;
+        final double outward = clamp(Math.abs(r.inset), 0.0D, MAX_LAMP_AHEAD) + FLARE_GAP;
         final Vec3d pos = base
                 .add(right.multiply(lateral))
                 .add(0.0D, height, 0.0D)
-                .subtract(out.multiply(back));
+                .add(out.multiply(outward));
 
         /*
          * dir 就是车灯照出去的方向：车头沿 +弦、车尾沿 -弦（`out` 已经按 isHead 取过向，见上面）。
-         * 注意 `out` 同时用在 `pos = base - out*back` 里，那里靠内向弦把灯推到车脸外面；
-         * 位置正确、方向也要正确，这两件事别再互相取反（上一轮取反过一次，结果车头朝后照）。
+         * `out` 同时用在 `pos = base + out * outward` 里：灯沿外向推到车脸外面，方向也是外向，
+         * 位置和方向现在<b>同号</b>——上一版位置用了 -out（推到车身里），才是「光晕翻进车厢」的真因。
          */
         Vec3d dir = out;
         if (r.rot != null && r.rot.length >= 2) {

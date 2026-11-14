@@ -13,7 +13,7 @@ import java.util.WeakHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 「离这个点最近的那条 MTR 轨道」—— 道床几何的<b>纯计算</b>部分，两端共用。
+ * 「这个水平位置落在哪根轨道的道床上，那里的轨面有多高」—— 道床几何的<b>纯计算</b>部分，两端共用。
  *
  * <p>调用方负责给一份「端点 → 轨道」表：
  * <ul>
@@ -22,6 +22,23 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * </ul>
  * 两张表的结构相同（{@code Map<BlockPos, Map<BlockPos, Rail>>}），所以几何、缓存、采样只有这一份。
  * 本类<b>不引用</b> {@code ClientData} / {@code ClientWorld} / 任何客户端类，否则服务端就用不了它。
+ *
+ * <h2>模型：横向列 + 弧长插值（照 RTE 的轨道段碰撞）</h2>
+ * 旧模型是「最近点 + y 阈值」：求到中心线的最近采样点，再拿那个点的 y 去和脚底比。它在坡道上必然出错，
+ * 因为「最近采样点」的 y 是<b>离散</b>的 —— 人往前走一步，轨面已经抬高，采样点还是上一个。RTE 的做法是
+ * 把轨道当成一串<b>沿弧长的列</b>，这里照抄它的三条：
+ *
+ * <ol>
+ *   <li><b>横向列</b>：把查询点投影到轨道折线上，得到<b>有符号横向偏移</b>
+ *       {@code offset = (q - p) · N}，{@code N = T × UP}（轨道的法向，水平面内
+ *       {@code N = (-tz, tx)}）。{@code |offset| ≤ }{@link #HALF_WIDTH} 才算踩在道床上。
+ *       这是<b>法向</b>判定，不是包围盒：弯道内侧和外侧用的是同一条法线，所以两边都不会漏。</li>
+ *   <li><b>弧长插值</b>：投影点给出沿轨道的弧长参数 {@code s}，轨面高度用 {@code Rail} 自己的
+ *       高程曲线<b>解析</b>算出来（{@link #railY}，与 {@code Rail#getPosition} 的 y 完全同式）。
+ *       所以坡道上是「脚下这一点的高度」，不是「最近采样点的高度」，坡度自然跟随。</li>
+ *   <li><b>不拿 y 做阈值</b>：纵向只在调用方判「脚底落在可站立窗口内」，本类只负责给出轨面 y。
+ *       因此 <b>onGround / vy / 包围盒</b> 都不参与几何命中，坡道、弯道、起坡点一视同仁。</li>
+ * </ol>
  *
  * <h2>为什么不用表的端点直接查</h2>
  * 表只按端点索引。实体站在一条 20 格长的弯道中段时，两个端点都在 10 格以外，按端点取格子会漏掉
@@ -34,18 +51,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 采样折线包围盒没有这个问题：R=5 和 R=50 的 90° 弧都保证覆盖（R=50 的 90° 弧中点鼓出弦外
  * 14.6 格，旧方案 6 格外扩完全够不着，新方案照样命中）。
  *
- * <h2>最近点怎么求</h2>
- * {@code Rail#getPosition(double)} 的参数是「沿轨道的距离（格）」—— 不是 0–1 的归一化值，也不是
- * 弦长（{@code getPosition} 内部把参数钳到两段弧长之和）—— 与 {@code TrainPose} 里的用法一致。
- * 步长按局部半径自适应：由采样折线上三个点估外接圆半径 R，取
- * {@code step = clamp(sqrt(8·R·0.01), 0.15, 0.8)}（弦误差 {@code s²/(8R)} 不超过 1 厘米）；
- * 估不出半径（点太少 / 退化）时用 0.4，纯直线（三点共线，R=∞）用 0.8。
- * 粗扫之后在最优点两侧折半细化，直到探测间距小于 1 厘米，所以最终误差是「厘米级」而不是「半格级」。
- * 坡道的 y 由 {@code getPosition} 自己按参数插值，所以「坡道按参数取高」不需要第二套公式。
- *
  * <h2>接缝</h2>
  * 两条相邻轨道共用一个端点时，缓存里通常两条都在（各自的折线包围盒都覆盖自己的端点），而
- * {@link #nearest} 是「全部候选里取水平距离最小的那个」，所以接缝处取的是两段各自最近点中更近的
+ * {@link #nearest} 是「全部候选里取 |横向偏移| 最小的那个」，所以接缝处取的是两段各自最近点中更近的
  * 一个 —— 不需要额外的「按端点配对」逻辑。只有一侧被缓存漏掉时才会偏，而采样包围盒让这种情况
  * 不会发生（见上）。
  *
@@ -74,8 +82,12 @@ public final class RailBed {
      */
     private static final double CACHE_MARGIN = HALF_WIDTH + 0.25D;
 
-    /** 高度粗筛余量（格）：坡道上同一条轨道的 y 随参数变化，判定用采样得到的 [minY, maxY] 区间。 */
-    private static final double HEIGHT_SLACK = 1.5D;
+    /**
+     * 高度粗筛余量（格）：坡道上同一条轨道的 y 随参数变化，判定用采样得到的 [minY, maxY] 区间。
+     * 取值要盖住调用方的纵向窗口（上坡抬升最多 {@code STEP_UP}，从上方落下的扫掠最多 2.0），
+     * 这里都不接近，一个宽余量只影响「要不要算这一条」，不影响命中结果本身。
+     */
+    private static final double HEIGHT_SLACK = 4.0D;
 
     /** 折线采样步长上限（格）与最少细分数：{@code step = min(0.5, len/64)}。 */
     private static final double SAMPLE_MAX_STEP = 0.5D;
@@ -87,19 +99,6 @@ public final class RailBed {
     /** 几何复用表的大小上限：超了整表清空（键是弱引用，正常地图不会到）。 */
     private static final int GEOMETRY_MAX = 8192;
 
-    /** 自适应步长的弦误差目标（格）与步长上下限、兜底值。 */
-    private static final double CHORD_TOLERANCE = 0.01D;
-    private static final double STEP_MIN = 0.15D;
-    private static final double STEP_MAX = 0.8D;
-    private static final double STEP_FALLBACK = 0.4D;
-
-    /** 单次最近点粗扫的步数上限。 */
-    private static final int MAX_SCAN_STEPS = 160;
-
-    /** 粗扫之后的折半细化：一直折到探测间距小于 {@value #REFINE_TOLERANCE} 格（约 1 厘米）。 */
-    private static final double REFINE_TOLERANCE = 0.01D;
-    private static final int REFINE_MAX = 8;
-
     /** 缓存重建条件：缓存超过这么多 tick（客户端锚在查询点，所以「走动」也算换锚）。 */
     private static final int REBUILD_TICKS = 20;
 
@@ -109,28 +108,47 @@ public final class RailBed {
      */
     private static final double CELL_MARGIN = 12.0D;
 
-    /** 一条轨道的预计算量：长度、采样折线的包围盒、自适应粗扫步长。 */
+    /**
+     * 一条轨道的预计算量：沿弧长等距的<b>折线</b>（x / z / 弧长 s）、高程曲线的两端、包围盒。
+     *
+     * <p>折线只用来做水平投影（{@code step ≤ 0.5} 保证弦误差毫米级）；<b>y 不插值折线</b>，
+     * 而是用 {@link #railY} 按弧长解析算 —— 折线插值在坡道中段会低于真实轨面（MTR 的高程是
+     * 两端平、中间陡的二次曲线，线性插值总是偏低）。
+     */
     private static final class Entry {
         final Rail rail;
         final double length;
+        /** 折线顶点（格），按弧长升序。 */
+        final double[] xs;
+        final double[] zs;
+        /** 每个顶点对应的弧长参数（格），与 {@code Rail#getPosition} 的参数同刻度。 */
+        final double[] ss;
         /** 采样折线的真实包围盒（格），不是端点包围盒 —— 这是弯道不漏的关键。 */
         final double minX, minZ, maxX, maxZ;
         final double minY, maxY;
-        /** 沿弧参数的粗扫步长（格），由局部半径算出。 */
-        final double step;
+        /** 高程曲线：{@code getPosition(0).y} / {@code getPosition(length).y}。 */
+        final double yStart, yEnd;
+        /** 缆车风格（两头各 0.5 格平台 + 中间线性 + 下垂），高程公式与普通轨道不同。 */
+        final boolean cable;
 
-        Entry(final Rail rail, final double length, final double minX, final double minZ,
-              final double maxX, final double maxZ, final double minY, final double maxY,
-              final double step) {
+        Entry(final Rail rail, final double length, final double[] xs, final double[] zs,
+              final double[] ss, final double minX, final double minZ, final double maxX,
+              final double maxZ, final double minY, final double maxY, final double yStart,
+              final double yEnd, final boolean cable) {
             this.rail = rail;
             this.length = length;
+            this.xs = xs;
+            this.zs = zs;
+            this.ss = ss;
             this.minX = minX;
             this.minZ = minZ;
             this.maxX = maxX;
             this.maxZ = maxZ;
             this.minY = minY;
             this.maxY = maxY;
-            this.step = step;
+            this.yStart = yStart;
+            this.yEnd = yEnd;
+            this.cable = cable;
         }
 
         /** 点 {@code (qx, qz)} 到包围盒的水平距离是否不超过 {@code margin}（缓存保留判定）。 */
@@ -141,17 +159,135 @@ public final class RailBed {
         }
     }
 
-    /** 最近点的结果：轨道面 y（方块顶面格）与到轨道中心线的水平距离。 */
+    /**
+     * 一个「横向列」的查询结果。
+     *
+     * <p>{@link #offset} 是<b>有符号</b>横向偏移（沿轨道法向 {@code N = T × UP}），
+     * {@link #distance} 是它的绝对值（旧字段，服务端与日志还在用）；{@link #along} 是该列对应的
+     * 弧长参数，{@link #y} 就是 {@code railY(along)} —— 坡道上「脚下这一点」的轨面高度。
+     */
     public static final class Sample {
         /** 轨道面高度（= {@code Rail#getPosition} 的 y，与列车底板同一水平面）。 */
         public final double y;
-        /** 查询点到最近点的水平距离（格）。 */
+        /** 查询点到轨道中心线的水平距离（格），= {@code |offset|}。 */
         public final double distance;
+        /** 有符号横向偏移（格）：正值在法向 {@code T × UP} 一侧，负值在另一侧。 */
+        public final double offset;
+        /** 该列在轨道上的弧长参数（格，0 – {@link #length}）。 */
+        public final double along;
+        /** 这条轨道的全长（格）。 */
+        public final double length;
 
-        Sample(final double y, final double distance) {
+        Sample(final double y, final double distance, final double offset, final double along,
+               final double length) {
             this.y = y;
             this.distance = distance;
+            this.offset = offset;
+            this.along = along;
+            this.length = length;
         }
+    }
+
+    /**
+     * 纵向窗口（格）：脚底可以比轨面低这么多仍然被抬上去 —— 上坡时轨面在脚底之上，这一格就是
+     * 「一步能跨上去」的高度。默认 1.0（一格台阶），可配置（{@code trackbedStepUp}）。
+     */
+    public static final double DEFAULT_STEP_UP = 1.0D;
+
+    /** 齐平容差（格）：脚底与轨面差在这个范围内就算「正踩在轨面上」。 */
+    public static final double LEVEL_TOL = 0.03D;
+
+    /** 「贴着轨面往下走」的吸附带（格）：下坡时脚底落在轨面上方这么多以内就贴回去。 */
+    public static final double STICK = 0.6D;
+
+    /**
+     * 纵向窗口的上限（格）：脚底最多在轨面上方这么多才参与判定。原版跳跃高度是 1.25 格，所以
+     * 「上方 2.0 以内一律吸附」不能无条件用（跳到最高点会被拽下来，跳不起来）；真正把上方这一半
+     * 兑现的是 {@link #verdict} 里的「扫掠穿过」与 {@link #STICK} 两档。
+     */
+    public static final double CEIL = 2.0D;
+
+    /**
+     * 一次接触判定的结论（取证用）。几何命中之后，剩下的就是「脚底与轨面的关系」这一件事。
+     */
+    public enum Verdict {
+        /** 没要求判定（关闭 / 不在候选里）。 */
+        NONE,
+        /** 吸到轨面上。 */
+        SNAP,
+        /** 横向列之外：缓存里有轨道，但横向偏移超过半宽。 */
+        LATERAL,
+        /** 纵向窗口外：横向在道床上，脚底与轨面的高差不在可站立窗口里。 */
+        DY,
+        /** 正在起跳：脚底在轨面附近且竖直速度向上，这一 tick 让开。 */
+        JUMP,
+        /** 缓存里没有近处的轨道（真掉下去的第一嫌疑人）。 */
+        NO_HIT,
+        /** 脚下真实方块的顶面不低于轨面：交回原版。 */
+        BLOCK,
+        /** 抬起来的落点被方块占了。 */
+        SPACE;
+
+        /** 诊断行里用的短名：{@code dy}/{@code lat}/{@code nohit}/{@code jump}/{@code block}/{@code space}/{@code snap}。 */
+        public String shortName() {
+            switch (this) {
+                case SNAP:
+                    return "snap";
+                case LATERAL:
+                    return "lat";
+                case DY:
+                    return "dy";
+                case JUMP:
+                    return "jump";
+                case NO_HIT:
+                    return "nohit";
+                case BLOCK:
+                    return "block";
+                case SPACE:
+                    return "space";
+                default:
+                    return "-";
+            }
+        }
+    }
+
+    /**
+     * <b>纵向判定</b>（纯函数，单元测试直接验它）：给定脚底与轨面的高差 {@code dy}、竖直速度
+     * {@code vy}、这一 tick 起点的高差 {@code startDy}，决定要不要把人按到轨面上。
+     *
+     * <p><b>不看 onGround</b>：坡道上行时原版常常在「贴地走」和「一 tick 腾空」之间来回，onGround
+     * 一旦为假就把人漏掉，这正是老实现「上坡走两步就掉下去」的直接原因。这里只用三个量：
+     * <ul>
+     *   <li>{@code dy ∈ [-stepUp, +0.03]} —— 正踩在 / 略低于轨面（上坡、跨台阶）→ 抬上去；</li>
+     *   <li>起点在上、终点在下（扫掠穿过）→ 多快的下落都接住，不受 {@link #CEIL} 限制；</li>
+     *   <li>轨面上方 0–0.6 格且竖直速度向下 → 贴着走（下坡不用每一步都自由落体）。</li>
+     * </ul>
+     * 「正在起跳」（{@code vy > 0.02} 且脚底不在轨面之下）一律让开，否则跳不起来。
+     */
+    public static Verdict verdict(final double dy, final double vy, final double startDy,
+                                  final double stepUp) {
+        // 起跳：脚底已在轨面附近还在往上走 → 让开这一 tick（这一步与 onGround 无关）。
+        if (vy > 0.02D && dy > -LEVEL_TOL) {
+            return Verdict.JUMP;
+        }
+        // 从上方穿过轨面：起点在轨面之上、终点在轨面之下。高速下落一 tick 跨过的深度可以远超窗口。
+        if (vy < -1.0E-3D && !Double.isNaN(startDy) && startDy >= -LEVEL_TOL
+                && dy < -LEVEL_TOL) {
+            return Verdict.SNAP;
+        }
+        // 纵向窗口（下界 STEP_UP，上界 CEIL）之外：横向踩着轨道也不该被拉上去/拉下来。
+        if (dy < -stepUp || dy > CEIL) {
+            return Verdict.DY;
+        }
+        // 正踩在轨面上，或脚底比轨面低不超过一级台阶 —— 上坡就是这个分支，slope 越大 dy 越负。
+        if (dy <= LEVEL_TOL) {
+            return Verdict.SNAP;
+        }
+        // 轨面之上：只有「往下贴」才收；跳起来的人在上方腾空，等扫掠那一步再接。
+        if (vy <= 0.02D && dy <= STICK) {
+            return Verdict.SNAP;
+        }
+        return Verdict.DY;
     }
 
     private List<Entry> cache = List.of();
@@ -162,7 +298,7 @@ public final class RailBed {
     private final AtomicBoolean warned = new AtomicBoolean();
 
     /**
-     * 每条轨道的几何（折线包围盒 + 自适应步长）与查询点无关，所以只算一次、跨缓存重建复用。
+     * 每条轨道的几何（折线包围盒 + 高程端点）与查询点无关，所以只算一次、跨缓存重建复用。
      * 弱引用键：MTR 重载轨道表 / 换世界之后，旧 {@code Rail} 对象自己会被回收，不用手工清。
      */
     private final Map<Rail, Entry> geometry = new WeakHashMap<>();
@@ -171,6 +307,8 @@ public final class RailBed {
     private boolean lastHit;
     private double lastY = Double.NaN;
     private double lastDistance = Double.NaN;
+    private double lastOffset = Double.NaN;
+    private double lastAlong = Double.NaN;
 
     /** 丢掉缓存（换维度 / 换世界）。 */
     public void reset() {
@@ -212,6 +350,16 @@ public final class RailBed {
         return lastDistance;
     }
 
+    /** 上一次查询的<b>有符号</b>横向偏移（诊断）：正负号只表示在法向哪一侧。 */
+    public double lastOffset() {
+        return lastOffset;
+    }
+
+    /** 上一次查询命中的弧长参数（诊断）：上坡时它随人往前走，y 也跟着走。 */
+    public double lastAlong() {
+        return lastAlong;
+    }
+
     /**
      * 查询点脚下最近的一条轨道；找不到（或水平距离超过 {@link #HALF_WIDTH}）时返回 {@code null}。
      *
@@ -246,6 +394,26 @@ public final class RailBed {
     private Sample nearest(final Object railsMap, final long tick, final double x, final double y,
                            final double z, final double anchorX, final double anchorZ,
                            final double margin) {
+        final Sample best = probe(railsMap, tick, x, y, z, anchorX, anchorZ, margin);
+        return lastHit ? best : null;
+    }
+
+    /**
+     * 和 {@link #nearest} 同一次查询，但<b>不过滤半宽</b>：横向偏移超了也把最近那条轨道返回来。
+     *
+     * <p>诊断需要它：{@code drop=lat}（「轨道找到了、只是横向没踩上」）和 {@code drop=nohit}
+     * （「缓存里根本没有近处的轨道」）的修法完全不同，如果这里也过滤掉，两种就会混成一种。
+     */
+    public Sample probe(final Object railsMap, final long tick, final double x, final double y,
+                        final double z) {
+        return probe(railsMap, tick, x, y, z,
+                Math.floor(x / 2.0D) * 2.0D, Math.floor(z / 2.0D) * 2.0D,
+                SEARCH_RADIUS + 2.0D);
+    }
+
+    private Sample probe(final Object railsMap, final long tick, final double x, final double y,
+                         final double z, final double anchorX, final double anchorZ,
+                         final double margin) {
         if (railsMap == null) {
             clearLast();
             return null;
@@ -263,7 +431,7 @@ public final class RailBed {
                     || z < entry.minZ - CACHE_MARGIN || z > entry.maxZ + CACHE_MARGIN) {
                 continue;
             }
-            final Sample sample = scan(entry, x, z);
+            final Sample sample = column(entry, x, z);
             if (sample != null && sample.distance < bestDistance) {
                 bestDistance = sample.distance;
                 best = sample;
@@ -272,14 +440,127 @@ public final class RailBed {
         // 取证值先落下来（可能超出 HALF_WIDTH，诊断行需要「差一点」这种读数），再决定是否命中。
         lastY = best == null ? Double.NaN : best.y;
         lastDistance = best == null ? Double.NaN : best.distance;
+        lastOffset = best == null ? Double.NaN : best.offset;
+        lastAlong = best == null ? Double.NaN : best.along;
         lastHit = best != null && best.distance <= HALF_WIDTH;
-        return lastHit ? best : null;
+        return best;
     }
 
     private void clearLast() {
         lastHit = false;
         lastY = Double.NaN;
         lastDistance = Double.NaN;
+        lastOffset = Double.NaN;
+        lastAlong = Double.NaN;
+    }
+
+    /**
+     * <b>横向列判定</b>：把 {@code (qx, qz)} 投影到这条轨道的折线上，返回最近的列。
+     *
+     * <p>逐段投影（不是逐采样点比距离）：段的两端是折线顶点，段方向就是该处的切向 {@code T}，
+     * 法向 {@code N = (-Tz, Tx)}。投影参数 {@code f ∈ [0,1]} 给出弧长参数
+     * {@code s = s_i + f·(s_{i+1} - s_i)}，横向偏移 {@code offset = (q - p) · N}。
+     * 这样<b>每一段都有一个连续解</b>，不会出现「最近采样点跳了一格、y 突然变了半格」。
+     */
+    private static Sample column(final Entry entry, final double qx, final double qz) {
+        final int last = entry.xs.length - 1;
+        if (last < 1) {
+            return null;
+        }
+        double bestSq = Double.MAX_VALUE;
+        double bestOffset = 0.0D;
+        double bestAlong = 0.0D;
+        for (int i = 0; i < last; i++) {
+            final double x1 = entry.xs[i];
+            final double z1 = entry.zs[i];
+            final double ex = entry.xs[i + 1] - x1;
+            final double ez = entry.zs[i + 1] - z1;
+            final double len2 = ex * ex + ez * ez;
+            final double dx = qx - x1;
+            final double dz = qz - z1;
+            // 段内参数：水平投影（折线段是直线，水平投影与三维投影的分数相同）。
+            double f = 0.0D;
+            if (len2 > 1.0E-12D) {
+                f = clamp((dx * ex + dz * ez) / len2, 0.0D, 1.0D);
+            }
+            final double px = x1 + ex * f;
+            final double pz = z1 + ez * f;
+            final double ox = qx - px;
+            final double oz = qz - pz;
+            final double sq = ox * ox + oz * oz;
+            if (sq >= bestSq) {
+                continue;
+            }
+            bestSq = sq;
+            bestAlong = entry.ss[i] + (entry.ss[i + 1] - entry.ss[i]) * f;
+            // 法向 N = T × UP，水平面内就是 (-ez, ex) 归一化（右手系：切向 × 上 = 左法向）。
+            if (len2 > 1.0E-12D) {
+                final double inv = 1.0D / Math.sqrt(len2);
+                bestOffset = ox * (-ez * inv) + oz * (ex * inv);
+            } else {
+                // 退化段（水平长度 ≈ 0，MTR 正常不会出现）：给不了符号，只报距离。
+                bestOffset = Math.sqrt(sq);
+            }
+        }
+        if (bestSq == Double.MAX_VALUE) {
+            return null;
+        }
+        final double y = railY(bestAlong, entry.length, entry.yStart, entry.yEnd, entry.cable);
+        return new Sample(y, Math.sqrt(bestSq), bestOffset, bestAlong, entry.length);
+    }
+
+    /**
+     * <b>沿弧长的轨面高度</b>（纯函数，单元测试直接验它）。
+     *
+     * <p>与 MTR {@code Rail#getPositionY} 逐项同式：普通轨道是一条两端平、中间陡的二次曲线
+     * （{@code y = yStart + (yEnd-yStart)/2 · (2s/L)²}，{@code s < L/2} 时），所以坡道中点的坡度是
+     * 平均坡度的 <b>两倍</b>；缆车风格是「两头各 0.5 格平台 + 中间线性 + 下垂」。
+     * 用<b>弧长参数</b>而不是最近采样点，坡道上脚底与轨面的高差才是连续的。
+     *
+     * @param s      弧长参数（格），内部会钳到 {@code [0, length]}
+     * @param length 轨道全长（格）
+     * @param yStart {@code getPosition(0).y}
+     * @param yEnd   {@code getPosition(length).y}
+     * @param cable  缆车风格（{@code RailType.RailSlopeStyle.CABLE}）
+     */
+    public static double railY(final double s, final double length, final double yStart,
+                               final double yEnd, final boolean cable) {
+        if (!(length > 1.0E-6D)) {
+            return yStart;
+        }
+        final double v = clamp(s, 0.0D, length);
+        final double rise = yEnd - yStart;
+        if (cable) {
+            if (v < 0.5D) {
+                return yStart;
+            }
+            if (v > length - 0.5D) {
+                return yEnd;
+            }
+            final double offset = v - 0.5D;
+            final double offsetLength = length - 1.0D;
+            if (!(offsetLength > 1.0E-6D)) {
+                return yStart;
+            }
+            final double posY = yStart + rise * offset / offsetLength;
+            final double dip = offsetLength * offsetLength / 4.0D / 1000.0D;
+            final double shape = dip > 8.0D ? 8.0D / dip : 1.0D;
+            return posY + shape * (offset - offsetLength) * offset / 1000.0D;
+        }
+        final double intercept = length / 2.0D;
+        final double yChange;
+        final double yInitial;
+        final double offset;
+        if (v < intercept) {
+            yChange = rise / 2.0D;
+            yInitial = yStart;
+            offset = v;
+        } else {
+            yChange = -rise / 2.0D;
+            yInitial = yEnd;
+            offset = length - v;
+        }
+        return yChange * offset * offset / (intercept * intercept) + yInitial;
     }
 
     /** 重建缓存（表变了 / 锚点换了 / 缓存过期）。 */
@@ -381,8 +662,8 @@ public final class RailBed {
     }
 
     /**
-     * 把一条轨道按 {@code min(0.5, len/64)} 的步长<b>整条弧</b>采样成折线，求出真实包围盒，
-     * 再由折线上三点估局部半径定自适应粗扫步长。采样失败（MTR 抛异常 / 长度病态）返回 {@code null}。
+     * 把一条轨道按 {@code min(0.5, len/64)} 的步长<b>整条弧</b>采样成折线（弧长等距），求出真实包围盒，
+     * 并记下高程曲线的两端。采样失败（MTR 抛异常 / 长度病态）返回 {@code null}。
      */
     private static Entry entry(final Rail rail, final double length) {
         final double sampleStep = Math.min(SAMPLE_MAX_STEP, length / SAMPLE_DIVISIONS);
@@ -392,6 +673,7 @@ public final class RailBed {
         }
         final double[] xs = new double[steps + 1];
         final double[] zs = new double[steps + 1];
+        final double[] ss = new double[steps + 1];
         double minX = Double.MAX_VALUE;
         double maxX = -Double.MAX_VALUE;
         double minZ = Double.MAX_VALUE;
@@ -399,12 +681,14 @@ public final class RailBed {
         double minY = Double.MAX_VALUE;
         double maxY = -Double.MAX_VALUE;
         for (int i = 0; i <= steps; i++) {
-            final Vec3d p = position(rail, length * i / steps);
+            final double s = length * i / steps;
+            final Vec3d p = position(rail, s);
             if (p == null) {
                 return null;
             }
             xs[i] = p.x;
             zs[i] = p.z;
+            ss[i] = s;
             minX = Math.min(minX, p.x);
             maxX = Math.max(maxX, p.x);
             minZ = Math.min(minZ, p.z);
@@ -412,67 +696,19 @@ public final class RailBed {
             minY = Math.min(minY, p.y);
             maxY = Math.max(maxY, p.y);
         }
-        return new Entry(rail, length, minX, minZ, maxX, maxZ, minY, maxY,
-                scanStep(estimateRadius(xs, zs)));
+        // 高程曲线：两端采样点就是 getPosition(0)/(length) 的 y，与 MTR 的 yStart/yEnd 同值
+        // （yStart/yEnd 是私有字段，从 getPosition 反推比反射稳）。
+        final double yStart = sampleY(rail, 0.0D, minY, maxY);
+        final double yEnd = sampleY(rail, length, minY, maxY);
+        return new Entry(rail, length, xs, zs, ss, minX, minZ, maxX, maxZ, minY, maxY,
+                yStart, yEnd, cable(rail));
     }
 
-    /**
-     * 由采样折线估局部半径（格）：三个点的外接圆半径。半程三元组在 180° 弧上会退化成共线，
-     * 所以同时试四分之一和四分之三跨度，取<b>最小的有效半径</b>（最紧的曲率 → 最细的步长）。
-     *
-     * @return 半径；三点共线（直线 / 180° 弧的半程）时是 {@code +∞}；完全估不出时是 {@code NaN}
-     */
-    private static double estimateRadius(final double[] xs, final double[] zs) {
-        final int last = xs.length - 1;
-        if (last < 4) {
-            return Double.NaN;
-        }
-        double best = Double.POSITIVE_INFINITY;
-        boolean any = false;
-        final int[][] triples = {
-            {0, last / 2, last},
-            {0, last / 4, last / 2},
-            {last / 2, last * 3 / 4, last},
-        };
-        for (final int[] t : triples) {
-            final double r = circumradius(xs[t[0]], zs[t[0]], xs[t[1]], zs[t[1]],
-                    xs[t[2]], zs[t[2]]);
-            if (!Double.isNaN(r)) {
-                any = true;
-                best = Math.min(best, r);
-            }
-        }
-        return any ? best : Double.NaN;
-    }
-
-    /** 三点外接圆半径（水平面）；共线或退化时返回 {@code +∞}。 */
-    private static double circumradius(final double ax, final double az, final double bx,
-                                       final double bz, final double cx, final double cz) {
-        final double a = Math.hypot(bx - ax, bz - az);
-        final double b = Math.hypot(cx - bx, cz - bz);
-        final double c = Math.hypot(cx - ax, cz - az);
-        if (a < 1.0E-6D || b < 1.0E-6D) {
-            return Double.POSITIVE_INFINITY;
-        }
-        final double cross = Math.abs((bx - ax) * (cz - az) - (bz - az) * (cx - ax));
-        if (cross < 1.0E-6D) {
-            return Double.POSITIVE_INFINITY;
-        }
-        return a * b * c / (2.0D * cross);
-    }
-
-    /**
-     * 弧参数上的粗扫步长：弦误差 {@code s²/(8R)} 控制在 {@link #CHORD_TOLERANCE} 以内，所以
-     * {@code s = sqrt(8·R·tolerance)}，再钳到 [0.15, 0.8]。直线（R=∞）用 0.8，估不出半径用 0.4。
-     */
-    private static double scanStep(final double radius) {
-        if (Double.isNaN(radius)) {
-            return STEP_FALLBACK;
-        }
-        if (Double.isInfinite(radius)) {
-            return STEP_MAX;
-        }
-        return clamp(Math.sqrt(8.0D * radius * CHORD_TOLERANCE), STEP_MIN, STEP_MAX);
+    /** 端点 y：{@code getPosition} 拿不到时退回采样区间（宁可给个保守值，也不要 NaN）。 */
+    private static double sampleY(final Rail rail, final double s, final double fallback,
+                                  final double fallbackHigh) {
+        final Vec3d p = position(rail, s);
+        return p == null ? (s <= 0.0D ? fallback : fallbackHigh) : p.y;
     }
 
     /**
@@ -489,61 +725,13 @@ public final class RailBed {
         }
     }
 
-    /** 自适应步长粗扫 + 折半细化，返回最近点。整条轨道都在搜索半径外时返回 {@code null}。 */
-    private static Sample scan(final Entry entry, final double px, final double pz) {
-        final int steps = (int) Math.max(3.0D, Math.min(MAX_SCAN_STEPS,
-                Math.ceil(entry.length / entry.step) + 1.0D));
-        final double step = entry.length / (steps - 1);
-        double bestT = 0.0D;
-        double bestSq = Double.MAX_VALUE;
-        Vec3d best = null;
-        for (int i = 0; i < steps; i++) {
-            final double t = i * step;
-            final Vec3d p = position(entry.rail, t);
-            if (p == null) {
-                return null;
-            }
-            final double dx = p.x - px;
-            final double dz = p.z - pz;
-            final double sq = dx * dx + dz * dz;
-            if (sq < bestSq) {
-                bestSq = sq;
-                bestT = t;
-                best = p;
-            }
+    /** 缆车风格的高程公式不同（两头平台 + 中间线性 + 下垂），读不到就按普通轨道算。 */
+    private static boolean cable(final Rail rail) {
+        try {
+            return rail.railType.railSlopeStyle == RailType.RailSlopeStyle.CABLE;
+        } catch (Throwable t) {
+            return false;
         }
-        if (best == null) {
-            return null;
-        }
-        double half = step * 0.5D;
-        for (int i = 0; i < REFINE_MAX && half > REFINE_TOLERANCE; i++) {
-            final double t1 = clamp(bestT - half, 0.0D, entry.length);
-            final double t2 = clamp(bestT + half, 0.0D, entry.length);
-            final Vec3d a = position(entry.rail, t1);
-            final Vec3d b = position(entry.rail, t2);
-            if (a != null) {
-                final double dx = a.x - px;
-                final double dz = a.z - pz;
-                final double sq = dx * dx + dz * dz;
-                if (sq < bestSq) {
-                    bestSq = sq;
-                    bestT = t1;
-                    best = a;
-                }
-            }
-            if (b != null) {
-                final double dx = b.x - px;
-                final double dz = b.z - pz;
-                final double sq = dx * dx + dz * dz;
-                if (sq < bestSq) {
-                    bestSq = sq;
-                    bestT = t2;
-                    best = b;
-                }
-            }
-            half *= 0.5D;
-        }
-        return new Sample(best.y, Math.sqrt(bestSq));
     }
 
     /** {@code Rail#getPosition} 的唯一出口：MTR 未 remap，返回类型在编译期是 intermediary 名。 */

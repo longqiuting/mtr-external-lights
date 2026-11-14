@@ -109,7 +109,8 @@ final class ScatterLights {
             if (pose.cars() <= 0) {
                 continue;
             }
-            if (!HeadlightSwitch.isLit(client.world, pose, cfg, train.id)) {
+            if (!HeadlightSwitch.judge(client.world, pose, cfg, train).lit()) {
+                // 同一张判定表：不在线路上 / AUTO 且不需要灯 / AUTO 且停着，都不会进这一帧的灯阵。
                 continue;
             }
             final List<TrainLamps.Lamp> lamps = TrainLamps.of(train, pose, cfg, eff);

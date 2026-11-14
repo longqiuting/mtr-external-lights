@@ -52,7 +52,7 @@ public final class ShaderCompileCheck {
         final Path fsh = Path.of(args[0]);
         final Path vsh = Path.of(args[1]);
         final List<String> expected = List.of(
-                "uInvViewProj", "uParams", "uCone", "uSurface", "uCount", "uTest",
+                "uInvViewProj", "uMaxRay", "uCone", "uSurface", "uCount", "uTest",
                 "uLightPos", "uLightDir", "uLightColor");
         final List<String> samplers = List.of("Sampler0", "Sampler1");
 

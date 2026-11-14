@@ -1,8 +1,17 @@
-# 屏幕空间散射（车灯在空气里的光雾）· 1.20.1
+# 屏幕空间散射（车灯照在表面上的光）· 1.20.1
 
 日期：2026-11-13　范围：**只做 1.20.1**
 新包：`v1.20.1/src/main/java/dev/js/mtrheadlight/sss/`
 新资源：`assets/mtrlte/shaders/core/light_scatter.{json,vsh,fsh}`
+
+> **2026-11-14 变更（必读）：体积雾已删除。** 真机反馈「那团光雾的效果实在差」，逐字执行：
+> `light_scatter.fsh` 里的体积项（视线上球体**弦积分**、Henyey-Greenstein **相位**、介质**透射**
+> `exp(-k·dist)`、`volumeSum` 累加器）整段删除，uniform `uParams` 一并删除（`uParams.z` 的最长
+> 视线改用 `uniform float uMaxRay`，json 里也只有它）。**只保留表面照亮**：
+> `added = 表面和 · (scene·8.0 + 0.05)`，`scatterStrength` 现在只缩放表面项。
+> 因此天空像素（depth==1）不再有任何贡献——没有表面就没有光，这是有意的。
+> 本文 §5 / §5.1 / §8 里关于体积项的段落按"历史"读；当前实现以本节和 §5.1 的
+> `added = Σ表面 · (scene·8.0 + 0.05)` 为准。
 
 ---
 
@@ -23,7 +32,7 @@
 | `sss/ScatterProgram.java` | 手写 `new ShaderProgram(...)` 加载 core shader、取 uniform 句柄、失败一次即停用 |
 | `sss/DepthCopy.java` | 深度拷贝：查询源格式 → 建同格式深度纹理 + FBO → 每帧 blit |
 | `sss/ColorCopy.java` | 颜色拷贝（RGBA8）：表面项要乘的 albedo；同一帧 blit 一次，另带 96×54 降采样 + 回读的 `litPx` 探针 |
-| `shaders/core/light_scatter.*` | 顶点阶段只把 NDC 四边形传下去；片元阶段做表面项 + 体积项 + 合成 |
+| `shaders/core/light_scatter.*` | 顶点阶段只把 NDC 四边形传下去；片元阶段只做表面项 + 合成（体积项已删，见文首变更） |
 
 不在 `common/`：深度附件 blit、`ShaderProgram`、`GlUniform` 都是 1.20.1 的类型，下沉没有意义
 （1.18.2 / 1.19.x 的 `ConeVolumeRenderer` 就是 20 行恒 `false` 的壳）。
@@ -109,12 +118,12 @@ colour = 1 - exp( -Σ tau_i · gain )                  // 逐通道，gain = str
 
 ## 5.1 表面项（真照亮地面/墙面）与合成
 
-体积项的公式没变（上表就是它）。表面项是另加的一层，逐灯、逐像素：
+**体积项的公式已整个删除**（见文首变更）。当前 shader 里只有表面项，逐灯、逐像素：
 
 ```
 P      = rd · tHit                                 // 这一像素自己的世界点（相机相对）
 N      = normalize(cross(dFdx(P), dFdy(P)))        // 面法线；dot(N,P)>0 时取反（朝向相机）
-        （天空像素 depth==1 → 没有表面，跳过表面项，只留体积项）
+        （天空像素 depth==1 → 没有表面 → 完全不加光）
 
 L      = normalize(lamp - P)
 spot   = smooth( dot(axis, -L) ; cosOuter→cosInner )   // 光束锥门：灯只照它指的方向
@@ -124,7 +133,7 @@ att    = 1 / (1 + |lamp-P|² / 9)                       // ~1/d² 辐照度
 NdotL  = max(dot(N, L), 0)
 surface+= colour · I · spot · win · att · NdotL
 
-added  = Σ体积 · 1.6 + Σ表面 · (scene · 8.0 + 0.05)
+added  = Σ表面 · (scene · 8.0 + 0.05)
 lit    = scene + (1 - exp(-added · strength)) · (1 - 0.5 · scene)
 ```
 
@@ -140,9 +149,9 @@ lit    = scene + (1 - exp(-added · strength)) · (1 - 0.5 · scene)
   不可能把屏幕涂黑——这是整屏替换这种做法的安全网。
 * **没有自阴影**：只有一层深度、只有正面法线，被别的物体挡住的表面拿不到光，也不会有
   「车体自己挡住自己的灯」。RTE 同样如此，这是屏幕空间做法的固有边界。
-* **关掉表面项**：`scatterSurface=false` 时 `uSurface.z=0`，整段表面块在 uniform 分支里被跳过
-  （逐灯的 spot / 法线 / N·L 一次都不算），体积项与合成分毫不差。拷贝仍然每帧做两次，
-  因为合成无论如何都要读场景色。
+* **关掉表面项**：`scatterSurface=false` 时 `uSurface.z=0`，整段逐灯块在 uniform 分支里被跳过
+  （逐灯的 spot / 法线 / N·L 一次都不算），画面原样写回 `scene`。体积项已经不存在，
+  所以"关掉表面项"现在等于"这条 pass 什么都不加"。
 
 ---
 
@@ -217,7 +226,7 @@ lit    = scene + (1 - exp(-added · strength)) · (1 - 0.5 · scene)
    glGetActiveUniform 枚举（12 个活动 uniform，数组 size 真的是 16）：
      Sampler0 @0   Sampler1 @1   uCone @2   uCount @3   uDebug @4   uInvViewProj @5
      uLightColor[0] size=16 @6    uLightDir[0] size=16 @22    uLightPos[0] size=16 @38
-     uParams @54   uSurface @55   uTest @56
+     uMaxRay @54  uSurface @55   uTest @56
    A) 1.0.62 的路径 glUniform1fv(64 floats) -> glGetError=0x502 (GL_INVALID_OPERATION)
       回读 uLightColor[0] = (0,0,0,0)        <- power 恒 0，循环体永不执行
    B) 现在的路径 glUniform4fv(16 vec4)      -> glGetError=0x0
@@ -238,8 +247,8 @@ lit    = scene + (1 - exp(-added · strength)) · (1 - 0.5 · scene)
 
 ## 8. 性能
 
-* 灯数上限 **16**（着色器 `uLightPos[16]` 的硬上限，CPU 侧同样截断）。表面项与体积项共用**同一个**
-  灯循环，没有第二遍、没有第二段循环。
+* 灯数上限 **16**（着色器 `uLightPos[16]` 的硬上限，CPU 侧同样截断）。整个 pass 只有**一个**
+  灯循环（表面项），没有第二遍、没有第二段循环。
 * 每帧一次全屏四边形 + **一次深度 blit + 一次颜色 blit**（两张全屏 blit 都是 GPU 内部拷贝，
   不跨 PCIe；1080p 下各约 8 MB，实测在噪声以内）。
 * **0 盏灯 → 直接 return**：不建 framebuffer、不拷深度/颜色、不绑程序、不设 uniform。空轨道开销为 0。

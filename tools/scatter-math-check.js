@@ -5,8 +5,14 @@
 // Two terms, one composite:
 //   volume  tau  = (chord/R) * cone * window * phase * trans * power * falloff * 0.125
 //   surface s    = power * spot * win * 1/(1 + d^2/9) * max(N.L, 0)
-//   added        = volumeSum * 1.6 + surfaceSum * (scene*6.0 + 0.03)
+//   added        = volumeSum * 1.6 + surfaceSum * (scene*8.0 + 0.05)
 //   lit          = scene + (1 - exp(-added * k)) * (1 - 0.5*scene)
+//
+// 2026-11-14: the VOLUME term was deleted from light_scatter.fsh (the user judged the air haze
+// worse than nothing). The volume code below is kept only so the old numbers can still be
+// reproduced for A/B on paper; the SHIPPED composite is
+//   added = surfaceSum * (scene*8.0 + 0.05)
+// i.e. the `volume = 0` calls in this file. Every surface number printed here is current.
 'use strict';
 
 const R = 6.0;              // scatterRadius

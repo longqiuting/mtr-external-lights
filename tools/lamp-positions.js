@@ -14,7 +14,7 @@
  *     base  = rail point on that car's end face          (front() / rear() in TrainPose)
  *     out   = +carBodyForward for the head, -it for the tail
  *     right = normalize(out x (0,1,0))
- *     pos   = base + right * lateral + (0, height, 0) - out * (inset + 0.08)
+ *     pos   = base + right * lateral + (0, height, 0) + out * (|inset| + 0.08)
  *
  * Two deliberate differences from the runtime, both visible in the output:
  *   - the *car pitch* (`spacing`, i.e. how long one car is) is a game-side value we do not have
@@ -131,11 +131,11 @@ function place(lamp, base, out, head) {
     const lateral = clamp(lamp.lateral, -MAX_LATERAL, MAX_LATERAL);
     const height = clamp(lamp.height < MIN_LAMP_HEIGHT ? DEFAULT_HEIGHT_OFFSET : lamp.height,
         MIN_LAMP_HEIGHT, MAX_LAMP_HEIGHT);
-    const back = clamp(lamp.inset, -MAX_AHEAD, MAX_INSET) + FLARE_GAP;
+    const outward = clamp(Math.abs(lamp.inset), 0, MAX_AHEAD) + FLARE_GAP;
     return {
-        x: base.x + right.x * lateral - dir.x * back,
-        y: base.y + height - dir.y * back,
-        z: base.z + right.z * lateral - dir.z * back,
+        x: base.x + right.x * lateral + dir.x * outward,
+        y: base.y + height + dir.y * outward,
+        z: base.z + right.z * lateral + dir.z * outward,
         right,
         dir,
     };

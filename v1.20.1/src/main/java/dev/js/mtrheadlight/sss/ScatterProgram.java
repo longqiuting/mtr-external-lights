@@ -93,7 +93,7 @@ final class ScatterProgram {
     private static String failure;
 
     private static GlUniform uInvViewProj;
-    private static GlUniform uParams;
+    private static GlUniform uMaxRay;
     private static GlUniform uCone;
     private static GlUniform uSurface;
     private static GlUniform uCount;
@@ -167,12 +167,12 @@ final class ScatterProgram {
             final ResourceFactory remap = remapped(client.getResourceManager());
             final ShaderProgram loaded = new ShaderProgram(remap, NAME, VertexFormats.POSITION);
             final GlUniform invViewProj = require(loaded, "uInvViewProj");
-            final GlUniform params = require(loaded, "uParams");
+            final GlUniform maxRay = require(loaded, "uMaxRay");
             final GlUniform cone = require(loaded, "uCone");
             final GlUniform surface = require(loaded, "uSurface");
             final GlUniform count = require(loaded, "uCount");
             final GlUniform test = require(loaded, "uTest");
-            if (invViewProj == null || params == null || cone == null || surface == null
+            if (invViewProj == null || maxRay == null || cone == null || surface == null
                     || count == null
                     || test == null) {
                 // A uniform the compiler dropped (renamed, or no longer read) would make the pass
@@ -200,7 +200,7 @@ final class ScatterProgram {
                 return false;
             }
             uInvViewProj = invViewProj;
-            uParams = params;
+            uMaxRay = maxRay;
             uCone = cone;
             uSurface = surface;
             uCount = count;
@@ -240,7 +240,7 @@ final class ScatterProgram {
      *
      * <pre>
      *   [lte] scatter uniforms: uLightPos[0]=38 uLightDir[0]=22 uLightColor[0]=6 uInvViewProj=5
-     *                           uParams=54 uCone=2 uSurface=55 uCount=3 uTest=56 uDebug=4 (lamp arrays are 16x vec4 via glUniform4fv)
+     *                           uMaxRay=54 uCone=2 uSurface=55 uCount=3 uTest=56 uDebug=4 (lamp arrays are 16x vec4 via glUniform4fv)
      * </pre>
      * (Real numbers for this shader on an NVIDIA 621.24 / GL 3.3 core driver, where
      * {@code glGetActiveUniform} reports {@code uLightPos[0] size=16 loc=38}, {@code uLightDir[0]
@@ -249,11 +249,11 @@ final class ScatterProgram {
      */
     private static void logUniforms() {
         MtrHeadlightClient.LOGGER.info("[lte] scatter uniforms: uLightPos[0]={} uLightDir[0]={} "
-                        + "uLightColor[0]={} uInvViewProj={} uParams={} uCone={} uSurface={} "
+                        + "uLightColor[0]={} uInvViewProj={} uMaxRay={} uCone={} uSurface={} "
                         + "uCount={} uTest={} uDebug={} (lamp arrays are 16x vec4, uploaded by "
                         + "glUniform4fv after bind; json declares none of them)",
                 Integer.valueOf(posLoc), Integer.valueOf(dirLoc), Integer.valueOf(colorLoc),
-                Integer.valueOf(locOf(uInvViewProj)), Integer.valueOf(locOf(uParams)),
+                Integer.valueOf(locOf(uInvViewProj)), Integer.valueOf(locOf(uMaxRay)),
                 Integer.valueOf(locOf(uCone)), Integer.valueOf(locOf(uSurface)),
                 Integer.valueOf(locOf(uCount)), Integer.valueOf(locOf(uTest)),
                 Integer.valueOf(locOf(uDebug)));
@@ -298,16 +298,18 @@ final class ScatterProgram {
      * {@code ShaderProgram.bind()}); the three lamp arrays are only <b>staged</b> into their
      * {@link FloatBuffer}s here and pushed by {@link #uploadArrays()} once the program is bound.
      *
-     * @param volumeGain    the volume calibration constant ({@code uParams.x}), not the strength
-     * @param strength      the user's strength ({@code uSurface.x}); the composite gain
+     * <p>The volume term (and with it {@code uParams.x/y/w}: gain, extinction, phase g) is gone; the
+     * only remaining per-beam uniform pair is {@code uCone} + {@code uSurface}.
+     *
+     * @param strength      the user's strength ({@code uSurface.x}); the composite gain of the surface term
      * @param attenuationRef squared distance (blocks^2) at which the surface term halves
+     * @param maxRay        {@code uMaxRay}: longest view ray, blocks
      * @param surface       {@code uSurface.z}: compile-block switch for the surface term
      * @param coverage      {@code uSurface.w}: write the lit-pixel probe into the output alpha
      * @param cosInner      {@code uCone.x}; the beam axis is {@code uLightDir}, pointing <b>out of the lamp</b>
      * @param cosOuter      {@code uCone.y}
      */
-    static void uniforms(final Matrix4f inverseViewProj, final float volumeGain,
-                         final float extinction, final float maxRay, final float phaseG,
+    static void uniforms(final Matrix4f inverseViewProj, final float maxRay,
                          final float cosInner, final float cosOuter, final float strength,
                          final float attenuationRef, final boolean surface, final boolean coverage,
                          final int debug, final int count, final float[] pos, final float[] dir,
@@ -316,7 +318,7 @@ final class ScatterProgram {
             return;
         }
         uInvViewProj.set(inverseViewProj);
-        uParams.set(volumeGain, extinction, maxRay, phaseG);
+        uMaxRay.set(maxRay);
         uCone.set(cosInner, cosOuter, 0.0F, 0.0F);
         uSurface.set(strength, attenuationRef, surface ? 1.0F : 0.0F, coverage ? 1.0F : 0.0F);
         uCount.set(count);
@@ -453,10 +455,10 @@ final class ScatterProgram {
             return "program=" + status();
         }
         return String.format(Locale.ROOT,
-                "uLightPos[0]=%d uLightDir[0]=%d uLightColor[0]=%d uInvViewProj=%d uParams=%d "
+                "uLightPos[0]=%d uLightDir[0]=%d uLightColor[0]=%d uInvViewProj=%d uMaxRay=%d "
                         + "uCone=%d uSurface=%d uCount=%d uTest=%d uDebug=%d",
                 Integer.valueOf(posLoc), Integer.valueOf(dirLoc), Integer.valueOf(colorLoc),
-                Integer.valueOf(locOf(uInvViewProj)), Integer.valueOf(locOf(uParams)),
+                Integer.valueOf(locOf(uInvViewProj)), Integer.valueOf(locOf(uMaxRay)),
                 Integer.valueOf(locOf(uCone)), Integer.valueOf(locOf(uSurface)),
                 Integer.valueOf(locOf(uCount)), Integer.valueOf(locOf(uTest)),
                 Integer.valueOf(locOf(uDebug)));
@@ -469,7 +471,7 @@ final class ScatterProgram {
         failure = null;
         attempted = false;
         uInvViewProj = null;
-        uParams = null;
+        uMaxRay = null;
         uCone = null;
         uSurface = null;
         uCount = null;

@@ -72,8 +72,8 @@ final class ColorCopy {
     /**
      * Makes sure the copy target matches the framebuffer, then blits this frame's colour into it.
      *
-     * @return {@code false} when the copy failed - the caller must then fall back to the
-     *         depth-only (volume) path for this frame
+     * @return {@code false} when the copy failed - with the volume term gone there is nothing left
+     *         that can be drawn without an albedo, so the caller must skip the pass this frame
      */
     static boolean update(final Framebuffer source) {
         if (source == null || failed) {
@@ -82,7 +82,8 @@ final class ColorCopy {
         if (!ensureTargets(source)) {
             failed = true;
             MtrHeadlightClient.LOGGER.warn("[lte] scatter: the scene colour could not be copied - "
-                    + "the surface term stays off (only the volume glow is drawn)");
+                    + "the pass stays off this session (there is no albedo to light, and the volume "
+                    + "term no longer exists)");
             return false;
         }
         return blit(source);

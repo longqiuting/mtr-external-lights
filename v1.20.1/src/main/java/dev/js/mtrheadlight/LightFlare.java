@@ -11,7 +11,9 @@ import net.minecraft.util.math.Vec3d;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The visible train light: <b>one camera-facing quad per physical lamp</b>, at the position
@@ -143,6 +145,24 @@ public final class LightFlare {
     private static int dNoLamp;
     private static boolean windowOn;
 
+    /*
+     * 「为什么这一列车没亮」的三档计数，每 5 秒一行、打完清零。
+     *
+     * 灯晕和散射都走 {@link HeadlightSwitch#judge}，所以这三档就是那条判定的全部否决理由：
+     *   offRoute —— MTR 说它不在线路上（车厂 / 车辆段 / 未派车），见 {@link DepartureState#departed}
+     *   dark     —— AUTO 且此刻不需要灯（白天露天 / 无雨 / 不在隧道），见 RailWeather#lightsNeeded
+     *   parked   —— AUTO 且速度连续为 0 超过停放阈值（停车灯灭），见 {@link DepartureState#stopped}
+     *
+     * 计数用<b>去重的列车键</b>而不是「列车 × 帧」的累加：帧数随机器好坏变（一台 300 帧、一台
+     * 600 帧），而玩家要读的是「这 5 秒里有几列车因为什么没亮」。所以 {@code skipped=offRoute=2
+     * dark=5 parked=1} 就是 2 列车在车厂、5 列车在白天露天、1 列车停着 —— 一句话对得上画面。
+     */
+    private static final Set<Long> SKIP_OFF_ROUTE = new HashSet<>();
+    private static final Set<Long> SKIP_DARK = new HashSet<>();
+    private static final Set<Long> SKIP_PARKED = new HashSet<>();
+    /** 上一次 5 秒窗口的 {@code skipped=…} 文本，给 {@link #skipText()}（指令）用。 */
+    private static String lastSkipText = "skipped=offRoute=0 dark=0 parked=0";
+
     /** How many nearest lamps the {@code [lte] flare near:} line prints per window. */
     private static final int NEAR_REPORT = 3;
     /** Reported near-lamp slots, sorted by camera distance (index 0 = the closest lamp). */
@@ -186,6 +206,29 @@ public final class LightFlare {
     private static int dLateDraws;
 
     private LightFlare() {
+    }
+
+    /**
+     * 上一次 5 秒窗口的「为什么没亮」计数，形如
+     * {@code skipped=offRoute=2 dark=3 parked=0}，给 {@code /mtr_lte flare status} 用。
+     *
+     * <p>三档都来自 {@link HeadlightSwitch#Verdict}，也就是灯晕和散射共用的那一个判定：车不在
+     * 线路上 / 环境不需要灯（AUTO）/ 停着（AUTO）。记的是<b>去重的列车数</b>（最近一个 5 秒
+     * 窗口），所以 {@code offRoute=2} 就是「两列车在车厂/回库，所以没亮」。
+     */
+    public static String skipText() {
+        return lastSkipText;
+    }
+
+    /**
+     * 一列车的去重键，只给上面三个 {@code skipped} 集合用：MTR 的稳定 id 优先，没有 id 时用
+     * 对象身份哈希并打上高位标记，免得和真实 id 撞号。
+     */
+    private static long skipKey(final TrainClient train) {
+        if (train.id != 0L) {
+            return train.id;
+        }
+        return 0x100000000L | (System.identityHashCode(train) & 0xFFFFFFFFL);
     }
 
     /**
@@ -303,15 +346,29 @@ public final class LightFlare {
             if (!eff.enabled || !eff.beamFlare) {
                 continue;
             }
-            // 停在站台的车也要有灯晕：只要灯是亮着的（isLit 里已经处理 AUTO/夜间/开关），
-            // 就必须看得见，否则玩家站在站台上只能看到一片黑。
+            // 灯亮不亮由 HeadlightSwitch.judge 一个入口决定（在线路 / 环境 / 停着），见下面的三道闸。
 
             final boolean reversed = DepartureState.reversed(train, train.isReversed()) ^ cfg.swapEnds;
             final TrainPose pose = TrainPose.ofShared(train, reversed);
             if (pose.cars() <= 0) {
                 continue;
             }
-            if (!HeadlightSwitch.isLit(client.world, pose, cfg, train.id)) {
+            /*
+             * 自动开关：一个入口，三个原因（见 {@link HeadlightSwitch#Verdict}）。灯晕原来只问
+             * 「现在暗吗」，所以停在车辆段 / 回库的车照样亮着——用户在车厂看到的就是这一条。
+             * 现在 offRoute / dark / parked 三档各自计数，5 秒一行的 {@code skipped=} 和
+             * {@code /mtr_lte flare status} 里都能读到，不用再猜「为什么没亮」。
+             */
+            final HeadlightSwitch.Verdict verdict = HeadlightSwitch.judge(client.world, pose, cfg, train);
+            if (!verdict.lit()) {
+                final Long key = Long.valueOf(skipKey(train));
+                switch (verdict) {
+                    case OFF_ROUTE -> SKIP_OFF_ROUTE.add(key);
+                    case DARK -> SKIP_DARK.add(key);
+                    case PARKED -> SKIP_PARKED.add(key);
+                    default -> {
+                    }
+                }
                 continue;
             }
             final List<TrainLamps.Lamp> lamps = TrainLamps.of(train, pose, cfg, eff);
@@ -672,11 +729,14 @@ public final class LightFlare {
             return;
         }
         diagAt = now;
+        // 先定格本窗口的 skipped=，无论下面打不打日志都要能回答指令；随后清零。
+        lastSkipText = "skipped=offRoute=" + SKIP_OFF_ROUTE.size() + " dark=" + SKIP_DARK.size()
+                + " parked=" + SKIP_PARKED.size();
         if (windowOn) {
             MtrHeadlightClient.LOGGER.info("[lte] flare: trains={} lamps={} quads={} noLamp={}"
-                            + " drawn={} tex={}{}",
+                            + " {} drawn={} tex={}{}",
                     Integer.valueOf(dTrains), Integer.valueOf(dLamps), Integer.valueOf(dQuads),
-                    Integer.valueOf(dNoLamp), Boolean.valueOf(dDrawn), dTexture,
+                    Integer.valueOf(dNoLamp), lastSkipText, Boolean.valueOf(dDrawn), dTexture,
                     dDrawError == null ? "" : " err=" + dDrawError);
             /*
              * 一条「这条绘制真正用了什么 GL 状态」的取证行。每个字段都是 draw 之后从 GL 读回来的
@@ -732,6 +792,9 @@ public final class LightFlare {
         dLamps = 0;
         dQuads = 0;
         dNoLamp = 0;
+        SKIP_OFF_ROUTE.clear();
+        SKIP_DARK.clear();
+        SKIP_PARKED.clear();
         dDrawn = false;
         dDrawError = null;
         dDrawQuads = 0;

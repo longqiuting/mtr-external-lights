@@ -28,20 +28,20 @@ import java.util.WeakHashMap;
  *
  * <h2>判定（与玩家那条路同一个几何）</h2>
  * <pre>
- * 轨面 y   = RailBed 采样（{@code RailwayData#getRailsMap()}，与客户端 {@code ClientData.RAILS} 同构）
+ * 轨面 y   = RailBed 横向列投影（{@code RailwayData#getRailsMap()}，与客户端 {@code ClientData.RAILS} 同构）
  * 可站立面 = 轨面 + trackbedThickness（默认 0.15）
  *
- * resting（已经贴着）：vy ≤ 0.02 且 脚底 ∈ [面 − 0.03, 面 + 0.10]
- * crossed（这一 tick 从上往下穿过）：vy < 0 且 上一 tick 的 y ≥ 面 − 0.03 且 本 tick 的 y < 面
- * 两者都不满足 → 不接
+ * RailBed.verdict(dy = 脚底 − 面, vy, startDy, stepUp) 为 SNAP 就接住：
+ *   dy ∈ [−stepUp(1.0), +0.03]                     → 上坡抬一步 / 正踩在轨面上
+ *   startDy ≥ −0.03 且 dy < −0.03 且 vy < 0        → 这一 tick 从上往下扫掠穿过轨面
+ *   dy ∈ (+0.03, +0.6] 且 vy ≤ 0.02                → 从上方贴着轨面往下走
  * 生效时：y 吸到面、竖直速度归零、fallDistance 清零、onGround = true
  * </pre>
  *
- * <p>「从上方穿过」这个语义很重要：站在高架下面（实体远在道床面下方）永远不满足 crossed，
- * 所以不会被从下面吸上去。另外再加一道 {@link #MAX_DROP}：<b>只在「已经贴着轨面」（resting）时
- * 才限制</b> —— 一次掉超过 3 格、明显已经在虚空里的不接。crossed 的实体这一 tick 的起点就在轨面
- * 之上，那是货真价实的「落下来穿过轨面」，一 tick 掉多少格都要接（终端速度 3.92 格/tick 比旧上限
- * 还大，旧实现正是这样让高速下落的方块穿过轨道掉进虚空的）。
+ * <p>「从上方穿过」这个语义很重要：站在高架下面（实体远在道床面下方）永远不满足扫掠那一支，
+ * 纵向窗口的下界也只有一级台阶，所以不会被从下面吸上去。反过来，<b>从上方落下来的实体一 tick
+ * 掉多少格都要接住</b>（终端速度 3.92 格/tick；旧实现拿「掉超过 3 格就不接」当闸门，正是高速
+ * 下落的方块穿过轨道掉进虚空的成因）。
  *
  * <h2>范围</h2>
  * 不按玩家取中心：<b>每个实体以自己的位置查轨道</b>（{@code RailBed#nearestCell} 的锚就是它所在
@@ -69,13 +69,6 @@ public final class ServerTrackbed {
 
     /** 被列车撞过之后多少 tick 内不吸附（给撞飞留出飞行时间）。 */
     private static final int IMPACT_GRACE = 10;
-
-    /** 已经贴着轨面时的判定容差（格）。 */
-    private static final double REST_BELOW = 0.03D;
-    private static final double REST_ABOVE = 0.10D;
-
-    /** 一次最多从上方「接住」多少格的下落；更深的一律不管。 */
-    private static final double MAX_DROP = 3.0D;
 
     private static final Map<ServerWorld, Map<Long, RailBed>> BEDS = new WeakHashMap<>();
 
@@ -136,7 +129,7 @@ public final class ServerTrackbed {
                     // 刚被列车撞飞：让它飞完，别在半空吸到轨面上。
                     continue;
                 }
-                if (snap(world, rails, entity, thickness, now)) {
+                if (snap(world, rails, entity, thickness, cfg.trackbedStepUpClamped(), now)) {
                     if (item) {
                         diagItems++;
                     } else {
@@ -152,7 +145,8 @@ public final class ServerTrackbed {
 
     /** 把一个实体吸到轨面上；返回 true 表示真的动了。 */
     private static boolean snap(final ServerWorld world, final Object rails,
-                                final Entity entity, final double thickness, final long now) {
+                                final Entity entity, final double thickness, final double stepUp,
+                                final long now) {
         final double x = entity.getX();
         final double feet = entity.getY();
         final double z = entity.getZ();
@@ -168,20 +162,16 @@ public final class ServerTrackbed {
         // 上一 tick 的 y：Entity#baseTick 在 tick 一开始就把 prevY 设为当时的 y，
         // 所以 END_SERVER_TICK 读到的是「这一 tick 从哪里来」。
         final double from = entity.prevY;
-        final boolean resting = v.y <= 0.02D
-                && feet >= surface - REST_BELOW && feet <= surface + REST_ABOVE;
-        final boolean crossed = v.y < -1.0E-3D
-                && from >= surface - REST_BELOW && feet < surface;
-        if (!resting && !crossed) {
+        // 与客户端玩家同一条判定（纯函数）：上坡抬一步 / 从上方扫掠穿过 / 往下贴着走。
+        // 不看 onGround（下落中的方块、被推着走的生物本来就没有 it），也不拿 y 做阈值。
+        final RailBed.Verdict verdict = RailBed.verdict(feet - surface, v.y,
+                Double.isNaN(from) ? Double.NaN : from - surface, stepUp);
+        if (verdict != RailBed.Verdict.SNAP) {
             return false;
         }
-        // 「已经掉得很深」只有对 resting 才成立：crossed 已经证明这一 tick 起点在轨面之上，
-        // 那就一定是「落下来穿过轨面」，多深都该接。旧实现拿 feet < surface - 3 一律拒绝，
-        // 于是高速下落（终端速度 3.92 格/tick）的物品一 tick 就掉过 3 格，直接穿进虚空 ——
-        // 这才是「远距离 / 高处掉下的物品掉下轨道」的另一半原因。
-        if (!crossed && feet < surface - MAX_DROP) {
-            return false;
-        }
+        // 「已经掉得很深」不再单独判：纵向窗口的下界已经是 stepUp（默认 1.0），而「从上方扫掠穿过」
+        // 那一支已经证明这一 tick 的起点在轨面之上，一 tick 掉多少格都该接住（终端速度 3.92 格/tick，
+        // 拿 3 格做上限正是旧实现让高速下落的方块穿过轨道掉进虚空的原因）。
         final Box moved = entity.getBoundingBox().offset(0.0D, surface - feet, 0.0D);
         if (!world.isSpaceEmpty(entity, moved)) {
             return false;

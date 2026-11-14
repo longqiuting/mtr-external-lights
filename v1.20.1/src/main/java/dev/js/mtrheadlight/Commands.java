@@ -311,12 +311,15 @@ public final class Commands {
      * 专门回答「站在轨道上、过弯道就掉下去」。
      *
      * <p>{@code status} 立刻打一行并打开每 5 秒一次的同类日志：
-     * <pre>[lte] trackbed: rails=cached N hit=yes|no y=… dist=… halfW=… snapped=true|false</pre>
-     * {@code rails} 是缓存里候选轨道条数，{@code hit=no} 且 {@code dist=-} 表示缓存里根本没有近处的
-     * 轨道（旧版弯道漏判就是这个形态：弧太长，端点包围盒 + 外扩没圈住弧中段）；{@code dist} 有数字
-     * 但大于 {@code halfW} 则是「轨道找到了、只是差了一点」，那是几何/采样误差而不是缓存漏；
-     * {@code snapped} 是上一个完整 tick 里道床有没有真的把人按住（{@code false} + {@code hit=yes}
-     * 说明命中了却被真实方块 / 空间不足挡掉）。
+     * <pre>[lte] trackbed: rails=N hit=yes|no y=… dist=… off=… halfW=… dy=… onGround=…
+     *                 moved=… drop=snap|dy|lat|nohit|jump|block|space snapped=…
+     *                 drops=snap:57 dy:0 lat:0 nohit:0 jump:2 block:0 space:0</pre>
+     * {@code rails} 是缓存里候选轨道条数；{@code drop=} 是<b>上一步的结论</b>：
+     * {@code nohit} = 缓存里没有近处的轨道；{@code lat} = 轨道找到了但横向偏移超半宽；
+     * {@code dy} = 横向踩在道床上、脚底与轨面的高差不在窗口里（{@code dy} 正负会告诉你是在轨面上方
+     * 还是下方 —— 上坡就是负的）；{@code jump} = 起跳那一 tick 故意让开；
+     * {@code block}/{@code space} = 命中了但被真实方块 / 空间不足挡掉。
+     * {@code drops=} 是自上一行以来的计数，走一遍坡道就知道是三种里的哪一种。
      *
      * <p>只在内存里：退出游戏即失效，不写 config（和 {@code lighttest} / {@code debug spray} 一致）。
      */
@@ -326,7 +329,8 @@ public final class Commands {
         Trackbed.setWatch(true);
         source.sendFeedback(Text.literal(line));
         source.sendFeedback(Text.literal("LTE：道床取证已打开，每 5 秒一行（/mtr_lte trackbed off 关掉）"
-                + " — hit=no 且 dist=- 就是缓存没命中，跟在你身后一路 dist=- 的地方就是掉下去的位置"));
+                + " — 看 drop=：nohit=缓存没轨道 / lat=横向没踩上 / dy=高度差超窗口（上坡掉就是这个）；"
+                + " drops= 是各结论计数"));
         return 1;
     }
 
@@ -443,6 +447,11 @@ public final class Commands {
                 + " radius=" + cfg.beamBlockLightRadius
                 + " — 灯位：模型 LIGHT 部件 / builtin_lights.json / 尺寸兜底，"
                 + "逐车型诊断行见 [lte] lights:，每 5 秒汇总见 [lte] flare:"));
+        // 自动开关的三档否决理由（最近一个 5 秒窗口，去重计数），紧跟在灯晕状态后面：
+        // 用户看到的「车在车厂却亮着 / 该亮不亮」直接对应这里的某一段非零。
+        source.sendFeedback(Text.literal("LTE：auto switch " + LightFlare.skipText()
+                + "（最近 5 秒被拦下的列车数，去重；offRoute=不在线路/车厂，"
+                + "dark=AUTO 且白天露天，parked=AUTO 且停住）"));
         if (!BeamBlockLight.alive()) {
             source.sendFeedback(Text.literal("LTE：方块光照挂钩没有运行（"
                     + (BeamRelight.available() ? "区块网格重建被别的模组接管" : "Sodium/Embeddium 在线")

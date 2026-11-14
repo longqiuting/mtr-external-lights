@@ -202,8 +202,8 @@ public final class ProtoBeamCone {
      *   <li><b>g8</b> 名额已满 / 参数退化（length、radius、alpha 小到画不出东西）；</li>
      *   <li><b>g9</b> 这条车自己不发车灯（未出库 / 自动关灯）—— 光带本来就没画，光柱也不画。
      *       <b>两种源都过这道闸</b>（{@code coneSource} 是 MODEL 还是 GLOW 无关），判定与
-     *       {@link BeamGlow} / {@link LightController} 是同一个 {@link HeadlightSwitch#isLit}
-     *       加同一个 {@code train.id} 去抖键，所以光带、动态光源、光柱不会出现「一半亮」。</li>
+     *       {@link BeamGlow} / {@link LightController} 是同一个 {@link HeadlightSwitch#judge}
+     *       （在线路 / 环境 / 停着三道闸），所以光带、动态光源、光柱不会出现「一半亮」。</li>
      * </ol>
      * {@code beams>0} 时它们应全为 0；{@code beams==0} 时哪一个不为 0，问题就在哪一道闸。
      * {@code GLOW} 源下 g3 / g4 一定为 0（那条路根本不读车型灯位）。
@@ -459,14 +459,13 @@ public final class ProtoBeamCone {
             }
 
             // 车灯没亮就不画光柱 —— 与 BeamGlow / LightController / 轨道烘焙问的是同一个
-            // HeadlightSwitch.isLit，并且带同一个 train.id 去抖键，所以光带、动态光源、轨道
-            // 烘焙、光柱对"这列车现在亮不亮"只能是同一个答案。
+            // HeadlightSwitch.judge（在线路 / 环境 / 停着三道闸都在里面），所以光带、动态光源、
+            // 轨道烘焙、光柱、灯晕、散射对"这列车现在亮不亮"只能是同一个答案。
             //
             // 这条闸以前只写在下面的 GLOW 源分支里，而 coneSource 默认是 MODEL：于是白天露天
             // 自动关灯后光带灭了、动态光源摘了，光柱还挂在车头上 —— 就是"光柱没有跟着同步"。
             // 现在提到分支外，两条源共用（诊断行里记在 g9）。
-            if (!DepartureState.departed(train)
-                    || !HeadlightSwitch.isLit(world, pose, cfg, train.id)) {
+            if (!HeadlightSwitch.judge(world, pose, cfg, train).lit()) {
                 gate(9);
                 continue;
             }

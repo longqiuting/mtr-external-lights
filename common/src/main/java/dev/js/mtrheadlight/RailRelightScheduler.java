@@ -405,7 +405,7 @@ public final class RailRelightScheduler implements RailRelightHooks.Hook {
             // source any more, so its rail chunks must stop being sampled/queued - and the chunk
             // it last lit is handed back (release) exactly like a despawned train, otherwise the
             // rails keep the brightness that was baked there on the last lit frame.
-            if (!HeadlightSwitch.isLit(client.world, pose, cfg, train.id)) {
+            if (!HeadlightSwitch.judge(client.world, pose, cfg, train).lit()) {
                 release(cfg, train.id);
                 continue;
             }

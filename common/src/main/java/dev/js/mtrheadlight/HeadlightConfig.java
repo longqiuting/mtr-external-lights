@@ -1695,11 +1695,15 @@ public final class HeadlightConfig {
      * 轨道道床碰撞：玩家站在 MTR 轨道上时，轨面 + {@link #trackbedThickness} 作为可站立面。
      * 默认开。
      *
-     * <p>三条硬规则（实现见 {@code collision.Trackbed}）：
+     * <p>四条硬规则（实现见 {@code collision.Trackbed} / {@code collision.RailBed}）：
      * <ul>
-     *   <li>坡道按轨道参数取高 —— 每个采样点都是 {@code Rail#getPosition(t)} 的真实结果；</li>
-     *   <li>桥下不生效 —— 只有「玩家从上方接近」（本 tick 起点在可站立面之上且下落穿过）才算，
-     *       站在高架下面走过去不会被吸上去；</li>
+     *   <li>横向列：水平位置投影到轨道折线，法向偏移 {@code |offset| ≤ halfW} 才算踩在道床上
+     *       （弯道内侧外侧用同一条法线，不会漏）；</li>
+     *   <li>坡道按<b>弧长参数</b>取高：轨面 y 用 {@code Rail} 自己的高程曲线解析算出，
+     *       所以上坡时「脚底这一点」的轨面高度连续跟随，脚底比轨面低一级台阶以内就抬上去
+     *       （{@link #trackbedStepUp}）—— 不看 onGround，也不拿 y 做阈值；</li>
+     *   <li>桥下不生效：纵向窗口是 {@code [-STEP_UP, +CEIL]}，从上方落下来只在「扫掠真的穿过轨面」
+     *       那一 tick 接住，站在高架下面走过去不会被吸上去；</li>
      *   <li>真实方块优先 —— 脚下的方块顶面如果不低于道床面，就按原版碰撞走，不做抬升。</li>
      * </ul>
      */
@@ -1723,6 +1727,23 @@ public final class HeadlightConfig {
 
     /** 道床厚度（格），钳制 0–1，默认 0.15。可站立面 = 轨面 + 本值。 */
     public double trackbedThickness = 0.15D;
+
+    /**
+     * 上坡可以「抬一步」的最大高度（格），钳制 0–3，默认 1.0（一级台阶）。
+     *
+     * <p>脚底比轨面低不超过这个值就算踩在道床上，直接抬到轨面 —— <b>这就是坡道上行不再掉下去的那一条</b>：
+     * 上坡时轨面在脚底之上，高差随坡度增大，给一级台阶的余量就够走完任何 MTR 坡道（最陡的
+     * 1:1 坡在中点每走一格抬高 1.0 格）。设成 0 等于关掉「抬一步」，只剩「正踩在轨面上」。
+     */
+    public double trackbedStepUp = 1.0D;
+
+    /** {@link #trackbedStepUp} 钳制到 0–3 格。 */
+    public double trackbedStepUpClamped() {
+        if (Double.isNaN(trackbedStepUp)) {
+            return 1.0D;
+        }
+        return Math.max(0.0D, Math.min(3.0D, trackbedStepUp));
+    }
 
     /** {@link #trackbedThickness} 钳制到 0–1 格。 */
     public double trackbedThicknessClamped() {

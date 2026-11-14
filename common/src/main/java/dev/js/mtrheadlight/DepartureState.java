@@ -244,6 +244,40 @@ public final class DepartureState {
     }
 
     /**
+     * Consecutive ticks this train has been standing still ({@code |getSpeed()| < 0.01} blocks/tick),
+     * {@code 0} when it has not been seen yet. Exposed so the lighting gates can ask "has it stopped"
+     * without keeping a second timer of their own - there is exactly one speed signal in this mod.
+     */
+    public static long idleTicks(final TrainClient train) {
+        if (train == null) {
+            return 0L;
+        }
+        final Entry entry = TRACKED.get(keyOf(train));
+        return entry == null ? 0L : entry.idleTicks;
+    }
+
+    /**
+     * <b>Standing still on purpose</b>, regardless of route: MTR's own {@code speed} has been ~0 for
+     * more than {@link HeadlightConfig#parkIdleTicks()} ticks (10 s by default).
+     *
+     * <p>This is the "停车灯灭" signal for {@code headlightMode = AUTO}: a train that has stopped - a
+     * platform dwell that outlasts the threshold, or something left standing in a yard - does not
+     * need a head light. It is the <b>same</b> timer and the <b>same</b> switch
+     * ({@link HeadlightConfig#parkedLightsOff}) the depot parking verdict uses, deliberately: two
+     * timers would drift apart, and a player who turns the behaviour off expects all of it off.
+     *
+     * <p>An unreadable speed counts as standing still (the safe direction - a train we cannot read
+     * must not shine), and a train never seen has {@code idleTicks == 0}, i.e. not stopped.
+     */
+    public static boolean stopped(final TrainClient train, final HeadlightConfig cfg) {
+        if (train == null || cfg == null || !cfg.parkedLightsOff) {
+            return false;
+        }
+        final Entry entry = TRACKED.get(keyOf(train));
+        return entry != null && entry.isParked(cfg);
+    }
+
+    /**
      * Travel direction as MTR's {@code isReversed()} companion: {@code true} when the train runs
      * against its path, i.e. its nose is at the low-progress end. Follows the sign of the observed
      * progress delta, so a terminus turnaround swaps the ends.

@@ -292,6 +292,10 @@ public final class CollisionSystem {
     /** 本 tick 移动前的脚底 y（道床「从上方穿过」判定）。 */
     private static double startY = Double.NaN;
 
+    /** 本 tick 移动前的水平位置：只用来算「这一步走了多远」（道床取证）。 */
+    private static double startX = Double.NaN;
+    private static double startZ = Double.NaN;
+
     private static Entity cacheEntity;
     private static long cacheTick = -1L;
     private static double cacheHeight;
@@ -450,12 +454,14 @@ public final class CollisionSystem {
     // 注入点 1/2：Entity#move 的 HEAD
     // ---------------------------------------------------------------------------------------------
 
-    /** 记录移动前的脚底 y。所有判定都以它作为「这一 tick 从哪来」的基准。 */
+    /** 记录移动前的脚底 y（以及水平位置，只为道床取证算「这一步走了多远」）。 */
     public static void beforeMove(final Entity entity) {
         if (!isLocal(entity)) {
             return;
         }
         startY = entity.getY();
+        startX = entity.getX();
+        startZ = entity.getZ();
     }
 
     /**
@@ -662,6 +668,14 @@ public final class CollisionSystem {
         if (world != lastWorld) {
             reset();
             lastWorld = world;
+        }
+        // 道床：这一 tick 的移动都跑完了，把按压状态转成「上一 tick」。
+        Trackbed.endTick();
+        // 取证窗口（{@code /mtr_lte trackbed status}）：每 5 秒一行结论 + 各结论计数。
+        // 放在诊断早退之前 —— 它和 {@code collisionDiagnostics} 是两个开关。
+        if (Trackbed.watch() && ticks % DIAG_PERIOD == 0L) {
+            MtrHeadlightClient.LOGGER.info(Trackbed.describe(Trackbed.snapped()));
+            Trackbed.clearCounters();
         }
         stillLimbs(client == null ? null : client.player);
         // 流血窗口内把原版受击镜头晃动按掉：每 10 tick 一笔伤害会把 hurtTime 反复重置成 10，
@@ -1995,41 +2009,91 @@ public final class CollisionSystem {
     // 道床
     // ---------------------------------------------------------------------------------------------
 
-    /** 站到道床上：轨面 + thickness。只有「已经在上面」或「这一 tick 从上方落下穿过」才生效。 */
+    /**
+     * 站到道床上：<b>横向列 + 弧长插值</b>，<b>不看 onGround、不拿 y 做阈值</b>。
+     *
+     * <p>老实现的失败方式有两种，恰好就是用户报的两种：
+     * <ul>
+     *   <li><b>上坡掉</b>：判定要求「脚底在轨面 ±0.1 内」（{@code resting}）或「本 tick 起点在轨面之上、
+     *       终点在轨面之下」（{@code crossed}）。往前走一步，轨面已经抬高，脚底在轨面<b>之下</b>，
+     *       两条都不满足 —— 尤其是 {@code crossed} 还要求起点在轨面之上，上坡时起点也在轨面之下，
+     *       于是每一步都被漏掉，人顺着坡滑下去。</li>
+     *   <li><b>弯道掉</b>：最近点用的是离散采样点的固定 y，弯道中段的轨面高度取的是「上一格」的值，
+     *       和脚底对不上（几何明明命中了，仍然被判成没命中）。</li>
+     * </ul>
+     *
+     * <p>现在的判定只有三步，全部与 onGround 无关：
+     * <ol>
+     *   <li>横向：{@link Trackbed#nearest} 给出「最近横向列」的轨面 y 与有符号偏移，{@code |offset| ≤
+     *       }{@link Trackbed#HALF_WIDTH} 才算踩在道床上（法向判定，弯道内侧外侧一致）；</li>
+     *   <li>纵向：{@link RailBed#verdict} 用 {@code dy = 脚底 − 轨面} 判窗口
+     *       {@code [-STEP_UP, +CEIL]}，再分「起跳 / 从上方穿过 / 贴着往下走」三档；上坡时
+     *       {@code dy ∈ [-STEP_UP, 0]} 直接抬上去 —— 这就是坡道不再掉的那一条；</li>
+     *   <li>真实方块优先、落点空间检查：和前版一致，只是结论也进取证。</li>
+     * </ol>
+     */
     private static boolean trackbed(final PlayerEntity player, final HeadlightConfig cfg,
                                     final ClientWorld world) {
         final double feet = player.getY();
         final double x = player.getX();
         final double z = player.getZ();
-        final Trackbed.Sample sample = Trackbed.nearest(world, ticks, x, feet, z);
+        final boolean onGround = player.isOnGround();
+        final double moved = movedSinceStart(feet, x, z);
+        final Trackbed.Sample sample = Trackbed.probe(world, ticks, x, feet, z);
         if (sample == null) {
+            Trackbed.noteStep(feet, Double.NaN, Double.NaN, Double.NaN, onGround, moved,
+                    RailBed.Verdict.NO_HIT);
             return false;
         }
-        final double surface = sample.y + cfg.trackbedThicknessClamped();
+        final double railY = sample.y;
+        final double surface = railY + cfg.trackbedThicknessClamped();
+        final double dy = feet - surface;
+        final double offset = sample.offset;
+        // 横向列：nearest 已经按 HALF_WIDTH 过滤过，这里显式再判一次 —— 取证行要能区分
+        // 「横向就没踩上」和「踩上了但高度不对」，两者的修法完全不同。
+        if (sample.distance > Trackbed.HALF_WIDTH) {
+            Trackbed.noteStep(feet, railY, offset, dy, onGround, moved, RailBed.Verdict.LATERAL);
+            return false;
+        }
         final double vy = player.getVelocity().y;
-        // 已经站在上面：脚底就在道床面附近且没有在跳。必须排除"正在起跳"（vy > 0）—— 否则跳起来
-        // 的第一 tick 脚底还在容差里，会被立刻按回去并清零速度，跳不上去。
-        final boolean resting = vy <= 0.02D && feet >= surface - 0.03D && feet <= surface + 0.10D;
-        // 「从上方穿透」：本 tick 起点不低于道床面，终点低于它。站在高架下面（起点远低于道床面）
-        // 永远不满足，所以桥下不会被吸上去。
-        final boolean crossed = vy < -1.0E-3D && !Double.isNaN(startY)
-                && startY >= surface - 0.03D && feet < surface;
-        if (!resting && !crossed) {
+        final double startDy = Double.isNaN(startY) ? Double.NaN : startY - surface;
+        final RailBed.Verdict verdict = RailBed.verdict(dy, vy, startDy,
+                cfg.trackbedStepUpClamped());
+        if (verdict != RailBed.Verdict.SNAP) {
+            Trackbed.noteStep(feet, railY, offset, dy, onGround, moved, verdict);
             return false;
         }
         if (realBlockWins(world, x, feet, z, surface)) {
+            Trackbed.noteStep(feet, railY, offset, dy, onGround, moved, RailBed.Verdict.BLOCK);
             return false;
         }
-        final Box moved = player.getBoundingBox().offset(0.0D, surface - feet, 0.0D);
-        if (!world.isSpaceEmpty(player, moved)) {
+        final Box box = player.getBoundingBox().offset(0.0D, surface - feet, 0.0D);
+        if (!world.isSpaceEmpty(player, box)) {
+            Trackbed.noteStep(feet, railY, offset, dy, onGround, moved, RailBed.Verdict.SPACE);
             return false;
         }
         player.setPosition(x, surface, z);
         player.setOnGround(true);
+        // 落到轨面 = 落地：不清 fallDistance 的话，下坡时「每 tick 掉几厘米、被接住」会一路累加，
+        // 走完一条长下坡就吃一记原版摔落伤害（车顶那条路也是这么清的）。
+        // 车顶掉落的伤害结算有自己的一套状态（{@code settleRoofFall}），不读这个字段。
+        player.fallDistance = 0.0F;
         final Vec3d v = player.getVelocity();
         player.setVelocity(v.x, 0.0D, v.z);
         diagTrackbed = surface;
+        Trackbed.noteStep(feet, railY, offset, dy, onGround, moved, RailBed.Verdict.SNAP);
         return true;
+    }
+
+    /** 这一 tick 走了多远（含竖直）：道床取证的 {@code moved=}，用来区分「站着不动」和「走着走着掉了」。 */
+    private static double movedSinceStart(final double feet, final double x, final double z) {
+        if (Double.isNaN(startX) || Double.isNaN(startY) || Double.isNaN(startZ)) {
+            return 0.0D;
+        }
+        final double dx = x - startX;
+        final double dy = feet - startY;
+        final double dz = z - startZ;
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
     /**

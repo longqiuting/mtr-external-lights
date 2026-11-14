@@ -215,12 +215,12 @@ public final class LightController {
             }
             tracked.unplacedTicks = 0;
 
-            // 车灯开关模式（headlightMode）与环境判定：唯一信号源是 HeadlightSwitch，光带与
-            // 轨道烘焙也问同一个方法。AUTO 时白天露天关灯、暗（夜 / 天黑 / 雨 / 雷）或头顶有
-            // 遮挡开灯；ALWAYS / OFF 不做自动关灯，一发车就亮。
-            // 这是一道"输出前"的闸，不是第二套状态机——DepartureState 仍然只回答"发车了没有"，
-            // 这里回答"现在这个位置/时刻该不该亮"。
-            final boolean weatherLit = HeadlightSwitch.isLit(world, pose, cfg, train.id);
+            // 车灯开关：唯一信号源是 HeadlightSwitch.judge（不在线路上 / AUTO 且环境不需要灯 /
+            // AUTO 且停住），光带、灯晕、散射和轨道烘焙都问同一个方法。
+            // 输出前的一道闸，不是第二套状态机——DepartureState 仍然只回答"发车了没有"，
+            // 这里回答"现在这个位置/时刻/速度该不该亮"。用同一个答案是为了不出现
+            // 「灯晕灭了、地上那块亮斑还在」这种半亮状态。
+            final boolean weatherLit = HeadlightSwitch.judge(world, pose, cfg, train).lit();
 
             // Per-end judgement: the beam belongs to the front car, the tail light to the rear car.
             // Both distances use the same boundary the light is built from.
@@ -278,7 +278,7 @@ public final class LightController {
                 }
             }
 
-            weatherLine(world, pose, cfg, train.id, skyLines);
+            weatherLine(world, pose, cfg, train, skyLines);
         }
 
         // 诊断窗口的收尾：一行/车（最多 8 行）+ 一条"采样了几列 / 数据里共几列 / 引擎里还有几盏"。
@@ -439,12 +439,12 @@ public final class LightController {
      * evidence.
      */
     private static void weatherLine(final ClientWorld world, final TrainPose pose,
-                                    final HeadlightConfig cfg, final long trainId,
+                                    final HeadlightConfig cfg, final TrainClient train,
                                     final List<String> out) {
         if (out == null || out.size() >= WEATHER_DIAG_MAX) {
             return;
         }
-        out.add(HeadlightSwitch.diagnose(world, pose, cfg, trainId));
+        out.add(HeadlightSwitch.diagnose(world, pose, cfg, train));
     }
 
     private static List<TrainClient> snapshotTrains() {
