@@ -56,6 +56,20 @@ final class PidsXiamenText {
     private PidsXiamenText() {
     }
 
+    /** 一次性诊断：最近一个字形落在哪个字体层上（每 JVM 记第一次，之后不再 toString）。 */
+    private static volatile String lastLayer;
+
+    /** 一次性诊断用；{@code null} = 还没画过带裁切的字。 */
+    static String lastLayerName() {
+        return lastLayer;
+    }
+
+    private static void noteLayer(final RenderLayer layer) {
+        if (lastLayer == null) {
+            lastLayer = String.valueOf(layer);
+        }
+    }
+
     /** 一段文字（自带字号与颜色）。 */
     record Segment(String text, float size, int color) {
     }
@@ -178,6 +192,27 @@ final class PidsXiamenText {
      *
      * <p>{@code TextRenderer} 是按<b>字体图集</b>取 buffer 的（一个字形可能落在不同的
      * {@code RenderLayer} 上），所以只能包 provider，不能包单个 consumer。
+     *
+     * <h2>为什么不能按层缓存 consumer（旧版中文乱码的真因）</h2>
+     * <p>1.18.2 / 1.19.2 / 1.19.4 的 {@code VertexConsumerProvider.Immediate} 里，
+     * 字体图集层<b>没有</b>自己的 {@code BufferBuilder}：{@code BufferBuilderStorage} 只给
+     * glint / lines / water_mask 那几个特殊层预建 buffer（{@code layerBuffers}），
+     * 其余所有层共用<b>同一个 fallback {@code BufferBuilder}</b>（见
+     * {@code Immediate#getBufferInternal} 的 {@code getOrDefault(layer, fallbackBuffer)}）。
+     * 也就是说：顶点到底属于哪一层，<b>不是</b>由你手里那个 consumer 记住的，而是由
+     * {@code Immediate.currentLayer} 在<b>绘制那一刻</b>决定；而 {@code currentLayer} 只在
+     * {@code delegate.getBuffer(layer)} 被调用、且 layer 与当前不同时才切换（切的时候顺便把
+     * 上一层的顶点画掉）。
+     *
+     * <p>所以「按层缓存 consumer、之后复用」等于：<b>第二次用到某一层时不再调用 delegate</b>，
+     * {@code currentLayer} 还停在上一个图集上 → 这些顶点被写进上一层的 buffer、用上一层的
+     * 贴图画出来。
+     *
+     * <p>为什么只有中文坏：一条纯 ASCII 文字只落在<b>一个</b>图集层上，怎么缓存都不会串；
+     * 一条中文会跨 <b>≥2 个</b>图集层（字形按 {@code hasColor()} 分两张图集，
+     * 256×256 的图集页装满后也会溢出到下一页 —— 中文用量大的存档两张页一定都在用），
+     * 于是逐字交替 → 中文字形被按 ASCII 图集采样 → 「英文正常、中文全乱」。
+     * 同一块屏上「到站行」的中文走原版 provider（不裁切、不缓存），所以它是好的。
      */
     private static final class ClippingProvider implements VertexConsumerProvider {
 
@@ -186,8 +221,11 @@ final class PidsXiamenText {
         private final float right;
         /** 屏幕平面 → 世界 的矩阵（裁切在屏幕 px 里做，emit 的时候再乘回去）。 */
         private final Matrix4f world;
-        /** 每个 RenderLayer 一个 consumer（字形图集通常只有 1~2 页）：避免每字都新建对象。 */
-        private final java.util.Map<RenderLayer, ClippingConsumer> consumers = new java.util.HashMap<>();
+        /**
+         * <b>只有一个</b> consumer，<b>绝不按层缓存</b>（同一时刻只有一个字形在攒顶点）。
+         * 见类注释「为什么不能按层缓存」。
+         */
+        private final ClippingConsumer consumer;
 
         ClippingProvider(final VertexConsumerProvider delegate, final float left, final float right,
                          final Matrix4f world) {
@@ -195,12 +233,19 @@ final class PidsXiamenText {
             this.left = left;
             this.right = right;
             this.world = world;
+            this.consumer = new ClippingConsumer(left, right, world);
         }
 
         @Override
         public VertexConsumer getBuffer(final RenderLayer layer) {
-            return this.consumers.computeIfAbsent(layer,
-                    key -> new ClippingConsumer(this.delegate.getBuffer(key), this.left, this.right, this.world));
+            // 关键：每个字形都重新问一次 delegate。
+            // 旧版（1.18.2 / 1.19.2 / 1.19.4）的 Immediate 所有层共用同一个 fallback
+            // BufferBuilder，顶点归属哪一层**只由 currentLayer 决定**，而 currentLayer 只有
+            // 在这次调用里才会切换。缓存 per-layer consumer 就会跳过这次切换 →
+            // 顶点被记到上一个图集层上、用上一层的贴图画出来（中文乱码、英文正常）。
+            this.consumer.bind(this.delegate.getBuffer(layer));
+            noteLayer(layer);
+            return this.consumer;
         }
     }
 
@@ -217,7 +262,8 @@ final class PidsXiamenText {
      */
     private static final class ClippingConsumer implements VertexConsumer {
 
-        private final VertexConsumer delegate;
+        /** 当前这个字形要写进去的 buffer —— {@link ClippingProvider#getBuffer} 每字都换一次。 */
+        private VertexConsumer delegate;
         private final float left;
         private final float right;
         /** 屏幕平面（px）→ 世界。裁剪后在这个坐标系里落顶点。 */
@@ -251,12 +297,15 @@ final class PidsXiamenText {
         /** 复用，别每顶点 new 一个。 */
         private final Vector4f vector = new Vector4f();
 
-        ClippingConsumer(final VertexConsumer delegate, final float left, final float right,
-                         final Matrix4f world) {
-            this.delegate = delegate;
+        ClippingConsumer(final float left, final float right, final Matrix4f world) {
             this.left = left;
             this.right = right;
             this.world = world;
+        }
+
+        /** 换到「这个字形的层」对应的 buffer（每字一次，{@code null} 只可能出现在建对象那一刻）。 */
+        void bind(final VertexConsumer delegate) {
+            this.delegate = delegate;
         }
 
         // ---------------------------------------------------------- 顶点
@@ -331,12 +380,16 @@ final class PidsXiamenText {
 
         @Override
         public void fixedColor(final int r, final int g, final int b, final int a) {
-            this.delegate.fixedColor(r, g, b, a);
+            if (this.delegate != null) {
+                this.delegate.fixedColor(r, g, b, a);
+            }
         }
 
         @Override
         public void unfixColor() {
-            this.delegate.unfixColor();
+            if (this.delegate != null) {
+                this.delegate.unfixColor();
+            }
         }
 
         // ---------------------------------------------------------- 发顶点
@@ -402,6 +455,10 @@ final class PidsXiamenText {
         }
 
         private void emit(final float x, final float y, final float z, final float u, final float v) {
+            if (this.delegate == null) {
+                // 还没 bind 过（理论上不会发生：getBuffer 一定先调）：宁可丢这一点几何，别 NPE 掉整块屏。
+                return;
+            }
             // 顶点在屏幕 px 里，落笔前乘回世界矩阵（这里是唯一需要它的地方）。
             this.delegate.vertex(this.world, x, y, z)
                     .color(this.red, this.green, this.blue, this.alpha)

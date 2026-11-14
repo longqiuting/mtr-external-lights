@@ -121,6 +121,30 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
     private static final Set<PidsXiamenBlock.Kind> AD_LOGGED =
             java.util.EnumSet.noneOf(PidsXiamenBlock.Kind.class);
 
+    /** 一次性诊断闸门：{@code [lte] pids text: ...} 每 JVM 只打一行。 */
+    private static final java.util.concurrent.atomic.AtomicBoolean TEXT_LOGGED =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
+    /**
+     * 一次性诊断：把「字形用的是哪张字体图集 / 我们的底图是哪张 / 文字走的是哪一层」打一行。
+     *
+     * <p>以后再遇到「中文乱、英文正常」，先看这一行就能分清是<b>字体层串了</b>
+     * （{@code fontTexId} 与 {@code ourTexId} 混在一起才叫串）还是别的原因。
+     * 只打一次，不会刷屏。
+     */
+    private static void logTextOnce(final PidsXiamenBlock.Kind kind) {
+        final String fontLayer = PidsXiamenText.lastLayerName();
+        if (fontLayer == null) {
+            // 这一帧标语正好在空档里（没落笔），等下一帧再打，别把一次性闸门浪费成 null。
+            return;
+        }
+        if (!TEXT_LOGGED.compareAndSet(false, true)) {
+            return;
+        }
+        LteLog.LOGGER.info("[lte] pids text: fontTexId={} ourTexId={} layer={}",
+                fontLayer, kind.screenTexture(), "NORMAL");
+    }
+
     /** 一行文字（渲染器内部的排版单元）。 */
     private record Line(PidsXiamenText.Segment[] segments, float height,
                         float x, PidsXiamenLayout.HAlign align, float maxWidth) {
@@ -265,6 +289,7 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
                 final long tickerTick = slide.ad() == null ? screen.gameTick() : slide.tick();
                 PidsXiamenTicker.draw(matrices, textRenderer, textConsumers, bar, sizeRatio,
                         tickerTick, caption);
+                logTextOnce(kind);
             });
         } finally {
             matrices.pop();
