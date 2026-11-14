@@ -25,14 +25,15 @@
 | `/mtr_lte headlight off` | 常关 |
 | `/mtr_lte flare` / `/mtr_lte flare status` | 查看光样式 + 光带/灯晕各自画不画 + 灯位来源与方块光照状态 |
 | `/mtr_lte flare style band\|flare\|both` | 切换光样式：光带 / 灯晕 / 两者都画（写盘、立即生效，与面板「光样式」同一个键） |
-| `/mtr_lte scatter` / `scatter status` | 屏幕空间散射（车灯照亮地面/墙面 + 空气里的光雾）：开关 / shader 程序状态 / 送进 shader 的灯数 / 表面项开关 / `litPx≈N` |
+| `/mtr_lte scatter` / `scatter status` | 屏幕空间散射（车灯照亮地面/墙面 + 空气里的光雾）：开关 / shader 程序状态 / 送进 shader 的灯数 / 表面项开关 / `litPx≈N` / 深度重建矩阵来源 / 上一帧为什么画/没画（`reason=`） |
 | `/mtr_lte scatter on` / `off` | 开关全屏散射 pass（写盘、下一帧生效；没灯时零开销） |
+| `/mtr_lte scatter debug surface\|normal\|cone\|off` | **把整屏换成一项的纯色可视化**：`surface` = R 有 N·L / G 在锥内 / B 有距离衰减；`normal` = 法线（洋红 = 轮廓伪影，黑 = 天空）；`cone` = R 灯轴余弦 / G 锥内权重 / B 有灯。只在内存里 |
 | `/mtr_lte lighttest on` / `off` | **渲染路径取证**：洋红四边形（灯晕层）+ 左半屏红（散射 pass 自己画）+ 右半屏蓝（时机对照）。只在内存里，退出游戏失效 |
 
 ### 散射状态一行怎么读（`/mtr_lte scatter status`）
 
 ```
-scatter on program=ok strength=1.00 radius=6.0 lights=4/16 depth=1920x1080 surface=on color=1920x1080 litPx=≈184320(0s ago)
+scatter on program=ok strength=1.00 radius=6.0 lights=4/16 candidates=9 depth=1920x1080 ok surface=on color=1920x1080 ok litPx=≈184320 matrix=context debug=off reason=ok
 ```
 
 | 字段 | 含义 |
@@ -40,9 +41,39 @@ scatter on program=ok strength=1.00 radius=6.0 lights=4/16 depth=1920x1080 surfa
 | `scatter on\|off` | `scatterEnabled`：整个全屏 pass 的总开关 |
 | `program=ok\|missing\|failed(…)` | 手加载的 `mtrlte:light_scatter` 程序是否编译成功；`failed(…)` 后面就是失败原因（和日志里那条 WARN 同一个字符串） |
 | `lights=n/16` | 上一帧真正送进 shader 的灯数（最近 16 盏）；`0` 时 pass 不做任何 GL 工作 |
-| `depth=` / `color=` | 深度 / 颜色拷贝纹理的尺寸；`none` = 还没有任何一帧有灯（pass 不建纹理） |
+| `candidates=n` | 通过全部闸门、参与「最近 16 盏」排序的灯数。`candidates=0` = 没有点亮的灯；`candidates>0` 而 `lights=0` 才是异常 |
+| `depth=` / `color=` | 深度 / 颜色拷贝纹理的尺寸 + 最近一次 blit 的 `glGetError()`；`none` = 还没有任何一帧有灯（pass 不建纹理） |
 | `surface=on\|off` | `scatterSurface`：表面项（真照亮地面/墙面）这一层开没开。关掉后只留空气光雾 |
-| `litPx≈N` | 表面项实际点亮了多少像素。**需要跑两次**：第一次是 `measuring(run again)`，本命令让下一帧把覆盖写进输出 alpha 并按 96×54 降采样读回来估算；为这一个诊断值不值得每帧回读整屏 |
+| `litPx≈N` | 表面项实际点亮了多少像素。每 5 秒自动量一次（覆盖写进输出 alpha、96×54 降采样回读）；`n/a(surface off)` / `n/a(no lit lamps)` / `n/a(debug …)` 都是「这一项此刻无意义」 |
+| `matrix=` | 深度重建用的视图矩阵来自哪个候选：`context`（Fabric 的矩阵栈）/ `render`（`RenderSystem`）/ `rebuilt`（相机 pitch/yaw 重建） |
+| `debug=` | `/mtr_lte scatter debug` 当前模式 |
+| `reason=` | 上一帧为什么**停了**：`ok` / `no-lights` / `shader-pack(…)` / `depth-copy-failed(err=0x…)` / `color-copy-failed` / `program=failed(…)` / `off(scatterEnabled=false)` |
+
+每 5 秒日志（`scatterEnabled=true` 时无条件打，任何闸门都不会让它消失）：
+
+```
+[lte] scatter pass: frames=300 lights=4 depth=1920x1080 ok color=1920x1080 ok blend=replace litPx=≈15234 matrix=context calls=300 maxLights=4 avgMs=0.42 surface=on debug=off pack=false reason=ok
+[lte] scatter light0: pos=(1.23,-0.50,4.00) dir=(0.00,0.00,-1.00) rgb=(1.00,0.95,0.85) power=0.62 radius=6.0 beam=32.0 coneDeg=20.0/56.6 lamps=4 depthErr=ok
+```
+
+`frames=0` 永远是答案（`reason=` 会给名字）；`light0` 那一行是「送进 shader 的灯本身对不对」
+（相机相对坐标 / rgb / 锥角），`coneDeg=20.0/56.6` 是 `cosInner/cosOuter` 反算的角度 ——
+内角必须**小于**外角。
+
+### 灯晕这条绘制到底用了什么 GL 状态（`[lte] flare draw:`）
+
+```
+[lte] flare draw: quads=6 depthFunc=ALWAYS blend=ADD cull=off tex=ok latePass=true passes=early 240/0 late 240/240 texId=27 entered=LEQUAL pack=false
+```
+
+| 字段 | 含义 |
+|---|---|
+| `quads` | 本窗口最后一次 draw 写进去的四边形数 |
+| `depthFunc` | **光栅化那一刻从 GL 读回**的 `GL_DEPTH_FUNC`。`ALWAYS` = 深度真的没在挡；`LEQUAL` = 我们设了没生效（1.20.1 的 `GlStateManager._depthFunc` 有缓存，值相等时不下发） |
+| `blend` | 真实混合：`ADD` = (SRC_ALPHA, ONE)；`ALPHA` = (SRC_ALPHA, 1-SRC_ALPHA)（`position_tex_color.json` 自带、`bind()` 时盖掉我们的加色）；`off` = 混合没开 |
+| `tex` / `texId` | 灯晕贴图的状态 / 实际绑在槽 0 上的 GL 纹理 id（`0` = 空的） |
+| `latePass` | 这次 draw 是晚趟（`AFTER_TRANSLUCENT`）吗 |
+| `passes=early 被调/画了 late 被调/画了` | 两趟回调各自的次数 —— 「谁在画」的唯一答案 |
 
 ### 车灯渲染路径取证（`/mtr_lte lighttest`）
 

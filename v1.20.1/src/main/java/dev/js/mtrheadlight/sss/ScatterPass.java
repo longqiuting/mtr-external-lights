@@ -16,6 +16,8 @@ import net.minecraft.client.render.Tessellator;
 import net.minecraft.client.render.VertexFormat;
 import net.minecraft.client.render.VertexFormats;
 import org.joml.Matrix4f;
+import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL14;
 
 import java.util.Locale;
 
@@ -140,6 +142,8 @@ public final class ScatterPass {
     private static boolean depthWarned;
     private static boolean colorWarned;
     private static boolean startupLogged;
+    /** 只打一次「scatter 是关的」那一行，避免关掉之后日志彻底安静被读成「日志坏了」。 */
+    private static boolean offAnnounced;
     private static String viewSource;
     private static long windowStart = System.currentTimeMillis();
     private static int frames;
@@ -157,7 +161,84 @@ public final class ScatterPass {
     private static int lastLitPixels = -1;
     private static long lastProbeMs;
 
+    /* ------------------------------------------------------------------------------------------
+     * 每 5 秒一行的自诊断。见 {@link #heartbeat}。
+     *
+     * 这些计数要能回答「pass 到底跑没跑」，所以装在<b>每一个出口</b>上：进世界以后一条日志都没有
+     * 的那次反馈，恰恰是因为原来那行藏在 collect() 之后的三道闸后面（光影包 / 程序没编译 / 没灯），
+     * 任何一道拦下就整行消失 —— 「没有日志」和「没有效果」看起来就一模一样。
+     * ---------------------------------------------------------------------------------------- */
+
+    /** 渲染回调被调到的帧数（含所有提前 return 的帧）。 */
+    private static int calls;
+    /** 这个窗口里最后一次离开 {@link #render} 的原因，一个词，见各处 {@code lastReason = …}。 */
+    private static String lastReason = "no-frame";
+    /** 深度重建矩阵的来源：{@code context} / {@code render} / {@code rebuilt}。 */
+    private static String lastMatrix = "unknown";
+    /** 最近一次深度拷贝的 {@code glGetError()}；-1 = 还没试过，0 = 成功。 */
+    private static int lastDepthError = -1;
+    /** 第一盏灯的一行描述（pos / dir / rgb / power / radius / beam），{@code 5} 秒一行的第二行。 */
+    private static String light0 = "(no lamp)";
+    /** {@code 0} 关、{@code 1} surface、{@code 2} normal、{@code 3} cone。只在内存里。 */
+    private static int debugMode;
+    /** 一组 debug 说明用的名字表，下标就是 {@link #debugMode}。 */
+    private static final String[] DEBUG_NAMES = {"off", "surface", "normal", "cone"};
+    /** draw 之后从 GL 读回的混合状态（-1 = 这一帧没画）。 */
+    private static boolean diagBlendEnabled;
+    private static int diagBlendSrc = -1;
+    private static int diagBlendDst = -1;
+
     private ScatterPass() {
+    }
+
+    /**
+     * {@code /mtr_lte scatter debug off|surface|normal|cone}：把整屏换成一项的纯色可视化。
+     *
+     * <table border="1">
+     *   <caption>三种图案怎么读</caption>
+     *   <tr><th>模式</th><th>屏幕</th><th>读到什么</th></tr>
+     *   <tr><td>{@code surface}</td><td>R = max(N·L)，G = max(锥内权重)，B = max(距离衰减 × 窗口)</td>
+     *       <td>三色都在 = 三项都通过；只有红 = 法线对但灯照不到这里；只有绿 = 锥对但法线朝下（N·L 被
+     *           max(·,0) 截成 0）；只有蓝 = 距离对但锥/法线有一项是 0</td></tr>
+     *   <tr><td>{@code normal}</td><td>RGB = 法线编码（地面朝上 → 绿），黑 = 天空，洋红 = 轮廓伪影
+     *       （normalValid=false，这些像素永远没有表面项）</td>
+     *       <td>整屏洋红 = 法线判定把有效像素全否掉了；整屏黑 = 深度重建出来的 P 是错的（没有表面）</td></tr>
+     *   <tr><td>{@code cone}</td><td>R = 灯轴与灯→像素方向的余弦，G = smoothstep 后的锥内权重，
+     *       B = 至少被一盏灯看到</td>
+     *       <td>B=0 = 灯列表空/像素在灯后面（与锥角无关）；B=1 且 G=0 = 余弦低于 cosOuter，
+     *           灯确实指向别处（朝向反了）</td></tr>
+     * </table>
+     *
+     * <p>状态只在内存里，和 {@code /mtr_lte lighttest} 一样：它不是玩家的设置，退出游戏即失效。
+     *
+     * @return 一行给玩家的回答（指令层直接转述）
+     */
+    public static String setDebug(final String what) {
+        final String key = what == null ? "" : what.trim().toLowerCase(Locale.ROOT);
+        int mode = -1;
+        for (int i = 0; i < DEBUG_NAMES.length; i++) {
+            if (DEBUG_NAMES[i].equals(key)) {
+                mode = i;
+            }
+        }
+        if (mode < 0) {
+            return "scatter debug " + DEBUG_NAMES[debugMode] + "（可选：off / surface / normal / cone）";
+        }
+        debugMode = mode;
+        if (!ScatterProgram.debugAvailable() && mode > 0) {
+            return "scatter debug=" + DEBUG_NAMES[mode] + " 但着色器里没有 uDebug：画不出来"
+                    + "（pass 本身不受影响，见日志里的 uniform-missing 警告）";
+        }
+        return "scatter debug=" + DEBUG_NAMES[mode] + (mode == 0 ? "" : switch (mode) {
+            case 1 -> "（R = N·L，G = 锥内，B = 距离衰减）";
+            case 2 -> "（RGB = 法线，洋红 = 轮廓伪影，黑 = 天空）";
+            default -> "（R = 灯轴余弦，G = 锥内权重，B = 有灯）";
+        });
+    }
+
+    /** {@code off} / {@code surface} / {@code normal} / {@code cone}，日志和 {@code status} 用。 */
+    public static String debugName() {
+        return DEBUG_NAMES[debugMode];
     }
 
     /**
@@ -193,9 +274,16 @@ public final class ScatterPass {
     public static void render(final WorldRenderContext context) {
         // 让 [lte] lighttest: 那一行始终有窗口在推进（灯晕那一侧也会调，谁先到谁打）。
         LightTest.report();
+        /*
+         * 每 5 秒的那一行在<b>这里</b>打，也就是在任何闸门之前：被光影包拦下、程序没编译、这局没有
+         * 一盏灯，全都会在日志里留下 frames / reason，而不是让玩家对着一个安静的日志猜。
+         */
+        calls++;
+        heartbeat(MtrHeadlightClient.config());
         try {
             final MinecraftClient client = MinecraftClient.getInstance();
             if (client == null || client.world == null || client.player == null) {
+                lastReason = "no-world";
                 return;
             }
             /*
@@ -209,6 +297,7 @@ public final class ScatterPass {
              * 见 {@link dev.js.mtrheadlight.LightTest}。
              */
             if (LightTest.enabled()) {
+                lastReason = "lighttest";
                 // 左半屏：本程序自己输出纯红（uTest=1）—— 「散射 pass 真在写颜色」的直接证据。
                 tintThroughProgram(client);
                 // 右半屏：原版程序画的蓝，作为「这个时机本来就能写」的对照。
@@ -217,9 +306,12 @@ public final class ScatterPass {
             }
             final HeadlightConfig cfg = MtrHeadlightClient.config();
             if (cfg == null || !cfg.enabled || !cfg.scatterEnabled) {
+                lastReason = cfg == null ? "no-config"
+                        : (!cfg.enabled ? "off(master)" : "off(scatterEnabled=false)");
                 return;
             }
             if (shaderPackActive()) {
+                lastReason = "shader-pack(no-framebuffer-access)";
                 if (!packWarned) {
                     packWarned = true;
                     MtrHeadlightClient.LOGGER.info(
@@ -230,24 +322,33 @@ public final class ScatterPass {
                 return;
             }
             if (!ScatterProgram.ensure(client)) {
+                lastReason = "program=" + ScatterProgram.status();
                 return;
             }
+            // 表面项开着的时候每 5 秒自动量一次 litPx，让那条周期行自己带上数字（一次 20 KB 回读）。
+            lastMatrix = viewSource == null ? "unknown" : viewSource;
 
             final int lights = ScatterLights.collect(client, cfg, LIGHT_POS, LIGHT_DIR, LIGHT_COLOR);
             if (lights == 0) {
                 // Zero lamps: no depth copy, no framebuffer, nothing bound. This is the common case
                 // on a map without trains and it has to be free.
                 lastLights = 0;
-                logIfDue(cfg);
+                light0 = "(no lamp this frame; candidates=" + ScatterLights.candidates() + ")";
+                lastReason = "no-lights";
                 return;
             }
+            describeFirstLight(lights);
 
             final Framebuffer framebuffer = client.getFramebuffer();
             if (framebuffer == null) {
+                lastReason = "no-framebuffer";
                 return;
             }
             final long started = System.nanoTime();
             if (!DepthCopy.update(framebuffer)) {
+                lastDepthError = DepthCopy.lastError();
+                lastReason = "depth-copy-failed(err=0x"
+                        + Integer.toHexString(Math.max(0, lastDepthError)) + ")";
                 if (!depthWarned) {
                     depthWarned = true;
                     MtrHeadlightClient.LOGGER.warn("[lte] scatter: the scene depth could not be "
@@ -256,6 +357,7 @@ public final class ScatterPass {
                 }
                 return;
             }
+            lastDepthError = DepthCopy.lastError();
             /*
              * The colour copy is not optional any more: the composite writes
              * scene + light * albedo, so without a copy of the scene there is nothing to write back
@@ -263,6 +365,7 @@ public final class ScatterPass {
              * no pass at all - not a black screen.
              */
             if (!ColorCopy.update(framebuffer)) {
+                lastReason = "color-copy-failed";
                 if (!colorWarned) {
                     colorWarned = true;
                     MtrHeadlightClient.LOGGER.warn("[lte] scatter: the scene colour could not be "
@@ -279,11 +382,18 @@ public final class ScatterPass {
             final Matrix4f view = viewMatrix(context, client);
             VIEW_PROJ.set(RenderSystem.getProjectionMatrix()).mul(view);
             INVERSE.set(VIEW_PROJ).invert();
+            lastMatrix = viewSource == null ? "unknown" : viewSource;
 
-            final boolean coverage = probeRequested;
+            /*
+             * 覆盖探针：命令点名的下一次，或者「距离上次测量已经 5 秒」。后者让周期行里的 litPx
+             * 始终是一个真实的数（一次 9600 像素的降采样回读，5 秒一次，代价可以忽略）。
+             * debug 模式下 alpha 被 debug 输出占满，量了也没意义，所以那一刻不量。
+             */
+            final boolean coverage = debugMode == 0
+                    && (probeRequested || (cfg.scatterSurface && litProbeDue()));
             ScatterProgram.uniforms(INVERSE, VOLUME_GAIN, EXTINCTION, MAX_RAY, PHASE_G,
                     COS_INNER, COS_OUTER, strength(cfg), ATTENUATION_REF, cfg.scatterSurface,
-                    coverage, lights, LIGHT_POS, LIGHT_DIR, LIGHT_COLOR);
+                    coverage, debugMode, lights, LIGHT_POS, LIGHT_DIR, LIGHT_COLOR);
 
             draw();
 
@@ -298,10 +408,147 @@ public final class ScatterPass {
             frames++;
             msSum += (System.nanoTime() - started) / 1.0E6D;
             msCount++;
-            logIfDue(cfg);
+            lastReason = "ok";
         } catch (Throwable t) {
+            lastReason = "exception:" + t.getClass().getSimpleName();
             MtrHeadlightClient.LOGGER.error("[lte] scatter: pass failed", t);
         }
+    }
+
+    /** 5 秒一次自动量 litPx 的时间窗（和日志窗口同频）。 */
+    private static boolean litProbeDue() {
+        return System.currentTimeMillis() - lastProbeMs >= LOG_INTERVAL_MS;
+    }
+
+    /**
+     * 第一盏灯的一行描述。整条 pass 的每一个数都可能是对的，而<b>灯本身</b>送错了（位置在世界坐标
+     * 而不是相机相对、rgb 全 0、锥角算反）—— 那就永远查不到 shader 里去。这一行把它变成可读的：
+     * <pre>
+     *   [lte] scatter light0: pos=(1.23,-0.50,4.00) dir=(0.00,0.00,-1.00) rgb=(1.00,0.95,0.85)
+     *                         power=0.62 radius=6.0 beam=32.0 coneDeg=20.0/56.6
+     * </pre>
+     * {@code coneDeg} 是 {@code cosInner/cosOuter} 反算出来的角度（内角必须<b>小于</b>外角，内角
+     * 那片是满强度，外角之外是 0）。
+     */
+    private static void describeFirstLight(final int lights) {
+        try {
+            final float r = LIGHT_POS[3];
+            final float beam = LIGHT_DIR[3];
+            light0 = String.format(Locale.ROOT,
+                    "pos=(%.2f,%.2f,%.2f) dir=(%.2f,%.2f,%.2f) rgb=(%.2f,%.2f,%.2f) "
+                            + "power=%.2f radius=%.1f beam=%.1f coneDeg=%.1f/%.1f lamps=%d",
+                    Float.valueOf(LIGHT_POS[0]), Float.valueOf(LIGHT_POS[1]),
+                    Float.valueOf(LIGHT_POS[2]),
+                    Float.valueOf(LIGHT_DIR[0]), Float.valueOf(LIGHT_DIR[1]),
+                    Float.valueOf(LIGHT_DIR[2]),
+                    Float.valueOf(LIGHT_COLOR[0]), Float.valueOf(LIGHT_COLOR[1]),
+                    Float.valueOf(LIGHT_COLOR[2]), Float.valueOf(LIGHT_COLOR[3]),
+                    Float.valueOf(r), Float.valueOf(beam),
+                    Double.valueOf(Math.toDegrees(Math.acos(Math.max(-1.0D,
+                            Math.min(1.0D, COS_INNER))))),
+                    Double.valueOf(Math.toDegrees(Math.acos(Math.max(-1.0D,
+                            Math.min(1.0D, COS_OUTER))))),
+                    Integer.valueOf(lights));
+        } catch (Throwable t) {
+            light0 = "(unreadable:" + t.getClass().getSimpleName() + ")";
+        }
+    }
+
+    /**
+     * 每 5 秒<b>无条件</b>一行（只要 {@code scatterEnabled=true}）：pass 有没有跑、跑了几帧、
+     * 每帧几盏灯、两份拷贝成不成、litPx、深度重建矩阵来自哪个候选。
+     *
+     * <pre>
+     *   [lte] scatter pass: frames=300 lights=4 depth=1920x1080 ok color=1920x1080 ok blend=replace
+     *                       litPx≈15234 matrix=context maxLights=4 avgMs=0.42 surface=on pack=false reason=ok
+     *   [lte] scatter light0: pos=(…) dir=(…) rgb=(…) power=… radius=… beam=… coneDeg=20.0/56.6 depthErr=ok
+     * </pre>
+     *
+     * {@code frames=0 reason=…} 就是「为什么看不到效果」的答案，一行之内给全：
+     * <ul>
+     *   <li>{@code no-lights} —— collect() 一盏灯都没拿到（车没点亮 / 太远 / 光样式不含灯晕）；</li>
+     *   <li>{@code shader-pack(…)} —— 光影包接管了 framebuffer，我们主动让路；</li>
+     *   <li>{@code depth-copy-failed(err=0x…)} / {@code color-copy-failed} —— 拷贝这一步没成；</li>
+     *   <li>{@code program=failed(…)} —— 程序没编译（原因就是 json/GLSL 的那个字符串）；</li>
+     *   <li>{@code off(master)} / {@code off(scatterEnabled=false)} —— 开关没开。</li>
+     * </ul>
+     */
+    private static void heartbeat(final HeadlightConfig cfg) {
+        if (cfg == null) {
+            return;
+        }
+        final long now = System.currentTimeMillis();
+        if (!cfg.scatterEnabled) {
+            // 关着的时候只提醒一次：否则「没日志」会被读成「日志坏了」。
+            if (!offAnnounced) {
+                offAnnounced = true;
+                MtrHeadlightClient.LOGGER.info("[lte] scatter: off (scatterEnabled=false) - "
+                        + "nothing is drawn and nothing is measured; /mtr_lte scatter on");
+            }
+            windowStart = now;
+            calls = 0;
+            return;
+        }
+        if (now - windowStart < LOG_INTERVAL_MS) {
+            return;
+        }
+        windowStart = now;
+        final double avg = msCount == 0 ? 0.0D : msSum / msCount;
+        MtrHeadlightClient.LOGGER.info(String.format(Locale.ROOT,
+                "[lte] scatter pass: frames=%d lights=%d depth=%s color=%s blend=%s "
+                        + "litPx=%s matrix=%s calls=%d maxLights=%d avgMs=%.2f surface=%s "
+                        + "debug=%s pack=%s reason=%s",
+                Integer.valueOf(frames), Integer.valueOf(lastLights), depthText(), colorText(),
+                blendText(), litPixels(cfg), lastMatrix, Integer.valueOf(calls),
+                Integer.valueOf(maxLights), Double.valueOf(avg), cfg.scatterSurface ? "on" : "off",
+                debugName(), Boolean.valueOf(shaderPackActive()), lastReason));
+        MtrHeadlightClient.LOGGER.info("[lte] scatter light0: {} depthErr={}",
+                light0, lastDepthError < 0 ? "none"
+                        : (lastDepthError == 0 ? "ok" : "0x" + Integer.toHexString(lastDepthError)));
+        frames = 0;
+        calls = 0;
+        maxLights = 0;
+        msSum = 0.0D;
+        msCount = 0;
+    }
+
+    /**
+     * {@code replace} / {@code add} / {@code alpha} / {@code off}：draw 之后从 GL 读回的混合状态。
+     * 这条 pass 必须是 {@code replace}（dst = src，着色器写整屏颜色）；如果这里出现别的值，说明
+     * 程序 bind 时把混合开回来了 —— 那会让「照在墙上的光」变成一层叠加的半透明色。
+     */
+    private static String blendText() {
+        if (diagBlendSrc == -1) {
+            return "none";                 // 本窗口一次都没画过
+        }
+        if (!diagBlendEnabled) {
+            return "replace";
+        }
+        if (diagBlendSrc == 0x0302 && diagBlendDst == 0x0001) {
+            return "add";
+        }
+        if (diagBlendSrc == 0x0302 && diagBlendDst == 0x0303) {
+            return "alpha";
+        }
+        return "on(0x" + Integer.toHexString(diagBlendSrc) + ":0x"
+                + Integer.toHexString(diagBlendDst) + ")";
+    }
+
+    /** {@code 1920x1080 ok} / {@code none}：拷贝纹理的尺寸和「成没成」是两件事，一起报。 */
+    private static String depthText() {
+        if (DepthCopy.texture() == -1) {
+            return "none";
+        }
+        return DepthCopy.width() + "x" + DepthCopy.height()
+                + (lastDepthError == 0 ? " ok" : " err=0x" + Integer.toHexString(
+                        Math.max(0, lastDepthError)));
+    }
+
+    private static String colorText() {
+        if (ColorCopy.texture() == -1) {
+            return "none";
+        }
+        return ColorCopy.width() + "x" + ColorCopy.height() + " ok";
     }
 
     /** One full-screen quad in NDC. The shader builds its own rays; no geometry is involved. */
@@ -338,6 +585,14 @@ public final class ScatterPass {
         RenderSystem.disableCull();
         try {
             BufferRenderer.drawWithGlobalProgram(built);
+            /*
+             * 读回真实的混合状态（5 秒行里的 {@code blend=}）。这条 pass 声称自己是 dst = src
+             * （json 没有 blend 段），而 {@code ShaderProgram.bind()} 的 GlBlendState 有自己的一份
+             * 静态缓存，所以我们「关了混合」这件事也值得从 GL 里确认一次，而不是假设。
+             */
+            diagBlendEnabled = GL11.glIsEnabled(GL11.GL_BLEND);
+            diagBlendSrc = GL11.glGetInteger(GL14.GL_BLEND_SRC_RGB);
+            diagBlendDst = GL11.glGetInteger(GL14.GL_BLEND_DST_RGB);
         } finally {
             /*
              * Restore every piece of global state we touched. Leaving our program bound, our depth
@@ -441,10 +696,10 @@ public final class ScatterPass {
         }
         final Matrix4f renderSystem = RenderSystem.getModelViewMatrix();
         if (rigid(renderSystem)) {
-            noteViewSource("renderSystem");
+            noteViewSource("render");
             return renderSystem;
         }
-        noteViewSource("camera");
+        noteViewSource("rebuilt");
         final net.minecraft.client.render.Camera camera = client.gameRenderer.getCamera();
         return new Matrix4f()
                 .rotateX((float) Math.toRadians(camera.getPitch()))
@@ -484,36 +739,9 @@ public final class ScatterPass {
         }
     }
 
-    /**
-     * {@code [lte] scatter: lights=… program=ok …} every 5 s. {@code lights=0} is a real answer (the
-     * pass is alive and the world has nothing lit); a silent log would be indistinguishable from a
-     * pass that never runs.
-     */
-    private static void logIfDue(final HeadlightConfig cfg) {
-        final long now = System.currentTimeMillis();
-        if (now - windowStart < LOG_INTERVAL_MS) {
-            return;
-        }
-        final double avg = msCount == 0 ? 0.0D : msSum / msCount;
-        MtrHeadlightClient.LOGGER.info(String.format(Locale.ROOT,
-                "[lte] scatter: lights=%d/%d program=%s candidates=%d frames=%d maxLights=%d "
-                        + "avgMs=%.2f strength=%.2f radius=%.1f surface=%s",
-                Integer.valueOf(lastLights), Integer.valueOf(ScatterLights.MAX),
-                ScatterProgram.status(), Integer.valueOf(ScatterLights.candidates()),
-                Integer.valueOf(frames), Integer.valueOf(maxLights), Double.valueOf(avg),
-                Double.valueOf(cfg.scatterStrengthClamped()),
-                Double.valueOf(cfg.scatterRadiusClamped()),
-                cfg.scatterSurface ? "on" : "off"));
-        windowStart = now;
-        frames = 0;
-        maxLights = 0;
-        msSum = 0.0D;
-        msCount = 0;
-    }
-
     /** Status for {@code /mtr_lte scatter status}. Arms the lit-pixel probe for the next frame. */
     public static String status(final HeadlightConfig cfg) {
-        final StringBuilder sb = new StringBuilder(192);
+        final StringBuilder sb = new StringBuilder(224);
         sb.append("scatter ").append(cfg.scatterEnabled ? "on" : "off");
         sb.append(" program=").append(ScatterProgram.status());
         sb.append(" strength=").append(String.format(Locale.ROOT, "%.2f",
@@ -521,12 +749,14 @@ public final class ScatterPass {
         sb.append(" radius=").append(String.format(Locale.ROOT, "%.1f",
                 Double.valueOf(cfg.scatterRadiusClamped())));
         sb.append(" lights=").append(lastLights).append('/').append(ScatterLights.MAX);
-        sb.append(" depth=").append(DepthCopy.texture() == -1 ? "none"
-                : DepthCopy.width() + "x" + DepthCopy.height());
+        sb.append(" candidates=").append(ScatterLights.candidates());
+        sb.append(" depth=").append(depthText());
         sb.append(" surface=").append(cfg.scatterSurface ? "on" : "off");
-        sb.append(" color=").append(ColorCopy.texture() == -1 ? "none"
-                : ColorCopy.width() + "x" + ColorCopy.height());
+        sb.append(" color=").append(colorText());
         sb.append(" litPx=").append(litPixels(cfg));
+        sb.append(" matrix=").append(lastMatrix);
+        sb.append(" debug=").append(debugName());
+        sb.append(" reason=").append(lastReason);
         if (ScatterProgram.failure() != null) {
             sb.append(" failure=").append(ScatterProgram.failure());
         }
@@ -544,8 +774,15 @@ public final class ScatterPass {
      * one-shot downsample + readback for the <b>next</b> frame ({@link ColorCopy#probeLitPixels}).
      * A status command therefore fills the number for the next one; the alternative - reading back
      * 8 MB on every frame - is not worth a diagnostic.
+     *
+     * <p>这条周期行要的正是这个数，所以 5 秒窗口到点时 pass 自己会量一次
+     * （{@link #litProbeDue}）：{@code litPx} 不只在命令之后才有值。
      */
     private static String litPixels(final HeadlightConfig cfg) {
+        if (debugMode != 0) {
+            // debug 输出把 alpha 占满了，量出来的「点亮像素」恒等于整屏，没有意义。
+            return "n/a(debug " + debugName() + ")";
+        }
         if (!cfg.scatterSurface) {
             return "n/a(surface off)";
         }
@@ -560,8 +797,7 @@ public final class ScatterPass {
         if (lastLitPixels < 0) {
             return "n/a(no frame)";
         }
-        final long age = Math.max(0L, System.currentTimeMillis() - lastProbeMs);
-        return "≈" + lastLitPixels + "(" + (age / 1000L) + "s ago)";
+        return "≈" + lastLitPixels;
     }
 
     /** {@code /mtr_lte scatter status}: asks the next frame to measure the lit-pixel count. */

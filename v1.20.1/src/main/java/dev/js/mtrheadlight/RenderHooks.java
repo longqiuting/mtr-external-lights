@@ -46,7 +46,8 @@ public final class RenderHooks {
         // 车灯的两套可见几何：光带（BeamGlow，贴地带状面片）和灯晕（LightFlare，灯位加色 billboard）。
         // 画哪一套由 config.lightStyle 决定（BAND / FLARE / BOTH，默认 BAND），两个渲染器各自读
         // 自己的开关（beamAnySiding / flareAnySiding），所以这里只负责"都给它们一次机会"：
-        //   * 早/晚两趟回调仍然成对存在，各自按 ShaderPackProbe 决定是这一趟画还是另一趟画；
+        //   * 早/晚两趟回调仍然成对存在（灯晕只认晚趟：早趟之后世界还要画一大段几何，加色四边形
+        //     会被后画的东西盖掉 —— 见 LightFlare.render 的说明；光带仍按 ShaderPackProbe 决定哪趟画）；
         //   * 两个渲染器各自 begin/end 自己的顶点缓冲、各自复位 depthMask / blendFunc / cull，
         //     所以 BOTH 叠加时不会重复写面片，也不会把对方的 GL 状态清掉；
         //   * 光带先画、灯晕后画：灯晕是加色贴图，压在上面才是"灯亮着"的样子。
@@ -89,7 +90,7 @@ public final class RenderHooks {
             try {
                 ScatterPass.render(context);
             } catch (Throwable t) {
-                MtrHeadlightClient.LOGGER.error("[lte] scatter pass failed", t);
+                MtrHeadlightClient.LOGGER.error("[lte] scatter: pass threw", t);
             }
         });
         // 退出时把程序和深度纹理还回去：它们不在原版 ProgramManager 的清单里，没人替我们关。

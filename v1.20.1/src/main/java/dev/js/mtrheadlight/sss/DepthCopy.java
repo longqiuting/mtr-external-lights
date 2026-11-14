@@ -36,8 +36,18 @@ final class DepthCopy {
     private static int width = -1;
     private static int height = -1;
     private static int sourceTexture = -1;
+    /**
+     * {@code glGetError()} 在最近一次 blit 之后的值；{@code GL_NO_ERROR} = 成功，-1 = 还没试过。
+     * 这是「深度拷贝到底成没成」的唯一硬证据（{@link ScatterPass} 的 5 秒行打的就是它）。
+     */
+    private static int lastError = -1;
 
     private DepthCopy() {
+    }
+
+    /** 最近一次深度 blit 的 {@code glGetError()}；-1 = 还没试过。 */
+    static int lastError() {
+        return lastError;
     }
 
     static int texture() {
@@ -161,8 +171,10 @@ final class DepthCopy {
             GlStateManager._glBlitFrameBuffer(0, 0, source.textureWidth, source.textureHeight,
                     0, 0, width, height, GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
             final int error = GL11.glGetError();
+            lastError = error;
             return error == GL11.GL_NO_ERROR;
         } catch (Throwable t) {
+            lastError = -2;
             return false;
         } finally {
             GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, source.fbo);

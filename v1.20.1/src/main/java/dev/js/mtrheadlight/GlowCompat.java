@@ -12,6 +12,7 @@ import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.Identifier;
 import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL14;
 
 /**
  * 1.20.1 shim for {@link RailGlow}: the three calls that differ between the supported versions -
@@ -36,6 +37,25 @@ import org.lwjgl.opengl.GL11;
 final class GlowCompat {
     private GlowCompat() {
     }
+
+    /* ------------------------------------------------------------------------------------------
+     * 取证：draw 那一刻<b>真实读回</b>的 GL 状态。由 {@code [lte] flare draw:} 那一行打印。
+     * 全部是静态量，因为灯晕一帧只画一次（一次 draw 覆盖上一帧的值），读它们的人就在同一个线程上。
+     * ---------------------------------------------------------------------------------------- */
+
+    /** 光栅化那一刻的 {@code GL_DEPTH_FUNC}；-1 = 还没画过。 */
+    static int diagDepthFunc = -1;
+    /** 进入 {@code drawTextured} 时上一位调用者留下的 {@code GL_DEPTH_FUNC}；-1 = 没读。 */
+    static int diagDepthFuncOnEntry = -1;
+    /** 光栅化那一刻的 {@code GL_BLEND_SRC_RGB} / {@code GL_BLEND_DST_RGB}；-1 = 还没画过。 */
+    static int diagBlendSrc = -1;
+    static int diagBlendDst = -1;
+    static boolean diagBlendEnabled;
+    static boolean diagCullEnabled;
+    /** 这次 draw 实际绑在贴图槽 0 上的 GL 纹理 id；0 = 什么都没绑。 */
+    static int diagTextureId = -1;
+    /** 这次 draw 是不是走了 {@code alwaysDepth} 那条分支。 */
+    static boolean diagAlwaysDepth;
 
     /**
      * Draws {@code count} floats (x y z r g b a per vertex, quad order) in camera-relative space.
@@ -90,13 +110,24 @@ final class GlowCompat {
     /**
      * {@link #drawTextured} 的深度覆盖版本。
      *
-     * <p>{@code alwaysDepth = true} 时把深度<b>比较</b>函数换成 {@code GL_ALWAYS}（写完逐位还原成
-     * {@code GL_LEQUAL}）：四边形仍然不写深度、仍然加色，但不再被车体/站台/隧道壁挡掉。
+     * <p>{@code alwaysDepth = true} 时把深度<b>比较</b>函数换成 {@code GL_ALWAYS}（写完再还原成进来
+     * 时的那一个）：四边形仍然不写深度、仍然加色，但不再被车体/站台/隧道壁挡掉。
      *
      * <p>为什么灯晕需要它：灯晕挂在灯位上，而灯位在车体端面<b>里面</b>几个厘米（{@code TrainLamps}
      * 的 {@code FLARE_GAP} + 模型的 {@code inset}）。即使再往相机拉 2 格，斜视时这个四边形仍可能
      * 有一半埋在车头网格里 —— 于是「quads 一直在涨、屏幕上什么都没有」。加色四边形遮挡不了场景，
      * 穿过去最多是隔着墙看到一点光晕，比彻底看不见好得多。
+     *
+     * <h2>为什么不走 RenderSystem：1.20.1 的缓存会把这次设置吃掉</h2>
+     * {@code RenderSystem.depthFunc} → {@code GlStateManager._depthFunc}，而后者在 1.20.1 里是
+     * <b>带缓存的</b>（javap 出来的字节码就是 {@code if (func == DEPTH.func) return;}，值相等时
+     * 根本不调 {@code glDepthFunc}）。只要有别的模组直接调过一次 {@code glDepthFunc}（Sodium /
+     * Embeddium 这类优化模组满街都是），缓存就和真实 GL 状态脱钩：我们「设了 ALWAYS」，实际什么
+     * 都没发生，灯晕继续被车体挡掉。所以这里用 {@link #forceDepthFunc} 直调 GL。
+     *
+     * <p>另外每次 draw 之后都用 {@code glGetInteger(GL_DEPTH_FUNC)} / {@code glIsEnabled} 把
+     * <b>真实</b>状态读回来放进 {@code diag*} 字段 —— 灯晕那条 5 秒日志报的就是这个值，不是我们
+     * 以为设了什么。
      */
     static void drawTextured(final float[] data, final int count, final MatrixStack stack,
                              final Identifier texture, final boolean alwaysDepth) {
@@ -107,8 +138,10 @@ final class GlowCompat {
         RenderSystem.enableBlend();
         RenderSystem.blendFunc(GlStateManager.SrcFactor.SRC_ALPHA, GlStateManager.DstFactor.ONE);
         RenderSystem.enableDepthTest();
+        // 进来时上一位调用者留下的深度函数（可能是任何值，不许假设 LEQUAL）。
+        final int entryFunc = alwaysDepth ? GL11.glGetInteger(GL11.GL_DEPTH_FUNC) : -1;
         if (alwaysDepth) {
-            RenderSystem.depthFunc(GL11.GL_ALWAYS);
+            forceDepthFunc(GL11.GL_ALWAYS);
         }
         RenderSystem.depthMask(false);
         RenderSystem.disableCull();
@@ -123,8 +156,27 @@ final class GlowCompat {
         }
         BufferRenderer.drawWithGlobalProgram(buffer.end());
 
+        /*
+         * 取证：读回光栅化那一刻的真实状态。
+         *
+         * 为什么在 draw 之后读：{@code BufferRenderer.drawWithGlobalProgram} →
+         * {@code VertexBuffer.draw} 会在内部 {@code ShaderProgram.bind()}，而 bind 会把 json 里
+         * 声明的 gl 状态（blend）盖上来 —— 所以「我们 draw 前设的」从来不代表「draw 时生效的」。
+         * draw 之后、我们的还原之前，GL 里留着的就是这一次绘制真正用的状态。
+         * 这也顺便证明了 position_tex_color.json 自带的 blend 是 srcalpha / 1-srcalpha，
+         * 而不是这里设的加色。
+         */
+        diagDepthFunc = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
+        diagBlendSrc = GL11.glGetInteger(GL14.GL_BLEND_SRC_RGB);
+        diagBlendDst = GL11.glGetInteger(GL14.GL_BLEND_DST_RGB);
+        diagBlendEnabled = GL11.glIsEnabled(GL11.GL_BLEND);
+        diagCullEnabled = GL11.glIsEnabled(GL11.GL_CULL_FACE);
+        diagTextureId = RenderSystem.getShaderTexture(0);
+        diagAlwaysDepth = alwaysDepth;
+        diagDepthFuncOnEntry = entryFunc;
+
         if (alwaysDepth) {
-            RenderSystem.depthFunc(GL11.GL_LEQUAL);
+            forceDepthFunc(entryFunc == -1 ? GL11.GL_LEQUAL : entryFunc);
         }
         RenderSystem.depthMask(true);
         RenderSystem.defaultBlendFunc();
@@ -132,6 +184,21 @@ final class GlowCompat {
         RenderSystem.setShaderTexture(0, 0);
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         RenderSystem.setShader(GameRenderer::getPositionColorProgram);
+    }
+
+    /**
+     * 真正改掉深度比较函数，绕过 {@code GlStateManager} 的缓存（见 {@link #drawTextured} 的说明）。
+     *
+     * <p>顺序是「先直调 GL 把硬件状态改掉，再把缓存揉成一致」：{@code _depthFunc} 只在值变化时才
+     * 下发，所以先用一个不同的值把缓存推开，再写目标值，保证缓存那一步也真的是一次 GL 调用 ——
+     * 否则结束时还原 LEQUAL 会因为「缓存里本来就是 LEQUAL」而被跳过，把 ALWAYS 留在硬件上，后面
+     * 整个世界的深度测试全废。
+     */
+    private static void forceDepthFunc(final int func) {
+        GL11.glDepthFunc(func);
+        final int other = func == GL11.GL_LEQUAL ? GL11.GL_ALWAYS : GL11.GL_LEQUAL;
+        GlStateManager._depthFunc(other);
+        GlStateManager._depthFunc(func);
     }
 
     /**

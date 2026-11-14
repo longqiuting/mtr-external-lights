@@ -55,9 +55,20 @@ import java.util.List;
  * occlude the scene, so losing the depth test costs nothing visible (worst case: a little glow reads
  * through a wall) and guarantees the lamp is drawn.
  *
- * <p>Exactly one of the two world-render callbacks draws ({@code latePass} matches "a shader pack is
- * active", see {@code ShaderPackProbe}), so a frame never doubles the glow - the same rule the beam
- * sheet used.
+ * <p>The comparison function is set with {@link GlowCompat#forceDepthFunc} — a direct
+ * {@code glDepthFunc} call — because 1.20.1's {@code GlStateManager._depthFunc} is <b>cached</b> and
+ * silently skips the GL call when its cached value already matches. Anything that touches GL depth
+ * outside {@code GlStateManager} (Sodium, Embeddium, a debug overlay) desyncs that cache, and then
+ * "we set ALWAYS" is a no-op and the body keeps eating the glow.
+ *
+ * <p><b>Only the late pass draws</b> ({@code AFTER_TRANSLUCENT}), never both: the early callback
+ * ({@code AFTER_ENTITIES}) still has half the frame behind it — translucents, particles, weather and
+ * MTR's own late train geometry — and nothing stops later opaque geometry from painting over an
+ * additive quad. {@code GL_ALWAYS} beats the depth buffer, not draw order. That is exactly the
+ * "the glow is only visible through rails/gaps, invisible when I look straight at the train, and
+ * fine with a shader pack" report: with a pack the old code already drew in the late pass. See the
+ * {@code [lte] flare draw:} line, which prints which pass actually drew and the depth function read
+ * back from GL.
  *
  * <h2>「灯晕看不见」的两个真凶（本版本已修 / 已加取证）</h2>
  * <ol>
@@ -140,6 +151,30 @@ public final class LightFlare {
     /** Was the last rendered frame the {@code lighttest} probe? Then the near table is not updated. */
     private static boolean dTestWindow;
 
+    /*
+     * 「这条绘制到底用了什么 GL 状态」的取证，5 秒一行的 {@code [lte] flare draw:}。
+     *
+     * 数值全部来自 {@link GlowCompat#diagDepthFunc} 那一组 —— draw 之后从 GL <b>读回来</b>的，
+     * 不是我们以为设了什么。这一行存在的理由：用户报「不开光影时灯晕只有隔着轨道/方块才看得到」，
+     * 而「深度真的仍然是 LEQUAL」与「深度没问题、是被后画的东西盖上」在截图里一模一样。
+     */
+    private static int dDrawQuads;
+    private static int dDrawDepthFunc = -1;
+    private static int dDrawDepthEntry = -1;
+    private static int dDrawBlendSrc = -1;
+    private static int dDrawBlendDst = -1;
+    private static boolean dDrawBlend;
+    private static boolean dDrawCull;
+    private static int dDrawTextureId = -1;
+    private static boolean dDrawAlwaysDepth;
+    private static boolean dDrawLatePass;
+    private static boolean dPackActive;
+    /** 两趟回调各自被调了几次 / 画了几次 —— 「谁在画」的唯一答案。 */
+    private static int dEarlyOffers;
+    private static int dEarlyDraws;
+    private static int dLateOffers;
+    private static int dLateDraws;
+
     private LightFlare() {
     }
 
@@ -151,6 +186,12 @@ public final class LightFlare {
     public static void render(final WorldRenderContext context, final boolean latePass) {
         // 先刷日志窗口：两个回调都会调到这里，5 秒一行的判读在关掉探针后自然安静。
         LightTest.report();
+        // 「谁被叫过」先记，再谈任何闸门 —— 只有这条计数能回答「两趟 latePass 各是什么」。
+        if (latePass) {
+            dLateOffers++;
+        } else {
+            dEarlyOffers++;
+        }
 
         final HeadlightConfig cfg = MtrHeadlightClient.config();
         if (cfg == null) {
@@ -162,14 +203,24 @@ public final class LightFlare {
             return;
         }
         windowOn = true;
-        final boolean shaders;
         try {
-            shaders = ShaderPackProbe.active();
+            dPackActive = ShaderPackProbe.active();
         } catch (Throwable t) {
             return;
         }
-        if (shaders != latePass) {
-            return;                             // the other callback draws this frame
+        /*
+         * 只由晚趟（AFTER_TRANSLUCENT）画，绝不两趟都画。
+         *
+         * 这一条就是「不开光影时灯晕只有隔着轨道/方块才看得到、开了光影反而正常」的答案：早趟
+         * （AFTER_ENTITIES）之后世界还要画一大段 —— 半透明层、粒子、天气，以及 MTR 自己的车体
+         * 后段几何。灯晕虽然带着 GL_ALWAYS（穿得过深度缓冲），但<b>挡不住被后画的几何覆盖</b>：
+         * 一个不透明三角形在它之后画上来，那块像素就是那个三角形的颜色。于是「灯就在眼前，屏幕上
+         * 是车体」而「透过轨道缝隙、隔着别的方块看，反而看得到那一圈光」—— 用户描述的现象逐字
+         * 对应。光影包路径本来就只有晚趟在画（旧代码 shaders==latePass 时只有 latePass=true 才
+         * 过闸），而那条路用户看到是正常的，所以这里把它无条件化：两趟都收，只有晚趟画。
+         */
+        if (!latePass) {
+            return;
         }
         final MinecraftClient client = MinecraftClient.getInstance();
         if (client.world == null || client.player == null || client.gameRenderer == null) {
@@ -203,6 +254,7 @@ public final class LightFlare {
                 } else if (flareCount > 0) {
                     GlowCompat.drawTextured(flareVerts, flareCount, matrices, TEXTURE, true);
                     dDrawn = true;
+                    captureDraw(quads, latePass);
                 }
             } catch (Throwable t) {
                 // 探针模式下这一句就是「程序/贴图没加载」的答案，直接进 [lte] lighttest: 那一行。
@@ -616,6 +668,30 @@ public final class LightFlare {
                     Integer.valueOf(dTrains), Integer.valueOf(dLamps), Integer.valueOf(dQuads),
                     Integer.valueOf(dNoLamp), Boolean.valueOf(dDrawn), dTexture,
                     dDrawError == null ? "" : " err=" + dDrawError);
+            /*
+             * 一条「这条绘制真正用了什么 GL 状态」的取证行。每个字段都是 draw 之后从 GL 读回来的
+             * （{@code glGetInteger}/{@code glIsEnabled}），不是我们调用过什么：
+             *   quads      —— 本窗口最后一次 draw 写进去的四边形数；
+             *   depthFunc  —— 光栅化那一刻的 GL_DEPTH_FUNC。ALWAYS 才说明「深度真的没在挡」；
+             *                 仍然是 LEQUAL 就坐实了「设了没生效」；
+             *   blend      —— 真实混合：ADD = (SRC_ALPHA, ONE)；ALPHA = (SRC_ALPHA, 1-SRC_ALPHA)
+             *                 （position_tex_color.json 自带的那个，bind 时盖掉我们的加色）；
+             *                 off = 混合根本没开；
+             *   tex        —— 灯晕贴图的状态（见 {@link #textureState}），后面跟着实际绑上去的
+             *                 GL 纹理 id，0 表示槽位是空的；
+             *   latePass   —— 这次 draw 是晚趟（AFTER_TRANSLUCENT）吗；
+             *   passes     —— 两趟回调各自「被调 / 真的画了」几次，回答「谁在画」。
+             */
+            MtrHeadlightClient.LOGGER.info("[lte] flare draw: quads={} depthFunc={} blend={} cull={}"
+                            + " tex={} latePass={} passes=early {}/{} late {}/{} texId={} entered={}"
+                            + " pack={}{}",
+                    Integer.valueOf(dDrawQuads), funcName(dDrawDepthFunc), blendName(),
+                    dDrawCull ? "on" : "off", dTexture, Boolean.valueOf(dDrawLatePass),
+                    Integer.valueOf(dEarlyOffers), Integer.valueOf(dEarlyDraws),
+                    Integer.valueOf(dLateOffers), Integer.valueOf(dLateDraws),
+                    Integer.valueOf(dDrawTextureId), funcName(dDrawDepthEntry),
+                    Boolean.valueOf(dPackActive),
+                    dDrawAlwaysDepth ? "" : " (alwaysDepth=false!)");
             // 探针（lighttest）走的是 lightTest()，near 表这一帧没更新；那条线自己报 flareQuads，
             // 这里不重复打一行过期的数。
             if (!dTestWindow) {
@@ -647,6 +723,78 @@ public final class LightFlare {
         dNoLamp = 0;
         dDrawn = false;
         dDrawError = null;
+        dDrawQuads = 0;
+        dDrawDepthFunc = -1;
+        dDrawDepthEntry = -1;
+        dDrawBlendSrc = -1;
+        dDrawBlendDst = -1;
+        dDrawBlend = false;
+        dDrawCull = false;
+        dDrawTextureId = -1;
+        dDrawLatePass = false;
+        dEarlyOffers = 0;
+        dEarlyDraws = 0;
+        dLateOffers = 0;
+        dLateDraws = 0;
+    }
+
+    /** 把 {@link GlowCompat} 读回的 GL 状态抄进本窗口的取证字段（一次 draw 一组）。 */
+    private static void captureDraw(final int quads, final boolean latePass) {
+        dDrawQuads = quads;
+        dDrawDepthFunc = GlowCompat.diagDepthFunc;
+        dDrawDepthEntry = GlowCompat.diagDepthFuncOnEntry;
+        dDrawBlendSrc = GlowCompat.diagBlendSrc;
+        dDrawBlendDst = GlowCompat.diagBlendDst;
+        dDrawBlend = GlowCompat.diagBlendEnabled;
+        dDrawCull = GlowCompat.diagCullEnabled;
+        dDrawTextureId = GlowCompat.diagTextureId;
+        dDrawAlwaysDepth = GlowCompat.diagAlwaysDepth;
+        dDrawLatePass = latePass;
+        if (latePass) {
+            dLateDraws++;
+        } else {
+            dEarlyDraws++;
+        }
+    }
+
+    /** {@code GL_ALWAYS} / {@code GL_LEQUAL} / … / {@code 0x…}，-1 是「这一帧没画」。 */
+    private static String funcName(final int func) {
+        switch (func) {
+            case -1:
+                return "none";
+            case 0x0207:
+                return "ALWAYS";
+            case 0x0201:
+                return "LEQUAL";
+            case 0x0203:
+                return "LESS";
+            case 0x0204:
+                return "GREATER";
+            case 0x0205:
+                return "GEQUAL";
+            case 0x0200:
+                return "NEVER";
+            case 0x0202:
+                return "EQUAL";
+            case 0x0206:
+                return "NOTEQUAL";
+            default:
+                return "0x" + Integer.toHexString(func);
+        }
+    }
+
+    /** 真实混合 = (0x302 SRC_ALPHA, 0x1 ONE) → ADD；= (0x302, 0x303) → ALPHA；没开 → off。 */
+    private static String blendName() {
+        if (!dDrawBlend) {
+            return "off";
+        }
+        if (dDrawBlendSrc == 0x0302 && dDrawBlendDst == 0x0001) {
+            return "ADD";
+        }
+        if (dDrawBlendSrc == 0x0302 && dDrawBlendDst == 0x0303) {
+            return "ALPHA";
+        }
+        return "0x" + Integer.toHexString(dDrawBlendSrc) + ":0x" + Integer.toHexString(dDrawBlendDst);
     }
 
     /** {@code ok} / {@code missing} / {@code notuploaded} / {@code error:X} for the flare texture. */

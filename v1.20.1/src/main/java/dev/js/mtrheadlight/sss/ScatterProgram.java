@@ -61,6 +61,11 @@ final class ScatterProgram {
     private static GlUniform uSurface;
     private static GlUniform uCount;
     private static GlUniform uTest;
+    /**
+     * {@code /mtr_lte scatter debug surface|normal|cone} 用的通道选择；<b>可选</b>：着色器里没有
+     * 这个名字时只是 debug 可视化不可用，pass 本身照常跑（不像别的 uniform 缺失那样整条关掉）。
+     */
+    private static GlUniform uDebug;
     private static GlUniform uLightPos;
     private static GlUniform uLightDir;
     private static GlUniform uLightColor;
@@ -134,13 +139,20 @@ final class ScatterProgram {
             uSurface = surface;
             uCount = count;
             uTest = test;
+            // 可选的调试通道：缺了只是 debug 可视化不可用，不关 pass。
+            uDebug = loaded.getUniform("uDebug");
+            if (uDebug == null) {
+                MtrHeadlightClient.LOGGER.warn("[lte] scatter: shader has no uniform uDebug - "
+                        + "/mtr_lte scatter debug will do nothing (the pass itself is unaffected)");
+            }
             uLightPos = lightPos;
             uLightDir = lightDir;
             uLightColor = lightColor;
             program = loaded;
             MtrHeadlightClient.LOGGER.info(
                     "[lte] scatter: program=ok id={}:{} format=POSITION (loaded from the "
-                            + "resource manager by ShaderProgram)", NAMESPACE, NAME);
+                            + "resource manager by ShaderProgram) debug={}", NAMESPACE, NAME,
+                    uDebug == null ? "unavailable" : "ok");
             return true;
         } catch (Throwable t) {
             failure = t.getClass().getSimpleName() + ":" + firstLine(t);
@@ -192,7 +204,7 @@ final class ScatterProgram {
                          final float extinction, final float maxRay, final float phaseG,
                          final float cosInner, final float cosOuter, final float strength,
                          final float attenuationRef, final boolean surface, final boolean coverage,
-                         final int count, final float[] pos, final float[] dir,
+                         final int debug, final int count, final float[] pos, final float[] dir,
                          final float[] color) {
         uInvViewProj.set(inverseViewProj);
         uParams.set(volumeGain, extinction, maxRay, phaseG);
@@ -201,9 +213,17 @@ final class ScatterProgram {
         uCount.set(count);
         // 真实渲染永远回到「不强制纯色」—— 探针关掉之后不会留下一个红色的 pass。
         uTest.set(0);
+        if (uDebug != null) {
+            uDebug.set(debug);
+        }
         uLightPos.set(pos);
         uLightDir.set(dir);
         uLightColor.set(color);
+    }
+
+    /** {@code false} = 这个着色器里没有 {@code uDebug}，debug 可视化不可用（pass 本身不受影响）。 */
+    static boolean debugAvailable() {
+        return uDebug != null;
     }
 
     /**
@@ -236,6 +256,7 @@ final class ScatterProgram {
         uSurface = null;
         uCount = null;
         uTest = null;
+        uDebug = null;
         uLightPos = null;
         uLightDir = null;
         uLightColor = null;

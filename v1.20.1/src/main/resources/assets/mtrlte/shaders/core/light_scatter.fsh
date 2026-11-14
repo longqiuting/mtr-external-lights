@@ -44,6 +44,7 @@ uniform vec4 uCone;                         // x = cos(inner), y = cos(outer)
 uniform vec4 uSurface;                      // x = strength k, y = attenuation ref (blocks^2), z = surface on, w = coverage probe
 uniform int uCount;                         // lamps actually filled in
 uniform int uTest;                          // 1 = /mtr_lte lighttest: fixed red output, no maths at all
+uniform int uDebug;                         // 0 = off, 1 = surface (N.L/cone/att), 2 = normal, 3 = cone
 uniform vec4 uLightPos[16];                 // xyz = lamp, camera relative; w = glow radius R
 uniform vec4 uLightDir[16];                 // xyz = unit heading; w = beam length
 uniform vec4 uLightColor[16];               // rgb = colour; w = intensity
@@ -134,6 +135,20 @@ void main() {
     vec3 surfaceSum = vec3(0.0);
     float coverage = 0.0;
 
+    /*
+     * ---- debug 通道的累加器（uDebug != 0 时才写）----
+     * 每个像素记「所有灯里最大的那一份」，所以屏幕上一块非零的区域就是「至少有一盏灯在这里
+     * 通过了这一项」。三项各自独立，看一眼就知道是哪一项把结果乘成 0：
+     *   dbgNdotL  法线是否朝向灯（max(dot(N,L),0)）
+     *   dbgSpot   是否落在灯锥里（smoothstep(cosOuter, cosInner, cosAngle)）
+     *   dbgAtt    距离衰减 × 锥内距离窗口（灯泡真的照得到这么远吗）
+     */
+    float dbgNdotL = 0.0;
+    float dbgSpot = 0.0;
+    float dbgAtt = 0.0;
+    float dbgCos = -1.0;
+    float dbgLamps = 0.0;
+
     for (int i = 0; i < 16; i++) {
         if (i >= uCount) {
             break;
@@ -149,8 +164,40 @@ void main() {
         }
         vec3 lamp = pos.xyz;
         float radius = max(pos.w, 0.05);
-        vec3 axis = normalize(dir.xyz);
+        /*
+         * 朝向。退化方向（dir == 0）绝不能让 normalize 产出 NaN：NaN 进了 axis 之后锥、体积、
+         * 相位全是 NaN，整条 pass 就变成「什么都没画」，而且日志里每个字段都是正常的数 ——
+         * 这是「表面项完全看不到」最难查的一种。退化成「朝相机」而不是报错。
+         */
+        vec3 axis = dir.xyz;
+        float axisLen = length(axis);
+        if (axisLen > 1.0e-4) {
+            axis = axis / axisLen;
+        } else {
+            float lampLen = length(lamp);
+            axis = lampLen > 1.0e-4 ? -lamp / lampLen : vec3(0.0, 0.0, -1.0);
+        }
         float beamLength = max(dir.w, 0.5);
+
+        // ---------------- debug channel ----------------
+        // 独立于 uSurface.z：表面项关掉时也要能回答「到底是哪一项是 0」。
+        if (uDebug != 0) {
+            vec3 toLampD = lamp - P;
+            float dD = length(toLampD);
+            if (dD > 1.0e-3) {
+                vec3 LD = toLampD / dD;
+                float cosD = dot(axis, -LD);
+                float spotD = smooth01((cosD - cosOuter) / max(cosInner - cosOuter, 1.0e-3));
+                float attD = 1.0 / (1.0 + dD * dD / attRef);
+                float winD = 1.0 - smooth01((dD - beamLength * 0.6)
+                        / max(beamLength * 0.4, 1.0e-3));
+                dbgCos = max(dbgCos, cosD);
+                dbgSpot = max(dbgSpot, spotD);
+                dbgNdotL = max(dbgNdotL, max(dot(nrm, LD), 0.0));
+                dbgAtt = max(dbgAtt, attD * winD);
+                dbgLamps += 1.0;
+            }
+        }
 
         // ---------------- surface term ----------------
         // Before the volume cull on purpose: a surface can be lit by a lamp whose glow sphere this
@@ -227,6 +274,41 @@ void main() {
         // tau = 1, i.e. lit = 1 - exp(-1.6) = 0.80.
         volumeSum += tint.rgb * ((chord / radius) * cone * window * phase * trans * power
                 * falloff * 0.125);
+    }
+
+    /*
+     * ---- 三个 debug 输出（/mtr_lte scatter debug surface|normal|cone）----
+     * 全部是纯色可视化，直接 replace 屏幕（json 里没有 blend 段 = dst = src），所以「有没有颜色」
+     * 只取决于这一项本身是不是 0，与亮度、色调、参数都没有关系。
+     */
+    if (uDebug == 1) {
+        // surface：R = 有 N·L，G = 在锥内，B = 有距离衰减。三色都亮 = 三项都通过；
+        // 红亮绿黑 = 法线对了但灯根本没照到这里（锥角/朝向反了）；绿亮红黑 = 锥对了但法线朝下。
+        fragColor = vec4(clamp(dbgNdotL, 0.0, 1.0), clamp(dbgSpot, 0.0, 1.0),
+                clamp(dbgAtt, 0.0, 1.0), 1.0);
+        return;
+    }
+    if (uDebug == 2) {
+        // normal：RGB = 法线编码（地面朝上 → 绿；墙 → 红/蓝），黑 = 天空（没有表面），
+        // 洋红 = 有几何但法线被判成轮廓伪影（normalValid=false，那些像素永远不会有表面项）。
+        if (!hasSurface) {
+            fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+            return;
+        }
+        if (!normalValid) {
+            fragColor = vec4(1.0, 0.0, 1.0, 1.0);
+            return;
+        }
+        fragColor = vec4(nrm * 0.5 + 0.5, 1.0);
+        return;
+    }
+    if (uDebug == 3) {
+        // cone：R = 灯轴与「灯→像素」的余弦（0.5 = 90°，1 = 正对灯轴），G = smoothstep 之后的锥内
+        // 权重（0 = 在 57° 外），B = 这一像素至少被一盏灯看到（1）。B=0 说明灯列表是空的/像素在
+        // 所有灯后面，跟锥角无关。
+        fragColor = vec4(clamp(max(dbgCos, 0.0), 0.0, 1.0), clamp(dbgSpot, 0.0, 1.0),
+                dbgLamps > 0.0 ? 1.0 : 0.0, 1.0);
+        return;
     }
 
     // ---- composite: replace the screen with scene + what the lamps add ----

@@ -188,6 +188,19 @@ public final class Commands {
                         .executes(context -> scatterStatus(context.getSource()))
                         .then(ClientCommandManager.literal("status")
                                 .executes(context -> scatterStatus(context.getSource())))
+                        // 三项纯色可视化：表面项的三个因子（N·L / 锥内 / 距离衰减）分别用
+                        // RGB 三个通道画出来，哪一项是 0 一眼就能看到。只在内存里，不写 config。
+                        .then(ClientCommandManager.literal("debug")
+                                .executes(context -> scatterDebugStatus(context.getSource()))
+                                .then(ClientCommandManager.argument("what", StringArgumentType.word())
+                                        .suggests((context, builder) -> builder
+                                                .suggest("off")
+                                                .suggest("surface")
+                                                .suggest("normal")
+                                                .suggest("cone")
+                                                .buildFuture())
+                                        .executes(context -> scatterDebug(context.getSource(),
+                                                StringArgumentType.getString(context, "what")))))
                         .then(ClientCommandManager.literal("on")
                                 .executes(context -> setScatter(context.getSource(), true)))
                         .then(ClientCommandManager.literal("off")
@@ -443,6 +456,28 @@ public final class Commands {
         dev.js.mtrheadlight.sss.ScatterPass.requestLitPixelProbe();
         source.sendFeedback(Text.literal("LTE：— /mtr_lte scatter on|off，"
                 + "表面项/强度/半径在 配置 → 光源 → 空气散射"));
+        return 1;
+    }
+
+    /**
+     * {@code /mtr_lte scatter debug}（无参数）：只回答当前是哪个模式，外加一条不改变任何状态的
+     * 状态串。不顺手打开任何东西 —— 可视化会把整屏染成纯色，必须是玩家按下去才发生。
+     */
+    private static int scatterDebugStatus(final FabricClientCommandSource source) {
+        source.sendFeedback(Text.literal("LTE：scatter debug 当前 = "
+                + dev.js.mtrheadlight.sss.ScatterPass.debugName()
+                + "；可选 off / surface / normal / cone（不写配置，退出即失效）"));
+        return 1;
+    }
+
+    /**
+     * {@code /mtr_lte scatter debug off|surface|normal|cone} - 把整屏换成一项纯色可视化。
+     *
+     * <p>surface：R = 有 N·L，G = 锥内，B = 有距离衰减（三色都在 = 三项都过）；normal：RGB = 法线，
+     * 洋红 = 轮廓伪影，黑 = 天空；cone：R = 灯轴余弦，G = 锥内权重，B = 有灯。只在内存里。
+     */
+    private static int scatterDebug(final FabricClientCommandSource source, final String what) {
+        source.sendFeedback(Text.literal("LTE：" + dev.js.mtrheadlight.sss.ScatterPass.setDebug(what)));
         return 1;
     }
 
