@@ -31,13 +31,13 @@ import net.minecraft.text.Text;
  * It ignores trains, models, siding overrides and the master switch, so a probe that fails to appear
  * localises the fault to the particle path itself instead of the weather gate.
  *
- * <p>{@code /mtr_lte flare [status|style band|flare|both]} - 车灯的两套可见几何与真实方块光照。
- * 样式三档（{@link HeadlightConfig.LightStyle}）：光带（{@code BeamGlow}，默认）/ 灯晕
- * （{@code LightFlare}）/ 两者；{@code style} 子命令就是界面「光样式」那一行，写同一份配置、
- * 立即生效。灯位来自 {@link TrainLamps}（模型 LIGHT 部件 → {@code builtin_lights.json} →
- * 尺寸兜底），地面亮斑来自 {@code BeamBlockLight}，所以 {@code status} 顺带报告灯位诊断线与
- * 方块光照挂钩是否在运行。光柱（体积锥 / raymarch 体积光）已整体移除，对应的
- * {@code /mtr_lte cone …} 与 {@code /mtr_lte debug cone…} 子命令一并删除。
+ * <p>{@code /mtr_lte flare [status|style band|flare|scatter on|off]} - 车灯的三件可见光效与真实
+ * 方块光照。三件各有自己的开关、互不影响：光带（{@code BeamGlow}，默认开）/ 灯晕
+ * （{@code LightFlare}，默认开）/ 散射（{@code sss.ScatterPass}，默认开）；{@code style} 子命令
+ * 就是界面「光源」分区那三行，写同一份配置、立即生效。灯位来自 {@link TrainLamps}（模型 LIGHT
+ * 部件 → {@code builtin_lights.json} → 尺寸兜底），地面亮斑来自 {@code BeamBlockLight}，所以
+ * {@code status} 顺带报告灯位诊断线与方块光照挂钩是否在运行。光柱（体积锥 / raymarch 体积光）已
+ * 整体移除，对应的 {@code /mtr_lte cone …} 与 {@code /mtr_lte debug cone…} 子命令一并删除。
  *
  * <p>{@code /mtr_lte dep [status|next|normal|mirror|flip|rotate]} - 挂墙发车倒数器
  * （{@code mtrlte:dep_on_wall}）的<b>读数方向</b>。四档都是绕屏幕正中的 {@code scale(±1,±1,1)}：
@@ -173,17 +173,24 @@ public final class Commands {
                         .executes(context -> flareStatus(context.getSource()))
                         .then(ClientCommandManager.literal("status")
                                 .executes(context -> flareStatus(context.getSource())))
-                        // 光样式：band / flare / both —— 和界面「光样式」一行同一条写入路径。
+                        // 三件光效各自的开关：band / flare / scatter —— 和界面那三行同一条写入路径。
                         .then(ClientCommandManager.literal("style")
                                 .executes(context -> flareStatus(context.getSource()))
-                                .then(ClientCommandManager.argument("style", StringArgumentType.word())
+                                .then(ClientCommandManager.argument("what", StringArgumentType.word())
                                         .suggests((context, builder) -> builder
                                                 .suggest("band")
                                                 .suggest("flare")
-                                                .suggest("both")
+                                                .suggest("scatter")
                                                 .buildFuture())
-                                        .executes(context -> setLightStyle(context.getSource(),
-                                                StringArgumentType.getString(context, "style"))))))
+                                        .executes(context -> flareStatus(context.getSource()))
+                                        .then(ClientCommandManager.literal("on")
+                                                .executes(context -> setLightSwitch(context.getSource(),
+                                                        StringArgumentType.getString(context, "what"),
+                                                        true)))
+                                        .then(ClientCommandManager.literal("off")
+                                                .executes(context -> setLightSwitch(context.getSource(),
+                                                        StringArgumentType.getString(context, "what"),
+                                                        false))))))
                 // 屏幕空间散射（车灯在空气里的光雾）：开关 / 状态。pass 本身在
                 // dev.js.mtrheadlight.sss.ScatterPass，这里只改那一个布尔量并落盘。
                 .then(ClientCommandManager.literal("scatter")
@@ -332,6 +339,11 @@ public final class Commands {
         LteLog.LOGGER.info(line);
         Trackbed.setWatch(true);
         source.sendFeedback(Text.literal(line));
+        source.sendFeedback(Text.literal(
+                "LTE：逐 tick 行末尾现在是 cand[i]=(dist,off,railY,minY..maxY,why) 最多 4 条 + tbl=："
+                        + "why=height → 被高度窗口挡掉（拿 railY 和 pos 里的 y 一比就知道）；"
+                        + "why=bbox/far → 候选里只有附近的其它轨道；why=ok+dist>1.3 → 差一点点；"
+                        + "tbl= 是整张表里脚下最近的那条（不看缓存、不看高度），dist≈0 却没进 cand 就是缓存漏了。"));
         source.sendFeedback(Text.literal("LTE：道床取证已打开 —— 每 5 秒一行汇总，外加每 tick 一行"
                 + " trackbed tick:（cand= / best=(dist, offset, y) / dy= / vy= / verdict=）。"
                 + "看 drop=：nohit=缓存没轨道 / lat=横向没踩上 / dy=高度差超窗口 / rescue=安全网接住；"
@@ -485,15 +497,17 @@ public final class Commands {
     private static int flareStatus(final FabricClientCommandSource source) {
         final HeadlightConfig cfg = MtrHeadlightClient.config();
         final HeadlightConfig.Effective eff = cfg.effectiveFor(0L);
-        // 这一行刻意把「样式写了什么」和「渲染层实际用的两个布尔」并排打出来，而且 band/flare 直接读
-        // bandGlobal()/flareGlobal() —— 那是 BeamGlow.render / LightFlare.render 的帧级门槛本身，
-        // 不是第二份判断。三档切换"看不出区别"时，先看这两个 true/false 有没有跟着变。
-        source.sendFeedback(Text.literal("LTE：lightStyle = " + cfg.style()
-                + " style=" + cfg.style().name()
-                + " band=" + cfg.bandGlobal() + " flare=" + cfg.flareGlobal()
-                + "（光带=" + (eff.beamGlow ? "画" : "不画")
+        // 这一行把三个开关和「渲染层实际用的三个布尔」并排打出来，而且直接读
+        // drawBand()/drawFlare()/drawScatter() —— 那是三个渲染器自己的帧级门槛，不是第二份判断。
+        // 开了却看不出区别时，先看这三个 true/false 有没有跟着变。
+        source.sendFeedback(Text.literal("LTE：beamBand = " + cfg.beamBand
+                + " beamFlare = " + cfg.beamFlare + " beamScatter = " + cfg.beamScatter
+                + " draws= band " + (cfg.drawBand() ? "on" : "off")
+                + " / flare " + (cfg.drawFlare() ? "on" : "off")
+                + " / scatter " + (cfg.drawScatter() ? "on" : "off")
+                + "（这辆车的值：光带=" + (eff.beamBand ? "画" : "不画")
                 + "，灯晕=" + (eff.beamFlare ? "画" : "不画")
-                + "；用 /mtr_lte flare style band|flare|both 切换）"
+                + "；用 /mtr_lte flare style band|flare|scatter on|off 切换）"
                 + " flareSize=" + String.format(java.util.Locale.ROOT, "%.2f",
                         cfg.flareSizeClamped())
                 + " minPx=" + cfg.flareMinPxClamped()
@@ -520,35 +534,31 @@ public final class Commands {
     }
 
     /**
-     * {@code /mtr_lte flare style band|flare|both} - 车灯<b>可见样式</b>：光带 / 灯晕 / 两者都画。
+     * {@code /mtr_lte flare style band|flare|scatter on|off} - 三件光效各自的开关。
      *
-     * <p>和配置界面「光源 → 光样式」一行走同一条路径（{@link HeadlightConfig#setLightStyle}），
-     * 所以两种入口不会写出不同的状态：样式决定"画哪一套几何"，两份逐层旧开关
-     * （{@code beamGlow} / {@code beamFlare}）跟着它一起写。颜色、亮度、灯位、长度是<b>同一份</b>
-     * 配置，切换样式只改画法，不改灯本身 —— 这也是为什么光带和灯晕可以互为备份。
+     * <p>和配置界面「光源」分区那三行走同一条路（直接写 {@link HeadlightConfig#beamBand} /
+     * {@link HeadlightConfig#beamFlare} / {@link HeadlightConfig#beamScatter}），所以两个入口不会
+     * 写出不同的状态。三件互相独立：颜色、亮度、灯位、长度是<b>同一份</b>配置，开关只决定画不画。
      *
      * <p>立即生效（渲染每帧读配置），并写盘，和 {@code /mtr_lte headlight} 一样。
      */
-    private static int setLightStyle(final FabricClientCommandSource source, final String arg) {
+    private static int setLightSwitch(final FabricClientCommandSource source, final String what,
+                                      final boolean on) {
         final HeadlightConfig cfg = MtrHeadlightClient.config();
-        final HeadlightConfig.LightStyle style;
-        if ("band".equalsIgnoreCase(arg)) {
-            style = HeadlightConfig.LightStyle.BAND;
-        } else if ("flare".equalsIgnoreCase(arg)) {
-            style = HeadlightConfig.LightStyle.FLARE;
-        } else if ("both".equalsIgnoreCase(arg)) {
-            style = HeadlightConfig.LightStyle.BOTH;
+        if ("band".equalsIgnoreCase(what)) {
+            cfg.beamBand = on;
+        } else if ("flare".equalsIgnoreCase(what)) {
+            cfg.beamFlare = on;
+        } else if ("scatter".equalsIgnoreCase(what)) {
+            cfg.beamScatter = on;
         } else {
-            source.sendError(Text.literal("LTE：未知样式 " + arg + "（band / flare / both）"));
+            source.sendError(Text.literal("LTE：未知开关 " + what + "（band / flare / scatter）"));
             return 0;
         }
-        cfg.setLightStyle(style);
         cfg.save();
-        source.sendFeedback(Text.literal("LTE：lightStyle = " + cfg.style()
-                + (style == HeadlightConfig.LightStyle.BAND ? "（光带）"
-                : style == HeadlightConfig.LightStyle.FLARE ? "（灯晕）" : "（光带 + 灯晕）")
-                + " band=" + cfg.bandGlobal() + " flare=" + cfg.flareGlobal()
-                + "（渲染层每帧读这两个布尔；日志里那行 [lte] lightstyle: applied … 会在下一次绘制时出现）"));
+        source.sendFeedback(Text.literal("LTE：光带=" + cfg.beamBand
+                + " 灯晕=" + cfg.beamFlare + " 散射=" + cfg.beamScatter
+                + "（渲染层每帧读这三个布尔；日志里那行 [lte] lights: 会在下一次绘制时出现）"));
         return 1;
     }
 
@@ -599,7 +609,7 @@ public final class Commands {
     /** {@code /mtr_lte scatter on|off} - 写活配置 + 落盘，下一帧生效（和配置界面同一条路径）。 */
     private static int setScatter(final FabricClientCommandSource source, final boolean on) {
         final HeadlightConfig cfg = MtrHeadlightClient.config();
-        cfg.scatterEnabled = on;
+        cfg.beamScatter = on;
         cfg.save();
         source.sendFeedback(Text.literal("LTE：scatter = " + (on ? "on" : "off")
                 + (on ? "（车灯会在空气里散出光雾；没有灯时零开销）"
@@ -616,7 +626,7 @@ public final class Commands {
      * <ul>
      *   <li>每列车的<b>车头 / 车尾前方 2 格</b>各一块 <b>3 格宽的洋红四边形</b>。它走光带那条已验证
      *       可见的路（{@code position_color}，<b>不带贴图</b>），并且跳过朝向 / 距离 / 透明度 /
-     *       {@code lightStyle} / {@code isLit} 的全部判定。<b>看不到洋红</b> = 世界渲染回调、相机相对
+     *       {@code beamBand} / {@code beamFlare} / {@code isLit} 的全部判定。<b>看不到洋红</b> = 世界渲染回调、相机相对
      *       坐标或程序绑定这一层出了问题；<b>看到洋红但看不到灯晕</b> = 灯晕贴图 / 纹理程序 / 透明度
      *       的问题，与几何和时机无关。</li>
      *   <li>{@code WorldRenderEvents.LAST} 里一块<b>左半屏红色叠加</b>，不看灯数、不拷深度、不绑我们

@@ -182,6 +182,14 @@ public final class LteServer implements ModInitializer {
             LteLog.LOGGER.warn("[lte] xiamen ticket / balance machines unavailable", t);
         }
 
+        // 共享充电宝租借机（上半 / 下半各自独立的两块方块）+ 充电宝物品 + 投掷实体。
+        // 租借 / 归还都在这里注册的服务端逻辑里：余额读 MTR 的记分板 mtr_balance（bind.MtrBalance）。
+        try {
+            dev.js.mtrheadlight.xiamen.charger.ChargerObjects.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] power bank charger unavailable", t);
+        }
+
         // 安检类方块（液体安检机）：方块 + 物品 + 创造页签条目，排在厦门那一组之后注册。
         try {
             dev.js.mtrheadlight.security.SecurityObjects.register();

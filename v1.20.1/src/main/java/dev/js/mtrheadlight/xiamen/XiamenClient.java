@@ -110,7 +110,8 @@ public final class XiamenClient implements ClientModInitializer {
             put(entry.block(), "station sign " + entry.id());
         }
 
-        // 6b) 贴墙标识（3 个）：logo 贴图挖空（alpha=0 处透出底下的金属底板），同样 cutout。
+        // 6b) 站名贴墙标识（3 个）：零厚度的板 + 挖空的品牌 logo，同样必须 cutout。
+        //     渲染器与渲染层也由 WallSignClient 注册；这里是历史入口，保留只为「早于它跑」时也不会漏。
         for (dev.js.mtrheadlight.xiamen.sign.WallSignObjects.Entry entry
                 : dev.js.mtrheadlight.xiamen.sign.WallSignObjects.entries()) {
             put(entry.block(), "wall sign " + entry.id());

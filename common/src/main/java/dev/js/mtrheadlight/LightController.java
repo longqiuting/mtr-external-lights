@@ -111,11 +111,6 @@ public final class LightController {
             return;
         }
 
-        // Five-second railbuild line. Placed before the master-switch returns below (and here
-        // rather than in the 1.20.1-only scheduler) so it reports on every build and so a mixin
-        // that silently stopped matching shows up as calls=0 instead of as silence.
-        RailChunkBuildBoost.tick(cfg);
-
         if (!cfg.enabled || !cfg.dynamicLight) {
             // Master switch (or the dynamic-light child) off: drop everything right away, or the
             // last light stays lit forever where the train was.
@@ -362,7 +357,6 @@ public final class LightController {
         }
 
         BeamBlockLight.publish(beams == null ? null : trimBeams(beams, beamCount));
-        RailRelightHooks.tick(cfg, tickCounter);
         // tracked/missing are the numbers the decision above used (before the batch was removed),
         // so "tracked=12 missing=12 massClear=12" reads as one event rather than as an empty state.
         ClearDiag.tick(cfg.massClearDiagnostics, tickCounter, trackedCount, missingNow);

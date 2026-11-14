@@ -23,8 +23,8 @@
 | `/mtr_lte headlight auto` | 自动：白天关、夜晚/隧道/雨天开 |
 | `/mtr_lte headlight always` | 常亮 |
 | `/mtr_lte headlight off` | 常关 |
-| `/mtr_lte flare` / `/mtr_lte flare status` | 查看光样式 + 光带/灯晕各自画不画 + 灯位来源与方块光照状态 |
-| `/mtr_lte flare style band\|flare\|both` | 切换光样式：光带 / 灯晕 / 两者都画（写盘、立即生效，与面板「光样式」同一个键） |
+| `/mtr_lte flare` / `/mtr_lte flare status` | 查看光带 / 灯晕 / 散射三个开关 + 渲染层实际画不画 + 灯位来源与方块光照状态 |
+| `/mtr_lte flare style band\|flare\|scatter on\|off` | 三个独立开关：光带 / 灯晕 / 散射（写盘、立即生效，与面板那三行同一份配置） |
 | `/mtr_lte scatter` / `scatter status` | 屏幕空间散射（车灯照亮地面/墙面 + 空气里的光雾）：开关 / shader 程序状态 / 送进 shader 的灯数 / 表面项开关 / `litPx≈N` / 深度重建矩阵来源 / 上一帧为什么画/没画（`reason=`） |
 | `/mtr_lte scatter on` / `off` | 开关全屏散射 pass（写盘、下一帧生效；没灯时零开销） |
 | `/mtr_lte scatter debug surface\|normal\|cone\|off` | **把整屏换成一项的纯色可视化**：`surface` = R 有 N·L / G 在锥内 / B 有距离衰减；`normal` = 法线（洋红 = 轮廓伪影，黑 = 天空）；`cone` = R 灯轴余弦 / G 锥内权重 / B 有灯。只在内存里 |
@@ -38,7 +38,7 @@ scatter on program=ok strength=1.00 radius=6.0 lights=4/16 candidates=9 depth=19
 
 | 字段 | 含义 |
 |---|---|
-| `scatter on\|off` | `scatterEnabled`：整个全屏 pass 的总开关 |
+| `scatter on\|off` | `beamScatter`：整个全屏 pass 的总开关 |
 | `program=ok\|missing\|failed(…)` | 手加载的 `mtrlte:light_scatter` 程序是否编译成功；`failed(…)` 后面就是失败原因（和日志里那条 WARN 同一个字符串） |
 | `lights=n/16` | 上一帧真正送进 shader 的灯数（最近 16 盏）；`0` 时 pass 不做任何 GL 工作 |
 | `candidates=n` | 通过全部闸门、参与「最近 16 盏」排序的灯数。`candidates=0` = 没有点亮的灯；`candidates>0` 而 `lights=0` 才是异常 |
@@ -47,9 +47,9 @@ scatter on program=ok strength=1.00 radius=6.0 lights=4/16 candidates=9 depth=19
 | `litPx≈N` | 表面项实际点亮了多少像素。每 5 秒自动量一次（覆盖写进输出 alpha、96×54 降采样回读）；`n/a(surface off)` / `n/a(no lit lamps)` / `n/a(debug …)` 都是「这一项此刻无意义」 |
 | `matrix=` | 深度重建用的视图矩阵来自哪个候选：`context`（Fabric 的矩阵栈）/ `render`（`RenderSystem`）/ `rebuilt`（相机 pitch/yaw 重建） |
 | `debug=` | `/mtr_lte scatter debug` 当前模式 |
-| `reason=` | 上一帧为什么**停了**：`ok` / `no-lights` / `shader-pack(…)` / `depth-copy-failed(err=0x…)` / `color-copy-failed` / `program=failed(…)` / `off(scatterEnabled=false)` |
+| `reason=` | 上一帧为什么**停了**：`ok` / `no-lights` / `shader-pack(…)` / `depth-copy-failed(err=0x…)` / `color-copy-failed` / `program=failed(…)` / `off(beamScatter=false)` |
 
-每 5 秒日志（`scatterEnabled=true` 时无条件打，任何闸门都不会让它消失）：
+每 5 秒日志（`beamScatter=true` 时无条件打，任何闸门都不会让它消失）：
 
 ```
 [lte] scatter pass: frames=300 lights=4 depth=1920x1080 ok color=1920x1080 ok blend=replace litPx=≈15234 matrix=context calls=300 maxLights=4 avgMs=0.42 surface=on debug=off pack=false reason=ok
@@ -78,7 +78,7 @@ scatter on program=ok strength=1.00 radius=6.0 lights=4/16 candidates=9 depth=19
 ### 车灯渲染路径取证（`/mtr_lte lighttest`）
 
 「只看到光带，灯晕和散射都看不见」背后有四种完全不同的原因，截图里长得一模一样。打开探针后一屏
-就能分开看，三块颜色**都跳过** `lightStyle` / `isLit` / 灯位 / 朝向 / 距离 / 透明度 / 灯数：
+就能分开看，三块颜色**都跳过** `beamBand` / `beamFlare` / `beamScatter` / `isLit` / 灯位 / 朝向 / 距离 / 透明度 / 灯数：
 
 | 屏幕上的东西 | 谁画的 | 判读 |
 |---|---|---|
@@ -152,25 +152,26 @@ scatter on program=ok strength=1.00 radius=6.0 lights=4/16 candidates=9 depth=19
 每一项在面板里都有单独的 `↺` 恢复默认；底部有「全部恢复默认」（带二次确认）。
 侧线详情页里的 `↺` 语义是「清除本侧线覆盖，重新跟随全局」。
 
-### 光源 · 光样式（三种画法，默认光带）
+### 光源 · 三件可见光效（三个独立开关，默认全开）
 
-光带（`BeamGlow`）和灯晕（`LightFlare`）是**同一盏灯的两套画法**，读同一份灯位与颜色，可以互为备份、
-也可以同时画。三种样式的区别、手感与切换方式见 [light-styles.md](light-styles.md)。
+光带（`BeamGlow`）、灯晕（`LightFlare`）和散射（`sss.ScatterPass`）是**同一盏灯的三套画法**，
+读同一份灯位与颜色，三个开关互相独立、任意组合都能同时开。三件的区别、手感与切换方式见
+[light-styles.md](light-styles.md)。
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `lightStyle` | `BAND` | `BAND` = 光带 / `FLARE` = 灯晕 / `BOTH` = 两者都画。面板「光源 → 光样式」一行点一下换一档 |
-| `beamGlow` | `true` | 光带这一层的总闸。由 `lightStyle` 一起写（`BAND`/`BOTH` → `true`） |
-| `beamFlare` | `false` | 灯晕这一层的总闸。由 `lightStyle` 一起写（`FLARE`/`BOTH` → `true`） |
+| `beamBand` | `true` | 光带开关。面板「光源 → 光带」一行 |
+| `beamFlare` | `true` | 灯晕开关。面板「光源 → 灯晕」一行；侧线页可逐侧线收紧 |
+| `beamScatter` | `true` | 屏幕空间散射开关。面板「光源 → 散射」一行 |
 
-> 旧配置（没有 `lightStyle` 键）升级后按 `BAND` 处理：光带照旧画，灯晕不画。
-> 屏幕空间散射（`scatterEnabled` 等）是**独立**开关，与这三种样式可以任意叠加。
+> 旧版本的三态键 `lightStyle`（`BAND` / `FLARE` / `BOTH`）在版本 25 被拆成上面三个开关，
+> 读盘时自动折算并把这个键从文件里删掉，映射表见 [light-styles.md](light-styles.md)。
 
 ### 光源 · 光带（BeamGlow，稳定功能）
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `beamGlow` | `true` | 车灯光带总开关（`lightStyle` 的 `BAND` / `BOTH` 都会写 `true`） |
+| `beamBand` | `true` | 车灯光带总开关 |
 | `beamDistance` | `128` | 光带可见距离（格） |
 | `beamWidth` | — | 光带宽度 |
 | `beamHeadLength` / `beamTailLength` | — | 头/尾光带长度 |
@@ -210,24 +211,17 @@ scatter on program=ok strength=1.00 radius=6.0 lights=4/16 candidates=9 depth=19
 | `missingKeepTicks` / `missingDimTicks` / `missingDetachTicks` | — | 列车消失后的宽限/变暗/摘除 |
 | `swapEnds` | `false` | 交换头尾 |
 
-### 轨道光照
+### 轨道光照（已移除）
 
-| 键 | 默认 | 说明 |
-|---|---|---|
-| `railLight` | **`false`** | **旧方案，默认关闭**：把列车灯烘焙进 ANTE/NTE 的轨道顶点（每顶点 lightmap 注入 + 区块重光照）。打开后**铁轨自己会整条发亮**，所以不再默认开启；想给某条侧线看旧观感用逐侧线的 `railLight`。打开后下面所有 `rail*` / `railRelight*` 才生效 |
-| `railRelightTicks` / `railRelightEveryTicks` | — | 重算周期 |
-| `railRelightRadius` / `railRelightMaxTrains` | — | 半径与列车数上限 |
-| `railLightDelta` / `railRelightBudget` | — | 变化阈值 / 每轮预算 |
-| `railRelightMaxMove` / `railRelightMaxInterval` / `railRelightIdleInterval` | — | 位移触发阈值 / 最大间隔 / 空闲间隔 |
-| `railLightUnderShaders` | — | 光影下是否仍照亮 |
-| `railRelightLoadGraceSec` | `8.0` | 进世界后让路秒数 |
-| `railRelightMaxBlockDist` | `64` | 方块距离上限 |
-| `railRelightCooldownMs` | `500` | 单区块冷却 |
-| `railRelightMaxPerSec` | `12` | 全局每秒上限 |
-| `railChunkBuildBoost` | — | 区块构建加速（ANTE/NTE） |
-| `railChunkBuildPerFrame` | — | 每帧加速上限 |
-| `railRelightFrustumCos` | `0.25` | 视锥余弦阈值 |
-| `railRelightDiagnostics` / `railLightShaderBoost` / `railLightGain` | — | 诊断 / 光影增益 |
+「把列车灯烘焙进 ANTE/NTE 轨道顶点」这一整套（`railLight` / `railRelight*` / `railLight*` /
+`railChunkBuild*`）**已删除**：它会让铁轨自己整条发亮，不是"车灯照在地上"。
+
+现在照亮轨道周边只需要两样东西，都不改动铁轨模型本身：
+
+* `beamBlockLight`（+ `dynamicLight`）：车灯把**方块光照**写进地形网格，地面/道砟/墙面亮起来；
+* 玩家自己的动态光源（LambDynamicLights 等）—— 没有 LDL 也不影响上面那一条。
+
+旧配置文件里的这些键会被直接忽略（读盘不报错，下一次写盘就消失）。
 
 ### 原版内置列车过滤
 

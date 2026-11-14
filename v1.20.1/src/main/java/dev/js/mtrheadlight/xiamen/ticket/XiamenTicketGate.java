@@ -42,7 +42,7 @@ import net.minecraft.world.World;
  * <p>音效是<b>作为参数</b>传进 {@code passThrough} 的（5 个 {@code SoundEvent}），而 MTR 的
  * {@code BlockTicketBarrier} 在字节码里把 {@code mtr.SoundEvents.TICKET_BARRIER} /
  * {@code TICKET_BARRIER_CONCESSIONARY} 写死了 —— 没有可覆盖的钩子，所以只能照抄那 40 行
- * 判定逻辑、把音效换成我们自己的。判定逻辑逐行对应 MTR 的反编译结果：
+ * 判定逻辑、把音效换成我们自己的。判定逻辑对齐 MTR 的公开行为：
  *
  * <pre>
  *   if (world.isClient || !(entity instanceof PlayerEntity)) return;

@@ -50,10 +50,12 @@ import java.util.Locale;
  * 所以站在野地里不会刷 {@code nohit}），走一遍坡道就能从计数上直接读出是哪一种，不用猜。
  *
  * <h2>{@code /mtr_lte trackbed on} —— 逐 tick 一行</h2>
- * 上面那行是每 5 秒的汇总，回答不了「紧接在弯道后面的那段直道，候选集里到底有没有它」。
+ * 上面那行是每 5 秒的汇总，回答不了「紧挨着弯道的那段直道，候选集里到底有没有它」。
  * 取证打开时每 tick 打一行：
  * <pre>[lte] trackbed tick: pos=(x, y, z) rails=N cand=N best=(dist, offset, railY)
- *                        dy=… sdy=… vy=… verdict=… onGround=… moved=…</pre>
+ *                        dy=… sdy=… vy=… verdict=… onGround=… moved=…
+ *                        cand[0]=(dist,+off,railY,minY..maxY,why) … more=N straightN=a/b
+ *                        tbl=(dist,+off,railY,minY..maxY) straight=yes|no along=s/len</pre>
  * <ul>
  *   <li>{@code rails=} 整张轨道表的条数（每秒数一次）—— 它突然变成 0 就是轨道表没加载；</li>
  *   <li>{@code cand=} 这次查询的<b>候选条数</b>。站在直道上跑几秒，如果 {@code cand=1} 而
@@ -66,6 +68,22 @@ import java.util.Locale;
  *       轨面以下」，{@code sdy} 由正变负的那一行就是「穿过去了」的那一 tick；</li>
  *   <li>{@code verdict=rescue} 说明是<b>安全网</b>接住的（见下），不是常规判定。</li>
  * </ul>
+ *
+ * <h2>{@code cand[i]} —— {@code best=(-,-,-)} 时为谁挡掉的（{@link RailBed#detailText}）</h2>
+ * {@code best=(-,-,-)} 只说明「四条全被丢了」，丢在哪一步必须逐条看。每条候选一行
+ * {@code cand[i]=(dist, offset, railY, minY..maxY, why)}，按查询点到折线的真实距离升序、最多 4 条：
+ * <ul>
+ *   <li>{@code why=height} —— 被高度粗筛挡住（{@code y < minY-4 || y > maxY+4}）。拿 {@code railY}
+ *       和行首 {@code pos} 里的 {@code y}（脚底）一比就是结论：{@code railY≈y} 却仍是 {@code height}，
+ *       说明窗口本身有问题；{@code railY} 差十几格说明候选里根本不是脚下那条；</li>
+ *   <li>{@code why=bbox} / {@code why=far} —— 轨道在，但横向 2.5 格外，候选里是<b>附近的其它轨道</b>；</li>
+ *   <li>{@code why=column} —— 这条轨道的采样折线退化（顶点不足），数据问题；</li>
+ *   <li>{@code why=ok} —— 过了全部过滤、参与了选择（{@code dist > halfW=1.3} 就是「差一点」）；</li>
+ *   <li>{@code more=N} —— 还有 N 条候选没列（只留最近的 4 条）；{@code straightN=a/b} ——
+ *       b 条候选里有 a 条是直道，{@code straightN=0/4} 就是「直道那条不在候选里」。</li>
+ * </ul>
+ * {@code tbl=} 是<b>整张表</b>里离脚下最近的那条（不看候选缓存、不看高度窗口，每秒算一次）：
+ * 它和 {@code cand} 对着看，就能分开「缓存漏了」和「表里根本没有这条轨道」。
  *
  * <h2>下落安全网（{@link RailBed#rescues}）</h2>
  * 常规判定之外还有一条兜底，专门防「踩空」：横向 ≤ {@link RailBed#RESCUE_RADIUS}（2.5 格）、
@@ -140,6 +158,13 @@ public final class Trackbed {
     private static Object railsTotalMap;
     private static long railsTotalTick = Long.MIN_VALUE;
 
+    /**
+     * 整表最近轨道（{@code tbl=}）的缓存：全表扫描太重，一秒一次就够。
+     * {@code ""} = 还没算过（{@link #setWatch} 打开/关闭时清掉）。
+     */
+    private static volatile String tableText = "";
+    private static volatile long tableTick = 0L;
+
     // 自上一行诊断以来的计数（{@code drops=}）。按结论分桶，一眼看出是哪一种。
     private static final int[] COUNTS = new int[RailBed.Verdict.values().length];
 
@@ -155,6 +180,8 @@ public final class Trackbed {
         railsTotal = 0;
         railsTotalMap = null;
         railsTotalTick = Long.MIN_VALUE;
+        tableText = "";
+        tableTick = 0L;
         clearStep();
         clearCounters();
     }
@@ -202,6 +229,11 @@ public final class Trackbed {
     /** 开关取证日志。 */
     public static void setWatch(final boolean on) {
         watch = on;
+        BED.setCapture(on);
+        if (!on) {
+            tableText = "";
+            tableTick = 0L;
+        }
     }
 
     /**
@@ -212,11 +244,19 @@ public final class Trackbed {
      *
      * <p>取证打开时（{@code /mtr_lte trackbed on}）这里打<b>逐 tick</b> 一行：
      * <pre>[lte] trackbed tick: pos=(x, y, z) rails=N cand=N best=(dist, offset, railY)
-     *                        dy=… sdy=… vy=… verdict=… onGround=… moved=…</pre>
+     *                        dy=… sdy=… vy=… verdict=… onGround=… moved=…
+     *                        cand[0]=(dist,+off,railY,minY..maxY,why) … straightN=a/b
+     *                        tbl=(dist,+off,railY,minY..maxY) straight=yes along=s/len</pre>
      * 用户站到「没有碰撞箱」的那段直道上跑几秒，这一串行就能回答三件事：直道那条轨道到底在不在
      * {@code cand} 里（{@code cand=0} 就是缓存漏了）、{@code best} 是不是它（{@code dist} 是多少）、
      * {@code dy}/{@code sdy}/{@code vy} 是不是被判出了窗口（{@code sdy} 是这一 tick <b>起点</b>的高差，
      * 安全网就是按它判「起点在轨面之上下」的）。{@code rails} 是整张轨道表的条数（每秒数一次）。
+     *
+     * <p>{@code best=(-,-,-)}（候选全被丢）时，后面那串 {@code cand[i]} 就是答案：
+     * {@code (dist, offset, railY, minY..maxY, why)} 逐条给出「离脚底多远、投影在那条轨道的哪一侧、
+     * 那里的轨面多高、这条轨道的高程区间、以及它被哪一步挡掉」——{@code why ∈
+     * height|bbox|column|far|ok}（见 {@link RailBed.Why}）。{@code tbl=} 再补一刀：整张表里最近的
+     * 那条（不看缓存、不看高度窗口），用来分辨「候选缓存漏了」和「表里根本没有这条轨道」。
      */
     public static void noteStep(final Sample sample, final double x, final double feet,
                                 final double z, final double startDy, final double dy,
@@ -250,14 +290,41 @@ public final class Trackbed {
             noteSnapped();
         }
         if (watch && LteLog.LOGGER.isInfoEnabled()) {
+            final String candidates = BED.detailText();
+            final String table = tableNearest();
             LteLog.LOGGER.info("[lte] trackbed tick: pos=({}, {}, {}) rails={} cand={}"
-                            + " best=({}, {}, {}) dy={} sdy={} vy={} verdict={} onGround={} moved={}",
+                            + " best=({}, {}, {}) dy={} sdy={} vy={} verdict={} onGround={} moved={}"
+                            + "{}{}",
                     number(x), number(feet), number(z),
                     Integer.valueOf(railsTotal()), Integer.valueOf(cached()),
                     number(distance), signed(offset), number(railY),
                     signed(dy), signed(startDy), signed(vy), verdict.shortName(),
-                    Boolean.valueOf(onGround), number(moved));
+                    Boolean.valueOf(onGround), number(moved),
+                    candidates.isEmpty() ? "" : " " + candidates,
+                    table.isEmpty() ? "" : " " + table);
         }
+    }
+
+    /**
+     * 整表最近轨道（{@code tbl=}）那一节：一秒算一次。
+     *
+     * <p>它<b>不看候选缓存、也不看高度窗口</b>，所以在 {@code cand} 全部被挡掉时仍然能回答
+     * 「整张表里脚下最近的是哪条、多远、多高」。和 {@code cand[i]} 对着看：
+     * {@code tbl} 里有 {@code dist≈0} 而 {@code cand} 里没有 → 候选缓存漏了；
+     * {@code tbl} 的 {@code dist} 也是好几格 → 表里根本没有脚下这条。
+     */
+    private static String tableNearest() {
+        final Object rails = rails();
+        final long now = System.currentTimeMillis();
+        if (!tableText.isEmpty() && now - tableTick < 1000L) {
+            return tableText;
+        }
+        tableTick = now;
+        if (rails == null || Double.isNaN(lastX) || Double.isNaN(lastZ)) {
+            return tableText;
+        }
+        tableText = BED.tableNearestText(rails, lastX, lastZ);
+        return tableText;
     }
 
     /**

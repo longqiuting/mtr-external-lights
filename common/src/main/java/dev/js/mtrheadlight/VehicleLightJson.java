@@ -21,7 +21,7 @@ import java.util.stream.Stream;
  * The on-disk format of {@code assets/<namespace>/lte_vehicle_lights.json} - parser, writer and
  * the two helpers that find such files.
  *
- * <h2>The format (ours, not RTE's)</h2>
+ * <h2>The format (our own, and only ours)</h2>
  * <pre>
  * {
  *   "version": 1,

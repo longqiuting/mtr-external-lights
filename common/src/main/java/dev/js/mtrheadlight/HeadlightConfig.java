@@ -2,10 +2,6 @@ package dev.js.mtrheadlight;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.TypeAdapter;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonToken;
-import com.google.gson.stream.JsonWriter;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.IOException;
@@ -24,25 +20,12 @@ import java.util.Map;
  * Every field on this class is the <em>global</em> value. {@link #sidingSettings} holds sparse
  * per-siding overrides: an absent entry, or a null field inside one, means "use the global value".
  * {@link #effectiveFor(long)} folds the two together and is what the renderer, the light controller
- * and the rail relight scheduler read, so a siding override can never be half-applied.
+ * and the config screens read, so a siding override can never be half-applied.
  */
 public final class HeadlightConfig {
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting()
-            // 手改 JSON 拼错样式名时回落到 BAND，而不是让整份配置读失败（见 LightStyle.Adapter）。
-            .registerTypeAdapter(LightStyle.class, new LightStyle.Adapter())
-            .create();
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     /** Bumped when a default changes in a way an existing file has to be migrated onto. */
-    private static final int CONFIG_VERSION = 24;
-
-    /**
-     * {@code railChunkBuildPerFrame} 的上限（每帧最多重建几个轨道区块）。
-     *
-     * <p>保留在这里而不是引用 {@code RailChunkBuildBoost.MAX_PER_FRAME}：那个类是客户端渲染类，
-     * 而 {@code HeadlightConfig} 会被服务端入口（{@code server.LteServer}）加载 —— 常量池里多一个
-     * 渲染类，dedicated server 就多一份「加载了它」的风险，而这里只用到一个小整数。
-     * 两处数值必须一致（{@code RailChunkBuildBoost} 有断言用的同一个 8）。
-     */
-    private static final int MAX_RAIL_CHUNK_BUILD_PER_FRAME = 8;
+    private static final int CONFIG_VERSION = 25;
 
     /**
      * 灯晕的硬像素底：无论配置写多少，一盏通过全部判定的灯在屏幕上至少占这么多 GUI 像素高。
@@ -60,20 +43,21 @@ public final class HeadlightConfig {
     /** Written by the mod; only used to migrate files that still hold old defaults. */
     public int configVersion = 0;
 
-    /** Master switch. Gates both subsystems below ({@link #dynamicLight}, {@link #beamGlow}). */
+    /** Master switch. Gates every subsystem below ({@link #dynamicLight} and the three visible switches
+     * {@link #beamBand} / {@link #beamFlare} / {@link #beamScatter}). */
     public boolean enabled = true;
 
     /**
      * Dynamic-light sub-switch, ANDed with {@link #enabled}.
      *
-     * <p>The three switches are a strict hierarchy, not three independent flags:
-     * master off means neither subsystem runs; master on plus this off means "no dynamic light,
-     * but the light band may still be drawn"; and {@link #beamGlow} is the other child. Every
-     * consumer reads {@code enabled && dynamicLight} (or {@code enabled && beamGlow}) rather than
-     * either flag alone, so the combined state cannot be half-applied.
+     * <p>The switches are a hierarchy, not independent flags: master off means nothing runs;
+     * master on plus this off means "no real block light, but the visible sheets may still be
+     * drawn". Every consumer reads {@code enabled && dynamicLight} (or {@code enabled && beamBand})
+     * rather than either flag alone, so the combined state cannot be half-applied.
      *
-     * <p>The baked rail light ({@link #railLight}) belongs to this subsystem: it is the same light
-     * value written into ANTE's rail vertices, so it is gated by the same switch.
+     * <p>This switch gates the <b>real</b> light: {@link #beamBlockLight} raises the block light of
+     * the terrain the beam falls on (and every LambDynamicLights source with it), which is what
+     * makes the ground next to a train bright. It never touches the rail vertices.
      */
     public boolean dynamicLight = true;
 
@@ -207,486 +191,99 @@ public final class HeadlightConfig {
      */
     public Map<Long, SidingSettings> sidingSettings = new LinkedHashMap<>();
 
-    /**
-     * <b>旧方案</b>：把列车灯烘焙进 ANTE/NTE 的轨道顶点（每顶点 lightmap 注入 + 区块重光照）。
-     * 默认 <b>关闭</b>（版本 23 起）。
-     *
-     * <p>为什么默认关：它让<b>铁轨自己</b>发光——整条轨面/道砟按 0-15 的光照阶梯被点亮，看起来像
-     * 一根灯管，而不是"车灯照在地上的一块光"。玩家反馈的「铁轨还在发光」就是这条链路。现在的方案
-     * 是光带（{@code lightStyle = BAND}）/ 灯晕（{@code FLARE}）+ {@link #beamBlockLight} 给方块
-     * 打的地面亮斑，都不改动铁轨模型本身。
-     *
-     * <p>要开回来（想要"铁轨被照亮"的旧观感）：本开关置 {@code true}，或用
-     * {@code sidingSettings[id].railLight = true} 只给某条侧线开。开着时下面的
-     * {@code railRelight*} 全部生效，且 {@link #railLightUnderShaders} /
-     * {@link #railLightGain} / {@link #railLightShaderBoost} 也只在它开着时才有意义。
-     */
-    public boolean railLight = false;
-    /**
-     * Poll the light around the player and the train heads every N client ticks.
-     *
-     * <p>This is only the <em>poll</em> rate and the floor of every per-train relight interval: a
-     * poll whose light equals what is already baked costs nothing and never reaches the host. It
-     * also bounds how often the light band can move, because a new beam position only enters the
-     * queue at a poll.
-     *
-     * <p>Default 1 (every client tick): the per-train interval below is expressed in ticks and can
-     * never be shorter than one poll, so polling every tick is what makes "every 2 ticks" at 25
-     * blocks/s possible. The poll itself is cheap - it only walks the visible trains and queues
-     * chunk keys; the 8x8 light samples happen once per queued chunk at drain time, and a chunk
-     * whose light did not move costs no host call. Raise it to 2-4 only to save CPU on a weak
-     * client; a fast train then follows at that interval instead of every 2 ticks.
-     */
-    public int railRelightTicks = 1;
-    /**
-     * Minimum number of client ticks between two <em>opportunities</em> to hand chunks to the
-     * host, i.e. the cap on how many rail chunks per second we take out of its build slot.
-     *
-     * <p>ANTE rebuilds at most one rail chunk per frame and serves the chunks nearest the camera
-     * first, so our chunks (right next to the player) otherwise always beat the chunks of newly
-     * loaded terrain. {@code 20 / every * budget} is the ceiling:
-     * {@code 3 * 2 = 13.3/s} by default, i.e. two thirds of the frame budget at 60 fps and about
-     * two thirds at 20 fps too. Raise {@code every} to 4-6 if terrain loading feels slow.
-     */
-    public int railRelightEveryTicks = 3;
-    /**
-     * Kept so existing config files still parse; no longer used.
-     *
-     * <p>A request already covers the whole 32x32 rail chunk the target sits in - that is the unit
-     * {@code registerLightUpdate} rebuilds - so a radius around a position could only ever add
-     * neighbouring chunks (9x the host calls for ring 1) with no benefit to the beam.
-     */
-    public int railRelightRadius = 8;
-    /** Upper bound on trains relit per throttle tick, keeps a busy junction from stalling a frame. */
-    public int railRelightMaxTrains = 4;
-    /**
-     * How much a sampled light level has to move before the section is rebuilt. 1 means "any
-     * change"; raise it if a single block of jitter causes rebuilds you can hear.
-     */
-    public int railLightDelta = 1;
-    /**
-     * Host calls allowed per drain opportunity (see {@code railRelightEveryTicks}).
-     * {@code 20 / railRelightEveryTicks * railRelightBudget} is the rebuild ceiling, so the
-     * default {@code 3 * 2} is ~13 host calls per second.
-     *
-     * <p>Spent in priority order: the chunk in front of a fast train first, then its head chunk,
-     * then slow/stationary trains, then the player's own chunk, and the chunks a beam just left
-     * last. When more than two trains are running fast the budget is dropped by one (see the
-     * scheduler): no amount of queueing produces 4 fresh heads out of a 20 fps build slot, and
-     * taking the whole slot would stall ANTE's own chunk builds.
-     */
-    public int railRelightBudget = 2;
-    /**
-     * How many blocks a beam may travel between two relights of the same chunk. The per-train
-     * interval is {@code ceil(railRelightMaxMove / speed)}, so the position error is the same at
-     * every speed and a slow train simply costs fewer builds per second:
-     * 25 blk/s -&gt; every 2 ticks, 10 blk/s -&gt; every 4, 5 blk/s -&gt; every 8, 1 blk/s -&gt; every 10.
-     */
-    public double railRelightMaxMove = 2.0D;
-    /** Upper bound on the per-train relight interval while the train is moving (ticks). */
-    public int railRelightMaxInterval = 10;
-    /**
-     * Relight interval for a train below 1 block/s, and the refresh period of the player's own
-     * chunk: nothing in the rails moves, so all this has to catch is a held/placed light source
-     * changing, and 1.2 s is fast enough for that.
-     */
-    public int railRelightIdleInterval = 24;
-    /**
-     * Keep relighting while an Iris/OptiFine shader pack is active. The baked light ends up in the
-     * pack's own lightmap sample, so whether it is visible is up to the pack; the flag exists so
-     * the whole subsystem can be switched off in that setup without editing the JSON by hand.
-     */
-    public boolean railLightUnderShaders = true;
-
-    /**
-     * Seconds after entering a world (or changing dimension) during which <b>no</b> rail rebuild is
-     * requested at all - the load grace.
-     *
-     * <p>{@code RailRenderDispatcher#drawRails} rebuilds only a couple of rail chunks per frame
-     * ({@code buffersRebuilt < railChunkBuildPerFrame}, stock 1) out of a single queue, served nearest-camera-first; the chunks of
-     * newly generated terrain are in that same queue. Our requests sit right next to the player,
-     * so they win every tie and a join/teleport that should stream a few hundred chunks instead
-     * streams them at half speed. During the grace we queue nothing, sample nothing and make zero
-     * host calls, so ANTE keeps the whole build slot for the new area.
-     *
-     * <p>It is deliberately a plain timer, not a heuristic: the only reliable signal we have in a
-     * client-side mod is "the world object changed", which is exactly a join / respawn / dimension
-     * change. The chunk mesh that ANTE builds during the grace already bakes the current dynamic
-     * light (our mixin runs inside its rebuild), so the paused chunks come out correctly lit and
-     * do not need a rebuild afterwards. {@code 0} disables the grace.
-     */
-    public double railRelightLoadGraceSec = 8.0D;
-
-    /**
-     * Only rebuild rail chunks whose centre is within this many blocks of the camera.
-     *
-     * <p>A 32x32 rail chunk rebuilt costs a full mesh bake + GPU upload; past this distance the
-     * rails are a few pixels and the player cannot see a dynamic light on them anyway. Dropping
-     * them frees host calls for the chunks that are actually on screen.
-     */
-    public int railRelightMaxBlockDist = 64;
-
-    /**
-     * Minimum milliseconds between two rebuilds of the <em>same</em> rail chunk.
-     *
-     * <p>The per-train cadence alone would re-ask for a chunk every 2 ticks at 25 blocks/s
-     * (10 Hz), which is more than the eye can use: the light band moves a fraction of a block per
-     * frame at that rate. 500 ms caps one chunk at 2 rebuilds/s, so one fast train costs ~2 host
-     * calls/s instead of 10.
-     */
-    public int railRelightCooldownMs = 500;
-
-    /**
-     * Hard ceiling on host calls per second, across every train and the player chunk.
-     *
-     * <p>This is the only place where we account for time rather than queue opportunities, so it
-     * holds even if {@link #railRelightEveryTicks} / {@link #railRelightBudget} are raised. The
-     * number that matters is the host's own capacity: {@code railChunkBuildPerFrame} chunks per
-     * frame, i.e. 60/s at 20 fps and 180/s at 60 fps with the default boost of 3 (20/s when the
-     * boost is off). 16/s therefore keeps roughly 27% of the slot at the worst frame rate and 9% at
-     * 60 fps - enough for the light band to follow a fast train, still leaving the host the majority
-     * of its build slot for newly loaded terrain. The old 12 was calibrated against the stock
-     * 1-per-frame host, where it already took 60% of a 20 fps slot; that ratio does not apply once
-     * the per-frame limit is raised, and leaving it there is what made the queue drain slower than
-     * the train moved. Lower it (6-8) on a weak client or a large modpack.
-     */
-    public int railRelightMaxPerSec = 16;
-
-    /**
-     * Master switch for the rail chunk rebuild boost (mixin on the host's per-frame gate).
-     *
-     * <p>When off, the host keeps its hard-coded {@code buffersRebuilt < 1}, i.e. exactly stock
-     * behaviour - use it if raising the limit causes frame-time spikes (each extra chunk is a full
-     * mesh bake on the {@code 华丽} path). Read every frame, so toggling it in the config file takes
-     * effect without a restart.
-     */
-    public boolean railChunkBuildBoost = true;
-
-    /**
-     * How many rail chunks the host may rebuild per frame (stock: 1).
-     *
-     * <p>ANTE/NTE hard-code {@code buffersRebuilt < 1}. With LDL at 快速/最快 a rail chunk rebuild is
-     * a cheap instance write and one per frame is plenty; at 华丽 the host drops to
-     * {@code MeshBuildingRailChunk} (full mesh bake + upload), the queue a moving train fills is
-     * deeper than one entry per frame drains, and the light band trails the train even at 80 km/h.
-     * 3 drains that queue about three times as fast, which is the smallest value that kept up in
-     * testing without turning a bad frame into three mesh bakes back to back.
-     *
-     * <p>Clamped to 1..8. Raise it only if the diagnostics line shows the queue still not draining
-     * ({@code chunksPerSec} pinned at {@code perFrame x fps}) and the frame time stays flat; lower it
-     * to 2 on a weak CPU.
-     */
-    public int railChunkBuildPerFrame = 3;
-
-
-    /**
-     * Cosine threshold of the horizontal view filter: a chunk is only rebuilt when the angle
-     * between the player's yaw and the direction to the chunk is at most
-     * {@code acos(threshold)}.
-     *
-     * <p>{@code 0.25} is +-75.5 degrees (a 151 degree window), i.e. comfortably wider than any
-     * FOV in use - a chunk outside it is behind the player and cannot be on screen. Filtering only
-     * the horizontal angle keeps the check stable when the player looks down at the rails, which a
-     * full 3D cone would mis-handle. Chunks within 16 blocks bypass the test (the direction to
-     * something under your feet is meaningless, and it is always on screen).
-     */
-    public double railRelightFrustumCos = 0.25D;
-
-    /**
-     * Temporary diagnostic: one {@code railq: req= rebuilt= skipped= deferred= paused= quota=}
-     * line every five seconds (INFO). Default on while the load-sharing work is being validated;
-     * set it to {@code false} for a quiet log. The counters are per window, not cumulative:
-     *
-     * <ul>
-     *   <li>{@code req} - chunk requests accepted into the queue;</li>
-     *   <li>{@code rebuilt} - host calls actually made (the number to compare with
-     *       {@link #railRelightMaxPerSec});</li>
-     *   <li>{@code skipped} - chunks whose sampled light already matched what is baked (free);</li>
-     *   <li>{@code deferred} - requests refused by the distance/view filter or the per-chunk
-     *       cooldown, plus requests still queued when the quota ran out;</li>
-     *   <li>{@code paused} - client ticks spent in the load grace;</li>
-     *   <li>{@code quota} - {@code used/cap} of the current one-second window.</li>
-     * </ul>
-     */
-    public boolean railRelightDiagnostics = true;
-
-    /**
-     * Under an Iris/OptiFine shader pack, also write the raised block light into the <em>sky</em>
-     * half of the vertex lightmap ({@code LightTexture.pack(block, max(sky, block))}).
-     *
-     * <p>Why this exists: a pack can read both lightmap components and derive its ambient from the
-     * sky one. MakeUp UltraFast, for example, computes {@code candle_color} from {@code lmcoord.x}
-     * (block) but {@code visible_sky} from {@code lmcoord.y}, and then
-     * <ul>
-     *   <li>damps the candle term in "cave" geometry ({@code gbuffers_entities} defines
-     *       {@code CAVEENTITY_V}) to {@code candle * mix(0.5, 1.0, visible_sky)}, and</li>
-     *   <li>collapses the whole omni/ambient term to its darkest value
-     *       ({@code omni_light = mix(omni_color_min, omni_color, visible_sky)}).</li>
-     * </ul>
-     * With {@code sky = 0} - a tunnel, or any rail not directly under open sky - a baked block
-     * light of 12 therefore ends up as roughly half a candle and no ambient at all. Duplicating the
-     * value into the sky half makes the pack treat the lit rail like a torch-lit surface.
-     *
-     * <p>That reasoning still holds; the reason it used to look mandatory does not. The old
-     * symptom - rails that stayed dark under a pack no matter what was baked - was mostly a class
-     * loading bug in our own mixin plugin ({@code Class.forName} pulled ANTE's classes in early,
-     * so the other mixins could not inject at all). With that fixed the baked light shows up under
-     * a pack on its own, so the boost is now off by default and stays as an opt-in for packs that
-     * still render the rails too dark ({@code sky=0} really does halve the candle term).
-     *
-     * <p>Only applied where our dynamic light actually raised the block value, and only while a
-     * pack is active - without a pack the sky half feeds the vanilla sky lightmap and a forged sky
-     * value would brighten ordinary daytime rendering. Turn it off if a pack renders the rails as
-     * if they were standing in the open.
-     */
-    public boolean railLightShaderBoost = false;
-    /**
-     * Multiplier applied to the train beam when it is baked into rail light. Player light sources
-     * (LambDynamicLights) are never scaled; this only compensates for the beam being dimmer than a
-     * held torch once distance falloff and a shader pack's super-linear lightmap are applied.
-     */
-    public double railLightGain = 1.4D;
-
-    /**
-     * 车灯<b>可见样式</b>：光带 / 灯晕 / 两者都画。
-     *
-     * <ul>
-     *   <li>{@link #BAND}（<b>默认</b>）- 只看光带：从车头沿车体朝向直线推出的贴地带状面片
-     *       （{@code BeamGlow}）。近看有"灯光打在地上"的体积感，是玩家公认最好看的一版；</li>
-     *   <li>{@link #FLARE} - 只看灯晕：每个物理灯位一张面向相机的加色贴图
-     *       （{@code LightFlare}）。远看/侧看都是一颗亮灯，几何量最小；</li>
-     *   <li>{@link #BOTH} - 两者都画。它们是两套独立的顶点与 GL 状态（各自提交、各自复位），
-     *       叠加时不会互相覆盖，也不会重复写面片。</li>
-     * </ul>
-     *
-     * <p>两种样式读的是<b>同一份</b>灯位与颜色：{@code TrainLamps} 的灯位、{@code beamHeadColor} /
-     * {@code beamTailColor} / {@code beamAlpha} / {@code beamDistance} / 光束长度与高度。切换样式
-     * 只改"怎么画"，不改灯的颜色、亮度、位置 —— 所以 {@code /mtr_lte flare}、编辑器预览和光束的
-     * 颜色配置在三种样式下语义完全一致。
-     *
-     * <p>侧线页的"灯晕"开关仍然是<b>逐侧线</b>的覆盖（{@link SidingSettings#beamFlare}）：全局样式
-     * 决定默认画什么，某条侧线可以单独打开/关掉灯晕。屏幕空间散射（{@code dev.js.mtrheadlight.sss}）
-     * 是<b>另一个</b>开关，与这里三种样式可以任意叠加。
-     */
-    public enum LightStyle {
-        BAND, FLARE, BOTH;
-
-        /**
-         * 宽松读法：值不认识（手改 JSON 拼错）或键写成 {@code null} 都回落到 {@link #BAND}，
-         * 空的/未知的枚举串不会让整份配置读失败 —— 和本文件其它字符串枚举（{@code headlightMode} /
-         * {@code beamConeSource}）同一套规则。
-         */
-        static LightStyle parse(final String name) {
-            if (name != null) {
-                for (final LightStyle s : values()) {
-                    if (s.name().equalsIgnoreCase(name)) {
-                        return s;
-                    }
-                }
-            }
-            return BAND;
-        }
-
-        /** Gson 适配器：写出枚举名，读回来走 {@link #parse(String)}（不认识的值 → {@code BAND}）。 */
-        static final class Adapter extends TypeAdapter<LightStyle> {
-            @Override
-            public void write(final JsonWriter out, final LightStyle value) throws IOException {
-                out.value((value == null ? BAND : value).name());
-            }
-
-            @Override
-            public LightStyle read(final JsonReader in) throws IOException {
-                if (in.peek() == JsonToken.NULL) {
-                    in.nextNull();
-                    return BAND;
-                }
-                return parse(in.nextString());
-            }
-        }
-    }
-
-    /**
-     * 当前样式，见 {@link LightStyle}。<b>默认 {@link LightStyle#BAND}</b>：光带是玩家公认最好的
-     * 一版，新装与升级都从它开始，灯晕留给喜欢的人自己选。
-     */
-    public LightStyle lightStyle = LightStyle.BAND;
-
-    /** {@link #lightStyle}，null 安全（手改 JSON 写成 {@code "lightStyle": null} 时按 BAND）。 */
-    public LightStyle style() {
-        return lightStyle == null ? LightStyle.BAND : lightStyle;
-    }
-
-    /**
-     * <b>「这一层该不该画」的唯一真相源。</b>{@link #lightStyle} 决定能画哪几层，全模组只有这里
-     * 回答这个问题 —— {@link #bandStyle()} / {@link #flareStyle()} 都是它的一层包装，
-     * {@code BeamGlow} / {@code LightFlare} / {@code ScatterPass} 读的是它（直接读，或通过下面
-     * 的 {@code draw*} 帧级谓词间接读），逐侧线覆盖只能把它<b>收紧</b>，不能放宽。
-     *
-     * <p>为什么要有这一个方法：样式之前每个效果都有自己的开关（{@code beamGlow} /
-     * {@code beamFlare} / {@code scatterEnabled}），样式出现之后每加一个新效果就多一处
-     * 「样式 × 自己那个开关」的与运算要写，漏一处就得到一个「切到光带，某个灯晕还在画」的漏洞
-     * （1.0.67 的散射 pass 就是这一种：它的注释写着"光样式不含灯晕时不进灯阵"，代码里却没有这个
-     * 判断）。现在所有路径都问同一句话，新增效果只需要在 {@code draw*} 里加一行。
-     *
-     * @param layer 要问的那一层（{@link LightStyle#BAND} = 光带，{@link LightStyle#FLARE} = 灯晕。
-     *              传 {@link LightStyle#BOTH} 表示"任意一层被允许"，即样式不是空的）
-     */
-    public boolean styleAllows(final LightStyle layer) {
-        final LightStyle s = style();
-        if (layer == null) {
-            return false;
-        }
-        switch (layer) {
-            case BAND:
-                return s == LightStyle.BAND || s == LightStyle.BOTH;
-            case FLARE:
-                return s == LightStyle.FLARE || s == LightStyle.BOTH;
-            case BOTH:
-                return s == LightStyle.BOTH;
-            default:
-                return false;
-        }
-    }
-
-    /** 样式是否要画光带（BAND / BOTH）= {@code styleAllows(BAND)}。 */
-    public boolean bandStyle() {
-        return styleAllows(LightStyle.BAND);
-    }
-
-    /** 样式是否要画灯晕（FLARE / BOTH）= {@code styleAllows(FLARE)}。 */
-    public boolean flareStyle() {
-        return styleAllows(LightStyle.FLARE);
-    }
-
-    /**
-     * 全局"光带要画"：样式允许 <b>且</b> 旧开关 {@link #beamGlow} 没被关掉。
-     *
-     * <p>两个条件都要，是因为 {@code beamGlow} 是样式出现之前的全局总闸：老文件里它可能是玩家
-     * 亲手关的（{@code /mtr_lte cone …} 时代留下的 JSON），样式默认 BAND 不能把玩家的"关"悄悄
-     * 翻回来。{@link #setLightStyle} 会把这个开关同步到样式上，所以从界面切的样式永远自洽。
-     */
-    public boolean bandGlobal() {
-        return bandStyle() && beamGlow;
-    }
-
-    /** 全局"灯晕要画"：样式允许 且 旧开关 {@link #beamFlare} 没被关掉（同 {@link #bandGlobal()}）。 */
-    public boolean flareGlobal() {
-        return flareStyle() && beamFlare;
-    }
-
     // ---------------------------------------------------------------------------------------------
-    // 帧级「这一帧画不画」—— 每个渲染器只调对应的一条，这五行就是全部发光路径的闸门，
-    // 也是常驻日志 [lte] lights: 打印的那五个值（同一批调用，不是第二次判断）。
+    // 三件可见的光效：光带 / 灯晕 / 散射 —— 三个独立开关，默认全开
     // ---------------------------------------------------------------------------------------------
 
     /**
-     * 光带这一帧画不画（{@code BeamGlow.render} 的帧级门）：总开关 + 任一侧线可能画。
-     * 逐车再由 {@link Effective#beamGlow} 过滤，而它已经被 {@link #styleAllows} 收过一道。
+     * <b>光带</b>：从车头沿车体朝向直线推出的贴地带状面片（{@code BeamGlow}）。近看有"灯光打在
+     * 地上"的体积感，是玩家公认最好看的一版。<b>默认开。</b>
+     *
+     * <p>三件光效互相正交：这个开关只管光带，和 {@link #beamFlare} / {@link #beamScatter} 互不
+     * 影响，任意组合都能画出来。以前是一个三态"光样式"（BAND / FLARE / BOTH），玩家要试组合只能
+     * 一直切那一个按钮，所以拆成了三个独立开关。
      */
+    public boolean beamBand = true;
+
+    /**
+     * <b>灯晕</b>：每个物理灯位一张面向相机的加色贴图（{@code LightFlare}）。远看/侧看都是一颗
+     * 亮灯，几何量最小。<b>默认开。</b>
+     *
+     * <p>与光带互相独立：关掉光带不影响灯晕，反之亦然。逐侧线可以再收紧
+     * （{@link SidingSettings#beamFlare}），覆盖只能让它更严，不能把全局关掉的重新打开。
+     */
+    public boolean beamFlare = true;
+
+    /**
+     * <b>散射</b>：世界画完之后的一次全屏 pass（{@code dev.js.mtrheadlight.sss.ScatterPass}）——
+     * 车灯在空气里的光雾，以及它照亮的地面 / 墙面。<b>默认开。</b>
+     *
+     * <p>与光带 / 灯晕完全独立：它是屏幕空间后处理，不画任何几何，所以三件可以任意叠加。只有全局
+     * 值（一次全屏 pass，代价和"哪条侧线的车"无关）。开光影（Iris / OptiFine）时整个 pass 会被跳过
+     * 并只写一行日志：光影自己拥有 framebuffer 与深度缓冲。
+     */
+    public boolean beamScatter = true;
+
+    // ---------------------------------------------------------------------------------------------
+    // 帧级「这一帧画不画」—— 每个渲染器只调对应的一条，这三行就是全部可见光效的闸门，
+    // 也是常驻日志 [lte] lights: 打印的那几个值（同一批调用，不是第二次判断）。
+    // ---------------------------------------------------------------------------------------------
+
+    /** 光带这一帧画不画（{@code BeamGlow.render} 的帧级门）：总开关 + 任一侧线可能画。 */
     public boolean drawBand() {
         return enabled && beamAnySiding();
     }
 
-    /**
-     * 灯晕这一帧画不画（{@code LightFlare.render} 的帧级门）：总开关 + 任一侧线可能画。
-     *
-     * <p>侧线的 {@code beamFlare = true} <b>不能</b>把样式关掉的灯晕重新打开 ——
-     * {@link #flareAnySiding()} 第一句就是 {@link #styleAllows}。
-     */
+    /** 灯晕这一帧画不画（{@code LightFlare.render} 的帧级门）：总开关 + 任一侧线可能画。 */
     public boolean drawFlare() {
         return enabled && flareAnySiding();
     }
 
-    /**
-     * 屏幕空间散射这一帧跑不跑（{@code sss.ScatterPass.render} 的帧级门）。
-     *
-     * <p><b>它属于灯晕那一层</b>：pass 干的事是"在每盏灯周围积分空气、顺手照亮它脚下的面"，
-     * 画出来就是一个围着灯的圆光斑 —— 玩家眼里的灯晕。所以样式是 {@code BAND}（只要光带）时它
-     * 必须一起停，否则"切到光带"只关掉了 billboard 那一半，圆的那一半还在。
-     * {@code scatterEnabled} 是它自己的开关，在同一句里再收一道：两个都要开。
-     */
+    /** 散射这一帧跑不跑（{@code sss.ScatterPass.render} 的帧级门）：总开关 + 自己的开关。 */
     public boolean drawScatter() {
-        return enabled && scatterEnabled && styleAllows(LightStyle.FLARE);
+        return enabled && beamScatter;
     }
 
     /**
      * 车灯光打进方块/地表（{@code BeamBlockLight} + {@code BeamRelight}）这一帧跑不跑。
      *
-     * <p>不挂在样式上，而且是有意的：它不是"画出来的一层光"，是<b>真的把方块光照提亮</b>再重烘
-     * 区块 —— 光带和灯晕都要靠它才"照在地上"，样式只决定画法、不决定灯本身（见 {@link LightStyle}
-     * 的注释）。三个条件（总开关 / 动态光 / 这个功能）与 {@code LightController} 发布灯阵的条件是
-     * 同一组，所以不会出现"灯阵空了、烘焙还留着一片亮"。
+     * <p>它不挂在任何一个可见开关上，而且是有意的：它不是"画出来的一层光"，是<b>真的把方块光照
+     * 提亮</b>再重烘区块 —— 光带 / 灯晕 / 散射都要靠它才"照在地上"，玩家自己的动态光源（举火把、
+     * 放灯）也走同一条路。三个条件（总开关 / 动态光 / 这个功能）与 {@code LightController} 发布
+     * 灯阵的条件是同一组，所以不会出现"灯阵空了、烘焙还留着一片亮"。
      */
     public boolean drawBlockLight() {
         return enabled && dynamicLight && beamBlockLight;
     }
 
     /**
-     * 轨道烘焙重光照（{@code RailRelightScheduler}）这一帧跑不跑。
+     * Draw the head/tail <b>light band</b> - our own additive geometry (see {@link BeamGlow}): a
+     * 3-block wide sheet that leaves the nose along the train's heading, brightest at the lamp and
+     * fading out along its length (exponential) and towards both edges.
      *
-     * <p>默认关（{@link #railLight} = false），因为"铁轨自己发光"是玩家明确要求去掉的旧观感；
-     * 开着时它是<b>真的把铁轨顶点照亮</b>，与样式无关 —— 样式换的是车头那两套几何，不是铁轨的
-     * 光照数据。这条谓词和调度器里的判断是同一句。
+     * <p>Purely a car-light effect: it never writes any world light, so the terrain around it is lit
+     * by {@link #beamBlockLight} and nothing else.
+     *
+     * <p>Retired key: this used to be the master switch of the old three-state style. It is only
+     * read while migrating a file written before {@link #beamBand} existed (see {@link #migrate()}),
+     * which sets it back to {@code null} so it is never written again.
      */
-    public boolean drawRailLight() {
-        return enabled && dynamicLight && railLightAnySiding();
-    }
+    @Deprecated
+    public Boolean beamGlow;
 
     /**
-     * 切样式，并把两份逐层旧开关同步过去（{@code beamGlow = 样式含光带}，
-     * {@code beamFlare = 样式含灯晕}）。
-     *
-     * <p>为什么同步：{@code config/mtrlte.json} 同时出现 {@code "lightStyle": "BAND"} 和
-     * {@code "beamFlare": true} 只会让人以为配置坏了。三处始终一起写，读的人就不会被误导。
-     * 逐侧线的 {@link SidingSettings#beamGlow} / {@link SidingSettings#beamFlare} 不受影响 ——
-     * 那是每条侧线自己的选择，必须保留。
-     *
-     * <p><b>侧线覆盖只能更严：</b>样式是逐层的地板。{@link Effective} 里两份侧线值都要和
-     * {@code styleAllows(BAND/FLARE)} 再与一次，所以样式切到 {@code BAND} 之后，某条侧线哪怕还写着
-     * {@code beamFlare = true}（旧配置残留，或玩家在灯晕样式下点过这个开关），那辆车的灯晕也不会画；
-     * 反向永远不成立。清空这些残留只会丢掉玩家真正的选择（切回 {@code FLARE} 时它又该生效），所以
-     * 这里故意不清理，而是让判定本身不可能被放宽。
+     * 旧键：v22–v24 的「光样式」（{@code BAND} / {@code FLARE} / {@code BOTH}）。只剩读旧文件时用 ——
+     * {@link #migrate()} 把它折算成 {@link #beamBand} / {@link #beamFlare} / {@link #beamScatter}
+     * 之后置 null，新写的文件里不会再出现这个键。
      */
-    public void setLightStyle(final LightStyle style) {
-        lightStyle = style == null ? LightStyle.BAND : style;
-        beamGlow = bandStyle();
-        beamFlare = flareStyle();
-    }
+    @Deprecated
+    public String lightStyle;
 
     /**
-     * Draw the head/tail <b>light beams</b> - our own additive geometry, independent of the baked
-     * rail light ({@link #railLight}) and of the relight scheduler.
-     *
-     * <p>This used to be a band sampled <em>along the path</em>, which made it look like the rail
-     * itself was glowing. A head light does not turn with the track, so the beam now leaves the
-     * nose along the train's heading in a <b>straight line</b> (see {@link BeamGlow}): a 3-block
-     * wide sheet that is brightest at the lamp and fades out along its length (exponential) and
-     * towards both edges (vertex alpha 1.0 in the centre -&gt; 0 at the rim).
-     *
-     * <p>It is purely a car-light effect: the two can be switched on together and neither touches
-     * the other's state.
+     * 旧键：散射开关的旧名（{@link #beamScatter}）。同样只在迁移时读一次，随后置 null。
      */
-    public boolean beamGlow = true;
-
-    /**
-     * Draw the lamp <b>flare</b> - the billboard glow drawn at the lamp itself (1.20.1 and newer).
-     *
-     * <p>This replaced the volumetric beam cone (<code>ProtoBeamCone</code>) and the ground sheet
-     * (<code>BeamGlow</code>) as the visible part of a train light. It is deliberately the cheapest
-     * possible thing that reads as "a lamp": one camera-facing quad per physical lamp, at the
-     * position {@link TrainLamps} computed from the model's own lamp boxes, with a radial falloff
-     * texture we generate ourselves. The light on the ground does not come from this; it comes from
-     * {@link #dynamicLight} (real block light, {@code BeamBlockLight}).
-     *
-     * <p>Independent of {@link #beamGlow} in both directions, and a child of {@link #enabled}: the
-     * master switch off means neither draws.
-     *
-     * <p><b>默认 {@code false}：</b>全局默认样式是 {@link LightStyle#BAND}（只有光带）。这个字段
-     * 现在是"灯晕这一层被允许画"的第二道闸，由 {@link #setLightStyle} 跟着样式一起写；灯晕要单独
-     * 打开请选样式 {@code FLARE} / {@code BOTH}（界面「光样式」一行，或
-     * {@code /mtr_lte flare style}），不要手改这个键。
-     */
-    public boolean beamFlare = false;
+    @Deprecated
+    public Boolean scatterEnabled;
 
     /**
      * Base size of one flare in blocks (before the facing/distance terms), clamped to [0.2, 4].
@@ -733,21 +330,6 @@ public final class HeadlightConfig {
         return clamp(beamFlareMinPct, 0.0D, 0.05D);
     }
 
-    /**
-     * 屏幕空间散射（{@code dev.js.mtrheadlight.sss.ScatterPass}）：车灯在空气里的光雾。
-     *
-     * <p>与灯晕是两件独立的事，可以任意叠加：灯晕是<b>灯位上的一张加色贴图</b>（画在几何层，
-     * 谁挡住它谁就挡住它），散射是<b>世界画完之后的一次全屏 pass</b>（读深度、按视线积分灯周围
-     * 的空气，所以会被墙/站台/车体正确截断）。它们共用 {@code TrainLamps} 的灯位与颜色，所以
-     * 开关任一个都不会让另一处的位置或颜色变化。
-     *
-     * <p>默认开。开光影（Iris / OptiFine）时整个 pass 会被跳过并只写一行日志：光影自己拥有
-     * framebuffer 与深度缓冲，我们再去抢会得到一张错的深度图。没有灯（场上没有点亮的车）时
-     * 不做任何 GL 工作：不建 framebuffer、不拷深度、不绑程序。
-     *
-     * <p>{@code /mtr_lte scatter on|off}，或配置界面「光源 → 空气散射」。
-     */
-    public boolean scatterEnabled = true;
 
     /**
      * 散射的强度，钳制到 [0.1, 3]。1.0 是标定值：正对车灯时空气明显亮起来，但不会把整片画面推到
@@ -774,7 +356,7 @@ public final class HeadlightConfig {
      *       每帧省掉逐灯的 spot / 法线 / N·L 计算；拷贝与合成照旧（合成本来就要读场景色）。</li>
      * </ul>
      *
-     * <p>父开关是 {@link #scatterEnabled}：它关掉时这个值不生效。配置界面在「光源 → 空气散射」，
+     * <p>父开关是 {@link #beamScatter}：它关掉时这个值不生效。配置界面在「光源 → 空气散射」，
      * 中文行名「照亮表面」。
      */
     public boolean scatterSurface = true;
@@ -791,10 +373,10 @@ public final class HeadlightConfig {
 
     /**
      * Draw the head <b>beam cone</b> ({@code ProtoBeamCone}) - the volumetric light cone out of the
-     * nose, on its own switch since it and the flat {@link #beamGlow} sheet are two different
+     * nose, on its own switch since it and the flat {@link #beamBand} sheet are two different
      * effects (one is a soft ground sheet, the other a see-through cone).
      *
-     * <p>Independent of {@link #beamGlow} in both directions: turning the sheet off leaves the cone
+     * <p>Independent of {@link #beamBand} in both directions: turning the sheet off leaves the cone
      * exactly as it was and vice versa. Both are still children of {@link #enabled}, so the master
      * switch off means neither draws.
      *
@@ -1037,7 +619,7 @@ public final class HeadlightConfig {
      * <p>名字容易读反，这里写清楚：<b>{@code OFF} 关掉的是"自动开关灯"这个功能，不是车灯</b>。
      * 灯仍然由发车闸门（{@code DepartureState}）和主开关决定，所以效果与 {@link #MODE_ALWAYS}
      * 相同，区别只在语义——{@code ALWAYS} 是"我要它一直亮"，{@code OFF} 是"别替我关"。
-     * 想彻底关灯请用 {@code enabled} / {@code dynamicLight} / {@code beamGlow}。
+     * 想彻底关灯请用 {@code enabled} / {@code dynamicLight} / {@code beamBand}。
      */
     public static final String MODE_OFF = "OFF";
 
@@ -1865,7 +1447,7 @@ public final class HeadlightConfig {
     /**
      * One siding's overrides. Every field is a <b>wrapper type on purpose</b>: {@code null} means
      * "no override, use the global value", which an primitive default could not express (a siding
-     * with {@code beamGlow = false} and a siding with no beam opinion both have to be told apart
+     * with {@code beamBand = false} and a siding with no beam opinion both have to be told apart
      * from a global {@code true}).
      *
      * <p>Written to JSON only for the fields that were set - Gson skips nulls - so an entry the
@@ -1881,9 +1463,13 @@ public final class HeadlightConfig {
         public Integer tailLuminance;
         public Double headLength;
         public Double tailLength;
-        /** Bake this siding's beams into rail light; {@code null} = follow the global switch. */
-        public Boolean railLight;
-        /** Draw the head/tail light beams for this siding's trains; {@code null} = follow the global switch. */
+        /** 这条侧线是否画光带；{@code null} = 跟随全局 {@link #beamBand}。 */
+        public Boolean beamBand;
+        /**
+         * 旧键（三态样式以前的逐层开关）。读盘时由 {@link #migrate()} 折算进 {@link #beamBand}，
+         * 随后置 null；留在类里只是为了让旧 JSON 的 {@code beamGlow} 不丢。
+         */
+        @Deprecated
         public Boolean beamGlow;
         /** Draw the lamp flares for this siding's trains; {@code null} = follow the global switch. */
         public Boolean beamFlare;
@@ -1895,16 +1481,6 @@ public final class HeadlightConfig {
         public String beamTailColor;
         public Double beamHeadHeight;
         public Double beamTailHeight;
-        /**
-         * Rebuild-distance cap for this siding's trains; {@code null} = follow the global value.
-         */
-        public Integer railRelightMaxBlockDist;
-        /** Per-chunk rebuild cooldown for this siding's trains; {@code null} = follow the global. */
-        public Integer railRelightCooldownMs;
-        /** This siding's share of the per-second host budget; {@code null} = follow the global. */
-        public Integer railRelightMaxPerSec;
-        /** View-filter cosine for this siding's trains; {@code null} = follow the global. */
-        public Double railRelightFrustumCos;
         /** 车头方向碰撞延长（格）；{@code null} = 跟随全局。 */
         public Double collisionHeadExtra;
         /** 车尾方向碰撞延长（格）；{@code null} = 跟随全局。 */
@@ -1913,7 +1489,7 @@ public final class HeadlightConfig {
         // ---- 光柱（ProtoBeamCone）：{@code null} = 跟随全局 ----
         /**
          * 这条侧线的车是否画体积光柱；{@code null} = 跟随全局 {@link #beamCone}。
-         * 与光带（{@link #beamGlow}）互相独立，两者都是总开关 {@link #enabled} 的子项。
+         * 与光带（{@link #beamBand}）互相独立，两者都是总开关 {@link #enabled} 的子项。
          */
         public Boolean beamCone;
         /** 光柱的 alpha 预算（0.02–0.5）；{@code null} = 跟随全局 {@link #beamConeAlpha}。 */
@@ -1956,13 +1532,11 @@ public final class HeadlightConfig {
             return enabled == null && dynamicLight == null && maxDistance == null
                     && headLuminance == null
                     && tailLuminance == null && headLength == null && tailLength == null
-                    && railLight == null && beamGlow == null && beamFlare == null
+                    && beamBand == null && beamGlow == null && beamFlare == null
                     && beamDistance == null
                     && beamHeadLength == null && beamTailLength == null && beamWidth == null
                     && beamHeadColor == null && beamTailColor == null
                     && beamHeadHeight == null && beamTailHeight == null
-                    && railRelightMaxBlockDist == null && railRelightCooldownMs == null
-                    && railRelightMaxPerSec == null && railRelightFrustumCos == null
                     && collisionHeadExtra == null && collisionTailExtra == null
                     && beamCone == null && beamConeAlpha == null
                     && beamConeOcclusion == null && beamConeSteps == null
@@ -1979,17 +1553,16 @@ public final class HeadlightConfig {
      */
     public static final class Effective {
         public final boolean enabled;
-        /** Dynamic light subsystem (the light band has its own {@link #beamGlow}). */
+        /** Dynamic light subsystem (the light band has its own {@link #beamBand}). */
         public final boolean dynamicLight;
         public final double maxDistance;
         public final int headLuminance;
         public final int tailLuminance;
         public final double headLength;
         public final double tailLength;
-        public final boolean railLight;
-        /** Draw the light beams for this train at all. */
-        public final boolean beamGlow;
-        /** Draw the billboard lamp flares for this train (1.20.1+); independent of {@link #beamGlow}. */
+        /** Draw the light band for this train at all. */
+        public final boolean beamBand;
+        /** Draw the lamp flares for this train; independent of {@link #beamBand}. */
         public final boolean beamFlare;
         /** Distance from the player beyond which no beam is generated (own range). */
         public final double beamDistance;
@@ -2001,14 +1574,6 @@ public final class HeadlightConfig {
         public final int beamTailColor;
         public final double beamHeadHeight;
         public final double beamTailHeight;
-        /** Rail-rebuild distance cap (blocks from the camera) for this train's chunks. */
-        public final int railRelightMaxBlockDist;
-        /** Minimum ms between two rebuilds of the same chunk for this train's chunks. */
-        public final int railRelightCooldownMs;
-        /** This train's share of the per-second host budget (never above the global one). */
-        public final int railRelightMaxPerSec;
-        /** Horizontal view-filter cosine: below this dot product a chunk is skipped. */
-        public final double railRelightFrustumCos;
         /**
          * 车头方向碰撞延长（格，已钳制 0–4）：头车前端取 {@code max(trainCollisionEndPad, 本值)}。
          * 侧线没有覆盖时就是全局 {@link HeadlightConfig#collisionHeadExtra}。
@@ -2016,7 +1581,7 @@ public final class HeadlightConfig {
         public final double collisionHeadExtra;
         /** 车尾方向碰撞延长（格，已钳制 0–4）：尾车后端取 {@code max(trainCollisionEndPad, 本值)}。 */
         public final double collisionTailExtra;
-        /** 光柱开关（这条侧线的车）；与 {@link #beamGlow} 各自独立。 */
+        /** 光柱开关（这条侧线的车）；与 {@link #beamBand} 各自独立。 */
         public final boolean beamCone;
         /** 光柱的 alpha 预算，已钳制到 [0.02, 0.5]。 */
         public final double beamConeAlpha;
@@ -2047,13 +1612,11 @@ public final class HeadlightConfig {
         Effective(final boolean enabled, final boolean dynamicLight, final double maxDistance,
                   final int headLuminance,
                   final int tailLuminance, final double headLength, final double tailLength,
-                  final boolean railLight, final boolean beamGlow, final boolean beamFlare,
+                  final boolean beamBand, final boolean beamFlare,
                   final double beamDistance,
                   final double beamHeadLength, final double beamTailLength, final double beamWidth,
                   final int beamHeadColor, final int beamTailColor,
                   final double beamHeadHeight, final double beamTailHeight,
-                  final int railRelightMaxBlockDist, final int railRelightCooldownMs,
-                  final int railRelightMaxPerSec, final double railRelightFrustumCos,
                   final double collisionHeadExtra, final double collisionTailExtra,
                   final boolean beamCone, final double beamConeAlpha,
                   final boolean beamConeOcclusion, final int beamConeSteps,
@@ -2069,8 +1632,7 @@ public final class HeadlightConfig {
             this.tailLuminance = tailLuminance;
             this.headLength = headLength;
             this.tailLength = tailLength;
-            this.railLight = railLight;
-            this.beamGlow = beamGlow;
+            this.beamBand = beamBand;
             this.beamFlare = beamFlare;
             this.beamDistance = beamDistance;
             this.beamHeadLength = beamHeadLength;
@@ -2080,10 +1642,6 @@ public final class HeadlightConfig {
             this.beamTailColor = beamTailColor;
             this.beamHeadHeight = beamHeadHeight;
             this.beamTailHeight = beamTailHeight;
-            this.railRelightMaxBlockDist = railRelightMaxBlockDist;
-            this.railRelightCooldownMs = railRelightCooldownMs;
-            this.railRelightMaxPerSec = railRelightMaxPerSec;
-            this.railRelightFrustumCos = railRelightFrustumCos;
             this.collisionHeadExtra = collisionHeadExtra;
             this.collisionTailExtra = collisionTailExtra;
             this.beamCone = beamCone;
@@ -2109,19 +1667,20 @@ public final class HeadlightConfig {
         final SidingSettings o = sidingId == 0L || sidingSettings == null
                 ? null : sidingSettings.get(Long.valueOf(sidingId));
         if (o == null) {
+        if (o == null) {
             return new Effective(enabled, dynamicLight, maxDistance, headLuminance, tailLuminance,
-                    headLength, tailLength, railLight, bandGlobal(), flareGlobal(), beamDistance,
+                    headLength, tailLength, beamBand, beamFlare, beamDistance,
                     beamHeadLength,
                     beamTailLength, beamWidth, parseColor(beamHeadColor, DEFAULT_HEAD_BEAM),
                     parseColor(beamTailColor, DEFAULT_TAIL_BEAM),
                     beamHeadHeight, beamTailHeight,
-                    railRelightMaxBlockDist, railRelightCooldownMs, railRelightMaxPerSec,
-                    railRelightFrustumCos, clampEndExtra(collisionHeadExtra),
+                    clampEndExtra(collisionHeadExtra),
                     clampEndExtra(collisionTailExtra),
                     beamCone, clamp(beamConeAlpha, 0.02D, 0.5D), beamConeOcclusion, beamConeSteps(),
                     rainSpray, (double) rainSprayMinSpeedKmh, rainHush,
                     trainCollisionDamage, (double) trainCollisionPushOnlyMaxKmhClamped(),
                     trainCollisionDamageMaxClamped(), sidingId, false);
+        }
         }
         return new Effective(
                 o.enabled != null ? o.enabled.booleanValue() : enabled,
@@ -2131,17 +1690,13 @@ public final class HeadlightConfig {
                 o.tailLuminance != null ? o.tailLuminance.intValue() : tailLuminance,
                 o.headLength != null ? o.headLength.doubleValue() : headLength,
                 o.tailLength != null ? o.tailLength.doubleValue() : tailLength,
-                o.railLight != null ? o.railLight.booleanValue() : railLight,
                 /*
-                 * 样式是逐层的地板，侧线只能在它上面再收紧 —— 这两行以前是
-                 *     o.beamGlow != null ? o.beamGlow : bandGlobal()
-                 * 于是"侧线 beamGlow=true / beamFlare=true"会把样式刚关掉的那一层重新打开：
-                 * lightStyle=BAND + 某条侧线早先点过一次灯晕（或旧配置里残留 true），灯晕就
-                 * 一直在那条侧线的车上画。现在与 bandStyle()/flareStyle() 再与一次，覆盖只能让
-                 * 结果更严，不可能越过样式。
+                 * 三个开关互相独立，侧线只能在全局值上再收紧自己那一条：全局关掉光带之后，某条侧线
+                 * 哪怕还写着 beamBand = true（旧配置残留）也不会画；光带开着时侧线关掉自己那条只
+                 * 影响它自己的车。灯晕同理。散射是全局唯一的全屏 pass，不逐侧线覆盖。
                  */
-                bandStyle() && (o.beamGlow != null ? o.beamGlow.booleanValue() : beamGlow),
-                flareStyle() && (o.beamFlare != null ? o.beamFlare.booleanValue() : beamFlare),
+                beamBand && (o.beamBand != null ? o.beamBand.booleanValue() : beamBand),
+                beamFlare && (o.beamFlare != null ? o.beamFlare.booleanValue() : beamFlare),
                 o.beamDistance != null ? o.beamDistance.doubleValue() : beamDistance,
                 o.beamHeadLength != null ? o.beamHeadLength.doubleValue() : beamHeadLength,
                 o.beamTailLength != null ? o.beamTailLength.doubleValue() : beamTailLength,
@@ -2150,14 +1705,6 @@ public final class HeadlightConfig {
                 parseColor(o.beamTailColor != null ? o.beamTailColor : beamTailColor, DEFAULT_TAIL_BEAM),
                 o.beamHeadHeight != null ? o.beamHeadHeight.doubleValue() : beamHeadHeight,
                 o.beamTailHeight != null ? o.beamTailHeight.doubleValue() : beamTailHeight,
-                o.railRelightMaxBlockDist != null
-                        ? o.railRelightMaxBlockDist.intValue() : railRelightMaxBlockDist,
-                o.railRelightCooldownMs != null
-                        ? o.railRelightCooldownMs.intValue() : railRelightCooldownMs,
-                o.railRelightMaxPerSec != null
-                        ? o.railRelightMaxPerSec.intValue() : railRelightMaxPerSec,
-                o.railRelightFrustumCos != null
-                        ? o.railRelightFrustumCos.doubleValue() : railRelightFrustumCos,
                 clampEndExtra(o.collisionHeadExtra != null
                         ? o.collisionHeadExtra.doubleValue() : collisionHeadExtra),
                 clampEndExtra(o.collisionTailExtra != null
@@ -2186,74 +1733,28 @@ public final class HeadlightConfig {
                 !o.isEmpty());
     }
 
-    /**
-     * True when <em>some</em> train may want rail light: either the global switch is on, or a siding
-     * overrides it on. The rail relight scheduler must keep running in the second case even though
-     * the global switch is off, exactly like {@link #beamAnySiding()} for the beams.
-     */
-    public boolean railLightAnySiding() {
-        if (railLight) {
-            return true;
-        }
-        if (sidingSettings != null) {
-            for (final SidingSettings o : sidingSettings.values()) {
-                if (o != null && Boolean.TRUE.equals(o.railLight)) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
 
     /**
-     * True when a beam may be drawn for at least one siding (see {@link #railLightAnySiding()}).
-     *
-     * <p>样式第一句就判：{@code lightStyle} 不含光带时，任何侧线的 {@code beamGlow = true} 都不能
-     * 让这一帧进渲染器 —— 否则帧级门一放行，逐车的 {@link Effective#beamGlow}（同样被
-     * {@link #styleAllows} 收过）虽然会拦住每一列车，代价却是每帧白走一遍所有车。
+     * True when a beam band may be drawn for at least one siding: the global switch is on, or a
+     * siding turns it on while the global one is off. The renderer asks this <em>before</em>
+     * iterating trains, so a globally-off effect costs one boolean.
      */
     public boolean beamAnySiding() {
-        if (!styleAllows(LightStyle.BAND)) {
-            return false;
-        }
-        if (bandGlobal()) {
+        if (beamBand) {
             return true;
         }
-        if (sidingSettings != null) {
-            for (final SidingSettings o : sidingSettings.values()) {
-                if (o != null && Boolean.TRUE.equals(o.beamGlow)) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        return anySiding(o -> o.beamBand);
     }
 
     /**
-     * True when a flare may be drawn for at least one siding: the global switch is on, or a siding
-     * turns it on while the global one is off. Same shape as {@link #beamAnySiding()} - the renderer
-     * asks this <em>before</em> iterating trains, so a globally-off feature costs one boolean.
-     *
-     * <p><b>样式是硬性地板</b>：{@code lightStyle = BAND} 时这一句直接 {@code false}，不管侧线
-     * 里写着什么。1.0.67 漏的正是这里 —— 以前第一句是 {@code flareGlobal()}，而侧线循环只看
-     * {@code o.beamFlare == true}，于是一条早先点过灯晕的侧线（或者旧配置里残留的 true）就能在
-     * 「只看光带」的样式下把灯晕整帧放行。
+     * True when a flare may be drawn for at least one siding. Same shape as
+     * {@link #beamAnySiding()}: the global switch, or a siding that turns it on.
      */
     public boolean flareAnySiding() {
-        if (!styleAllows(LightStyle.FLARE)) {
-            return false;
-        }
-        if (flareGlobal()) {
+        if (beamFlare) {
             return true;
         }
-        if (sidingSettings != null) {
-            for (final SidingSettings o : sidingSettings.values()) {
-                if (o != null && Boolean.TRUE.equals(o.beamFlare)) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        return anySiding(o -> o.beamFlare);
     }
 
     /** {@link #beamFlareSize} clamped to [0.2, 4] blocks. */
@@ -2467,14 +1968,6 @@ public final class HeadlightConfig {
         if (configVersion >= CONFIG_VERSION) {
             return false;
         }
-        if (configVersion < 2) {
-            if (railRelightTicks == 4) {
-                railRelightTicks = 1;
-            }
-            if (railRelightBudget == 1) {
-                railRelightBudget = 2;
-            }
-        }
         if (configVersion < 3 && mutedSidings != null && !mutedSidings.isEmpty()) {
             for (final Long id : mutedSidings) {
                 if (id == null || id.longValue() == 0L) {
@@ -2483,13 +1976,6 @@ public final class HeadlightConfig {
                 settingsFor(id.longValue()).enabled = Boolean.FALSE;
             }
             mutedSidings.clear();
-        }
-        if (configVersion < 5 && railRelightMaxPerSec == 12) {
-            // 12 was the default while the host rebuilt one rail chunk per frame; it is now the
-            // per-second share of a larger per-frame slot (see railChunkBuildPerFrame), so an
-            // untouched file is moved onto the new default. A hand-tuned 12 is indistinguishable
-            // from the old default here, which is the same rule the version-2 step uses.
-            railRelightMaxPerSec = 16;
         }
         if (configVersion < 16 && beamConeAlpha == 0.16D) {
             // 0.16 was the default while the shell cone had no attenuation floor: the products
@@ -2520,7 +2006,7 @@ public final class HeadlightConfig {
         // Version 9 only appends collisionHeadExtra / collisionTailExtra (default 1.0 = the old
         // trainCollisionEndPad behaviour), so it too is purely a "write the new keys out" bump.
         // Version 10 does the same for beamConeOcclusion / beamConeSteps (depth-aware cone).
-        // Version 11 does the same for beamCone (the cone's own switch, split off beamGlow).
+        // Version 11 does the same for beamCone (the cone's own switch, split off the band switch).
         // Version 12 replaces trainCollisionDamageMinSpeedKmh / trainCollisionDamageMax (the old
         // single linear hit) with the speed-tier block: four tier boundaries, the exponential
         // damage constants (base / k / speed scale / fly scale), the two impulse pairs and the
@@ -2551,11 +2037,9 @@ public final class HeadlightConfig {
         // doorLightByLine). Every one of them starts at the shipped default - the strip follows the
         // route colour, the door light is orange - so nothing is rewritten; the bump exists so the
         // keys show up in an existing config/mtrlte.json and can be edited by hand.
-        // Version 22 adds lightStyle (BAND / FLARE / BOTH, default BAND = the light band only) and
-        // folds the two legacy layer switches onto it; see the block at the end of this method.
-        // Version 23 turns railLight off by default: baking the beam into the rail vertices makes
-        // the rails themselves glow, which is not what the light is supposed to look like. Old
-        // files holding true (and the per-siding overrides that were on) are migrated to off.
+        // Version 25 replaces the three-state lightStyle enum with three independent switches
+        // (beamBand / beamFlare / beamScatter) and drops the rail-bake subsystem (rails no longer
+        // glow); see the block at the end of this method.
         if (configVersion < 21) {
             // Version 21 turns the beam cone off by default (still experimental) and appends
             // rainSprayLowSpeedBoost. true was the shipped default of beamCone, so an old file
@@ -2567,33 +2051,49 @@ public final class HeadlightConfig {
                 beamCone = false;
             }
         }
-        if (configVersion < 22) {
-            // Version 22 引入 lightStyle（BAND / FLARE / BOTH，默认 BAND）——玩家要求"光带不要
-            // 删，和灯晕互为备份，自己选"。老文件没有这个键，Gson 让它停在初始值 BAND；这里再把
-            // 两份逐层旧开关同步成 BAND 的样子（beamGlow=true / beamFlare=false），否则文件里会
-            // 写着 "beamFlare": true 而实际不画灯晕，读的人只会以为配置坏了。
-            // 逐侧线的 beamGlow / beamFlare 覆盖一律不动：那是玩家对单条侧线的明确选择。
-            setLightStyle(style());
-        }
-        if (configVersion < 23) {
-            // Version 23 把 railLight 的默认值 true -> false：那是「把列车灯烘焙进 ANTE/NTE 轨道
-            // 顶点」的旧方案，铁轨本身会整条发亮（玩家反馈「铁轨还在发光」）。旧的照亮方式只有这一种，
-            // 所以老文件里的 true（以及逐侧线显式开的覆盖）只可能是旧默认值的残留，一律迁到「关」。
-            // 从 23 起玩家再打开会被保留 —— 那时 configVersion 已经等于 23，这段不会重跑。
-            if (railLight) {
-                railLight = false;
-                LteLog.LOGGER.info(
-                        "[lte] railLight=true 已迁到 false：铁轨烘焙光照是旧方案（铁轨会自己发光），"
-                                + "现在默认用光带/灯晕 + 地面亮斑");
+        if (configVersion < 25) {
+            // Version 25 把「光样式」三态枚举（BAND / FLARE / BOTH）拆成三个独立开关：
+            // beamBand（光带）/ beamFlare（灯晕）/ beamScatter（散射）。旧文件里的 lightStyle 直接
+            // 折算过去，折完把这个键置 null（Gson 不写 null，键就此从文件里消失）：
+            //   BAND  -> 光带开 / 灯晕关 / 散射关
+            //   FLARE -> 光带关 / 灯晕开 / 散射开
+            //   BOTH  -> 光带开 / 灯晕开 / 散射开
+            // lightStyle 是 v22 才引入的键：更早的文件没有它，那时 beamGlow / beamFlare 这两个逐层
+            // 开关就是"样式"本身，按同一套规则折算（等价于 BAND）。
+            final String style = lightStyle == null
+                    ? null : lightStyle.trim().toUpperCase(java.util.Locale.ROOT);
+            if ("FLARE".equals(style)) {
+                beamBand = false;
+                beamFlare = true;
+                beamScatter = true;
+            } else if ("BOTH".equals(style)) {
+                beamBand = true;
+                beamFlare = true;
+                beamScatter = true;
+            } else if ("BAND".equals(style)) {
+                beamBand = true;
+                beamFlare = false;
+                beamScatter = false;
+            } else if (configVersion < 22) {
+                final boolean band = beamGlow == null || beamGlow.booleanValue();
+                beamBand = band;
+                beamScatter = beamFlare;
             }
+            lightStyle = null;
+            beamGlow = null;
+            scatterEnabled = null;
             if (sidingSettings != null) {
                 for (final SidingSettings o : sidingSettings.values()) {
-                    if (o != null && Boolean.TRUE.equals(o.railLight)) {
-                        // null = 跟随全局（= 关）。想给单条侧线重开，在界面上再选一次即可。
-                        o.railLight = null;
+                    if (o != null && o.beamGlow != null) {
+                        o.beamBand = o.beamGlow;
+                        o.beamGlow = null;
                     }
                 }
             }
+            LteLog.LOGGER.info("[lte] 光样式 {} 已拆成三个独立开关：光带={} 灯晕={} 散射={}",
+                    style == null ? "(旧文件未写 lightStyle)" : style,
+                    Boolean.valueOf(beamBand), Boolean.valueOf(beamFlare),
+                    Boolean.valueOf(beamScatter));
         }
         if (configVersion < 24) {
             // Version 24 把 beamFlareSize 的默认值 0.9 -> 1.4：0.9 画出来的灯晕在 20 格外只有
@@ -2611,9 +2111,6 @@ public final class HeadlightConfig {
         if (mutedSidings == null) {
             mutedSidings = new java.util.ArrayList<>();
         }
-        // 样式：键写成 null（或适配器之外的路径给出了 null）按默认 BAND 处理 —— 渲染侧
-        // 靠 bandGlobal()/flareGlobal() 读，永远不会看到一个 null 样式。
-        lightStyle = style();
         if (sidingSettings == null) {
             sidingSettings = new LinkedHashMap<>();
         } else {
@@ -2658,18 +2155,6 @@ public final class HeadlightConfig {
                 if (o.beamTailColor != null) {
                     o.beamTailColor = formatColor(parseColor(o.beamTailColor, DEFAULT_TAIL_BEAM));
                 }
-                if (o.railRelightMaxBlockDist != null) {
-                    o.railRelightMaxBlockDist = clamp(o.railRelightMaxBlockDist, 16, 256);
-                }
-                if (o.railRelightCooldownMs != null) {
-                    o.railRelightCooldownMs = clamp(o.railRelightCooldownMs, 0, 5000);
-                }
-                if (o.railRelightMaxPerSec != null) {
-                    o.railRelightMaxPerSec = clamp(o.railRelightMaxPerSec, 1, 40);
-                }
-                if (o.railRelightFrustumCos != null) {
-                    o.railRelightFrustumCos = clamp(o.railRelightFrustumCos, -1.0D, 0.95D);
-                }
                 if (o.collisionHeadExtra != null) {
                     o.collisionHeadExtra = clamp(o.collisionHeadExtra, 0.0D, 4.0D);
                 }
@@ -2701,25 +2186,6 @@ public final class HeadlightConfig {
         tailLength = clamp(tailLength, 0.0D, 32.0D);
         maxDistance = clamp(maxDistance, 16.0D, 1024.0D);
         massClearRatio = clamp(massClearRatio, 0.2D, 1.0D);
-        railRelightTicks = clamp(railRelightTicks, 1, 40);
-        railRelightEveryTicks = clamp(railRelightEveryTicks, 1, 20);
-        railRelightRadius = clamp(railRelightRadius, 2, 32);
-        railRelightMaxTrains = clamp(railRelightMaxTrains, 1, 16);
-        railLightGain = clamp(railLightGain, 1.0D, 3.0D);
-        railLightDelta = clamp(railLightDelta, 0, 15);
-        railRelightBudget = clamp(railRelightBudget, 1, 4);
-        railRelightMaxMove = clamp(railRelightMaxMove, 0.5D, 8.0D);
-        railRelightMaxInterval = clamp(railRelightMaxInterval, 2, 40);
-        railRelightIdleInterval = clamp(railRelightIdleInterval, 4, 60);
-        railRelightLoadGraceSec = clamp(railRelightLoadGraceSec, 0.0D, 60.0D);
-        railRelightMaxBlockDist = clamp(railRelightMaxBlockDist, 16, 256);
-        railRelightCooldownMs = clamp(railRelightCooldownMs, 0, 5000);
-        railRelightMaxPerSec = clamp(railRelightMaxPerSec, 1, 40);
-        // 8 = 每帧最多重建的轨道区块数上限。以前这里引用 RailChunkBuildBoost.MAX_PER_FRAME，
-        // 那是个客户端渲染类；HeadlightConfig 会被服务端入口加载，一旦常量池里有那个类，dedicated
-        // server 上就有多加载一整棵渲染类树的风险。数值写死在这里（两处必须一致）。
-        railChunkBuildPerFrame = clamp(railChunkBuildPerFrame, 1, MAX_RAIL_CHUNK_BUILD_PER_FRAME);
-        railRelightFrustumCos = clamp(railRelightFrustumCos, -1.0D, 0.95D);
         beamDistance = clamp(beamDistance, 16.0D, 512.0D);
         beamHeadLength = clamp(beamHeadLength, 0.0D, 64.0D);
         beamTailLength = clamp(beamTailLength, 0.0D, 64.0D);

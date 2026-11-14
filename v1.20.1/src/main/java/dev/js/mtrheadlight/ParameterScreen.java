@@ -101,7 +101,7 @@ public final class ParameterScreen extends Screen {
     private static final int ROW_TOGGLE_WIDE = 4;
     /** 三态值（车灯模式 自动 / 常亮 / 关闭）：整行一个按钮，点一下换下一档。 */
     private static final int ROW_CYCLE = 5;
-    /** {@link #ROW_CYCLE} 的档数：车灯模式（自动/常亮/关闭）与光样式（光带/灯晕/两者）都是三档。 */
+    /** {@link #ROW_CYCLE} 的档数：车灯模式（自动 / 常亮 / 关闭）三档。 */
     private static final int ROW_CYCLE_STATES = 3;
 
     /** The layout line is logged once per session, not once per screen open. */
@@ -400,22 +400,23 @@ public final class ParameterScreen extends Screen {
     /**
      * The row table of THIS category only. Side-by-side comparison of the five partitions:
      * <pre>
-     *   光源  总开关|渲染距离 · 车灯模式(自动/常亮/关闭，全局页) · 光样式(光带/灯晕/两者，全局页) ·
-     *         灯晕|照射长度 · 真实照亮|车灯亮度 · 车头/车尾颜色 · 光束距离/车头长度/车尾长度/光束宽度/
-     *         车头高度/车尾高度 · 光束编辑
+     *   光源  总开关|渲染距离 · 车灯模式(自动/常亮/关闭，全局页) · 光带|照射长度 · 灯晕 ·
+     *         真实照亮|车灯亮度 · 车头/车尾颜色 · 光束距离/车头长度/车尾长度/光束宽度/
+     *         车头高度/车尾高度 · 散射|强度 · 照亮表面 · 散射半径 · 光束编辑
      *   碰撞  车体碰撞 · 碰撞高度 · 道床碰撞 · 车头延长 · 车尾延长 · 车顶掉落速度 · 车顶弯道半径
      *   粒子  雨天水雾|水雾起始速度 · 挡雨
      *   伤害  伤害开关 · 创造模式也受伤 · 伤害起点速度 · 伤害上限 · 4 个速度档 · 4 个伤害系数 · 撞飞距离 · 2 个竖直初速 · 冲量冷却 · 生物受伤
      *   其他  内置车型屏蔽 · 重载内置车型 · 立即重载光源
      * </pre>
      * 「车灯模式」放在光源分区第二行（用户要求：它决定灯什么时候亮，属于光源，不属于其他），
-     * 并且只在全局页出现 —— 它没有侧线覆盖。「光样式」紧跟其后，同样是全局页专属：
-     * 它是"这一版车灯用哪种画法"的全局选择（光带 / 灯晕 / 两者，默认光带），见
-     * {@code docs/light-styles.md}。三个「灯」开关连在一起：
-     * <b>光样式 → 灯晕 → 真实照亮</b>（灯位上的加色光斑 / 写进区块网格的方块光照），
-     * 动态光源那行右边仍然是车灯亮度滑块，改开关立刻能用滑块看到效果。
-     * {@code isGlobal()} 为假时只留下侧线真能覆盖的行：光源全部（除车灯模式 / 光样式）、碰撞的两个端部延长、
-     * 粒子的三项，以及伤害的开关 / 起点速度 / 上限。
+     * 并且只在全局页出现 —— 它没有侧线覆盖。
+     *
+     * <p><b>三件可见光效各有自己的开关、互不影响</b>：光带（{@code beamBand}）/ 灯晕
+     * （{@code beamFlare}）/ 散射（{@code beamScatter}），默认都开。以前是一个三态「光样式」
+     * （光带 / 灯晕 / 两者）按钮，想试组合只能一直点它，所以拆成了三个独立勾选 —— 现在任意组合
+     * 都能直接点出来，不需要"排列组合"。真实照亮（写进区块网格的方块光照）与这三件无关，它一直都在。
+     * {@code isGlobal()} 为假时只留下侧线真能覆盖的行：光带 / 灯晕（逐侧线只能收紧）、
+     * 碰撞的两个端部延长、粒子的三项，以及伤害的开关 / 起点速度 / 上限。
      */
     private void buildRows() {
         this.rows.clear();
@@ -426,17 +427,18 @@ public final class ParameterScreen extends Screen {
                 // 属于光源。它没有侧线覆盖，所以只在全局页出现（侧线页多一行不可点的行没有意义）。
                 if (isGlobal()) {
                     this.rows.add(Row.mode());
-                    // 光样式（光带 / 灯晕 / 两者）：光带是玩家公认最好的一版，默认就是它；
-                    // 灯晕与它互为备份，两者也能同时画。逐侧线的灯晕覆盖仍在下面那条灯晕开关上。
-                    this.rows.add(Row.style());
                 }
+                // 三件可见光效各有自己的开关，三行排在一起、默认全开、互不影响，所以任意组合
+                // 都能直接点出来（以前是一个三态「光样式」按钮，试组合只能一直点它）。
+                // 逐侧线只能再收紧光带 / 灯晕（散射是全局唯一的全屏 pass，侧线页不生成这一行）。
                 this.rows.add(Row.toggle(ConfigWriteTarget.LIGHT_BAND, ConfigWriteTarget.HEAD_LENGTH));
-                // 动态照亮 + 车灯亮度：灯晕（billboard）与真实方块光照是同一件事的两层，
-                // 所以两行挨着放。光柱那一行已随光柱一起删除（体积光锥不再绘制）。
+                this.rows.add(Row.toggleWide(ConfigWriteTarget.BEAM_FLARE));
+                if (isGlobal()) {
+                    this.rows.add(Row.toggleWide(ConfigWriteTarget.SCATTER));
+                }
+                // 动态照亮 + 车灯亮度：真实方块光照是"照在地上"的那一层，所以紧跟两个可见开关。
+                // 光柱那一行已随光柱一起删除（体积光锥不再绘制）。
                 this.rows.add(Row.toggle(ConfigWriteTarget.DYNAMIC_LIGHT, ConfigWriteTarget.LUMINANCE));
-                // 铁轨烘焙光照：把列车灯写进轨道顶点，铁轨自己会整条发亮 —— 旧方案，默认关。
-                // 两页都生成（SidingSettings 里有 railLight），想给某条侧线看旧观感时才在侧线页打开。
-                this.rows.add(Row.toggleWide(ConfigWriteTarget.RAIL_LIGHT));
                 this.rows.add(Row.color(true));
                 this.rows.add(Row.color(false));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_DISTANCE));
@@ -445,12 +447,11 @@ public final class ParameterScreen extends Screen {
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_WIDTH));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_HEAD_HEIGHT));
                 this.rows.add(Row.value(ConfigWriteTarget.BEAM_TAIL_HEIGHT));
-                // 屏幕空间散射（空气散射）：开关 + 强度同一行，半径单独一行。只有全局值 ——
+                // 散射的参数（开关在光源分区最上面三行里）：强度一行、半径一行，都是全局值 ——
                 // 它是一次全屏 pass，和「哪条侧线的车」无关；行放在光束几何之后、编辑器入口之前，
                 // 因为它读的是同一批灯位（TrainLamps），只是画法在几何层之外。
                 if (isGlobal()) {
-                    this.rows.add(Row.toggle(ConfigWriteTarget.SCATTER,
-                            ConfigWriteTarget.SCATTER_STRENGTH));
+                    this.rows.add(Row.value(ConfigWriteTarget.SCATTER_STRENGTH));
                     // 表面项（车灯真的照亮地面/墙面）单独一行：它和光雾是同一次 pass 的两层，
                     // 关掉它只少「逐灯 spot + 法线 + N·L」那块数学，光雾照旧，所以值得一个开关。
                     this.rows.add(Row.toggleWide(ConfigWriteTarget.SCATTER_SURFACE));
@@ -571,8 +572,8 @@ public final class ParameterScreen extends Screen {
                 break;
             }
             case ROW_CYCLE: {
-                // 三态值：整行一个按钮，点一下切下一档（车灯模式 自动->常亮->关闭；
-                // 光样式 光带->灯晕->两者）。两者的取值都走 readValue/writeValue，档数都是 3。
+                // 三态值：整行一个按钮，点一下切下一档（车灯模式 自动->常亮->关闭）。
+                // 取值走 readValue/writeValue，档数是 3。
                 addButton(this.colX, y, this.colW - RESET_W - GAP, ROW_H, cycleLabel(row.value), b -> {
                     final int next = ((int) Math.round(
                             this.target.readValue(row.value)) + 1) % ROW_CYCLE_STATES;
@@ -769,6 +770,9 @@ public final class ParameterScreen extends Screen {
                         ? tr("opt.dynamicLight.on") : tr("opt.dynamicLight.off"), which);
             case ConfigWriteTarget.LIGHT_BAND:
                 return follow(this.target.readToggle(which)
+                        ? tr("opt.band.on") : tr("opt.band.off"), which);
+            case ConfigWriteTarget.BEAM_FLARE:
+                return follow(this.target.readToggle(which)
                         ? tr("opt.flare.on") : tr("opt.flare.off"), which);
             case ConfigWriteTarget.RAIN_SPRAY:
                 return follow(this.target.readToggle(which)
@@ -794,9 +798,6 @@ public final class ParameterScreen extends Screen {
             case ConfigWriteTarget.RAIN_HUSH:
                 return follow(this.target.readToggle(which)
                         ? tr("opt.rainHush.on") : tr("opt.rainHush.off"), which);
-            case ConfigWriteTarget.RAIL_LIGHT:
-                return follow(this.target.readToggle(which)
-                        ? tr("opt.railLight.on") : tr("opt.railLight.off"), which);
             case ConfigWriteTarget.SCATTER:
                 // 全局开关，不走 follow()：侧线页根本不生成这一行。
                 return tr(this.target.readToggle(which)
@@ -838,27 +839,11 @@ public final class ParameterScreen extends Screen {
     }
 
     /**
-     * {@link #ROW_CYCLE} 那一行的按钮文字：车灯模式（自动/常亮/关闭）或光样式（光带/灯晕/两者）。
-     * 两者都读实时值，所以点一下只需要重建界面，不需要缓存。
+     * {@link #ROW_CYCLE} 那一行的按钮文字：车灯模式（自动 / 常亮 / 关闭）。读实时值，所以点一下
+     * 只需要重建界面，不需要缓存。
      */
     private MutableText cycleLabel(final int which) {
-        if (which == ConfigWriteTarget.LIGHT_STYLE) {
-            final int index = (int) Math.round(this.target.readValue(ConfigWriteTarget.LIGHT_STYLE));
-            return tr("opt.lightStyle", tr(styleKey(index)));
-        }
         return modeLabel();
-    }
-
-    /** 光样式的三档文案，顺序与 {@code HeadlightConfig.LightStyle} 的声明一致。 */
-    private static String styleKey(final int index) {
-        switch (index) {
-            case 1:
-                return "opt.lightStyle.flare";
-            case 2:
-                return "opt.lightStyle.both";
-            default:
-                return "opt.lightStyle.band";
-        }
     }
 
     private static String modeKey(final int index) {
@@ -1429,12 +1414,6 @@ public final class ParameterScreen extends Screen {
         /** 三态值一行（车灯模式），按钮整行宽。 */
         static Row mode() {
             return new Row(ROW_CYCLE, -1, ConfigWriteTarget.HEADLIGHT_MODE, false, false,
-                    Text.empty(), null);
-        }
-
-        /** 三态值一行（光样式：光带 / 灯晕 / 两者），按钮整行宽，只有全局页有。 */
-        static Row style() {
-            return new Row(ROW_CYCLE, -1, ConfigWriteTarget.LIGHT_STYLE, false, false,
                     Text.empty(), null);
         }
     }

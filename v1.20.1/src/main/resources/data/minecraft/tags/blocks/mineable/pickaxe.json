@@ -22,6 +22,8 @@
     "mtrlte:ticket_gate_brt_out",
     "mtrlte:ticket_gate_xiamen_side",
     "mtrlte:ticket_gate_brt_side",
+    "mtrlte:charger_top",
+    "mtrlte:charger_bottom",
     "mtrlte:lte_logo",
     "mtrlte:jiaomei_logo"
   ]

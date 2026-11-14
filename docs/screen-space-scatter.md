@@ -84,7 +84,7 @@ rd        = normalize(inverse(viewProj)*(ndc,1,1) - inverse(viewProj)*(ndc,-1,1)
 
 ---
 
-## 5. 散射积分（自己写的，不是 RTE 的）
+## 5. 散射积分（本模组自己写的）
 
 对每盏灯（`L` 灯位，`d̂` 朝向，`R` 光雾半径，`len` 光束长度，`I` 强度）：
 
@@ -148,7 +148,7 @@ lit    = scene + (1 - exp(-added · strength)) · (1 - 0.5 · scene)
   过（delta = 0）。所以就算视图矩阵算错、或这一帧一盏灯都没有，这一 pass 也只能「什么都没加」，
   不可能把屏幕涂黑——这是整屏替换这种做法的安全网。
 * **没有自阴影**：只有一层深度、只有正面法线，被别的物体挡住的表面拿不到光，也不会有
-  「车体自己挡住自己的灯」。RTE 同样如此，这是屏幕空间做法的固有边界。
+  「车体自己挡住自己的灯」。任何屏幕空间做法都有这条固有边界。
 * **关掉表面项**：`scatterSurface=false` 时 `uSurface.z=0`，整段逐灯块在 uniform 分支里被跳过
   （逐灯的 spot / 法线 / N·L 一次都不算），画面原样写回 `scene`。体积项已经不存在，
   所以"关掉表面项"现在等于"这条 pass 什么都不加"。
@@ -263,8 +263,8 @@ lit    = scene + (1 - exp(-added · strength)) · (1 - 0.5 · scene)
 ## 9. 光影（Iris / OptiFine）
 
 `ShaderPackProbe.active()` 为真时**整个 pass 跳过**，只 WARN/INFO 一次。理由：光影自己拥有
-framebuffer 与深度缓冲，我们再去 blit 它的深度只会拿到一张错的图（RTE beta.4 那条"取 Iris 深度"
-的分支实际恒回退到原版主帧缓冲，等于它也没真正接通）。跳过是明确的行为，不是失败。
+framebuffer 与深度缓冲，我们再去 blit 它的深度只会拿到一张错的图（从 Iris 取深度的分支在
+实际运行里恒回退到原版主帧缓冲，等于没真正接通）。跳过是明确的行为，不是失败。
 
 ## 10. 实测（隔离实例 `temp/scatter-probe`）
 

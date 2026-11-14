@@ -66,13 +66,10 @@ public final class FangsuTurnoutLight {
                 return packed;
             }
 
-            // Same lookup the ANTE rail bake uses: our train beams plus every LambDynamicLights
-            // source, maxed with the world value. The "quiet" variant keeps RailDiag's rail-bake
-            // counters meaningful - this runs per frame per switch, not per mesh rebuild.
-            final int block = Math.max(incomingBlock,
-                    sanitize(RailLightInject.resolveQuiet(world, LightType.BLOCK, pos)));
-            final int sky = Math.max(incomingSky,
-                    sanitize(RailLightInject.resolveQuiet(world, LightType.SKY, pos)));
+            // The world's own light at this position, and nothing else: the rail bake that used
+            // to raise it is gone, so a turnout is lit exactly like the rails around it.
+            final int block = Math.max(incomingBlock, sanitize(world.getLightLevel(LightType.BLOCK, pos)));
+            final int sky = Math.max(incomingSky, sanitize(world.getLightLevel(LightType.SKY, pos)));
             if (block == incomingBlock && sky == incomingSky) {
                 return packed;
             }
@@ -82,11 +79,11 @@ public final class FangsuTurnoutLight {
         }
     }
 
-    /** Honours the existing 「轨道烘焙光照」 switch - the switch model belongs to the same feature. */
+    /** Uses the same "dynamic light is on" gate the rest of the light subsystem uses. */
     private static boolean enabled() {
         try {
             final HeadlightConfig cfg = MtrHeadlightClient.config();
-            return cfg != null && cfg.enabled && cfg.dynamicLight && cfg.railLight;
+            return cfg != null && cfg.enabled && cfg.dynamicLight;
         } catch (Throwable t) {
             return false;
         }

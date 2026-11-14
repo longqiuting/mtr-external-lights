@@ -11,13 +11,13 @@ import java.util.Set;
 /**
  * Mixin config plugin for the MTR train-registry mixin.
  *
- * <p>Same shape as {@code AnteMixinPlugin}: the config is {@code required: false} and the plugin only
+ * <p>Same shape as the other host mixin plugins: the config is {@code required: false} and the plugin only
  * answers {@link #shouldApplyMixin} from an explicit class-resource probe, so an MTR fork without the
  * class (or a resource pack that renamed the package) simply applies nothing.
  *
  * <p>Silent on purpose - no logging from here. Logging during mixin config preparation would load
  * this mod's own classes (and whatever they reference) before every other mod's mixins get a chance
- * to apply to them (see the note in {@code AnteMixinPlugin}). The runtime counterpart
+ * to apply to them (the same caution applies to every mixin plugin in this mod). The runtime counterpart
  * ({@code BuiltInTrains}) reports the one line that matters: what it kept and what it removed.
  */
 public final class MtrMixinPlugin implements IMixinConfigPlugin {

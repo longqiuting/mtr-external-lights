@@ -35,9 +35,8 @@ import java.util.Set;
  *       zero rebuilds.</li>
  *   <li><b>signature</b> - each candidate section is fingerprinted with a 64 sample grid
  *       ({@link BeamBlockLight#signature}); a section whose beam contribution is unchanged is
- *       skipped. This is the rail relight scheduler's idea ({@code RailRelightScheduler}) applied
- *       to whole sections, and it is what turns "the 13 sections in range" into "the 2 or 3 whose
- *       brightness actually moved".</li>
+ *       skipped. That signature check is what turns "the 13 sections in range" into "the 2 or 3
+ *       whose brightness actually moved".</li>
  *   <li><b>per-section cooldown</b> - {@link #COOLDOWN_MS} between two marks of the same section,
  *       so a section is not re-queued while its rebuild is still sitting in the chunk builder.</li>
  *   <li><b>per-second quota</b> - {@link #MAX_PER_SEC} marks per second across every beam, the hard

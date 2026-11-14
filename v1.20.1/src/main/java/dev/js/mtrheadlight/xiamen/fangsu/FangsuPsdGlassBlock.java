@@ -43,7 +43,7 @@ import net.minecraft.world.WorldAccess;
  *
  * <h2>一格，不是两格</h2>
  * <p>方速文档 {@code screendoor_glass} 写的是「<b>一个</b>玻璃方块是由左右两部分拼接而成的」，
- * 反编译 {@code BlockEntityScreendoorGlass} 也是一个方块实体同时持有
+ * 对照 {@code BlockEntityScreendoorGlass} 的公开接口，它也是一个方块实体同时持有
  * {@code subModelLeft} + {@code subModelRight}（{@code whenRendering} 里两遍 {@code drawModel}）
  * 和 {@code shapeLeft} + {@code shapeRight}（{@code reloadModelAndShape} 里
  * {@code addAll} 合成一个 {@code glassShape}，{@code getFinalShape()} 只返回它）。

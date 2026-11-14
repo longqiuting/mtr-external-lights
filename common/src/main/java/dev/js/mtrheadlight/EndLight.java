@@ -7,7 +7,7 @@ import net.minecraft.util.math.Vec3d;
  * which way does its beam go".
  *
  * <p>Every consumer of the train ends goes through here ({@link LightController} for the
- * LambDynamicLights line, {@link RailRelightScheduler} for the baked rail light), so the dynamic
+ * LambDynamicLights line), so the dynamic
  * light and the baked light can never disagree about the endpoint or the heading. {@link BeamGlow}
  * uses the same {@code base} + {@code dir} pair from {@link TrainPose} and only replaces the height
  * (its sheet takes y from the ground under each sample), which is why only x/z are shared with it.

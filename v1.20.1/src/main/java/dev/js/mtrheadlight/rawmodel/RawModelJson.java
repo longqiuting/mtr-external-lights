@@ -127,6 +127,39 @@ public final class RawModelJson {
         }
     }
 
+    /**
+     * 一份模型的包围盒（模型空间 {@code 0..16}），给「碰撞 / 轮廓按模型推导」用。
+     *
+     * <p>直接拿解析后的顶点扫一遍 min/max：元素旋转已经在解析期烘进顶点了，所以
+     * 这个盒子包含旋转后的真实外沿（手抄 {@code from/to} 会漏掉 ±45° 转出去的那几块）。
+     *
+     * @param id {@code <ns>:rawmodels/<name>}（用 {@link #id} 拼）
+     * @return {@code {minX, minY, minZ, maxX, maxY, maxZ}}；读不到模型时 {@code null}
+     */
+    public static float[] bounds(final Identifier id) {
+        final RawMesh mesh = get(id);
+        if (mesh == null || mesh.quadCount() == 0) {
+            return null;
+        }
+        float minX = Float.MAX_VALUE;
+        float minY = Float.MAX_VALUE;
+        float minZ = Float.MAX_VALUE;
+        float maxX = -Float.MAX_VALUE;
+        float maxY = -Float.MAX_VALUE;
+        float maxZ = -Float.MAX_VALUE;
+        for (final RawMesh.Quad quad : mesh.quads()) {
+            for (final float[] p : quad.pos()) {
+                minX = Math.min(minX, p[0]);
+                minY = Math.min(minY, p[1]);
+                minZ = Math.min(minZ, p[2]);
+                maxX = Math.max(maxX, p[0]);
+                maxY = Math.max(maxY, p[1]);
+                maxZ = Math.max(maxZ, p[2]);
+            }
+        }
+        return new float[] {minX, minY, minZ, maxX, maxY, maxZ};
+    }
+
     // ------------------------------------------------------------------ 解析
 
     /** 从 JSON 文本解析（包内可见，方便单独检查）。 */

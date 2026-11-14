@@ -233,7 +233,7 @@ public final class ScatterPass {
     public static void tick(final MinecraftClient client) {
         try {
             final HeadlightConfig cfg = MtrHeadlightClient.config();
-            if (cfg == null || !cfg.enabled || !cfg.scatterEnabled) {
+            if (cfg == null || !cfg.enabled || !cfg.beamScatter) {
                 return;
             }
             if (client == null || client.getWindow() == null) {
@@ -272,7 +272,7 @@ public final class ScatterPass {
             }
             /*
              * 取证探针（/mtr_lte lighttest）：一次同屏两块纯色，都不采灯、不拷深度，也不看
-             * scatterEnabled / shader 包判定。
+             * beamScatter / shader 包判定。
              *   左半屏红 = 本 pass 自己的 light_scatter 程序（uTest=1 时整段 main() 只写纯红）；
              *   右半屏蓝 = 原版 position_color 程序（GlowCompat.drawScreenQuad），完全不碰我们的
              *              程序，只证明「LAST 这个时机本来就能往主 framebuffer 写」。
@@ -290,18 +290,14 @@ public final class ScatterPass {
             }
             final HeadlightConfig cfg = MtrHeadlightClient.config();
             /*
-             * 帧级唯一门。drawScatter() = 总开关 && scatterEnabled && styleAllows(FLARE)。
+             * 帧级唯一门。drawScatter() = 总开关 && beamScatter。
              *
-             * 1.0.67 的漏洞就在这里：以前这一句只问 enabled / scatterEnabled，样式完全没参与，
-             * 于是 lightStyle=BAND（只要光带）时这个全屏 pass 照旧在每盏灯周围积分空气、照亮灯
-             * 脚下的地面 —— 玩家看到的就是一个"关不掉的圆形灯晕"。本类的 heartbeat 注释里一直
-             * 写着 "no-lights … 光样式不含灯晕"，代码里却没有那条判断。
+             * 散射是三件可见光效里独立的那一件（光带 / 灯晕 / 散射各有自己的开关，互不影响），
+             * 所以这里只问它自己的开关，任何"样式"都不再参与判断。
              */
             if (cfg == null || !cfg.drawScatter()) {
                 lastReason = cfg == null ? "no-config"
-                        : (!cfg.enabled ? "off(master)"
-                        : (!cfg.scatterEnabled ? "off(scatterEnabled=false)"
-                        : "off(style=" + cfg.style() + ")"));
+                        : (!cfg.enabled ? "off(master)" : "off(beamScatter=false)");
                 return;
             }
             if (shaderPackActive()) {
@@ -454,7 +450,7 @@ public final class ScatterPass {
     }
 
     /**
-     * 每 5 秒<b>无条件</b>一行（只要 {@code scatterEnabled=true}）：pass 有没有跑、跑了几帧、
+     * 每 5 秒<b>无条件</b>一行（只要 {@code beamScatter=true}）：pass 有没有跑、跑了几帧、
      * 每帧几盏灯、两份拷贝成不成、litPx、深度重建矩阵来自哪个候选。
      *
      * <pre>
@@ -465,11 +461,11 @@ public final class ScatterPass {
      *
      * {@code frames=0 reason=…} 就是「为什么看不到效果」的答案，一行之内给全：
      * <ul>
-     *   <li>{@code no-lights} —— collect() 一盏灯都没拿到（车没点亮 / 太远 / 光样式不含灯晕）；</li>
+     *   <li>{@code no-lights} —— collect() 一盏灯都没拿到（车没点亮 / 太远 / 灯晕开关关着）；</li>
      *   <li>{@code shader-pack(…)} —— 光影包接管了 framebuffer，我们主动让路；</li>
      *   <li>{@code depth-copy-failed(err=0x…)} / {@code color-copy-failed} —— 拷贝这一步没成；</li>
      *   <li>{@code program=failed(…)} —— 程序没编译（原因就是 json/GLSL 的那个字符串）；</li>
-     *   <li>{@code off(master)} / {@code off(scatterEnabled=false)} —— 开关没开。</li>
+     *   <li>{@code off(master)} / {@code off(beamScatter=false)} —— 开关没开。</li>
      * </ul>
      */
     private static void heartbeat(final HeadlightConfig cfg) {
@@ -477,16 +473,12 @@ public final class ScatterPass {
             return;
         }
         final long now = System.currentTimeMillis();
-        if (!cfg.scatterEnabled || !cfg.styleAllows(HeadlightConfig.LightStyle.FLARE)) {
+        if (!cfg.beamScatter) {
             // 关着的时候只提醒一次：否则「没日志」会被读成「日志坏了」。
-            // 两种"关"要分开说：开关自己关的，和样式只要光带（BAND）—— 后者是 1.0.67 之前
-            // 漏判的那一种，玩家会以为"开关明明开着"。
             if (!offAnnounced) {
                 offAnnounced = true;
-                MtrHeadlightClient.LOGGER.info("[lte] scatter: off ({}) - nothing is drawn and "
-                                + "nothing is measured; /mtr_lte scatter on, 或把光样式切到 灯晕/两者",
-                        !cfg.scatterEnabled ? "scatterEnabled=false"
-                                : "lightStyle=" + cfg.style() + " (光带样式不含灯晕)");
+                MtrHeadlightClient.LOGGER.info("[lte] scatter: off (beamScatter=false) - nothing is "
+                        + "drawn and nothing is measured; /mtr_lte scatter on 打开");
             }
             windowStart = now;
             calls = 0;
@@ -812,10 +804,9 @@ public final class ScatterPass {
     /** Status for {@code /mtr_lte scatter status}. Arms the lit-pixel probe for the next frame. */
     public static String status(final HeadlightConfig cfg) {
         final StringBuilder sb = new StringBuilder(224);
-        sb.append("scatter ").append(cfg.scatterEnabled ? "on" : "off");
-        // 样式是这个 pass 的上层门（见 HeadlightConfig#drawScatter）：开着却画不出来时，这一格
+        sb.append("scatter ").append(cfg.beamScatter ? "on" : "off");
+        // draws= 是渲染器自己的门（见 HeadlightConfig#drawScatter）：开着却画不出来时，这一格
         // 就是答案，不用去翻配置文件。
-        sb.append(" style=").append(cfg.style());
         sb.append(" draws=").append(cfg.drawScatter() ? "yes" : "no");
         sb.append(" program=").append(ScatterProgram.status());
         sb.append(" strength=").append(String.format(Locale.ROOT, "%.2f",

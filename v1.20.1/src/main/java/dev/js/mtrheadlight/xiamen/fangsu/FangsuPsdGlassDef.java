@@ -14,7 +14,7 @@ import net.minecraft.util.Identifier;
 /**
  * 方速厦门屏蔽门的<b>固定玻璃板</b>：<b>一个方块 = 一整格</b>，格内左右各半个格（0.5 格）拼起来。
  *
- * <h2>「一格」还是「两格」—— 文档 + 反编译的双重依据</h2>
+ * <h2>「一格」还是「两格」—— 文档 + 运行时行为的双重依据</h2>
  * <p>方速开发文档 {@code screendoor_glass}（{@code https://doc.fangsu.top/#/screendoor_glass}）原文：
  * <pre>
  * 与其他物件不同, 一个屏蔽门玻璃是由左右两部分拼接而成的, 这意味着更大的用户自由度.
@@ -23,7 +23,7 @@ import net.minecraft.util.Identifier;
  * </pre>
  * 注意它是<b>一个玻璃方块</b>由左右两部分拼接而成，不是「左方块 + 右方块」。
  *
- * <p>反编译 {@code com.fangsu.blockEntities.BlockEntityScreendoorGlass}（{@code javap -p}）里，
+ * <p>对照 {@code com.fangsu.blockEntities.BlockEntityScreendoorGlass} 的公开接口，
  * 一个方块实体同时持有两份子模型 + 两份碰撞：
  * <pre>
  *   protected String subModelLeft;      protected String subModelRight;

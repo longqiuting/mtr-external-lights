@@ -342,7 +342,7 @@ level   = peak * radial^2 * vert * axial    四舍五入，夹到 0..15
 1. **地面投影贴片（推荐）**：在车前地面画一个 12 格长、随距离淡出的楔形贴片，
    `RenderLayer.getTranslucent()` + 加色，深度测试照常。零区块重建，与 Sodium/光影都不冲突。
    缺点：不照亮墙面，只给"地面被照亮"这条视觉线。
-2. **只照亮铁轨**（已实现，就是现在的 `railLight`）：ANTE 的 `MeshBuildingRailChunk.rebuildBuffer`
+2. **只照亮铁轨**（曾实现为 `railLight`，**已删除**）：ANTE 的 `MeshBuildingRailChunk.rebuildBuffer`
    本来就在轨道 mesh 重建时烘一次，被 `RailRelightScheduler` 用 12 次/秒的配额限住，代价可接受。
 3. **本原型**：`beamBlockLight=true`，留给愿意付代价的人。
 4. **IRLights 式 SSBO + GLSL 补丁**：真正的体积光与遮挡，但每个光影包一个补丁，维护量线性增长。

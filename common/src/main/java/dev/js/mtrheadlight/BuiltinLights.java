@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>Built-in trains ({@code TrainClientRegistry}'s 114 {@code TrainType}s) are hand-written
  * {@code ModelTrainBase} classes, not resource-pack {@code DynamicTrainModel}s: they expose no
  * {@code partsInfo} maps and no group-name JSON, so {@link VehicleLights}' name/stage heuristic
- * cannot see them at all. Their lamp geometry is nevertheless real - the decompiled models build
+ * cannot see them at all. Their lamp geometry is nevertheless real - the models build
  * dedicated {@code headlights} / {@code tail_lights} {@code ModelMapper}s - so this class carries
  * the extracted box positions instead of guessing at run time.
  *

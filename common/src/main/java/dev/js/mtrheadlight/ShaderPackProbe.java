@@ -12,9 +12,10 @@ import java.lang.reflect.Method;
  * keybind in Iris), and a per-tick reflective call would be wasteful for a boolean that changes
  * once in a session.
  *
- * <p>What the mod does with it: ANTE has two rail render paths and, when a pack is active, it
- * drops to the fallback one (own shader program replaced by the pack's program). See
- * {@code docs/rail-light-plan.md} for the reasoning behind {@code railLightUnderShaders}.
+ * <p>What the mod does with it: the additive beam sheet and the lamp flares pick which world-render
+ * pass they draw in (a pack composites after the world, so they have to go late), and the
+ * screen-space scatter pass steps aside entirely - a pack owns the framebuffer and the depth
+ * buffer, so borrowing them would give us the wrong depth.
  */
 public final class ShaderPackProbe {
     private static final long REFRESH_MILLIS = 1000L;
@@ -61,14 +62,13 @@ public final class ShaderPackProbe {
         try {
             if (inUse) {
                 MtrHeadlightClient.LOGGER.info(
-                        "[lte] shader pack active: rail light goes into the vertex lightmap "
-                                + "and the pack decides whether to show it "
-                                + "(railLightUnderShaders={}, railLightShaderBoost={})",
-                        cfg != null && cfg.railLightUnderShaders,
-                        cfg != null && cfg.railLightShaderBoost);
+                        "[lte] shader pack active: the beam sheet and the lamp flares draw in the "
+                                + "late pass, the scatter pass is skipped (band={} flare={} scatter={})",
+                        cfg != null && cfg.beamBand, cfg != null && cfg.beamFlare,
+                        cfg != null && cfg.beamScatter);
             } else {
                 MtrHeadlightClient.LOGGER.info(
-                        "[lte] shader pack inactive: rail light uses ANTE's own shader path");
+                        "[lte] shader pack inactive: all three light effects use their own path");
             }
         } catch (Throwable t) {
             // Logging must never break the tick.

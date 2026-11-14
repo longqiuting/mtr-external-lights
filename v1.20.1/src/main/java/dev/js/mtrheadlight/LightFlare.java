@@ -93,7 +93,7 @@ import java.util.Set;
  *
  * <h2>取证：{@code /mtr_lte lighttest}</h2>
  * 打开后这里不再画贴图灯晕，而是给每列车的<b>两端各画一块 3 格宽的洋红四边形</b>（车头/车尾灯口前方
- * 2 格），跳过朝向、距离、透明度、{@code lightStyle}、{@code isLit} 全部判定，并故意用<b>不带贴图</b>
+ * 2 格），跳过朝向、距离、透明度、{@code beamFlare}、{@code isLit} 全部判定，并故意用<b>不带贴图</b>
  * 的 {@code position_color} 程序 —— 也就是光带自己那条已验证可见的路。判读方式见 {@link LightTest}。
  */
 public final class LightFlare {
@@ -252,9 +252,8 @@ public final class LightFlare {
             return;
         }
         final boolean test = LightTest.enabled();
-        // 探针绕开全部配置闸（光样式 / 灯晕开关 / 总开关）：它测的是渲染路径，不是玩家的设置。
-        // 正常路径只有一个门：drawFlare() = 总开关 && flareAnySiding()，而后者第一句就是
-        // styleAllows(FLARE) —— 样式是 BAND 时这里必然返回，侧线的 beamFlare 覆盖不能越过它。
+        // 探针绕开全部配置闸（光带 / 灯晕 / 散射三个开关和总开关）：它测的是渲染路径，不是玩家的设置。
+        // 正常路径只有一个门：drawFlare() = 总开关 && flareAnySiding()。
         if (!test && !cfg.drawFlare()) {
             return;
         }
@@ -346,9 +345,8 @@ public final class LightFlare {
                 continue;
             }
             final HeadlightConfig.Effective eff = cfg.effectiveFor(train.sidingId);
-            // 逐车门：eff.beamFlare 已经在 effectiveFor 里与 flareStyle() 收过（侧线覆盖只能更严），
-            // 这里再读一次样式是为了让「样式 = BAND」这条不变量在渲染器里也留一道痕迹。
-            if (!eff.enabled || !eff.beamFlare || !cfg.styleAllows(HeadlightConfig.LightStyle.FLARE)) {
+            // 逐车门：eff.beamFlare 已经在 effectiveFor 里与全局开关收过（侧线覆盖只能更严）。
+            if (!eff.enabled || !eff.beamFlare) {
                 continue;
             }
             // 灯亮不亮由 HeadlightSwitch.judge 一个入口决定（在线路 / 环境 / 停着），见下面的三道闸。
@@ -393,7 +391,7 @@ public final class LightFlare {
 
     /**
      * {@code /mtr_lte lighttest} 的几何：每列车两端各一块 3 格见方的洋红四边形，画在端面外
-     * {@value #TEST_AHEAD} 格。没有任何判定 —— 朝向、距离、透明度、灯位、{@code lightStyle} 全部不参与。
+     * {@value #TEST_AHEAD} 格。没有任何判定 —— 朝向、距离、透明度、灯位、开关全部不参与。
      *
      * <p>两端都画是有意的：玩家可能站在任意一头，只画车头会出现「其实画了、只是在他背后」这种
      * 又一次说不清的反馈。
@@ -739,13 +737,12 @@ public final class LightFlare {
         lastSkipText = "skipped=offRoute=" + SKIP_OFF_ROUTE.size() + " dark=" + SKIP_DARK.size()
                 + " parked=" + SKIP_PARKED.size();
         if (windowOn && cfg != null) {
-            // style=… band=… flare=… 是这一窗口渲染层实际用的三个值（band/flare 就是
-            // bandGlobal()/flareGlobal()，与帧级门槛同一次调用）。它能当场回答"切了样式为什么
-            // 看不出区别"：数字变了 = 写入与判定都通，问题在几何（facing / 距离 / alpha）；
-            // 数字没变 = 写入或同步那一步没生效。
-            MtrHeadlightClient.LOGGER.info("[lte] flare: style={} band={} flare={} trains={}"
+            // band=… flare=… 是这一窗口渲染层实际用的两个值（就是 drawBand() / drawFlare()，
+            // 与帧级门槛同一次调用）。它能当场回答"打开了灯晕为什么看不出区别"：数字变了 =
+            // 写入与判定都通，问题在几何（facing / 距离 / alpha）；数字没变 = 写入那一步没生效。
+            MtrHeadlightClient.LOGGER.info("[lte] flare: band={} flare={} trains={}"
                             + " lamps={} quads={} noLamp={} {} drawn={} tex={}{}",
-                    cfg.style(), Boolean.valueOf(cfg.bandGlobal()), Boolean.valueOf(cfg.flareGlobal()),
+                    Boolean.valueOf(cfg.beamBand), Boolean.valueOf(cfg.beamFlare),
                     Integer.valueOf(dTrains), Integer.valueOf(dLamps), Integer.valueOf(dQuads),
                     Integer.valueOf(dNoLamp), lastSkipText, Boolean.valueOf(dDrawn), dTexture,
                     dDrawError == null ? "" : " err=" + dDrawError);

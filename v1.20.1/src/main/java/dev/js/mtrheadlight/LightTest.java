@@ -129,7 +129,7 @@ public final class LightTest {
      * 把右半屏涂成蓝色（左半屏留给散射程序自己画的红，两边不会互相盖住）。
      *
      * <p>它绕开本模组自己的全部机制：不采灯、不拷深度、不绑 {@code light_scatter} 程序、不看
-     * {@code scatterEnabled}。所以「只有蓝、没有红」这一种组合能单独点名「我们的程序没写进去，但这个
+     * {@code beamScatter}。所以「只有蓝、没有红」这一种组合能单独点名「我们的程序没写进去，但这个
      * 时机能写」。
      *
      * @return {@code true} 表示已经把这次绘制提交出去

@@ -1,19 +1,83 @@
 {
-  "variants": {
-    "facing=north": {
-      "model": "mtrlte:block/wall_sign_jiaomei"
+  "__comment": "站名出入口塔式模型（MTR 4.0.5）：style=0 用 short、style=1 用 tall；facing = 墙在哪一侧，y 约定与 station_sign_* / dep_on_wall 一致。link 位掩码不选变体（零厚度的板本来就没有拼接件），只给渲染器算「这条牌子横跨几格」。",
+  "multipart": [
+    {
+      "when": {
+        "style": "0",
+        "facing": "north"
+      },
+      "apply": {
+        "model": "mtrlte:block/station_name_entrance_short"
+      }
     },
-    "facing=east": {
-      "model": "mtrlte:block/wall_sign_jiaomei",
-      "y": 90
+    {
+      "when": {
+        "style": "0",
+        "facing": "east"
+      },
+      "apply": {
+        "model": "mtrlte:block/station_name_entrance_short",
+        "y": 90
+      }
     },
-    "facing=south": {
-      "model": "mtrlte:block/wall_sign_jiaomei",
-      "y": 180
+    {
+      "when": {
+        "style": "0",
+        "facing": "south"
+      },
+      "apply": {
+        "model": "mtrlte:block/station_name_entrance_short",
+        "y": 180
+      }
     },
-    "facing=west": {
-      "model": "mtrlte:block/wall_sign_jiaomei",
-      "y": 270
+    {
+      "when": {
+        "style": "0",
+        "facing": "west"
+      },
+      "apply": {
+        "model": "mtrlte:block/station_name_entrance_short",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "style": "1",
+        "facing": "north"
+      },
+      "apply": {
+        "model": "mtrlte:block/station_name_entrance_tall"
+      }
+    },
+    {
+      "when": {
+        "style": "1",
+        "facing": "east"
+      },
+      "apply": {
+        "model": "mtrlte:block/station_name_entrance_tall",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "style": "1",
+        "facing": "south"
+      },
+      "apply": {
+        "model": "mtrlte:block/station_name_entrance_tall",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "style": "1",
+        "facing": "west"
+      },
+      "apply": {
+        "model": "mtrlte:block/station_name_entrance_tall",
+        "y": 270
+      }
     }
-  }
+  ]
 }

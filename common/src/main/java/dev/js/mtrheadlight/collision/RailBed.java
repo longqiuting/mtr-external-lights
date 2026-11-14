@@ -25,10 +25,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 两张表的结构相同（{@code Map<BlockPos, Map<BlockPos, Rail>>}），所以几何、缓存、采样只有这一份。
  * 本类<b>不引用</b> {@code ClientData} / {@code ClientWorld} / 任何客户端类，否则服务端就用不了它。
  *
- * <h2>模型：横向列 + 弧长插值（照 RTE 的轨道段碰撞）</h2>
+ * <h2>模型：横向列 + 弧长插值（参照成熟的轨道段碰撞做法）</h2>
  * 旧模型是「最近点 + y 阈值」：求到中心线的最近采样点，再拿那个点的 y 去和脚底比。它在坡道上必然出错，
- * 因为「最近采样点」的 y 是<b>离散</b>的 —— 人往前走一步，轨面已经抬高，采样点还是上一个。RTE 的做法是
- * 把轨道当成一串<b>沿弧长的列</b>，这里照抄它的三条：
+ * 因为「最近采样点」的 y 是<b>离散</b>的 —— 人往前走一步，轨面已经抬高，采样点还是上一个。成熟的做法是
+ * 把轨道当成一串<b>沿弧长的列</b>，本实现采用同样的三条：
  *
  * <ol>
  *   <li><b>横向列</b>：把查询点投影到轨道折线上，得到<b>有符号横向偏移</b>
@@ -133,6 +133,97 @@ public final class RailBed {
 
     /** {@code where} 诊断最多列几条候选（按真实距离从近到远）。 */
     private static final int WHERE_MAX = 8;
+
+    /**
+     * 逐 tick 取证的候选明细上限：{@code cand[0]}…{@code cand[3]}。
+     *
+     * <p>取证（{@code /mtr_lte trackbed on}）打开后，{@link #probe} 会给<b>每一条候选</b>记一条
+     * {@link Detail}，按查询点到折线的真实距离升序保留最近的 {@code DETAIL_MAX} 条。这是回答
+     * 「{@code cand=4} 而 {@code best=(-,-,-)}，那 4 条为什么全被丢掉」的唯一手段 —— 光看结论
+     * 分不出「高度窗口不对」和「候选里根本没有脚下那条」。
+     */
+    private static final int DETAIL_MAX = 4;
+
+    /**
+     * 一条候选被<b>挡住</b>的原因（逐 tick 取证里的 {@code why=}）。
+     *
+     * <p>顺序就是 {@link #probe} 里过滤的顺序，谁先挡住就是谁：
+     */
+    public enum Why {
+        /** 一条都没挡住，参与了选择（可能是 {@code dist > halfW} 的「差一点」）。 */
+        OK,
+        /** 高度粗筛：{@code y < minY - HEIGHT_SLACK || y > maxY + HEIGHT_SLACK}（{@code y} 是脚底）。 */
+        HEIGHT,
+        /** 包围盒距离已超过 {@link #CANDIDATE_REACH}（真实距离只会更远，精确剪枝）。 */
+        BBOX,
+        /** {@link #column} 给不出列（采样折线顶点少于 2，退化数据）。 */
+        COLUMN,
+        /** 真实折线距离超过 {@link #CANDIDATE_REACH}：轨道在，但人站在道床外面。 */
+        FAR;
+
+        /** 诊断里用的短名：{@code ok|height|bbox|column|far}。 */
+        public String shortName() {
+            switch (this) {
+                case OK:
+                    return "ok";
+                case HEIGHT:
+                    return "height";
+                case BBOX:
+                    return "bbox";
+                case COLUMN:
+                    return "column";
+                default:
+                    return "far";
+            }
+        }
+    }
+
+    /**
+     * 一条候选的逐 tick 取证明细：{@code (dist, offset, railY, minY..maxY, why)}。
+     *
+     * <p>{@code dist}/{@code offset}/{@code railY} 是「查询点到这条折线」的投影结果 —— 即便它是被
+     * {@link Why#HEIGHT} 挡掉的，取证也会照样算一次投影（{@code y} 用不上，但 {@code dist} 和
+     * {@code railY} 正是要看的对比量）；算不出来是 {@code -}。
+     */
+    public static final class Detail {
+        final double distance;
+        final double offset;
+        final double railY;
+        final double minY;
+        final double maxY;
+        final double along;
+        final double length;
+        final boolean straight;
+        final Why why;
+
+        private Detail(final Entry entry, final Sample sample, final Why why) {
+            this.distance = sample == null ? Double.NaN : sample.distance;
+            this.offset = sample == null ? Double.NaN : sample.offset;
+            this.railY = sample == null ? Double.NaN : sample.y;
+            this.along = sample == null ? Double.NaN : sample.along;
+            this.length = entry.length;
+            this.minY = entry.minY;
+            this.maxY = entry.maxY;
+            this.straight = entry.straight;
+            this.why = why;
+        }
+
+        /** 排序用：没算出距离的排最后。 */
+        private double rank() {
+            return Double.isNaN(distance) ? Double.MAX_VALUE : distance;
+        }
+
+        /** 高程区间：平的轨道（{@code maxY ≈ minY}）只打一个数，坡道才打 {@code 10.09..12.30}。 */
+        private String range() {
+            return rangeText(minY, maxY);
+        }
+
+        /** {@code (0.12,+0.05,10.30,10.28..10.32,ok)} —— dist, offset, railY, minY..maxY, why。 */
+        public String text() {
+            return "(" + fmt(distance) + "," + signed(offset) + "," + fmt(railY) + ","
+                    + range() + "," + why.shortName() + ")";
+        }
+    }
 
     /**
      * 一条轨道的预计算量：沿弧长等距的<b>折线</b>（x / z / 弧长 s）、高程曲线的两端、包围盒。
@@ -429,6 +520,23 @@ public final class RailBed {
     private long cacheTick;
     private final AtomicBoolean warned = new AtomicBoolean();
 
+    /**
+     * 逐 tick 取证开关（{@code /mtr_lte trackbed on} 打开）：<b>只影响记录，不影响判定</b>。
+     *
+     * <p>关掉时 {@link #probe} 走原来那条快路（高度被挡就 {@code continue}，不算投影）；
+     * 打开时被挡的候选也会照样算一次投影，把 {@code dist}/{@code offset}/{@code railY} 记下来。
+     */
+    private volatile boolean capture;
+
+    /** 这次查询里每条候选的明细（最近的在前，最多 {@link #DETAIL_MAX} 条）。 */
+    private final List<Detail> details = new ArrayList<>(DETAIL_MAX);
+
+    /** 这次查询评估过的候选总数（可能大于 {@link #details} 的条数）。 */
+    private int detailTotal;
+
+    /** 这次查询的候选里有多少条是直道（{@code straightN=}：直道那条到底在不在候选里）。 */
+    private int detailStraight;
+
     /** 上一次建缓存扫过多少条轨道 / 有多少条被单条异常跳过（诊断）。 */
     private int lastScanned;
     private int lastSkipped;
@@ -455,6 +563,9 @@ public final class RailBed {
         cacheTick = 0L;
         lastScanned = 0;
         lastSkipped = 0;
+        details.clear();
+        detailTotal = 0;
+        detailStraight = 0;
         geometry.clear();
         clearLast();
     }
@@ -567,22 +678,45 @@ public final class RailBed {
             return null;
         }
         refresh(railsMap, tick, anchorX, anchorZ, margin);
+        if (capture) {
+            details.clear();
+            detailTotal = 0;
+            detailStraight = 0;
+        }
         Sample best = null;
         // 接缝选边：距离相同时，优先「投影落在轨道内部」的那条。
         boolean bestInterior = false;
         for (final Cand cand : cache) {
             final Entry entry = cand.entry;
             // 高度先过一遍：坡道上同一条轨道两端高程不同，所以用 [minY, maxY] 的区间判定。
-            if (y < entry.minY - HEIGHT_SLACK || y > entry.maxY + HEIGHT_SLACK) {
-                continue;
-            }
+            final boolean heightOk = !(y < entry.minY - HEIGHT_SLACK
+                    || y > entry.maxY + HEIGHT_SLACK);
             // 包围盒距离是真实折线距离的下界：超过准入半径就一定不可能命中，直接跳过（精确剪枝）。
-            if (entry.bboxDistance(x, z) > CANDIDATE_REACH) {
+            final double bbox = entry.bboxDistance(x, z);
+            final boolean bboxOk = !(bbox > CANDIDATE_REACH);
+            if (!heightOk || !bboxOk) {
+                // 快路（没开取证）到此为止；开了取证就照样投影一次，只为把 dist/railY 记进明细 ——
+                // 那正是「高度窗口挡掉的到底是不是脚下这条」要看的对比量。
+                if (capture) {
+                    recordDetail(entry, column(entry, x, z), heightOk ? Why.BBOX : Why.HEIGHT);
+                }
                 continue;
             }
             final Sample sample = column(entry, x, z);
-            if (sample == null || sample.distance > CANDIDATE_REACH) {
+            if (sample == null) {
+                if (capture) {
+                    recordDetail(entry, null, Why.COLUMN);
+                }
                 continue;
+            }
+            if (sample.distance > CANDIDATE_REACH) {
+                if (capture) {
+                    recordDetail(entry, sample, Why.FAR);
+                }
+                continue;
+            }
+            if (capture) {
+                recordDetail(entry, sample, Why.OK);
             }
             if (best == null
                     || sample.distance < best.distance - SEAM_TIE
@@ -607,6 +741,149 @@ public final class RailBed {
         lastDistance = Double.NaN;
         lastOffset = Double.NaN;
         lastAlong = Double.NaN;
+    }
+
+    /**
+     * 开关逐 tick 取证（{@code /mtr_lte trackbed on|off}）。关掉时不记录、也不算额外的投影，
+     * 判定结果与开销都和没有这个功能时一致。
+     */
+    public void setCapture(final boolean on) {
+        capture = on;
+        if (!on) {
+            details.clear();
+            detailTotal = 0;
+            detailStraight = 0;
+        }
+    }
+
+    /** 取证开着没有（{@code where} 之类的调用方用不到，命令层只认 {@code Trackbed.watch()}）。 */
+    public boolean capturing() {
+        return capture;
+    }
+
+    /**
+     * 记一条候选明细：按查询点距离<b>升序</b>插，只留最近的 {@link #DETAIL_MAX} 条。
+     *
+     * <p>{@code detailTotal}/{@code detailStraight} 统计的是<b>全部</b>候选（不只留下的四条），
+     * 所以 {@code cand=7} 而 {@code cand[0..3]} 只有四条时，{@code more=3} 会说清还有几条没列。
+     */
+    private void recordDetail(final Entry entry, final Sample sample, final Why why) {
+        detailTotal++;
+        if (entry.straight) {
+            detailStraight++;
+        }
+        final Detail detail = new Detail(entry, sample, why);
+        int at = details.size();
+        while (at > 0 && details.get(at - 1).rank() > detail.rank()) {
+            at--;
+        }
+        if (at >= DETAIL_MAX) {
+            return;
+        }
+        details.add(at, detail);
+        if (details.size() > DETAIL_MAX) {
+            details.remove(details.size() - 1);
+        }
+    }
+
+    /**
+     * 逐 tick 取证的候选明细（{@code cand[i]=(dist, offset, railY, minY..maxY, why)}），
+     * 没有明细时返回空串（调用方直接接在后面，不会多出空格）。
+     *
+     * <p>{@code why} 就是 {@link Why}：{@code height} = 被高度窗口挡住（拿 {@code railY} 和脚底
+     * 一比就知道窗口是不是用错了）、{@code bbox}/{@code far} = 轨道在但太远（候选里的不是脚下那条）、
+     * {@code column} = 这条轨道的折线退化、{@code ok} = 参与了选择。
+     * 末尾的 {@code more=N} 是没列出的候选条数，{@code straightN=a/b} 是候选里直道的比例 ——
+     * {@code straightN=0/4} 就说明直道那条根本不在候选里。
+     */
+    public String detailText() {
+        if (!capture) {
+            return "";
+        }
+        final StringBuilder out = new StringBuilder();
+        for (int i = 0; i < details.size(); i++) {
+            if (out.length() > 0) {
+                out.append(' ');
+            }
+            out.append("cand[").append(i).append("]=").append(details.get(i).text());
+        }
+        if (detailTotal > details.size()) {
+            out.append(" more=").append(detailTotal - details.size());
+        }
+        if (detailTotal > 0) {
+            out.append(" straightN=").append(detailStraight).append('/').append(detailTotal);
+        }
+        return out.toString();
+    }
+
+    /**
+     * <b>整张表</b>里离查询点最近的一条轨道（{@code tbl=}）：不看候选缓存、也不看高度窗口，
+     * 直接扫 {@link #geometry} 里每条轨道的折线。
+     *
+     * <p>这是 {@link #detailText()} 的补刀：候选明细回答「那 4 条为什么被挡」，{@code tbl=} 回答
+     * 「整张 256 条的表里，脚下最近的到底是哪一条、多远、多高」。分数种情况一眼可读：
+     * <ul>
+     *   <li>{@code tbl=} 里有 {@code dist≈0} 且 {@code railY} 与脚底对得上，而 {@code cand} 里没有它
+     *       → <b>候选缓存漏了</b>（{@link #build} 的准入 / 锚点问题）；</li>
+     *   <li>{@code tbl=} 的 {@code dist} 也是好几格 → 表里<b>根本没有</b>脚下这条（数据 / 维度问题，
+     *       看 {@code rails=} 和 {@code scanned=}）；</li>
+     *   <li>{@code tbl=} 的 {@code railY} 比脚底高/低 10 格以上 → 高度窗口不是问题，人不在那条轨道上。</li>
+     * </ul>
+     *
+     * <p>全表扫描（每条轨道一次折线投影），只在取证打开时按秒调用，不要每 tick 调。
+     */
+    public String tableNearestText(final Object railsMap, final double x, final double z) {
+        if (!(railsMap instanceof Map)) {
+            return "tbl=-";
+        }
+        Entry bestEntry = null;
+        Sample best = null;
+        try {
+            for (final Map.Entry<?, ?> outer : ((Map<?, ?>) railsMap).entrySet()) {
+                final Object endsRaw = outer.getValue();
+                if (!(endsRaw instanceof Map)) {
+                    continue;
+                }
+                for (final Map.Entry<?, ?> inner : ((Map<?, ?>) endsRaw).entrySet()) {
+                    final Object railRaw = inner.getValue();
+                    if (!(railRaw instanceof Rail)) {
+                        continue;
+                    }
+                    // 单条坏轨道只丢它自己（和 build 里同一条规矩）。
+                    try {
+                        final Rail rail = (Rail) railRaw;
+                        if (!physical(rail)) {
+                            continue;
+                        }
+                        final double length = rail.getLength();
+                        if (!(length > 1.0E-3D) || Double.isNaN(length)
+                                || Double.isInfinite(length)) {
+                            continue;
+                        }
+                        final Entry entry = geometry(rail, length);
+                        if (entry == null) {
+                            continue;
+                        }
+                        final Sample sample = column(entry, x, z);
+                        if (sample != null && (best == null || sample.distance < best.distance)) {
+                            best = sample;
+                            bestEntry = entry;
+                        }
+                    } catch (Throwable t) {
+                        warnOnce(t);
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            warnOnce(t);
+        }
+        if (best == null || bestEntry == null) {
+            return "tbl=-";
+        }
+        return "tbl=(" + fmt(best.distance) + "," + signed(best.offset) + "," + fmt(best.y) + ","
+                + rangeText(bestEntry.minY, bestEntry.maxY) + ")"
+                + " straight=" + (bestEntry.straight ? "yes" : "no")
+                + " along=" + fmt(best.along) + "/" + fmt(bestEntry.length);
     }
 
     /**
@@ -1098,6 +1375,14 @@ public final class RailBed {
     private static String fmt(final double value) {
         return Double.isNaN(value) || Double.isInfinite(value) ? "-"
                 : String.format(Locale.ROOT, "%.2f", Double.valueOf(value));
+    }
+
+    /** 高程区间（{@code minY..maxY}）；平的轨道只打一个数，别让日志里出现 {@code 10.09..10.09}。 */
+    private static String rangeText(final double minY, final double maxY) {
+        if (Double.isNaN(minY) || Double.isNaN(maxY)) {
+            return "-";
+        }
+        return maxY - minY <= 5.0E-3D ? fmt(minY) : fmt(minY) + ".." + fmt(maxY);
     }
 
     private static String signed(final double value) {

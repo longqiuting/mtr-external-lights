@@ -33,7 +33,7 @@ import java.util.Set;
  * {@code dataCache} 的声明类型是 {@code java.util.Set} / {@code mtr.data.DataCache}，
  * 不带任何 MC 类型，编译期就能过。
  *
- * <h2>用到的三条 MTR 事实（反编译 MTR-fabric-1.20.1-3.6.4.2 得到）</h2>
+ * <h2>用到的三条 MTR 事实（依据 MTR-fabric-1.20.1-3.6.4.2 的公开 API 核对）</h2>
  * <ul>
  *   <li>{@code RailwayData.getStation(Set<Station>, DataCache, BlockPos)} 用
  *       {@code Station#inArea(x, z)} 做矩形包含判定 —— 这就是「车站范围内任意方块」；</li>

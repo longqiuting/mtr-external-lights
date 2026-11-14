@@ -14,7 +14,7 @@ import java.util.Locale;
  *   <li>{@link ProtoBeamCone}（每帧的光柱）——不亮就不发锥，和光带同一个答案；</li>
  *   <li>{@link LightController}（动态光源 / LambDynamicLights）——不亮就在<b>过渡那一 tick</b>
  *       把光源从引擎里摘掉（{@code removeLine}），而不是继续 {@code updateLine}；</li>
- *   <li>{@link RailRelightScheduler}（轨道烘焙的亮度）——不亮就 {@code release} 掉那列车的
+ *   <li>{@code BeamRelight}（车灯写进方块光的亮度）——不亮就 {@code release} 掉那列车的
  *       rail chunk，不再把它当作光照来源。</li>
  * </ol>
  * 1.20.1 的屏幕空间灯晕（{@code LightFlare}）与散射（{@code sss.ScatterLights}）也走这里。

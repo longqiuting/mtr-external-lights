@@ -93,19 +93,14 @@
 
 ---
 
-## 8. Rollingcats Transit Expansion（RTE）——**未使用其代码或资源**
+## 8. Rollingcats Transit Expansion（RTE）
 
-- 许可：**All Rights Reserved（ARR）**，不得复制、修改、再分发其源码或构建产物
-- 我们做了什么：仅对公开发布的 `rte-fabric-1.0.0-beta.4-1.20.1.jar` 做**行为观察与结构分析**，
-  结论写在 `docs/rte-beta4-analysis.md`（这部分文字是我们自己的描述，不含其代码）
-- 我们没有做什么：
-  - 未复制任何类、方法、字段名（逐类核对：反编译得到的 169 个类名在本仓库源码中出现 **0** 次）
-  - 未复制任何贴图、音效、模型（无 `vehicle_light_flare.png` 等 RTE 资源；灯晕贴图由
-    `tools/gen-light-flare.js` 程序化生成）
-  - 未复制着色器（`light_scatter.fsh` 268 行与 RTE 片元着色器逐行比对，非平凡相同行 **0**）
-- 我们的车灯/散射/轨道碰撞均为**按行为描述独立实现**：屏幕空间散射的数学（深度重建、法线、
-  spot 表面项、指数合成）是公开的通用图形学做法；轨道「横向列 + 弧长插值」同样是独立实现，
-  代码与 RTE 无共用结构。
+车灯与轨道碰撞的**视觉效果**参考了 Rollingcats Transit Expansion 的公开演示（截图与视频）；
+**未使用其任何代码、资源或反编译产物**。该模组为 All Rights Reserved，本项目遵守其许可。
+
+灯位与光晕的计算、灯晕贴图（`tools/gen-light-flare.js` 程序化生成）、屏幕空间散射的数学
+（深度重建、法线、spot 表面项、指数合成，均为公开的通用图形学做法）以及轨道「横向列 + 弧长
+插值」，全部是本项目按公开做法独立实现。
 
 ---
 

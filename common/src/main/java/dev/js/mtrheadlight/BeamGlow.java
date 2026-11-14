@@ -201,16 +201,16 @@ public final class BeamGlow {
         // 过弯时 dirFix 应当等于有效端数（每列车 2）；若为 0 而 beams>0，说明弦退化了、走的是
         // 切线兜底 —— 那正是"弯道乱晃"的老症状。光带开关整窗口都没开时这一行不打。
         if (windowOn) {
-            // style=… band=… flare=… 与 [lte] flare: 那行同源（bandGlobal()/flareGlobal()），
+            // band=… flare=… 与 [lte] flare: 那行同源（drawBand()/drawFlare()），
             // 两行并排就能看出"这一帧该画哪一套"和"实际画了几束"。
             final HeadlightConfig cfg = MtrHeadlightClient.config();
             if (cfg == null) {
                 MtrHeadlightClient.LOGGER.info("[lte] glow: cars={} beams={} dirFix={}",
                         dCars, dBeams, dDirFix);
             } else {
-                MtrHeadlightClient.LOGGER.info("[lte] glow: style={} band={} flare={}"
+                MtrHeadlightClient.LOGGER.info("[lte] glow: band={} flare={}"
                                 + " cars={} beams={} dirFix={}",
-                        cfg.style(), Boolean.valueOf(cfg.drawBand()),
+                        Boolean.valueOf(cfg.drawBand()),
                         Boolean.valueOf(cfg.drawFlare()), dCars, dBeams, dDirFix);
             }
         }
@@ -261,7 +261,7 @@ public final class BeamGlow {
     public static void render(final WorldRenderContext context, final boolean latePass) {
         dCalls++;
         final HeadlightConfig cfg = MtrHeadlightClient.config();
-        // drawBand(): 帧级唯一门（总开关 + 任一侧线可能画光带 + 样式含光带）。
+        // drawBand(): 帧级唯一门（总开关 + 任一侧线可能画光带）。
         if (cfg == null || !cfg.drawBand() || cfg.beamAlpha <= 0.0D) {
             diag("cfg");
             return;
@@ -303,7 +303,7 @@ public final class BeamGlow {
                 continue;
             }
             final HeadlightConfig.Effective eff = cfg.effectiveFor(train.sidingId);
-            if (!eff.enabled || !eff.beamGlow) {
+            if (!eff.enabled || !eff.beamBand) {
                 diag("eff");
                 continue;
             }

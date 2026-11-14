@@ -1,4 +1,4 @@
-# 车灯重做：去光柱 / 按 RTE 思路重算灯位 / billboard 灯晕 + 真实照亮 / 移除 LDL
+# 车灯重做：去光柱 / 重算灯位 / billboard 灯晕 + 真实照亮 / 移除 LDL
 
 日期：2026-11-13　范围：**只改 v1.20.1**（`common/` 里被四个版本共用的文件也改了，因为它们就是同一条代码路径；1.18.2 / 1.19.2 / 1.19.4 未移植，见 §8）。
 编译：`gradle -p v1.20.1 compileJava` **BUILD SUCCESSFUL**（含 `--rerun-tasks` 全量重编）；
@@ -8,10 +8,10 @@
 
 ## 0. 一句话结论
 
-车灯不再是"从车头射出的一个锥/一条光带"，而是 RTE 那套拆法的等价实现：
+车灯不再是"从车头射出的一个锥/一条光带"，而是"灯位光斑 + 地面真实光照"这套拆法的等价实现：
 **在模型自己的灯位画一张面向相机的加色光斑（灯晕），地面/墙上的亮光由我们自己的真实方块光照（`BeamBlockLight`）提供**。
 灯位不再取"轨道点在车脸上 + 固定高度"，而是取**车型自己的灯箱**（模型 LIGHT 部件 → 内置灯位表 → 尺寸兜底），
-并有 `docs/rte-beta4-analysis.md` §2.4 的全部位姿约束（车身弦 `yaw+π`/`pitch+π` 等价物、`y=1` 轴不参与、局部轴 `(x,-y,-z)` 对齐）。
+并满足同一组位姿约束（车身弦 `yaw+π`/`pitch+π` 等价物、`y=1` 轴不参与、局部轴 `(x,-y,-z)` 对齐）。
 LDL 在 1.20.1 的构建路径里**符号级为 0**。
 
 ---
@@ -69,7 +69,7 @@ dir    = out（若条目声明了 rot，再绕 up 转 yaw、绕 right 转 pitch�
   横向把该面所有灯箱**聚类成一个灯一盏**（左右成对就是两个灯，绝不取均值）；内置车型取 `builtin_lights.json`
   里该 id 的 head/tail 灯箱（离线用捕获型 `VertexConsumer` 量的真实顶点，见 `docs/builtin-light-table.md`）。
   这两级的 `lateral/height/inset` 都由 `VehicleLights.Slot` / `BuiltinLights.slot` 给出。
-- **坐标变换**：相当于 RTE 的"平移到车心 → `yaw+π` → `pitch+π` → 绕 `y=1` 滚转 → 局部 `(x,−y,−z)`"，
+- **坐标变换**：等价于"平移到车心 → `yaw+π` → `pitch+π` → 绕 `y=1` 滚转 → 局部 `(x,−y,−z)`"这套做法，
   但用我们自己的量表达：`(lateral, height, −inset)` 是**车体局部**三分量，`right/up/out` 是这三根轴的世界基，
   于是车体怎么转灯就怎么转；不需要侧倾角，因为灯的位置本来就由 MTR 渲染用的同一根弦决定（`y=1` 轴问题只在手工拼矩阵时出现）。
 
@@ -104,7 +104,7 @@ alpha   = beamAlpha · lamp.alpha · (0.35+0.65·facing³) · distanceFade(d)
 - **一次 draw**：所有灯写进同一个 `BufferBuilder`，每帧一次 `BufferRenderer.drawWithGlobalProgram`。
 - 与旧光带相同的两条硬规则：影子/光影二选一 pass（`ShaderPackProbe`）、`matrixStack` 已含相机平移所以顶点用相机相对坐标。
 
-### 3.1 贴图：程序化生成，不用 RTE 的任何资源
+### 3.1 贴图：程序化生成，不使用任何外部资源
 
 `tools/gen-light-flare.js`（新）生成 `v1.20.1/src/main/resources/assets/mtrlte/textures/vehicle/light_flare.png`
 （128×128 RGBA，3 865 字节），轮廓：
@@ -127,7 +127,7 @@ centre alpha=255, corner alpha=0
 ```
 
 PNG 头另行校验（`89 50 4E 47`、IHDR 128×128、depth 8、colour type 6）；叠在深灰底上肉眼确认是
-"亮核 + 宽光晕 + 平滑衰减、无硬边"。**没有**引用 `vehicle_light_flare.png` 或任何 RTE 资源（ARR）。
+"亮核 + 宽光晕 + 平滑衰减、无硬边"。**没有**引用任何外部资源（第三方模组的贴图一律未使用）。
 
 ---
 
@@ -210,7 +210,7 @@ yaw=180deg -> world( 0.080, 65.133,  0.912) right=(−0.00, −1.00)
 
 ## 8. 仍未做 / 已知限制
 
-1. **没有做全屏屏幕空间光照 pass**（任务明确排除）。RTE 的"地面亮斑"是屏幕空间做的，我们靠 `BeamBlockLight`；
+1. **没有做全屏屏幕空间光照 pass**（任务明确排除）。"地面亮斑"也可以走屏幕空间，我们靠 `BeamBlockLight`；
    所以开了 Sodium/Embeddium（替换区块 mesher）或光影时，地面亮斑会缺，日志会说明原因（`beam light: skipped, …`）。
 2. **1.18.2 / 1.19.2 / 1.19.4 未移植**：它们仍走 `BeamGlow` + `ProtoBeamCone` 壳层 + `Ldl2Backend`，
    共用 `HeadlightConfig` 因此保留了 `beamCone*` 字段（1.20.1 标 `@Deprecated`、UI 不暴露）。

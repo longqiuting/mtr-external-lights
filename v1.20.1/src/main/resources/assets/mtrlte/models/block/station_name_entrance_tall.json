@@ -1,0 +1,22 @@
+{
+  "__comment": "MTR 4.0.5 的 mtr:block/station_name_entrance_tall 原样拷贝（只把贴图命名空间改成 mtrlte）。零厚度发光板，站名由 WallSignRenderer 画。",
+  "textures": {
+    "particle": "mtrlte:block/dark_blue"
+  },
+  "elements": [
+    {
+      "__comment": "Light",
+      "from": [0, 0, 0.05],
+      "to": [16, 16, 0.05],
+      "faces": {
+        "north": {
+          "texture": "#particle",
+          "cullface": "north"
+        },
+        "south": {
+          "texture": "#particle"
+        }
+      }
+    }
+  ]
+}
