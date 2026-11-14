@@ -3,6 +3,7 @@ package dev.js.mtrheadlight;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import dev.js.mtrheadlight.collision.CollisionImpact;
+import dev.js.mtrheadlight.collision.Trackbed;
 import dev.js.mtrheadlight.mtr.BuiltInTrains;
 import dev.js.mtrheadlight.server.ServerConfig;
 import dev.js.mtrheadlight.xiamen.dep.DepOnWallDebug;
@@ -251,7 +252,17 @@ public final class Commands {
                                 .then(ClientCommandManager.literal("low")
                                         .executes(context -> killSelf(context.getSource(), false)))
                                 .then(ClientCommandManager.literal("high")
-                                        .executes(context -> killSelf(context.getSource(), true)))));
+                                        .executes(context -> killSelf(context.getSource(), true)))))
+                // 道床取证（{@link Trackbed}）：「站在轨道上、过弯道就掉下去」时，这一行回答
+                // 「缓存到底有没有命中」。只在内存里，不写 config（和 lighttest / debug spray 一致）。
+                .then(ClientCommandManager.literal("trackbed")
+                        .executes(context -> trackbedStatus(context.getSource()))
+                        .then(ClientCommandManager.literal("status")
+                                .executes(context -> trackbedStatus(context.getSource())))
+                        .then(ClientCommandManager.literal("on")
+                                .executes(context -> setTrackbedWatch(context.getSource(), true)))
+                        .then(ClientCommandManager.literal("off")
+                                .executes(context -> setTrackbedWatch(context.getSource(), false))));
     }
 
     /**
@@ -292,6 +303,40 @@ public final class Commands {
                 }
             });
         });
+        return 1;
+    }
+
+    /**
+     * {@code /mtr_lte trackbed [status|on|off]} - 道床（{@link Trackbed}）的<b>取证行</b>，
+     * 专门回答「站在轨道上、过弯道就掉下去」。
+     *
+     * <p>{@code status} 立刻打一行并打开每 5 秒一次的同类日志：
+     * <pre>[lte] trackbed: rails=cached N hit=yes|no y=… dist=… halfW=… snapped=true|false</pre>
+     * {@code rails} 是缓存里候选轨道条数，{@code hit=no} 且 {@code dist=-} 表示缓存里根本没有近处的
+     * 轨道（旧版弯道漏判就是这个形态：弧太长，端点包围盒 + 外扩没圈住弧中段）；{@code dist} 有数字
+     * 但大于 {@code halfW} 则是「轨道找到了、只是差了一点」，那是几何/采样误差而不是缓存漏；
+     * {@code snapped} 是上一个完整 tick 里道床有没有真的把人按住（{@code false} + {@code hit=yes}
+     * 说明命中了却被真实方块 / 空间不足挡掉）。
+     *
+     * <p>只在内存里：退出游戏即失效，不写 config（和 {@code lighttest} / {@code debug spray} 一致）。
+     */
+    private static int trackbedStatus(final FabricClientCommandSource source) {
+        final String line = Trackbed.describe(Trackbed.snapped());
+        LteLog.LOGGER.info(line);
+        Trackbed.setWatch(true);
+        source.sendFeedback(Text.literal(line));
+        source.sendFeedback(Text.literal("LTE：道床取证已打开，每 5 秒一行（/mtr_lte trackbed off 关掉）"
+                + " — hit=no 且 dist=- 就是缓存没命中，跟在你身后一路 dist=- 的地方就是掉下去的位置"));
+        return 1;
+    }
+
+    /** {@code /mtr_lte trackbed on|off} - 开关上面那条每 5 秒的日志。 */
+    private static int setTrackbedWatch(final FabricClientCommandSource source, final boolean on) {
+        Trackbed.setWatch(on);
+        if (on) {
+            LteLog.LOGGER.info(Trackbed.describe(Trackbed.snapped()));
+        }
+        source.sendFeedback(Text.literal("LTE：道床取证" + (on ? "已打开（每 5 秒一行）" : "已关闭")));
         return 1;
     }
 

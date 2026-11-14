@@ -19,7 +19,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import dev.js.mtrheadlight.collision.CarBand;
 import dev.js.mtrheadlight.collision.CarGeometry;
 import dev.js.mtrheadlight.collision.CollisionImpact;
 import dev.js.mtrheadlight.collision.DriverKeyBypass;
@@ -38,9 +37,8 @@ import dev.js.mtrheadlight.collision.TrainTickCapture;
  * <ul>
  *   <li>列车清单：{@link TrainTickCapture} —— {@code TrainServer#simulateTrain} 的 TAIL 每 tick
  *       登记一次（MTR 3.6.4 没有任何公开的「取所有列车」入口，见该类的说明）。</li>
- *   <li>车厢几何：{@link TrainPose#of}（与灯光、客户端碰撞同一个采样函数）+ {@link CarBand}
- *       （沿轨道弧长采样的碰撞带，客户端与这里同一个生成器）+ {@link CarGeometry}
- *       （弦几何：车顶插值、端盖、推出）。</li>
+ *   <li>车厢几何：{@link TrainPose#of}（与灯光、客户端碰撞同一个采样函数）+ {@link CarGeometry}
+ *       （从 {@code CollisionSystem} 抽出来的纯计算，分段规则逐字相同）。</li>
  *   <li>速度 / 车门 / 车宽：{@code Train#getSpeed()} / {@code getDoorValue()} / {@code width}。</li>
  *   <li>后果：{@link CollisionImpact}（分档、指数伤害、冲量、冷却、{@code TrainImpactDamageSource}
  *       的两段死亡消息）—— 与客户端那条路是同一份代码。</li>
@@ -86,9 +84,6 @@ public final class ServerCollision {
     private static long lastDiagTick = Long.MIN_VALUE / 2L;
     private static int diagTrains;
     private static int diagCars;
-    /** 这一窗内最多的车身采样段数（不含端盖）与最细采样步长 —— 与客户端同一组字段。 */
-    private static int diagSamples;
-    private static double diagStep = Double.POSITIVE_INFINITY;
     private static int diagHits;
     private static double diagHp;
     private static boolean everCaptured;
@@ -163,7 +158,7 @@ public final class ServerCollision {
                         ? TrainTickCapture.trains(world, world.getTime()) : List.of();
                 if (!trains.isEmpty()) {
                     everCaptured = true;
-                    final List<Hull> cars = cars(trains, cfg);
+                    final List<CarGeometry.Car> cars = cars(trains, cfg);
                     if (!cars.isEmpty()) {
                         diagTrains = Math.max(diagTrains, trains.size());
                         diagCars = Math.max(diagCars, cars.size());
@@ -263,31 +258,8 @@ public final class ServerCollision {
     // 单个实体
     // ---------------------------------------------------------------------------------------------
 
-    /**
-     * 一节车厢 + 它的碰撞带。
-     *
-     * <p>{@link #car} 是弦几何（车顶 / 车底插值、端盖、车速、开门状态），{@link #body} 是
-     * {@link CarBand} 沿轨道弧长采样出来的带 —— 与客户端 {@code CollisionSystem} 用的是同一个
-     * 生成器，所以单人与多人里「车体在哪、有没有缝」完全一致。
-     */
-    private static final class Hull {
-        final CarGeometry.Car car;
-        final CarGeometry.Seg[] body;
-        /** 车身采样段数（诊断）。 */
-        final int samples;
-        /** 这一节车的采样步长（格）。 */
-        final double step;
-
-        Hull(final CarGeometry.Car car, final CarBand.Band band) {
-            this.car = car;
-            this.body = band.body;
-            this.samples = band.samples;
-            this.step = band.step;
-        }
-    }
-
     private static void collide(final ServerWorld world, final LivingEntity living,
-                                final List<Train> trains, final List<Hull> cars,
+                                final List<Train> trains, final List<CarGeometry.Car> cars,
                                 final HeadlightConfig cfg, final long now,
                                 final boolean dedicated) {
         // 死亡 / 0 血：不推、不扣、不飞。死后还被车顶着走就是「似死非死」的最后一环。
@@ -334,21 +306,20 @@ public final class ServerCollision {
         // 车顶：站在车顶上 / 刚从车顶掉下来 —— 与客户端 CollisionSystem#roofEscape 同一套规则。
         // 这里没有「吸附」（位置是客户端权威的），只做「不算被撞」和掉落伤害结算。
         final Roof roof = roofOf(living);
-        final Hull standing = onRoof(living, cars, cfg.trainCollisionHeightClamped());
+        final CarGeometry.Car standing = onRoof(living, cars, cfg.trainCollisionHeightClamped());
         roofTick(living, roof, standing, cfg, now);
         if (standing != null) {
             // 站在车顶上：车顶吸附 / 载人是客户端的事，服务端既不推也不扣。
             return;
         }
-        for (final Hull hull : cars) {
-            final CarGeometry.Car car = hull.car;
+        for (final CarGeometry.Car car : cars) {
             if (roofEscape(roof, living, car)) {
                 continue;
             }
             if (!near(living, car)) {
                 continue;
             }
-            final CarGeometry.Push push = firstHit(world, living, hull);
+            final CarGeometry.Push push = firstHit(world, living, car);
             if (push == null) {
                 continue;
             }
@@ -415,21 +386,14 @@ public final class ServerCollision {
      * <p>容差不放宽：漏判的后果只是「这一节车没被 latch 住」，那种情况下车身段与玩家仍然因为
      * <b>竖直分离</b>（脚底就在车顶平面上）不算相交，不会凭空扣血。
      */
-    private static Hull onRoof(final LivingEntity living,
-                               final List<Hull> cars,
-                               final double height) {
-        for (final Hull hull : cars) {
-            final CarGeometry.Car car = hull.car;
+    private static CarGeometry.Car onRoof(final LivingEntity living,
+                                          final List<CarGeometry.Car> cars,
+                                          final double height) {
+        for (final CarGeometry.Car car : cars) {
             if (!near(living, car)) {
                 continue;
             }
-            double roof = car.roofAt(living.getX(), living.getZ(), height);
-            if (Double.isNaN(roof) && CarBand.inside(hull.body, living.getX(), living.getZ(),
-                    CarGeometry.SIDE_INSET + 0.08D)) {
-                // 弯道接缝：弦盒落空，但碰撞带覆盖 —— 用弦参数插值给出车顶高度（与客户端同一套）。
-                final double t = clamp01(car.along(living.getX(), living.getZ()));
-                roof = car.floorA + (car.floorB - car.floorA) * t + height;
-            }
+            final double roof = car.roofAt(living.getX(), living.getZ(), height);
             if (Double.isNaN(roof)) {
                 continue;
             }
@@ -445,7 +409,7 @@ public final class ServerCollision {
             } else if (living.getVelocity().y > 0.08D) {
                 continue;
             }
-            return hull;
+            return car;
         }
         return null;
     }
@@ -458,23 +422,15 @@ public final class ServerCollision {
      * 数值也一致：单人与多人里「从车顶掉下来要掉多少血」是同一套公式。
      */
     private static void roofTick(final LivingEntity living, final Roof st,
-                                 final Hull standing, final HeadlightConfig cfg,
+                                 final CarGeometry.Car standing, final HeadlightConfig cfg,
                                  final long now) {
         st.seenTick = now;
         if (standing != null) {
-            st.key = standing.car.key;
-            st.index = standing.car.index;
-            double roof = standing.car.roofAt(living.getX(), living.getZ(),
+            st.key = standing.key;
+            st.index = standing.index;
+            st.roofY = standing.roofAt(living.getX(), living.getZ(),
                     cfg.trainCollisionHeightClamped());
-            if (Double.isNaN(roof) && CarBand.inside(standing.body, living.getX(), living.getZ(),
-                    CarGeometry.SIDE_INSET + 0.08D)) {
-                // 与 onRoof 同一套兜底：接缝处弦盒落空时用带 + 弦参数插值。
-                final double t = clamp01(standing.car.along(living.getX(), living.getZ()));
-                roof = standing.car.floorA + (standing.car.floorB - standing.car.floorA) * t
-                        + cfg.trainCollisionHeightClamped();
-            }
-            st.roofY = roof;
-            st.speedKmh = standing.car.speedKmh;
+            st.speedKmh = standing.speedKmh;
             st.standTick = now;
             clearFall(st);
             return;
@@ -633,20 +589,14 @@ public final class ServerCollision {
         return dx * dx + dz * dz <= reach * reach;
     }
 
-    /** 弦参数截到 [0, 1]：车顶 / 车底插值用。 */
-    private static double clamp01(final double t) {
-        return t < 0.0D ? 0.0D : (t > 1.0D ? 1.0D : t);
-    }
-
     /**
      * 一节车的第一次命中：先车身段（开门时整段跳过），再两个端盖。与客户端 {@code pushCar} 同序，
      * 所以「撞在哪儿」两边一致。
      */
     private static CarGeometry.Push firstHit(final ServerWorld world, final LivingEntity living,
-                                             final Hull hull) {
-        final CarGeometry.Car car = hull.car;
+                                             final CarGeometry.Car car) {
         if (!car.doorsOpen) {
-            for (final CarGeometry.Seg seg : hull.body) {
+            for (final CarGeometry.Seg seg : car.body) {
                 final CarGeometry.Push push = CarGeometry.contact(living, seg);
                 if (push.moved) {
                     return push;
@@ -666,9 +616,9 @@ public final class ServerCollision {
     // 车厢
     // ---------------------------------------------------------------------------------------------
 
-    /** 服务端列车 → 车厢（弦几何 + 弧长采样带）。 */
-    private static List<Hull> cars(final List<Train> trains, final HeadlightConfig cfg) {
-        final List<Hull> out = new ArrayList<>();
+    /** 服务端列车 → 车厢（分段 OBB）。 */
+    private static List<CarGeometry.Car> cars(final List<Train> trains, final HeadlightConfig cfg) {
+        final List<CarGeometry.Car> out = new ArrayList<>();
         final double height = cfg.trainCollisionHeightClamped();
         final double endPad = cfg.trainCollisionEndPadClamped();
         for (final Train train : trains) {
@@ -681,8 +631,7 @@ public final class ServerCollision {
                 if (train.transportMode != TransportMode.TRAIN) {
                     continue;
                 }
-                final boolean reversed = train.isReversed();
-                final TrainPose pose = TrainPose.of(train, reversed);
+                final TrainPose pose = TrainPose.of(train, train.isReversed());
                 final int carCount = pose.cars();
                 if (carCount <= 0) {
                     continue;
@@ -712,20 +661,11 @@ public final class ServerCollision {
                             continue;
                         }
                     }
-                    final double capA = i == 0 ? noseExtra : endPad;
-                    final double capB = i == carCount - 1 ? rearExtra : endPad;
-                    // 碰撞带与客户端同一个生成器（CarBand）：弯道接缝不再断。
-                    final CarBand.Band band = CarBand.build(train, i, pose, reversed, halfW,
-                            height, capA, capB);
-                    if (band == null) {
-                        continue;
-                    }
-                    final CarGeometry.Car car = new CarGeometry.Car(key, i, a, b, ax / len,
-                            az / len, len, halfW, height, doorsOpen, speed,
-                            Double.POSITIVE_INFINITY, capA, capB, train.sidingId);
-                    out.add(new Hull(car, band));
-                    diagSamples = Math.max(diagSamples, band.samples);
-                    diagStep = Math.min(diagStep, band.step);
+                    out.add(new CarGeometry.Car(key, i, a, b, ax / len, az / len, len, halfW,
+                            height, doorsOpen, speed, Double.POSITIVE_INFINITY,
+                            i == 0 ? noseExtra : endPad,
+                            i == carCount - 1 ? rearExtra : endPad,
+                            train.sidingId));
                 }
             } catch (Throwable t) {
                 // 单列车采样失败：跳过它，其它列车照常。
@@ -748,12 +688,8 @@ public final class ServerCollision {
         final int hits = diagHits;
         final double hp = diagHp;
         final String bedLine = ServerTrackbed.diagDirty() ? ServerTrackbed.diagLine() : null;
-        final int samples = diagSamples;
-        final double step = diagStep;
         diagTrains = 0;
         diagCars = 0;
-        diagSamples = 0;
-        diagStep = Double.POSITIVE_INFINITY;
         diagHits = 0;
         diagHp = 0.0D;
         if (trains == 0 && hits == 0 && bedLine == null) {
@@ -761,12 +697,8 @@ public final class ServerCollision {
         }
         try {
             if (trains > 0 || hits > 0) {
-                LteLog.LOGGER.info("[lte] collision(server): trains={} cars={} samples={} step={}"
-                                + " hits={} damage={} creativeDmg={}",
-                        Integer.valueOf(trains), Integer.valueOf(cars), Integer.valueOf(samples),
-                        Double.isFinite(step)
-                                ? String.format(Locale.ROOT, "%.2f", Double.valueOf(step)) : "-",
-                        Integer.valueOf(hits),
+                LteLog.LOGGER.info("[lte] collision(server): trains={} cars={} hits={} damage={} creativeDmg={}",
+                        Integer.valueOf(trains), Integer.valueOf(cars), Integer.valueOf(hits),
                         String.format(Locale.ROOT, "%.1f", Double.valueOf(hp)),
                         Boolean.valueOf(ServerConfig.get().damageInCreative));
             }

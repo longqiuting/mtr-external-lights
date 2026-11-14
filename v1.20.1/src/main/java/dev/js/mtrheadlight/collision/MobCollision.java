@@ -29,9 +29,9 @@ import java.util.List;
  * 那边也不会有本类 —— {@code CollisionBootstrap} 是 client 入口点。两边不会同时跑。
  *
  * <h2>几何：与玩家那条路是同一份代码</h2>
- * 车厢两端点由 {@link TrainPose} 采样，车身是 {@link CarBand} 沿轨道弧长采样出来的带（弯道接缝
- * 不断），弦几何 / 端盖 / 推出用 {@link CarGeometry}：车身段只做侧向推出、端盖允许轴向推出、车门
- * 开着时整侧放行、推完站不下人就不推 —— 与本地玩家完全一致，不会出现「人能穿过去、猫被弹开」。
+ * 车厢两端点由 {@link TrainPose} 采样，分段 OBB 与推出用 {@link CarGeometry}（从
+ * {@code CollisionSystem} 抽出来的纯计算）：车身段只做侧向推出、端盖允许轴向推出、车门开着时整侧
+ * 放行、推完站不下人就不推 —— 与本地玩家完全一致，不会出现「人能穿过去、猫被弹开」。
  *
  * <p>后果（推开 / 扣血 / 撞飞 / 飞出 / 死亡消息）交给 {@link CollisionImpact}，与玩家同一套公式与
  * 冷却。
@@ -79,7 +79,7 @@ public final class MobCollision {
                 if (trains.isEmpty()) {
                     continue;
                 }
-                final List<Hull> cars = cars(trains, cfg);
+                final List<CarGeometry.Car> cars = cars(trains, cfg);
                 diagTrains = Math.max(diagTrains, trains.size());
                 if (cars.isEmpty()) {
                     continue;
@@ -112,19 +112,8 @@ public final class MobCollision {
     // 单个生物
     // ---------------------------------------------------------------------------------------------
 
-    /** 一节车厢 + 它的碰撞带（与 {@code server.ServerCollision} 同一套：弦几何 + {@link CarBand}）。 */
-    private static final class Hull {
-        final CarGeometry.Car car;
-        final CarGeometry.Seg[] body;
-
-        Hull(final CarGeometry.Car car, final CarBand.Band band) {
-            this.car = car;
-            this.body = band.body;
-        }
-    }
-
     private static void collide(final ServerWorld world, final LivingEntity living,
-                                final List<Hull> cars, final HeadlightConfig cfg,
+                                final List<CarGeometry.Car> cars, final HeadlightConfig cfg,
                                 final long now) {
         // 死亡 / 0 血：连飞出阶段的掉血都不算，更不推。死了就该安静躺着。
         if (!living.isAlive() || living.isDead() || living.getHealth() <= 0.0F) {
@@ -149,12 +138,11 @@ public final class MobCollision {
 
         CarGeometry.Car hitCar = null;
         CarGeometry.Push hit = null;
-        for (final Hull hull : cars) {
-            final CarGeometry.Car car = hull.car;
+        for (final CarGeometry.Car car : cars) {
             if (!(car.speedKmh > 0.0D) || !near(living, car)) {
                 continue;
             }
-            hit = firstHit(world, living, hull);
+            hit = firstHit(world, living, car);
             if (hit != null && hit.moved) {
                 hitCar = car;
                 break;
@@ -194,10 +182,9 @@ public final class MobCollision {
 
     /** 一节车的第一次命中：先车身段（开门时整段跳过），再两个端盖。与客户端同序。 */
     private static CarGeometry.Push firstHit(final ServerWorld world, final LivingEntity living,
-                                             final Hull hull) {
-        final CarGeometry.Car car = hull.car;
+                                             final CarGeometry.Car car) {
         if (!car.doorsOpen) {
-            for (final CarGeometry.Seg seg : hull.body) {
+            for (final CarGeometry.Seg seg : car.body) {
                 final CarGeometry.Push push = CarGeometry.contact(living, seg);
                 if (push.moved) {
                     return push;
@@ -217,13 +204,10 @@ public final class MobCollision {
     // 车厢
     // ---------------------------------------------------------------------------------------------
 
-    /**
-     * 服务端列车 → 车厢（弦几何 + 弧长采样带）。与 {@code server.ServerCollision} 用的是同一个
-     * {@link CarGeometry.Car} 与同一个 {@link CarBand}，所以单人与 dedicated 两条路量出来的车体、
-     * 以及「弯道有没有缝」完全一致。
-     */
-    private static List<Hull> cars(final List<Train> trains, final HeadlightConfig cfg) {
-        final List<Hull> out = new ArrayList<>();
+    /** 服务端列车 → 车厢（分段 OBB）。与 {@code server.ServerCollision} 用的是同一个
+     *  {@link CarGeometry.Car}，所以单人与 dedicated 两条路量出来的车体完全一致。 */
+    private static List<CarGeometry.Car> cars(final List<Train> trains, final HeadlightConfig cfg) {
+        final List<CarGeometry.Car> out = new ArrayList<>();
         final double height = cfg.trainCollisionHeightClamped();
         final double endPad = cfg.trainCollisionEndPadClamped();
         for (final Train train : trains) {
@@ -265,16 +249,11 @@ public final class MobCollision {
                             continue;
                         }
                     }
-                    final double capA = i == 0 ? noseExtra : endPad;
-                    final double capB = i == carCount - 1 ? rearExtra : endPad;
-                    final CarBand.Band band = CarBand.build(train, i, pose, train.isReversed(),
-                            halfW, height, capA, capB);
-                    if (band == null) {
-                        continue;
-                    }
-                    out.add(new Hull(new CarGeometry.Car(key, i, a, b, ax / len, az / len, len,
-                            halfW, height, doorsOpen, speed, Double.POSITIVE_INFINITY,
-                            capA, capB, train.sidingId), band));
+                    out.add(new CarGeometry.Car(key, i, a, b, ax / len, az / len, len, halfW,
+                            height, doorsOpen, speed, Double.POSITIVE_INFINITY,
+                            i == 0 ? noseExtra : endPad,
+                            i == carCount - 1 ? rearExtra : endPad,
+                            train.sidingId));
                 }
             } catch (Throwable ignored) {
                 // 这一列车数据异常：跳过它，别的车照常。
