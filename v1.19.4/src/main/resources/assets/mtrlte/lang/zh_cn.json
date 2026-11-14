@@ -624,6 +624,8 @@
   "opt.scatter.on": "空气散射：开",
   "opt.scatterSurface.off": "空气散射·照亮表面：关",
   "opt.scatterSurface.on": "空气散射·照亮表面：开",
+  "opt.scatterShaders.off": "空气散射·光影下也生效：关",
+  "opt.scatterShaders.on": "空气散射·光影下也生效：开",
   "opt.scatterStrength": "光雾强度 %s",
   "opt.scatterRadius": "光雾半径 %s 格",
   "opt.damageInCreative.off": "创造模式也受伤：关",

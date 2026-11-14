@@ -19,6 +19,7 @@ import net.minecraft.client.render.VertexFormats;
 import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL14;
+import org.lwjgl.opengl.GL30;
 
 import java.util.Locale;
 
@@ -90,8 +91,31 @@ import java.util.Locale;
  * in the fragment loop. No texture fetch inside the loop, no per-lamp draw. {@code scatterSurface}
  * off skips the whole per-lamp block (a uniform branch, so the normal/spot/N-dot-L work is not
  * executed at all) and the pass writes the scene back unchanged. Zero lamps means the method returns
- * before touching GL - no copies, no framebuffer, no program bind. A shader pack (Iris/OptiFine)
- * owns the pipeline and the depth buffer, so the pass is skipped there with one log line.
+ * before touching GL - no copies, no framebuffer, no program bind.
+ *
+ * <h2>Two timings: with and without a shader pack</h2>
+ * Without a pack ({@link ShaderPackProbe#active()} false) the whole pass runs inside
+ * {@code WorldRenderEvents.LAST}: depth copy, colour copy and the composite, one after the other -
+ * that path was already proven in game.
+ *
+ * <p>With a pack (Iris / OptiFine) {@code LAST} is <b>inside</b> the pack's own world rendering, so
+ * anything written there is overwritten by the pack's composite. The pass therefore splits in two
+ * ( {@code scatterUnderShaders}, on by default):
+ *
+ * <pre>
+ *   LAST (in the pack's world pass)   depth blit only + record proj*view, lamp arrays,
+ *                                     copy size.  No colour is written.
+ *   GameRenderer#renderWorld RETURN   {@link #renderDeferred()} (called by
+ *   (= renderLevel)                   GameRendererScatterMixin): the pack has composited, the main
+ *                                     framebuffer IS the screen - colour blit + composite here.
+ * </pre>
+ *
+ * <p>The colour copy deliberately happens in the second step, never in the first: inside the pack's
+ * pass the colour attachment holds pre-composite (often HDR) values, which would make a terrible
+ * albedo and would be thrown away anyway.
+ *
+ * <p>With {@code scatterUnderShaders = false} the old behaviour is back: under a pack the pass steps
+ * aside entirely with one log line ({@code reason=shader-pack}).
  */
 public final class ScatterPass {
 
@@ -171,6 +195,41 @@ public final class ScatterPass {
     private static boolean diagBlendEnabled;
     private static int diagBlendSrc = -1;
     private static int diagBlendDst = -1;
+
+    /* ------------------------------------------------------------------------------------------
+     * 光影（Iris / OptiFine）下的「两段式」：LAST 采深度、renderWorld 返回之后合成。
+     * 见 {@link #renderDeferred()}。
+     * ---------------------------------------------------------------------------------------- */
+
+    /**
+     * 延迟合成里两份拷贝与当前帧的一致程度，{@code depth=} 那一格打的就是它：
+     * {@code none}（还没采过）/ {@code fresh}（这一帧采的）/ {@code stale…}（上一帧的、没人取的、
+     * 或者采集时 glGetError 非 0）。<b>「光影下看不到」时先看这一格。</b>
+     */
+    private static String depthState = "none";
+    /** LAST 里已经采好深度、等着 {@code renderWorld} 返回后合成。每帧进 {@link #render} 时清。 */
+    private static boolean deferredArmed;
+    /** 采样时刻（纳秒）：延迟合成用它判「这份深度是不是这一帧的」。 */
+    private static long deferredStamp;
+    /** 采集时的灯数 / 覆盖探针 / 拷贝尺寸。 */
+    private static int deferredLights;
+    private static boolean deferredCoverage;
+    private static int deferredWidth = -1;
+    private static int deferredHeight = -1;
+    /** 这个窗口里延迟合成成功了几帧（{@code deferred=} 那一格）。 */
+    private static int deferredFrames;
+    /** 最近一次延迟合成的结果，一个词；{@code defer=} 那一格。 */
+    private static String deferredReason = "idle(no deferred attempt yet)";
+    /** mixin 到底有没有调进来过（没有 = 注入没插上，或者根本没开光影）。 */
+    private static boolean deferredCalledOnce;
+    /** 尺寸不一致 / 失败各只提示一次。 */
+    private static boolean deferredSizeWarned;
+    private static boolean deferredWarned;
+    /**
+     * 深度算「这一帧的」的窗口：{@code LAST} 与 {@code renderWorld} 的 RETURN 之间只隔几个毫秒，
+     * 200 ms 已经宽到能容忍一次卡顿，又窄到不可能跨帧。
+     */
+    private static final long DEPTH_FRESH_NANOS = 200_000_000L;
 
     private ScatterPass() {
     }
@@ -263,6 +322,19 @@ public final class ScatterPass {
          * 一盏灯，全都会在日志里留下 frames / reason，而不是让玩家对着一个安静的日志猜。
          */
         calls++;
+        /*
+         * 上一帧「等合成」的标记如果还挂着，说明 {@code renderWorld} 的 RETURN 没有来取它（mixin 没
+         * 插上，或者两趟之间游戏早退了）。那份深度对新的一帧已经过期，绝不能再拿去合成：记成 stale
+         * 并把原因写进日志，{@code defer=} 那一格就是「注入到底有没有生效」的答案。
+         *
+         * <p>放在 heartbeat 之前：这一行日志要报的是「上一帧那趟合成成没成」，而不是马上要被这次
+         * 采集覆盖掉的新状态。
+         */
+        if (deferredArmed) {
+            deferredArmed = false;
+            depthState = "stale(unconsumed)";
+            deferredReason = "not-consumed";
+        }
         heartbeat(MtrHeadlightClient.config());
         try {
             final MinecraftClient client = MinecraftClient.getInstance();
@@ -300,14 +372,22 @@ public final class ScatterPass {
                         : (!cfg.enabled ? "off(master)" : "off(beamScatter=false)");
                 return;
             }
-            if (shaderPackActive()) {
-                lastReason = "shader-pack(no-framebuffer-access)";
+            /*
+             * 光影包（Iris / OptiFine）接管管线时走<b>两段式</b>：LAST 只采深度（下面的 DepthCopy），
+             * 颜色合成推迟到 GameRenderer#renderWorld 返回之后 —— 见 {@link #renderDeferred()}。
+             *
+             * <p>scatterUnderShaders=false 时退回旧行为：光影下整条 pass 让路，只留一行日志。
+             */
+            final boolean pack = shaderPackActive();
+            if (pack && !cfg.scatterUnderShaders) {
+                lastReason = "shader-pack(scatterUnderShaders=false)";
                 if (!packWarned) {
                     packWarned = true;
                     MtrHeadlightClient.LOGGER.info(
-                            "[lte] scatter: shader pack active - the screen-space scattering pass "
-                                    + "stays out of the pipeline (the pack owns the framebuffer "
-                                    + "and the depth buffer)");
+                            "[lte] scatter: shader pack active and scatterUnderShaders=false - the "
+                                    + "screen-space scattering pass stays out of the pipeline (the "
+                                    + "pack owns the framebuffer and the depth buffer); turn "
+                                    + "\"air scatter under shaders\" on to composite after the pack");
                 }
                 return;
             }
@@ -348,26 +428,16 @@ public final class ScatterPass {
                 return;
             }
             lastDepthError = DepthCopy.lastError();
-            /*
-             * The colour copy is not optional any more: the composite writes
-             * scene + light * albedo, so without a copy of the scene there is nothing to write back
-             * (the pass would have to sample the attachment it is drawing into). Failing here means
-             * no pass at all - not a black screen.
-             */
-            if (!ColorCopy.update(framebuffer)) {
-                lastReason = "color-copy-failed";
-                if (!colorWarned) {
-                    colorWarned = true;
-                    MtrHeadlightClient.LOGGER.warn("[lte] scatter: the scene colour could not be "
-                            + "copied this frame - the pass stays off (there is no albedo to light)");
-                }
-                return;
-            }
+            // 这一帧的深度是真的拷到了 —— `depth=` 那一格由这一行负责（见 depthState 的注释）。
+            depthState = "fresh";
 
             /*
              * Depth reconstruction matrix: inverse(projection * view). Everything stays
              * camera-relative - the lamp positions are already relative to the camera - so no large
              * world coordinates ever reach a float in the shader.
+             *
+             * <p>光影路径下这一份矩阵在 LAST 里算、在 renderDeferred() 里用：那时已经没有
+             * WorldRenderContext（也没有相机矩阵栈），而建矩阵要用到 context 的视图矩阵。
              */
             final Matrix4f view = viewMatrix(context, client);
             VIEW_PROJ.set(RenderSystem.getProjectionMatrix()).mul(view);
@@ -381,6 +451,46 @@ public final class ScatterPass {
              */
             final boolean coverage = debugMode == 0
                     && (probeRequested || (cfg.scatterSurface && litProbeDue()));
+
+            if (pack) {
+                /*
+                 * 光影路径 #1（在 LAST 里）：到这里为止 —— 深度已在上面拷好，重建矩阵与灯阵都在
+                 * 静态字段里，尺寸记下来。
+                 *
+                 * <b>一个颜色像素都不写</b>：此刻的颜色附件是光影合成<b>之前</b>的内容（很多包是
+                 * HDR 中间结果，值可以 &gt; 1），既不能当 albedo，写进去也会被它自己的 composite
+                 * 盖掉。颜色拷贝与整屏合成交给 {@link #renderDeferred()}（renderWorld 返回之后）。
+                 */
+                deferredLights = lights;
+                deferredCoverage = coverage;
+                deferredWidth = DepthCopy.width();
+                deferredHeight = DepthCopy.height();
+                deferredStamp = System.nanoTime();
+                deferredArmed = true;
+                deferredReason = "armed(waiting for renderWorld return)";
+                lastLights = lights;
+                maxLights = Math.max(maxLights, lights);
+                lastReason = "pack(deferred)";
+                return;
+            }
+
+            /*
+             * The colour copy is not optional any more: the composite writes
+             * scene + light * albedo, so without a copy of the scene there is nothing to write back
+             * (the pass would have to sample the attachment it is drawing into). Failing here means
+             * no pass at all - not a black screen. 光影路径下这一份拷贝在 renderDeferred() 里做
+             * （那时颜色附件才是屏幕上真正看到的内容）。
+             */
+            if (!ColorCopy.update(framebuffer)) {
+                lastReason = "color-copy-failed";
+                if (!colorWarned) {
+                    colorWarned = true;
+                    MtrHeadlightClient.LOGGER.warn("[lte] scatter: the scene colour could not be "
+                            + "copied this frame - the pass stays off (there is no albedo to light)");
+                }
+                return;
+            }
+
             ScatterProgram.uniforms(INVERSE, MAX_RAY, COS_INNER, COS_OUTER, strength(cfg),
                     ATTENUATION_REF, cfg.scatterSurface, coverage, debugMode, lights,
                     LIGHT_POS, LIGHT_DIR, LIGHT_COLOR);
@@ -413,6 +523,190 @@ public final class ScatterPass {
     /** 5 秒一次自动量 litPx 的时间窗（和日志窗口同频）。 */
     private static boolean litProbeDue() {
         return System.currentTimeMillis() - lastProbeMs >= LOG_INTERVAL_MS;
+    }
+
+    /**
+     * <b>光影下真正写颜色的那一趟</b>：由 {@code GameRendererScatterMixin} 在
+     * {@code GameRenderer#renderWorld}（1.19.4 里就是 {@code renderWorld}，intermediary
+     * {@code method_3188}）<b>返回之后</b>调用。
+     *
+     * <p>那时 Iris / OptiFine 已经把自己的 composite 走完，主帧缓冲就是屏幕上那一帧，所以我们
+     * 写的颜色不会被谁覆盖。这里做三件事，顺序不能换：
+     * <ol>
+     *   <li><b>校验</b>：这一帧在 LAST 里采过深度（{@link #deferredArmed} 由 {@code render}
+     *       置位、这里消费）、深度纹理 id 与尺寸有效、{@code glGetError()} 为 0、采样到现在不超过
+     *       {@link #DEPTH_FRESH_NANOS}。任何一项不满足就<b>安静跳过</b>（一次性 WARN），绝不拿一份
+     *       过期或空的深度去重建画面；</li>
+     *   <li><b>颜色拷贝</b>：{@link ColorCopy#update} 在<b>这一刻</b>做（不是 LAST 里），此刻的颜色
+     *       附件才是玩家真正看到的画面；</li>
+     *   <li><b>合成</b>：{@link #drawInto} 自己绑帧缓冲、自己设视口、画完把两者都放回原样。</li>
+     * </ol>
+     *
+     * <p>没有光影包时这里什么都不做 —— 那条路已经在 LAST 里画完了，再画一遍就是把光叠两次。
+     *
+     * <p>方法体里 catch 一切：世界渲染的这条返回路径上，一个异常就够让整个画面停住。
+     */
+    public static void renderDeferred() {
+        if (!deferredCalledOnce) {
+            deferredCalledOnce = true;
+            MtrHeadlightClient.LOGGER.info("[lte] scatter: deferred hook reached (renderWorld "
+                    + "return) - the shader-pack path composites after the pack, not in LAST");
+        }
+        if (!deferredArmed) {
+            // 每帧都会被调到；只有 LAST 采过深度的帧才有活干（无光影时永远没活干）。
+            return;
+        }
+        deferredArmed = false;
+        final long started = System.nanoTime();
+        try {
+            final HeadlightConfig cfg = MtrHeadlightClient.config();
+            if (cfg == null || !cfg.drawScatter()) {
+                deferredReason = "off(beamScatter)";
+                return;
+            }
+            if (!cfg.scatterUnderShaders) {
+                deferredReason = "off(scatterUnderShaders=false)";
+                return;
+            }
+            if (!shaderPackActive()) {
+                // 无光影：LAST 已经把整屏合成完了，这里再画一遍就是把光叠两次。
+                deferredReason = "no-pack(already drawn in LAST)";
+                return;
+            }
+            final MinecraftClient client = MinecraftClient.getInstance();
+            if (client == null || client.world == null) {
+                deferredReason = "no-world";
+                return;
+            }
+            if (!ScatterProgram.ready()) {
+                deferredReason = "program=" + ScatterProgram.status();
+                return;
+            }
+            /*
+             * 深度校验。`id != -1 / 尺寸 > 0 / glGetError()==0 / 采样不过 200 ms` 四条全过才画：
+             * 一份空的或上一帧的深度会让整个屏幕的法线全是垃圾 —— 那比"这一帧没有光"糟糕得多。
+             */
+            final long age = System.nanoTime() - deferredStamp;
+            if (DepthCopy.texture() == -1 || DepthCopy.width() <= 0 || DepthCopy.height() <= 0
+                    || DepthCopy.lastError() != 0 || age < 0L || age > DEPTH_FRESH_NANOS) {
+                depthState = "stale(" + (age < 0L ? "clock" : "age=" + (age / 1_000_000L) + "ms")
+                        + (DepthCopy.texture() == -1 ? ",no-texture" : "")
+                        + (DepthCopy.lastError() != 0 ? ",err=0x"
+                                + Integer.toHexString(Math.max(0, DepthCopy.lastError())) : "")
+                        + ")";
+                deferredReason = "depth-stale";
+                warnDeferredOnce("the depth copy for the deferred composite was stale");
+                return;
+            }
+            final Framebuffer framebuffer = client.getFramebuffer();
+            if (framebuffer == null) {
+                deferredReason = "no-framebuffer";
+                return;
+            }
+            /*
+             * Iris 会自己搞多重缓冲，最终帧缓冲的尺寸可以和 LAST 里采样的那个不一样。全屏四边形是
+             * NDC 的（顶点是 -1..1），深度/颜色纹理按 UV 采样，所以尺寸不同只会把光"拉伸"到新
+             * 分辨率上，不会画空 —— 只是值得在日志里说一次。
+             */
+            if (!deferredSizeWarned
+                    && (deferredWidth != framebuffer.viewportWidth
+                            || deferredHeight != framebuffer.viewportHeight)) {
+                deferredSizeWarned = true;
+                MtrHeadlightClient.LOGGER.info("[lte] scatter: deferred draw at {}x{} but the depth "
+                                + "copy is {}x{} - the quad is NDC so this only stretches the light "
+                                + "(Iris resized its framebuffer after LAST)",
+                        Integer.valueOf(framebuffer.viewportWidth),
+                        Integer.valueOf(framebuffer.viewportHeight),
+                        Integer.valueOf(deferredWidth), Integer.valueOf(deferredHeight));
+            }
+            if (!ColorCopy.update(framebuffer)) {
+                deferredReason = "color-copy-failed";
+                warnDeferredOnce("the scene colour could not be copied after the shader pack "
+                        + "composited");
+                return;
+            }
+            ScatterProgram.uniforms(INVERSE, MAX_RAY, COS_INNER, COS_OUTER, strength(cfg),
+                    ATTENUATION_REF, cfg.scatterSurface, deferredCoverage, debugMode,
+                    deferredLights, LIGHT_POS, LIGHT_DIR, LIGHT_COLOR);
+            if (!drawInto(framebuffer)) {
+                deferredReason = "framebuffer-not-writable";
+                warnDeferredOnce("the framebuffer the shader pack left bound cannot be drawn into");
+                return;
+            }
+            if (deferredCoverage) {
+                probeRequested = false;
+                lastLitPixels = ColorCopy.probeLitPixels(framebuffer);
+                lastProbeMs = System.currentTimeMillis();
+            }
+            deferredFrames++;
+            frames++;
+            msSum += (System.nanoTime() - started) / 1.0E6D;
+            msCount++;
+            deferredReason = "ok";
+            lastReason = "ok(deferred)";
+        } catch (Throwable t) {
+            deferredReason = "exception:" + t.getClass().getSimpleName();
+            warnDeferredOnce("the deferred composite failed (the world render itself is untouched)");
+        }
+    }
+
+    /** 延迟路径的失败只记一次：一帧一次会把日志刷满，而这些原因一晚上不会变。 */
+    private static void warnDeferredOnce(final String what) {
+        if (deferredWarned) {
+            return;
+        }
+        deferredWarned = true;
+        MtrHeadlightClient.LOGGER.warn("[lte] scatter: {} - the deferred pass stays off until it can "
+                + "be done safely (see the 5 s \"defer=\" field for the current reason)", what);
+    }
+
+    /** 清掉挂起的 GL 错误，让紧接着的一次查询只可能是我们自己那条调用产生的。 */
+    private static void drainErrors() {
+        for (int i = 0; i < 16 && GL11.glGetError() != GL11.GL_NO_ERROR; i++) {
+            // drain
+        }
+    }
+
+    /**
+     * 在<b>已经不属于我们</b>的时刻画这一屏：自己绑帧缓冲、自己设视口，画完把两者都放回原样。
+     *
+     * <p>{@code renderWorld} 返回时原版刚刚 {@code endWrite()} 过主帧缓冲，绑定与视口都不一定还是
+     * 我们以为的那一套（Iris 更是一定换过）。所以这里不走 {@code beginWrite/endWrite} 那对语义，
+     * 而是：记下当前 {@code GL_FRAMEBUFFER_BINDING} 与 {@code GL_VIEWPORT} → 绑主帧缓冲、设整屏
+     * 视口 → 画 → 原样恢复。任何一步失败都只是"这一帧没有光"，不影响谁。
+     *
+     * @return {@code false} 表示目标帧缓冲不完整（Iris 的特殊 FBO），调用方跳过即可
+     */
+    private static boolean drawInto(final Framebuffer framebuffer) {
+        final int previousFbo = GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING);
+        final int[] viewport = new int[4];
+        GL11.glGetIntegerv(GL11.GL_VIEWPORT, viewport);
+        final int width = Math.max(1, framebuffer.viewportWidth);
+        final int height = Math.max(1, framebuffer.viewportHeight);
+        try {
+            GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, framebuffer.fbo);
+            if (GlStateManager.glCheckFramebufferStatus(GL30.GL_FRAMEBUFFER)
+                    != GL30.GL_FRAMEBUFFER_COMPLETE) {
+                return false;
+            }
+            GlStateManager._viewport(0, 0, width, height);
+            // 先清掉别人留下的错误，再画：这样 `glGetError()` 读到的就一定是<b>我们这一笔</b>的
+            // 结果（不可写的颜色附件在这里报 GL_INVALID_FRAMEBUFFER_OPERATION）。
+            drainErrors();
+            draw();
+            return GL11.glGetError() == GL11.GL_NO_ERROR;
+        } finally {
+            /*
+             * 恢复的是「别人的」状态：视口尺寸、帧缓冲绑定。留在我们身上就等于把后半帧交给一个
+             * 别人不知道的视口（手、HUD、光影下一帧的 composite 全都会画错）。
+             */
+            try {
+                GlStateManager._viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+                GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, previousFbo);
+            } catch (Throwable ignored) {
+                // Lost context: nothing to restore.
+            }
+        }
     }
 
     /**
@@ -451,22 +745,38 @@ public final class ScatterPass {
 
     /**
      * 每 5 秒<b>无条件</b>一行（只要 {@code beamScatter=true}）：pass 有没有跑、跑了几帧、
-     * 每帧几盏灯、两份拷贝成不成、litPx、深度重建矩阵来自哪个候选。
+     * 每帧几盏灯、两份拷贝成不成、litPx、深度重建矩阵来自哪个候选，以及<b>光影那条路走到哪一步</b>。
      *
      * <pre>
-     *   [lte] scatter pass: frames=300 lights=4 depth=1920x1080 ok color=1920x1080 ok blend=replace
-     *                       litPx≈15234 matrix=context maxLights=4 avgMs=0.42 surface=on pack=false reason=ok
+     *   [lte] scatter pass: frames=300 pack=false deferred=false depth=fresh 1920x1080 ok
+     *                       lights=4 color=1920x1080 ok blend=replace litPx≈15234 matrix=context
+     *                       calls=300 maxLights=4 avgMs=0.42 surface=on debug=off defer=idle reason=ok
      *   [lte] scatter light0: pos=(…) dir=(…) rgb=(…) power=… radius=… beam=… coneDeg=20.0/56.6 depthErr=ok
      * </pre>
      *
      * {@code frames=0 reason=…} 就是「为什么看不到效果」的答案，一行之内给全：
      * <ul>
      *   <li>{@code no-lights} —— collect() 一盏灯都没拿到（车没点亮 / 太远 / 灯晕开关关着）；</li>
-     *   <li>{@code shader-pack(…)} —— 光影包接管了 framebuffer，我们主动让路；</li>
+     *   <li>{@code shader-pack(scatterUnderShaders=false)} —— 光影包接管了 framebuffer，而这个开关
+     *       被关掉了，我们主动让路；</li>
      *   <li>{@code depth-copy-failed(err=0x…)} / {@code color-copy-failed} —— 拷贝这一步没成；</li>
      *   <li>{@code program=failed(…)} —— 程序没编译（原因就是 json/GLSL 的那个字符串）；</li>
      *   <li>{@code off(master)} / {@code off(beamScatter=false)} —— 开关没开。</li>
      * </ul>
+     *
+     * <h2>光影下的四个新字段（一眼看出卡在哪一步）</h2>
+     * <ul>
+     *   <li>{@code pack=} —— 光影包此刻是不是接管着管线；</li>
+     *   <li>{@code deferred=} —— 这个窗口里<b>延迟合成真的画成了</b>（true）还是一次都没有（false）；</li>
+     *   <li>{@code depth=fresh|stale…} —— 那趟合成手里那份深度是这一帧的（fresh）还是过期/空的
+     *       （stale(…)，括号里就是原因）；</li>
+     *   <li>{@code defer=} —— 最近一次 {@link #renderDeferred()} 的结果：{@code ok} /
+     *       {@code armed(waiting…)} / {@code not-consumed} / {@code depth-stale} /
+     *       {@code color-copy-failed} / {@code framebuffer-not-writable} / {@code never-called}。</li>
+     * </ul>
+     * 于是：{@code pack=true deferred=false defer=not-consumed} = mixin 没插上；
+     * {@code pack=true defer=depth-stale} = 深度没采到；{@code deferred=true} 而画面没光 =
+     * 合成写进去了但灯/矩阵不对（看 light0 那一行）。
      */
     private static void heartbeat(final HeadlightConfig cfg) {
         if (cfg == null) {
@@ -493,13 +803,14 @@ public final class ScatterPass {
         uploadLogWanted = true;
         ScatterProgram.requestReadback();
         MtrHeadlightClient.LOGGER.info(String.format(Locale.ROOT,
-                "[lte] scatter pass: frames=%d lights=%d depth=%s color=%s blend=%s "
-                        + "litPx=%s matrix=%s calls=%d maxLights=%d avgMs=%.2f surface=%s "
-                        + "debug=%s pack=%s reason=%s",
-                Integer.valueOf(frames), Integer.valueOf(lastLights), depthText(), colorText(),
-                blendText(), litPixels(cfg), lastMatrix, Integer.valueOf(calls),
+                "[lte] scatter pass: frames=%d pack=%s deferred=%s depth=%s lights=%d color=%s "
+                        + "blend=%s litPx=%s matrix=%s calls=%d maxLights=%d avgMs=%.2f surface=%s "
+                        + "debug=%s defer=%s reason=%s",
+                Integer.valueOf(frames), Boolean.valueOf(shaderPackActive()),
+                Boolean.valueOf(deferredFrames > 0), depthText(), Integer.valueOf(lastLights),
+                colorText(), blendText(), litPixels(cfg), lastMatrix, Integer.valueOf(calls),
                 Integer.valueOf(maxLights), Double.valueOf(avg), cfg.scatterSurface ? "on" : "off",
-                debugName(), Boolean.valueOf(shaderPackActive()), lastReason));
+                debugName(), deferredCalledOnce ? deferredReason : "never-called", lastReason));
         MtrHeadlightClient.LOGGER.info("[lte] scatter light0: {} depthErr={}",
                 light0, lastDepthError < 0 ? "none"
                         : (lastDepthError == 0 ? "ok" : "0x" + Integer.toHexString(lastDepthError)));
@@ -508,6 +819,7 @@ public final class ScatterPass {
         maxLights = 0;
         msSum = 0.0D;
         msCount = 0;
+        deferredFrames = 0;
     }
 
     /**
@@ -582,12 +894,15 @@ public final class ScatterPass {
                 + Integer.toHexString(diagBlendDst) + ")";
     }
 
-    /** {@code 1920x1080 ok} / {@code none}：拷贝纹理的尺寸和「成没成」是两件事，一起报。 */
+    /**
+     * {@code fresh 1920x1080 ok} / {@code stale(unconsumed) 1920x1080 ok} / {@code none}：
+     * 拷贝的<b>新鲜度</b>和<b>尺寸/成败</b>是三件事，一起报 —— 光影下"看不到"的第一步就是看这里。
+     */
     private static String depthText() {
         if (DepthCopy.texture() == -1) {
-            return "none";
+            return depthState.equals("none") ? "none" : depthState + " none";
         }
-        return DepthCopy.width() + "x" + DepthCopy.height()
+        return depthState + " " + DepthCopy.width() + "x" + DepthCopy.height()
                 + (lastDepthError == 0 ? " ok" : " err=0x" + Integer.toHexString(
                         Math.max(0, lastDepthError)));
     }
@@ -817,6 +1132,11 @@ public final class ScatterPass {
         sb.append(" candidates=").append(ScatterLights.candidates());
         sb.append(" depth=").append(depthText());
         sb.append(" surface=").append(cfg.scatterSurface ? "on" : "off");
+        // 光影下跑不跑，以及延迟合成此刻走到哪一步 —— /mtr_lte scatter status 一眼答完。
+        sb.append(" shaders=").append(cfg.scatterUnderShaders ? "on" : "off");
+        sb.append(" pack=").append(shaderPackActive() ? "on" : "off");
+        sb.append(" defer=").append(deferredCalledOnce ? deferredReason : "never-called");
+        sb.append(" deferredFrames=").append(deferredFrames);
         sb.append(" color=").append(colorText());
         sb.append(" litPx=").append(litPixels(cfg));
         sb.append(" matrix=").append(lastMatrix);
@@ -827,7 +1147,9 @@ public final class ScatterPass {
             sb.append(" failure=").append(ScatterProgram.failure());
         }
         if (shaderPackActive()) {
-            sb.append(" (shader pack active: pass skipped)");
+            sb.append(cfg.scatterUnderShaders
+                    ? " (shader pack active: composited after the pack, see defer=)"
+                    : " (shader pack active: pass skipped, scatterUnderShaders=false)");
         }
         return sb.toString();
     }
@@ -881,6 +1203,12 @@ public final class ScatterPass {
 
     /** Releases the program and both copy targets; called when the client stops. */
     public static void shutdown() {
+        deferredArmed = false;
+        deferredStamp = 0L;
+        deferredWidth = -1;
+        deferredHeight = -1;
+        deferredLights = 0;
+        depthState = "none";
         DepthCopy.release();
         ColorCopy.release();
         ScatterProgram.close();

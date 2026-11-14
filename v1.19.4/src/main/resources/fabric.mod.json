@@ -30,6 +30,7 @@
     "mtrlte.collision.mixins.json",
     "mtrlte.fangsu.mixins.json",
     "mtrlte.rain.mixins.json",
+    "mtrlte.scatter.mixins.json",
     "mtrlte.mtr.mixins.json",
     "mtrlte.mtrserver.mixins.json",
     "mtrlte.beamlight.mixins.json"

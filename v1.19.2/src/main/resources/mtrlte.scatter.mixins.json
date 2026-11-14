@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.js.mtrheadlight.mixin.scatter",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "lte.refmap.json",
+  "client": [
+    "GameRendererScatterMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

@@ -178,10 +178,19 @@ abstract class ConfigWriteTarget {
      * （37 曾是铁轨烘焙光照、40 曾是光样式，两个号段已废、不重用；41 给了灯晕开关）。
      */
     static final int SCATTER_SURFACE = 38;
+    /**
+     * 散射在<b>开光影（Iris / OptiFine）时也跑</b>（{@link HeadlightConfig#scatterUnderShaders}，
+     * 默认开）。全局开关，理由同 {@link #SCATTER}（一次全屏 pass）。
+     *
+     * <p>它管的是「光影接管管线时要不要用延迟合成」：开着时 {@code LAST} 只采深度、颜色合成推到
+     * {@code GameRenderer#renderWorld} 返回之后；关掉就退回旧行为（光影下整条 pass 让路）。
+     * 无光影时这个开关不参与任何判断。42 是 {@link #BEAM_FLARE}（41）之后第一个空位。
+     */
+    static final int SCATTER_SHADERS = 42;
     static final int[] ALL_TOGGLES = {
             MASTER, DYNAMIC_LIGHT, LIGHT_BAND, BEAM_FLARE, RAIN_SPRAY, BUILTIN_TRAINS,
             TRAIN_COLLISION, TRACKBED, TRAIN_DAMAGE, TRAIN_MOBS, RAIN_HUSH, DAMAGE_IN_CREATIVE,
-            SCATTER, SCATTER_SURFACE,
+            SCATTER, SCATTER_SURFACE, SCATTER_SHADERS,
     };
 
     /**
@@ -553,6 +562,8 @@ abstract class ConfigWriteTarget {
                     return config().beamScatter;
                 case SCATTER_SURFACE:
                     return config().scatterSurface;
+                case SCATTER_SHADERS:
+                    return config().scatterUnderShaders;
                 default:
                     return false;
             }
@@ -602,6 +613,9 @@ abstract class ConfigWriteTarget {
                     break;
                 case SCATTER_SURFACE:
                     config().scatterSurface = on;
+                    break;
+                case SCATTER_SHADERS:
+                    config().scatterUnderShaders = on;
                     break;
                 default:
                     config().beamFlare = on;
@@ -805,6 +819,9 @@ abstract class ConfigWriteTarget {
                 case SCATTER_SURFACE:
                     c.scatterSurface = d.scatterSurface;
                     break;
+                case SCATTER_SHADERS:
+                    c.scatterUnderShaders = d.scatterUnderShaders;
+                    break;
                 default:
                     c.beamBand = d.beamBand;
                     c.beamFlare = d.beamFlare;
@@ -884,6 +901,7 @@ abstract class ConfigWriteTarget {
             c.headlightMode = d.headlightMode;
             c.beamScatter = d.beamScatter;
             c.scatterSurface = d.scatterSurface;
+            c.scatterUnderShaders = d.scatterUnderShaders;
             c.scatterStrength = d.scatterStrength;
             c.scatterRadius = d.scatterRadius;
             // Restoring the globals while a siding still overrode them would leave the world on the
@@ -986,6 +1004,7 @@ abstract class ConfigWriteTarget {
                 case SCATTER_RADIUS:
                 case SCATTER:
                 case SCATTER_SURFACE:
+                case SCATTER_SHADERS:
                     ignored(which);
                     return 0.0D;
                 default:
@@ -1060,6 +1079,7 @@ abstract class ConfigWriteTarget {
                 case SCATTER_RADIUS:
                 case SCATTER:
                 case SCATTER_SURFACE:
+                case SCATTER_SHADERS:
                     ignored(which);
                     break;
                 default:
@@ -1093,6 +1113,7 @@ abstract class ConfigWriteTarget {
                 case DAMAGE_IN_CREATIVE:
                 case SCATTER:
                 case SCATTER_SURFACE:
+                case SCATTER_SHADERS:
                     ignored(which);
                     return false;
                 default:
@@ -1132,6 +1153,7 @@ abstract class ConfigWriteTarget {
                 case DAMAGE_IN_CREATIVE:
                 case SCATTER:
                 case SCATTER_SURFACE:
+                case SCATTER_SHADERS:
                     ignored(which);
                     break;
                 default:
@@ -1213,6 +1235,7 @@ abstract class ConfigWriteTarget {
                 case SCATTER_RADIUS:
                 case SCATTER:
                 case SCATTER_SURFACE:
+                case SCATTER_SHADERS:
                     ignored(which);
                     return true;
                 default:
@@ -1248,6 +1271,7 @@ abstract class ConfigWriteTarget {
                 case DAMAGE_IN_CREATIVE:
                 case SCATTER:
                 case SCATTER_SURFACE:
+                case SCATTER_SHADERS:
                     ignored(which);
                     return true;
                 default:
@@ -1353,6 +1377,7 @@ abstract class ConfigWriteTarget {
                 case SCATTER_RADIUS:
                 case SCATTER:
                 case SCATTER_SURFACE:
+                case SCATTER_SHADERS:
                     ignored(which);
                     break;
                 default:
@@ -1397,6 +1422,7 @@ abstract class ConfigWriteTarget {
                 case DAMAGE_IN_CREATIVE:
                 case SCATTER:
                 case SCATTER_SURFACE:
+                case SCATTER_SHADERS:
                     ignored(which);
                     break;
                 default:
