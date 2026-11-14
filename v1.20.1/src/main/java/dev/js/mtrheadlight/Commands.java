@@ -332,19 +332,21 @@ public final class Commands {
         LteLog.LOGGER.info(line);
         Trackbed.setWatch(true);
         source.sendFeedback(Text.literal(line));
-        source.sendFeedback(Text.literal("LTE：道床取证已打开，每 5 秒一行（/mtr_lte trackbed off 关掉）"
-                + " — 看 drop=：nohit=缓存没轨道 / lat=横向没踩上 / dy=高度差超窗口（上坡掉就是这个）；"
-                + " drops= 是各结论计数"));
+        source.sendFeedback(Text.literal("LTE：道床取证已打开 —— 每 5 秒一行汇总，外加每 tick 一行"
+                + " trackbed tick:（cand= / best=(dist, offset, y) / dy= / vy= / verdict=）。"
+                + "看 drop=：nohit=缓存没轨道 / lat=横向没踩上 / dy=高度差超窗口 / rescue=安全网接住；"
+                + "drops= 是各结论计数"));
         return 1;
     }
 
-    /** {@code /mtr_lte trackbed on|off} - 开关上面那条每 5 秒的日志。 */
+    /** {@code /mtr_lte trackbed on|off} - 开关上面那条每 5 秒的日志 + 逐 tick 行。 */
     private static int setTrackbedWatch(final FabricClientCommandSource source, final boolean on) {
         Trackbed.setWatch(on);
         if (on) {
             LteLog.LOGGER.info(Trackbed.describe(Trackbed.snapped()));
         }
-        source.sendFeedback(Text.literal("LTE：道床取证" + (on ? "已打开（每 5 秒一行）" : "已关闭")));
+        source.sendFeedback(Text.literal("LTE：道床取证" + (on ? "已打开（每 5 秒一句汇总 + 每 tick 一行 tick:）"
+                : "已关闭")));
         return 1;
     }
 

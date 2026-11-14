@@ -253,7 +253,9 @@ public final class LightFlare {
         }
         final boolean test = LightTest.enabled();
         // 探针绕开全部配置闸（光样式 / 灯晕开关 / 总开关）：它测的是渲染路径，不是玩家的设置。
-        if (!test && (!cfg.enabled || !cfg.flareAnySiding())) {
+        // 正常路径只有一个门：drawFlare() = 总开关 && flareAnySiding()，而后者第一句就是
+        // styleAllows(FLARE) —— 样式是 BAND 时这里必然返回，侧线的 beamFlare 覆盖不能越过它。
+        if (!test && !cfg.drawFlare()) {
             return;
         }
         windowOn = true;
@@ -344,7 +346,9 @@ public final class LightFlare {
                 continue;
             }
             final HeadlightConfig.Effective eff = cfg.effectiveFor(train.sidingId);
-            if (!eff.enabled || !eff.beamFlare) {
+            // 逐车门：eff.beamFlare 已经在 effectiveFor 里与 flareStyle() 收过（侧线覆盖只能更严），
+            // 这里再读一次样式是为了让「样式 = BAND」这条不变量在渲染器里也留一道痕迹。
+            if (!eff.enabled || !eff.beamFlare || !cfg.styleAllows(HeadlightConfig.LightStyle.FLARE)) {
                 continue;
             }
             // 灯亮不亮由 HeadlightSwitch.judge 一个入口决定（在线路 / 环境 / 停着），见下面的三道闸。

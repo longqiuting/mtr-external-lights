@@ -101,7 +101,9 @@ final class ScatterLights {
                 continue;
             }
             final HeadlightConfig.Effective eff = cfg.effectiveFor(train.sidingId);
-            if (!eff.enabled) {
+            // 样式 + 总开关：散射是"灯晕"那一层（围着灯的圆光斑），样式只要光带时整帧都不该
+            // 走到这里（帧级门已经拦了），逐车再收一次是为了"这一列车的侧线覆盖也不能放宽"。
+            if (!eff.enabled || !cfg.styleAllows(HeadlightConfig.LightStyle.FLARE)) {
                 continue;
             }
             final boolean reversed = DepartureState.reversed(train, train.isReversed()) ^ cfg.swapEnds;

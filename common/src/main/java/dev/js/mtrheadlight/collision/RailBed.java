@@ -261,6 +261,35 @@ public final class RailBed {
     public static final double CEIL = 2.0D;
 
     /**
+     * <b>安全网水平半径</b>（格）：救回<b>不</b>要求 {@code |offset| ≤ }{@link #HALF_WIDTH}，横向到
+     * 中心线这么远都算「人在道床正上方」。
+     *
+     * <p>比 {@link #HALF_WIDTH}（1.3 = 道床视觉半宽）宽 1.2 格，是为了兜住「横向列算出来的偏移本身
+     * 偏了」这种数据侧误差（接缝两侧两条轨道的法向差半个弧度、端点 clamp、缓存里少一条轨道）。
+     * 它只决定「接不接」；接住之后站得住还是靠 {@link #HALF_WIDTH} —— 见
+     * {@link #RESCUE_GRACE} 为什么不会让人浮在轨道旁边。
+     */
+    public static final double RESCUE_RADIUS = 2.5D;
+
+    /**
+     * <b>安全网下落窗口</b>（格）：轨面必须在脚底<b>下方</b> {@code 0 – 3} 格之内才接。
+     *
+     * <p>下界 0 = 齐平（轨面不许在脚底之上 —— 否则站在高架下面会被拽上轨道）；
+     * 上界 3 = 从三格高处摔向道床也算「踩空」，再高就交给「扫掠穿过」那一档。
+     */
+    public static final double RESCUE_DROP = 3.0D;
+
+    /**
+     * 宽幅救回的连续上限（tick）：横向落在 {@code (HALF_WIDTH, RESCUE_RADIUS]} 的救回最多连做这么多
+     * tick，之后放手让人真的掉下去。
+     *
+     * <p>没有这一条的话，站在离中心线 1.4 格的<b>空气</b>里会形成「每 tick 掉 8 厘米 → 被救回 → 再掉」
+     * 的死循环：人看起来浮在轨道旁边的空中。数据侧误差只可能持续几 tick，1 秒（20 tick）足够；
+     * 超过就说明这个人真的在道床外面。
+     */
+    public static final int RESCUE_GRACE = 20;
+
+    /**
      * 一次接触判定的结论（取证用）。几何命中之后，剩下的就是「脚底与轨面的关系」这一件事。
      */
     public enum Verdict {
@@ -279,9 +308,19 @@ public final class RailBed {
         /** 脚下真实方块的顶面不低于轨面：交回原版。 */
         BLOCK,
         /** 抬起来的落点被方块占了。 */
-        SPACE;
+        SPACE,
+        /**
+         * <b>下落安全网</b>接住了：{@link #verdict} 说「不在窗口里」，但横向在 {@link #RESCUE_RADIUS}
+         * 内、轨面在脚底下方 {@code 0 – }{@link #RESCUE_DROP} 格、而且正在往下掉 —— 无条件按上去。
+         */
+        RESCUE;
 
-        /** 诊断行里用的短名：{@code dy}/{@code lat}/{@code nohit}/{@code jump}/{@code block}/{@code space}/{@code snap}。 */
+        /** 这一档是不是「真的把人按到轨面上」（{@link #SNAP} 或安全网接住）。 */
+        public boolean snaps() {
+            return this == SNAP || this == RESCUE;
+        }
+
+        /** 诊断行里用的短名：{@code dy}/{@code lat}/{@code nohit}/{@code jump}/{@code block}/{@code space}/ {@code rescue}/{@code snap}。 */
         public String shortName() {
             switch (this) {
                 case SNAP:
@@ -298,6 +337,8 @@ public final class RailBed {
                     return "block";
                 case SPACE:
                     return "space";
+                case RESCUE:
+                    return "rescue";
                 default:
                     return "-";
             }
@@ -341,6 +382,44 @@ public final class RailBed {
             return Verdict.SNAP;
         }
         return Verdict.DY;
+    }
+
+    /**
+     * <b>下落安全网</b>（纯函数，单元测试与 {@code tools/trackbed-bridge-sim.js} 直接验它）：
+     * {@code verdict} 说「不在窗口里」时，还有一条兜底 —— 这一 tick 人从道床面上方掉下来、<b>真的穿过
+     * 了</b>轨面，那就接住。
+     *
+     * <p>它<b>不看</b> {@code verdict} 的纵向窗口（{@code -stepUp} 下界 / {@code CEIL} 上界 /
+     * {@link #STICK} 带），也<b>不看</b> {@link #HALF_WIDTH}（横向由调用方按 {@link #RESCUE_RADIUS}
+     * 判）—— 这正是它的意义：踩空的那一 tick，无论 {@code verdict} 给的是 {@code lat}（横向差一点）
+     * 还是 {@code dy}（高度差一点），人都不会往下掉。
+     *
+     * <h2>四条条件各自挡掉什么</h2>
+     * <ol>
+     *   <li>{@code vy < 0} —— 只在<b>下落</b>时接。起跳 / 上升 / 停在半空一律让开，所以跳跃的上升段
+     *       完全不受影响；</li>
+     *   <li>{@code startDy >= 0} —— <b>这一 tick 的起点</b>不能已经在轨面之下。这一条就是「不会被
+     *       吸到假想轨道上」的下界：站在高架<b>下面</b>、走在比道床低一格的地面上，起点都是负的，
+     *       怎么掉都不会被拽上来；</li>
+     *   <li>{@code dy < 0} —— 这一 tick <b>真的穿过了</b>轨面。它同时保证接住的位置就是轨面本身
+     *       （不会在半空中提前半格把人按住），所以跳跃的下落段和原版落地一模一样；</li>
+     *   <li>{@code startDy <= RESCUE_DROP}（慢速下落时）—— 就是「轨面在脚底下方 0–3 格」这条窗口：
+     *       慢慢往下走的时候，不从三格以外的上方硬拽。快速下落（{@code vy <= -3}，一 tick 就跨过
+     *       三格以上）不受这条限制，否则从高处砸向道床的高速下落反而接不住。</li>
+     * </ol>
+     *
+     * @param startDy 这一 tick <b>起点</b>的「脚底 − 轨面」（格）：{@code startY - surface}
+     * @param dy      这一 tick <b>终点</b>的「脚底 − 轨面」（格）
+     * @param vy      竖直速度（格 / tick），原版约定往上为正
+     */
+    public static boolean rescues(final double startDy, final double dy, final double vy) {
+        if (!(vy < 0.0D)) {
+            return false;
+        }
+        if (!(startDy >= 0.0D) || !(dy < 0.0D)) {
+            return false;
+        }
+        return startDy <= RESCUE_DROP || vy <= -RESCUE_DROP;
     }
 
     private List<Cand> cache = List.of();
@@ -981,6 +1060,14 @@ public final class RailBed {
                     .append(fmt(HALF_WIDTH)).append(" 大");
         }
         return out.toString();
+    }
+
+    /**
+     * 表里一共有多少条轨道（诊断行的 {@code rails=}）：只累加内层表的 {@code size()}，不碰任何轨道
+     * 几何，所以每 tick 打一行逐 tick 诊断也不会变成性能问题（调用方还会再按秒缓存）。
+     */
+    public static int tableSize(final Object railsMap) {
+        return total(railsMap);
     }
 
     /** 表里一共有多少条轨道（{@code where} 的 {@code rails=}）。 */

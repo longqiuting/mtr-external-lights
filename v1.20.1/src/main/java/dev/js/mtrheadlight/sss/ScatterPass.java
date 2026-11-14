@@ -289,9 +289,19 @@ public final class ScatterPass {
                 return;
             }
             final HeadlightConfig cfg = MtrHeadlightClient.config();
-            if (cfg == null || !cfg.enabled || !cfg.scatterEnabled) {
+            /*
+             * 帧级唯一门。drawScatter() = 总开关 && scatterEnabled && styleAllows(FLARE)。
+             *
+             * 1.0.67 的漏洞就在这里：以前这一句只问 enabled / scatterEnabled，样式完全没参与，
+             * 于是 lightStyle=BAND（只要光带）时这个全屏 pass 照旧在每盏灯周围积分空气、照亮灯
+             * 脚下的地面 —— 玩家看到的就是一个"关不掉的圆形灯晕"。本类的 heartbeat 注释里一直
+             * 写着 "no-lights … 光样式不含灯晕"，代码里却没有那条判断。
+             */
+            if (cfg == null || !cfg.drawScatter()) {
                 lastReason = cfg == null ? "no-config"
-                        : (!cfg.enabled ? "off(master)" : "off(scatterEnabled=false)");
+                        : (!cfg.enabled ? "off(master)"
+                        : (!cfg.scatterEnabled ? "off(scatterEnabled=false)"
+                        : "off(style=" + cfg.style() + ")"));
                 return;
             }
             if (shaderPackActive()) {
@@ -467,12 +477,16 @@ public final class ScatterPass {
             return;
         }
         final long now = System.currentTimeMillis();
-        if (!cfg.scatterEnabled) {
+        if (!cfg.scatterEnabled || !cfg.styleAllows(HeadlightConfig.LightStyle.FLARE)) {
             // 关着的时候只提醒一次：否则「没日志」会被读成「日志坏了」。
+            // 两种"关"要分开说：开关自己关的，和样式只要光带（BAND）—— 后者是 1.0.67 之前
+            // 漏判的那一种，玩家会以为"开关明明开着"。
             if (!offAnnounced) {
                 offAnnounced = true;
-                MtrHeadlightClient.LOGGER.info("[lte] scatter: off (scatterEnabled=false) - "
-                        + "nothing is drawn and nothing is measured; /mtr_lte scatter on");
+                MtrHeadlightClient.LOGGER.info("[lte] scatter: off ({}) - nothing is drawn and "
+                                + "nothing is measured; /mtr_lte scatter on, 或把光样式切到 灯晕/两者",
+                        !cfg.scatterEnabled ? "scatterEnabled=false"
+                                : "lightStyle=" + cfg.style() + " (光带样式不含灯晕)");
             }
             windowStart = now;
             calls = 0;
@@ -799,6 +813,10 @@ public final class ScatterPass {
     public static String status(final HeadlightConfig cfg) {
         final StringBuilder sb = new StringBuilder(224);
         sb.append("scatter ").append(cfg.scatterEnabled ? "on" : "off");
+        // 样式是这个 pass 的上层门（见 HeadlightConfig#drawScatter）：开着却画不出来时，这一格
+        // 就是答案，不用去翻配置文件。
+        sb.append(" style=").append(cfg.style());
+        sb.append(" draws=").append(cfg.drawScatter() ? "yes" : "no");
         sb.append(" program=").append(ScatterProgram.status());
         sb.append(" strength=").append(String.format(Locale.ROOT, "%.2f",
                 Double.valueOf(cfg.scatterStrengthClamped())));

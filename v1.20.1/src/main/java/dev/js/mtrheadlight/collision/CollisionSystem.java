@@ -2040,6 +2040,12 @@ public final class CollisionSystem {
      *       {@code dy ∈ [-STEP_UP, 0]} 直接抬上去 —— 这就是坡道不再掉的那一条；</li>
      *   <li>真实方块优先、落点空间检查：和前版一致，只是结论也进取证。</li>
      * </ol>
+     *
+     * <p><b>下落安全网</b>（第 2.5 步）：上面三步全判「不在窗口里」之后，只要人正在下坠、轨面就在
+     * 脚底下方 0–3 格、横向 2.5 格以内，这一 tick 无条件把人接住（{@link RailBed.Verdict#RESCUE}）。
+     * 顺序是 <b>verdict 之后、真实方块之前</b>：判定能接住的 tick 完全走老路，安全网只补漏；
+     * 脚下有真方块时仍然是方块优先。跳跃（{@code vy > 0}）不会被这条拖住 —— 见
+     * {@link RailBed#rescues}。
      */
     private static boolean trackbed(final PlayerEntity player, final HeadlightConfig cfg,
                                     final ClientWorld world) {
@@ -2048,50 +2054,54 @@ public final class CollisionSystem {
         final double z = player.getZ();
         final boolean onGround = player.isOnGround();
         final double moved = movedSinceStart(feet, x, z);
-        final Trackbed.Sample sample = Trackbed.probe(world, ticks, x, feet, z);
-        if (sample == null) {
-            Trackbed.noteStep(feet, Double.NaN, Double.NaN, Double.NaN, onGround, moved,
-                    RailBed.Verdict.NO_HIT);
-            return false;
-        }
-        final double railY = sample.y;
-        final double surface = railY + cfg.trackbedThicknessClamped();
-        final double dy = feet - surface;
-        final double offset = sample.offset;
-        // 横向列：nearest 已经按 HALF_WIDTH 过滤过，这里显式再判一次 —— 取证行要能区分
-        // 「横向就没踩上」和「踩上了但高度不对」，两者的修法完全不同。
-        if (sample.distance > Trackbed.HALF_WIDTH) {
-            Trackbed.noteStep(feet, railY, offset, dy, onGround, moved, RailBed.Verdict.LATERAL);
-            return false;
-        }
         final double vy = player.getVelocity().y;
+        final Trackbed.Sample sample = Trackbed.probe(world, ticks, x, feet, z);
+        final double railY = sample == null ? Double.NaN : sample.y;
+        final double surface = sample == null ? Double.NaN : railY + cfg.trackbedThicknessClamped();
+        final double dy = sample == null ? Double.NaN : feet - surface;
+
+        // 1) 常规判定：横向列（HALF_WIDTH 内才有资格）→ 纵向窗口（RailBed.verdict）。
         final double startDy = Double.isNaN(startY) ? Double.NaN : startY - surface;
-        final RailBed.Verdict verdict = RailBed.verdict(dy, vy, startDy,
-                cfg.trackbedStepUpClamped());
-        if (verdict != RailBed.Verdict.SNAP) {
-            Trackbed.noteStep(feet, railY, offset, dy, onGround, moved, verdict);
-            return false;
+        RailBed.Verdict verdict;
+        if (sample == null) {
+            verdict = RailBed.Verdict.NO_HIT;
+        } else if (sample.distance > Trackbed.HALF_WIDTH) {
+            verdict = RailBed.Verdict.LATERAL;
+        } else {
+            verdict = RailBed.verdict(dy, vy, startDy, cfg.trackbedStepUpClamped());
         }
-        if (realBlockWins(world, x, feet, z, surface)) {
-            Trackbed.noteStep(feet, railY, offset, dy, onGround, moved, RailBed.Verdict.BLOCK);
-            return false;
+        // 2) 下落安全网：常规判定说「不在窗口里」之后的最后一道兜底 —— 这一 tick 人从道床面上方
+        //    掉了下来、真的穿过了轨面、横向 2.5 格以内，就无条件接住。它不看 dy 的 -stepUp 下界，
+        //    也不要求 |offset| ≤ HALF_WIDTH（那两条正是「踩空」时最容易被判掉的地方）。
+        //    放在 verdict 之后：判定已经能接住的 tick 走原路，安全网只补「漏掉」的那些；
+        //    放在真实方块检查之前：脚下有真方块时仍然按原版走，不会被道床抢走。
+        if (!verdict.snaps() && sample != null
+                && Trackbed.rescue(sample.distance, startDy, dy, vy)) {
+            verdict = RailBed.Verdict.RESCUE;
         }
-        final Box box = player.getBoundingBox().offset(0.0D, surface - feet, 0.0D);
-        if (!world.isSpaceEmpty(player, box)) {
-            Trackbed.noteStep(feet, railY, offset, dy, onGround, moved, RailBed.Verdict.SPACE);
-            return false;
+        // 3) 真实方块优先、落点空间检查。
+        if (verdict.snaps()) {
+            if (realBlockWins(world, x, feet, z, surface)) {
+                verdict = RailBed.Verdict.BLOCK;
+            } else if (!world.isSpaceEmpty(player,
+                    player.getBoundingBox().offset(0.0D, surface - feet, 0.0D))) {
+                verdict = RailBed.Verdict.SPACE;
+            }
         }
-        player.setPosition(x, surface, z);
-        player.setOnGround(true);
-        // 落到轨面 = 落地：不清 fallDistance 的话，下坡时「每 tick 掉几厘米、被接住」会一路累加，
-        // 走完一条长下坡就吃一记原版摔落伤害（车顶那条路也是这么清的）。
-        // 车顶掉落的伤害结算有自己的一套状态（{@code settleRoofFall}），不读这个字段。
-        player.fallDistance = 0.0F;
-        final Vec3d v = player.getVelocity();
-        player.setVelocity(v.x, 0.0D, v.z);
-        diagTrackbed = surface;
-        Trackbed.noteStep(feet, railY, offset, dy, onGround, moved, RailBed.Verdict.SNAP);
-        return true;
+        final boolean snapped = verdict.snaps();
+        if (snapped) {
+            player.setPosition(x, surface, z);
+            player.setOnGround(true);
+            // 落到轨面 = 落地：不清 fallDistance 的话，下坡时「每 tick 掉几厘米、被接住」会一路累加，
+            // 走完一条长下坡就吃一记原版摔落伤害（车顶那条路也是这么清的）。
+            // 车顶掉落的伤害结算有自己的一套状态（{@code settleRoofFall}），不读这个字段。
+            player.fallDistance = 0.0F;
+            final Vec3d v = player.getVelocity();
+            player.setVelocity(v.x, 0.0D, v.z);
+            diagTrackbed = surface;
+        }
+        Trackbed.noteStep(sample, x, feet, z, startDy, dy, vy, onGround, moved, verdict);
+        return snapped;
     }
 
     /** 这一 tick 走了多远（含竖直）：道床取证的 {@code moved=}，用来区分「站着不动」和「走着走着掉了」。 */

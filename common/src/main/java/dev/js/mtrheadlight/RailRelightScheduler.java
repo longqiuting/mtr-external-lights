@@ -248,9 +248,9 @@ public final class RailRelightScheduler implements RailRelightHooks.Hook {
         nowMs = System.currentTimeMillis();
         RailDiag.maybeLog(tick);
 
-        // railLightAnySiding(): the global switch may be off while a siding overrides it on, in
-        // which case the scheduler still has work to do for those trains only.
-        if (!cfg.enabled || !cfg.dynamicLight || !cfg.railLightAnySiding()) {
+        // drawRailLight() = 总开关 && dynamicLight && railLightAnySiding()（全局关、某条侧线开时
+        // 仍然有活干）。和调度器其它地方读的是同一个谓词，也是 [lte] lights: 那一行打印的值。
+        if (!cfg.drawRailLight()) {
             // Turning the bake off has to undo what it baked. The host only re-bakes a rail chunk
             // when it is told to, so a chunk built while the switch was on would keep the beam in
             // its vertices forever - that is exactly the "铁轨还在发光" case. Drop the published

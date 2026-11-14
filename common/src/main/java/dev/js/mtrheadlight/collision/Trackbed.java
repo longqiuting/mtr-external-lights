@@ -31,9 +31,9 @@ import java.util.Locale;
  *
  * <h2>{@code /mtr_lte trackbed status}</h2>
  * 用户报「站在轨道上、上坡/过弯就掉下去」时，这一行就是答案所在：
- * <pre>[lte] trackbed: rails=N hit=yes|no y=… dist=… off=… halfW=… dy=… onGround=… moved=…
- *                 drop=snap|dy|lat|nohit|jump|block|space snapped=true|false
- *                 drops=snap:57 dy:0 lat:0 nohit:0 …</pre>
+ * <pre>[lte] trackbed: pos=(x, y, z) rails=N hit=yes|no y=… dist=… off=… halfW=… dy=… vy=…
+ *                 onGround=… moved=… drop=snap|dy|lat|nohit|jump|block|space|rescue
+ *                 snapped=true|false drops=snap:57 dy:0 lat:0 nohit:0 …</pre>
  * 读法：
  * <ul>
  *   <li>{@code hit=no} + {@code dist=-} → {@code drop=nohit}：缓存里根本没有近处的轨道（人真的不在
@@ -42,11 +42,38 @@ import java.util.Locale;
  *   <li>{@code drop=dy} → 横向踩在道床上，但脚底与轨面的高差不在窗口里（{@code dy} 会给出数值，
  *       负得很多 = 上坡的轨面在脚底之上，正得很多 = 人在轨面上方腾空）；</li>
  *   <li>{@code drop=jump} → 起跳那一 tick，故意让开，不算掉；</li>
+ *   <li>{@code drop=rescue} → 常规判定让开了，但<b>下落安全网</b>把人接在轨面上（见下）；</li>
  *   <li>{@code drop=block} / {@code drop=space} → 命中了，被真实方块 / 空间不足挡掉（旧版
  *       「snapped=false 而 hit=yes」就是这个形态）。</li>
  * </ul>
  * {@code drops=} 是<b>自上一行诊断以来</b>各结论的计数（只统计「上一个 tick 还踩在道床上」的 tick，
  * 所以站在野地里不会刷 {@code nohit}），走一遍坡道就能从计数上直接读出是哪一种，不用猜。
+ *
+ * <h2>{@code /mtr_lte trackbed on} —— 逐 tick 一行</h2>
+ * 上面那行是每 5 秒的汇总，回答不了「紧接在弯道后面的那段直道，候选集里到底有没有它」。
+ * 取证打开时每 tick 打一行：
+ * <pre>[lte] trackbed tick: pos=(x, y, z) rails=N cand=N best=(dist, offset, railY)
+ *                        dy=… sdy=… vy=… verdict=… onGround=… moved=…</pre>
+ * <ul>
+ *   <li>{@code rails=} 整张轨道表的条数（每秒数一次）—— 它突然变成 0 就是轨道表没加载；</li>
+ *   <li>{@code cand=} 这次查询的<b>候选条数</b>。站在直道上跑几秒，如果 {@code cand=1} 而
+ *       {@code best} 是那条弯道，说明<b>直道那条根本没进候选</b>（缓存 / 准入的问题）；
+ *       {@code cand=0} 则是周围一条都没有；</li>
+ *   <li>{@code best=(dist, offset, railY)} 被选中的那条候选：横向距离、有符号偏移、它的轨面高度；
+ *       {@code best=(-, -, -)} 就是「候选里没有一条够近的」；</li>
+ *   <li>{@code dy} 脚底 − 道床面、{@code sdy} 同一 tick <b>起点</b>的高差、{@code vy} 竖直速度、
+ *       {@code verdict} 这一 tick 的结论。{@code dy} 负得很多 + {@code verdict=dy} 就是「人已经掉到
+ *       轨面以下」，{@code sdy} 由正变负的那一行就是「穿过去了」的那一 tick；</li>
+ *   <li>{@code verdict=rescue} 说明是<b>安全网</b>接住的（见下），不是常规判定。</li>
+ * </ul>
+ *
+ * <h2>下落安全网（{@link RailBed#rescues}）</h2>
+ * 常规判定之外还有一条兜底，专门防「踩空」：横向 ≤ {@link RailBed#RESCUE_RADIUS}（2.5 格）、
+ * {@code vy < 0}、这一 tick 的<b>起点</b>轨面在脚底下方（{@code 0 – }{@link RailBed#RESCUE_DROP} 格，
+ * 慢慢下落时才限 3 格）、而<b>终点</b>已经穿到轨面之下 —— 就无条件按上去，<b>不看</b>
+ * {@code verdict} 的纵向窗口（{@code dy ≥ -stepUp} 那个下界）也不要求
+ * {@code |offset| ≤ }{@link #HALF_WIDTH}。它在 {@code verdict} <b>之后</b>、真实方块检查
+ * <b>之前</b>生效：真实方块仍然优先，起跳（{@code vy > 0}）与「这一刻还没穿过轨面」都不受影响。
  */
 public final class Trackbed {
 
@@ -95,12 +122,23 @@ public final class Trackbed {
 
     // 上一 tick 的取证输入输出（诊断行读这些）。
     private static volatile double lastFeet = Double.NaN;
+    private static volatile double lastX = Double.NaN;
+    private static volatile double lastZ = Double.NaN;
     private static volatile double lastRailY = Double.NaN;
     private static volatile double lastOffset = Double.NaN;
     private static volatile double lastDy = Double.NaN;
+    private static volatile double lastVy = Double.NaN;
     private static volatile boolean lastOnGround;
     private static volatile double lastMoved = Double.NaN;
     private static volatile RailBed.Verdict lastVerdict = RailBed.Verdict.NONE;
+
+    /** 连续「宽幅救回」（横向 > {@link #HALF_WIDTH}）的 tick 数，见 {@link RailBed#RESCUE_GRACE}。 */
+    private static int wideRescues;
+
+    /** 轨道表总条数的缓存（逐 tick 诊断的 {@code rails=}）：每 20 tick 数一次就够。 */
+    private static int railsTotal;
+    private static Object railsTotalMap;
+    private static long railsTotalTick = Long.MIN_VALUE;
 
     // 自上一行诊断以来的计数（{@code drops=}）。按结论分桶，一眼看出是哪一种。
     private static final int[] COUNTS = new int[RailBed.Verdict.values().length];
@@ -113,6 +151,10 @@ public final class Trackbed {
         BED.reset();
         snappedThisTick = false;
         snappedLastTick = false;
+        wideRescues = 0;
+        railsTotal = 0;
+        railsTotalMap = null;
+        railsTotalTick = Long.MIN_VALUE;
         clearStep();
         clearCounters();
     }
@@ -165,39 +207,101 @@ public final class Trackbed {
     /**
      * 记下这一 tick 的判定过程（每 tick 一次，无论结论是什么）。
      *
-     * <p>{@code railY} / {@code offset} 在没命中轨道时是 {@code NaN}；{@code moved} 是这一 tick
-     * 的位移长度（含竖直），用来区分「站着不动」和「走着走着掉了」。
+     * <p>{@code railY} / {@code distance} / {@code offset} 在没命中轨道时是 {@code NaN}；
+     * {@code moved} 是这一 tick 的位移长度（含竖直），用来区分「站着不动」和「走着走着掉了」。
+     *
+     * <p>取证打开时（{@code /mtr_lte trackbed on}）这里打<b>逐 tick</b> 一行：
+     * <pre>[lte] trackbed tick: pos=(x, y, z) rails=N cand=N best=(dist, offset, railY)
+     *                        dy=… sdy=… vy=… verdict=… onGround=… moved=…</pre>
+     * 用户站到「没有碰撞箱」的那段直道上跑几秒，这一串行就能回答三件事：直道那条轨道到底在不在
+     * {@code cand} 里（{@code cand=0} 就是缓存漏了）、{@code best} 是不是它（{@code dist} 是多少）、
+     * {@code dy}/{@code sdy}/{@code vy} 是不是被判出了窗口（{@code sdy} 是这一 tick <b>起点</b>的高差，
+     * 安全网就是按它判「起点在轨面之上下」的）。{@code rails} 是整张轨道表的条数（每秒数一次）。
      */
-    public static void noteStep(final double feet, final double railY, final double offset,
-                                final double dy, final boolean onGround, final double moved,
+    public static void noteStep(final Sample sample, final double x, final double feet,
+                                final double z, final double startDy, final double dy,
+                                final double vy, final boolean onGround, final double moved,
                                 final RailBed.Verdict verdict) {
         // 只在「上一个 tick 还踩在道床上」时计一次失败。站在野地里每 tick 都是 nohit，
         // 全算进去的话计数就没法读「是不是在坡道上掉的」了。
-        final boolean wasOnBed = lastVerdict == RailBed.Verdict.SNAP
+        final boolean wasOnBed = lastVerdict.snaps()
                 || lastVerdict == RailBed.Verdict.BLOCK
                 || lastVerdict == RailBed.Verdict.SPACE
                 || lastVerdict == RailBed.Verdict.JUMP;
+        final double railY = sample == null ? Double.NaN : sample.y;
+        final double distance = sample == null ? Double.NaN : sample.distance;
+        final double offset = sample == null ? Double.NaN : sample.offset;
+        lastX = x;
+        lastZ = z;
         lastFeet = feet;
         lastRailY = railY;
         lastOffset = offset;
         lastDy = dy;
+        lastVy = vy;
         lastOnGround = onGround;
         lastMoved = moved;
         lastVerdict = verdict;
+        noteWideRescue(distance, verdict);
         final int index = verdict.ordinal();
-        if (index >= 0 && index < COUNTS.length && (wasOnBed || verdict == RailBed.Verdict.SNAP)) {
+        if (index >= 0 && index < COUNTS.length && (wasOnBed || verdict.snaps())) {
             COUNTS[index]++;
         }
-        if (verdict == RailBed.Verdict.SNAP) {
+        if (verdict.snaps()) {
             noteSnapped();
         }
-        if (watch) {
-            LteLog.LOGGER.info("[lte] trackbed step: y={} railY={} dist={} dy={} onGround={}"
-                            + " moved={} verdict={}",
-                    number(feet), number(railY),
-                    number(Double.isNaN(offset) ? Double.NaN : Math.abs(offset)),
-                    number(dy), Boolean.valueOf(onGround), number(moved), verdict.shortName());
+        if (watch && LteLog.LOGGER.isInfoEnabled()) {
+            LteLog.LOGGER.info("[lte] trackbed tick: pos=({}, {}, {}) rails={} cand={}"
+                            + " best=({}, {}, {}) dy={} sdy={} vy={} verdict={} onGround={} moved={}",
+                    number(x), number(feet), number(z),
+                    Integer.valueOf(railsTotal()), Integer.valueOf(cached()),
+                    number(distance), signed(offset), number(railY),
+                    signed(dy), signed(startDy), signed(vy), verdict.shortName(),
+                    Boolean.valueOf(onGround), number(moved));
         }
+    }
+
+    /**
+     * 宽幅救回的记账：横向超出 {@link #HALF_WIDTH} 的救回连续做满 {@link RailBed#RESCUE_GRACE} 次就
+     * 放手（否则人会浮在轨道旁边的空气里）；真正踩回半宽内、或者连候选都没了，计数归零。
+     */
+    private static void noteWideRescue(final double distance, final RailBed.Verdict verdict) {
+        if (verdict == RailBed.Verdict.RESCUE) {
+            wideRescues = distance > HALF_WIDTH ? wideRescues + 1 : 0;
+            return;
+        }
+        if (verdict == RailBed.Verdict.SNAP || verdict == RailBed.Verdict.NO_HIT
+                || Double.isNaN(distance) || distance > RailBed.RESCUE_RADIUS) {
+            wideRescues = 0;
+        }
+    }
+
+    /**
+     * <b>下落安全网</b>要不要接住这一 tick：横向 ≤ {@link RailBed#RESCUE_RADIUS}，这一 tick 从道床面
+     * 上方真的掉了下去（几何条件见 {@link RailBed#rescues}）。
+     *
+     * <p>横向在 {@link #HALF_WIDTH} 以内的救回<b>无条件</b>；超出的（1.3 – 2.5）只给
+     * {@link RailBed#RESCUE_GRACE} tick 的宽限 —— 那是给「横向列本身算偏了」的数据误差兜底，不是
+     * 让人站在道床外面。
+     */
+    public static boolean rescue(final double distance, final double startDy, final double dy,
+                                 final double vy) {
+        if (!(distance <= RailBed.RESCUE_RADIUS) || !RailBed.rescues(startDy, dy, vy)) {
+            return false;
+        }
+        return distance <= HALF_WIDTH || wideRescues < RailBed.RESCUE_GRACE;
+    }
+
+    /** 整张轨道表有多少条轨道（逐 tick 诊断的 {@code rails=}）：每 20 tick 数一次，其余读缓存。 */
+    private static int railsTotal() {
+        final Object map = rails();
+        final long tick = System.currentTimeMillis();
+        if (map == railsTotalMap && tick - railsTotalTick < 1000L) {
+            return railsTotal;
+        }
+        railsTotalMap = map;
+        railsTotalTick = tick;
+        railsTotal = map == null ? 0 : RailBed.tableSize(map);
+        return railsTotal;
     }
 
     /** tick 结束：把这一 tick 的按压状态转成「上一 tick」，返回它。 */
@@ -217,13 +321,17 @@ public final class Trackbed {
 
     /** 清掉上一 tick 的取证输入（换世界 / 关掉道床时）。 */
     public static void clearStep() {
+        lastX = Double.NaN;
+        lastZ = Double.NaN;
         lastFeet = Double.NaN;
         lastRailY = Double.NaN;
         lastOffset = Double.NaN;
         lastDy = Double.NaN;
+        lastVy = Double.NaN;
         lastOnGround = false;
         lastMoved = Double.NaN;
         lastVerdict = RailBed.Verdict.NONE;
+        wideRescues = 0;
     }
 
     /**
@@ -235,7 +343,9 @@ public final class Trackbed {
      * {@code snapped} 上一个完整 tick 有没有真被按上去、{@code drops} 各结论计数。
      */
     public static String describe(final boolean isSnapped) {
-        return "[lte] trackbed: rails=" + cached()
+        return "[lte] trackbed: pos=(" + number(lastX) + ", " + number(lastFeet) + ", "
+                + number(lastZ) + ")"
+                + " rails=" + cached()
                 + " scanned=" + BED.scanned()
                 + " skipped=" + BED.skipped()
                 + " hit=" + (hit() ? "yes" : "no")
@@ -244,6 +354,7 @@ public final class Trackbed {
                 + " off=" + signed(BED.lastOffset())
                 + " halfW=" + String.format(Locale.ROOT, "%.2f", Double.valueOf(HALF_WIDTH))
                 + " dy=" + signed(lastDy)
+                + " vy=" + signed(lastVy)
                 + " onGround=" + (lastOnGround ? "true" : "false")
                 + " moved=" + number(lastMoved)
                 + " drop=" + lastVerdict.shortName()

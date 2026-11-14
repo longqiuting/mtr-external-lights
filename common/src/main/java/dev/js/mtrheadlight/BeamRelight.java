@@ -135,7 +135,9 @@ public final class BeamRelight {
     /** Client tick, after {@link LightController#tick()} has published this tick's beams. */
     public static void tick(final HeadlightConfig cfg) {
         final long tick = ++ticks;
-        final boolean on = cfg != null && cfg.beamBlockLight && cfg.enabled;
+        // drawBlockLight() = 总开关 && dynamicLight && beamBlockLight。与 LightController 发布
+        // 灯阵的条件是同一组（它也是 enabled && dynamicLight），所以"灯阵空了、烘焙还亮着"不会发生。
+        final boolean on = cfg != null && cfg.drawBlockLight();
         if (!on) {
             if (!baked.isEmpty()) {
                 // Switch turned off: hand every lit section back once so the light goes out.

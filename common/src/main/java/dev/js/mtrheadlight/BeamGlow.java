@@ -210,8 +210,8 @@ public final class BeamGlow {
             } else {
                 MtrHeadlightClient.LOGGER.info("[lte] glow: style={} band={} flare={}"
                                 + " cars={} beams={} dirFix={}",
-                        cfg.style(), Boolean.valueOf(cfg.bandGlobal()),
-                        Boolean.valueOf(cfg.flareGlobal()), dCars, dBeams, dDirFix);
+                        cfg.style(), Boolean.valueOf(cfg.drawBand()),
+                        Boolean.valueOf(cfg.drawFlare()), dCars, dBeams, dDirFix);
             }
         }
         windowOn = false;
@@ -261,8 +261,8 @@ public final class BeamGlow {
     public static void render(final WorldRenderContext context, final boolean latePass) {
         dCalls++;
         final HeadlightConfig cfg = MtrHeadlightClient.config();
-        // beamAnySiding(): the global switch may be off while a single siding overrides it on.
-        if (cfg == null || !cfg.enabled || !cfg.beamAnySiding() || cfg.beamAlpha <= 0.0D) {
+        // drawBand(): 帧级唯一门（总开关 + 任一侧线可能画光带 + 样式含光带）。
+        if (cfg == null || !cfg.drawBand() || cfg.beamAlpha <= 0.0D) {
             diag("cfg");
             return;
         }

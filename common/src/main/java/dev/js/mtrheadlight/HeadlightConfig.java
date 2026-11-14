@@ -516,14 +516,46 @@ public final class HeadlightConfig {
         return lightStyle == null ? LightStyle.BAND : lightStyle;
     }
 
-    /** 样式是否要画光带（BAND / BOTH）。 */
-    public boolean bandStyle() {
-        return style() == LightStyle.BAND || style() == LightStyle.BOTH;
+    /**
+     * <b>「这一层该不该画」的唯一真相源。</b>{@link #lightStyle} 决定能画哪几层，全模组只有这里
+     * 回答这个问题 —— {@link #bandStyle()} / {@link #flareStyle()} 都是它的一层包装，
+     * {@code BeamGlow} / {@code LightFlare} / {@code ScatterPass} 读的是它（直接读，或通过下面
+     * 的 {@code draw*} 帧级谓词间接读），逐侧线覆盖只能把它<b>收紧</b>，不能放宽。
+     *
+     * <p>为什么要有这一个方法：样式之前每个效果都有自己的开关（{@code beamGlow} /
+     * {@code beamFlare} / {@code scatterEnabled}），样式出现之后每加一个新效果就多一处
+     * 「样式 × 自己那个开关」的与运算要写，漏一处就得到一个「切到光带，某个灯晕还在画」的漏洞
+     * （1.0.67 的散射 pass 就是这一种：它的注释写着"光样式不含灯晕时不进灯阵"，代码里却没有这个
+     * 判断）。现在所有路径都问同一句话，新增效果只需要在 {@code draw*} 里加一行。
+     *
+     * @param layer 要问的那一层（{@link LightStyle#BAND} = 光带，{@link LightStyle#FLARE} = 灯晕。
+     *              传 {@link LightStyle#BOTH} 表示"任意一层被允许"，即样式不是空的）
+     */
+    public boolean styleAllows(final LightStyle layer) {
+        final LightStyle s = style();
+        if (layer == null) {
+            return false;
+        }
+        switch (layer) {
+            case BAND:
+                return s == LightStyle.BAND || s == LightStyle.BOTH;
+            case FLARE:
+                return s == LightStyle.FLARE || s == LightStyle.BOTH;
+            case BOTH:
+                return s == LightStyle.BOTH;
+            default:
+                return false;
+        }
     }
 
-    /** 样式是否要画灯晕（FLARE / BOTH）。 */
+    /** 样式是否要画光带（BAND / BOTH）= {@code styleAllows(BAND)}。 */
+    public boolean bandStyle() {
+        return styleAllows(LightStyle.BAND);
+    }
+
+    /** 样式是否要画灯晕（FLARE / BOTH）= {@code styleAllows(FLARE)}。 */
     public boolean flareStyle() {
-        return style() == LightStyle.FLARE || style() == LightStyle.BOTH;
+        return styleAllows(LightStyle.FLARE);
     }
 
     /**
@@ -542,6 +574,64 @@ public final class HeadlightConfig {
         return flareStyle() && beamFlare;
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // 帧级「这一帧画不画」—— 每个渲染器只调对应的一条，这五行就是全部发光路径的闸门，
+    // 也是常驻日志 [lte] lights: 打印的那五个值（同一批调用，不是第二次判断）。
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * 光带这一帧画不画（{@code BeamGlow.render} 的帧级门）：总开关 + 任一侧线可能画。
+     * 逐车再由 {@link Effective#beamGlow} 过滤，而它已经被 {@link #styleAllows} 收过一道。
+     */
+    public boolean drawBand() {
+        return enabled && beamAnySiding();
+    }
+
+    /**
+     * 灯晕这一帧画不画（{@code LightFlare.render} 的帧级门）：总开关 + 任一侧线可能画。
+     *
+     * <p>侧线的 {@code beamFlare = true} <b>不能</b>把样式关掉的灯晕重新打开 ——
+     * {@link #flareAnySiding()} 第一句就是 {@link #styleAllows}。
+     */
+    public boolean drawFlare() {
+        return enabled && flareAnySiding();
+    }
+
+    /**
+     * 屏幕空间散射这一帧跑不跑（{@code sss.ScatterPass.render} 的帧级门）。
+     *
+     * <p><b>它属于灯晕那一层</b>：pass 干的事是"在每盏灯周围积分空气、顺手照亮它脚下的面"，
+     * 画出来就是一个围着灯的圆光斑 —— 玩家眼里的灯晕。所以样式是 {@code BAND}（只要光带）时它
+     * 必须一起停，否则"切到光带"只关掉了 billboard 那一半，圆的那一半还在。
+     * {@code scatterEnabled} 是它自己的开关，在同一句里再收一道：两个都要开。
+     */
+    public boolean drawScatter() {
+        return enabled && scatterEnabled && styleAllows(LightStyle.FLARE);
+    }
+
+    /**
+     * 车灯光打进方块/地表（{@code BeamBlockLight} + {@code BeamRelight}）这一帧跑不跑。
+     *
+     * <p>不挂在样式上，而且是有意的：它不是"画出来的一层光"，是<b>真的把方块光照提亮</b>再重烘
+     * 区块 —— 光带和灯晕都要靠它才"照在地上"，样式只决定画法、不决定灯本身（见 {@link LightStyle}
+     * 的注释）。三个条件（总开关 / 动态光 / 这个功能）与 {@code LightController} 发布灯阵的条件是
+     * 同一组，所以不会出现"灯阵空了、烘焙还留着一片亮"。
+     */
+    public boolean drawBlockLight() {
+        return enabled && dynamicLight && beamBlockLight;
+    }
+
+    /**
+     * 轨道烘焙重光照（{@code RailRelightScheduler}）这一帧跑不跑。
+     *
+     * <p>默认关（{@link #railLight} = false），因为"铁轨自己发光"是玩家明确要求去掉的旧观感；
+     * 开着时它是<b>真的把铁轨顶点照亮</b>，与样式无关 —— 样式换的是车头那两套几何，不是铁轨的
+     * 光照数据。这条谓词和调度器里的判断是同一句。
+     */
+    public boolean drawRailLight() {
+        return enabled && dynamicLight && railLightAnySiding();
+    }
+
     /**
      * 切样式，并把两份逐层旧开关同步过去（{@code beamGlow = 样式含光带}，
      * {@code beamFlare = 样式含灯晕}）。
@@ -550,6 +640,12 @@ public final class HeadlightConfig {
      * {@code "beamFlare": true} 只会让人以为配置坏了。三处始终一起写，读的人就不会被误导。
      * 逐侧线的 {@link SidingSettings#beamGlow} / {@link SidingSettings#beamFlare} 不受影响 ——
      * 那是每条侧线自己的选择，必须保留。
+     *
+     * <p><b>侧线覆盖只能更严：</b>样式是逐层的地板。{@link Effective} 里两份侧线值都要和
+     * {@code styleAllows(BAND/FLARE)} 再与一次，所以样式切到 {@code BAND} 之后，某条侧线哪怕还写着
+     * {@code beamFlare = true}（旧配置残留，或玩家在灯晕样式下点过这个开关），那辆车的灯晕也不会画；
+     * 反向永远不成立。清空这些残留只会丢掉玩家真正的选择（切回 {@code FLARE} 时它又该生效），所以
+     * 这里故意不清理，而是让判定本身不可能被放宽。
      */
     public void setLightStyle(final LightStyle style) {
         lightStyle = style == null ? LightStyle.BAND : style;
@@ -2036,8 +2132,16 @@ public final class HeadlightConfig {
                 o.headLength != null ? o.headLength.doubleValue() : headLength,
                 o.tailLength != null ? o.tailLength.doubleValue() : tailLength,
                 o.railLight != null ? o.railLight.booleanValue() : railLight,
-                o.beamGlow != null ? o.beamGlow.booleanValue() : bandGlobal(),
-                o.beamFlare != null ? o.beamFlare.booleanValue() : flareGlobal(),
+                /*
+                 * 样式是逐层的地板，侧线只能在它上面再收紧 —— 这两行以前是
+                 *     o.beamGlow != null ? o.beamGlow : bandGlobal()
+                 * 于是"侧线 beamGlow=true / beamFlare=true"会把样式刚关掉的那一层重新打开：
+                 * lightStyle=BAND + 某条侧线早先点过一次灯晕（或旧配置里残留 true），灯晕就
+                 * 一直在那条侧线的车上画。现在与 bandStyle()/flareStyle() 再与一次，覆盖只能让
+                 * 结果更严，不可能越过样式。
+                 */
+                bandStyle() && (o.beamGlow != null ? o.beamGlow.booleanValue() : beamGlow),
+                flareStyle() && (o.beamFlare != null ? o.beamFlare.booleanValue() : beamFlare),
                 o.beamDistance != null ? o.beamDistance.doubleValue() : beamDistance,
                 o.beamHeadLength != null ? o.beamHeadLength.doubleValue() : beamHeadLength,
                 o.beamTailLength != null ? o.beamTailLength.doubleValue() : beamTailLength,
@@ -2101,8 +2205,17 @@ public final class HeadlightConfig {
         return false;
     }
 
-    /** True when a beam may be drawn for at least one siding (see {@link #railLightAnySiding()}). */
+    /**
+     * True when a beam may be drawn for at least one siding (see {@link #railLightAnySiding()}).
+     *
+     * <p>样式第一句就判：{@code lightStyle} 不含光带时，任何侧线的 {@code beamGlow = true} 都不能
+     * 让这一帧进渲染器 —— 否则帧级门一放行，逐车的 {@link Effective#beamGlow}（同样被
+     * {@link #styleAllows} 收过）虽然会拦住每一列车，代价却是每帧白走一遍所有车。
+     */
     public boolean beamAnySiding() {
+        if (!styleAllows(LightStyle.BAND)) {
+            return false;
+        }
         if (bandGlobal()) {
             return true;
         }
@@ -2120,8 +2233,16 @@ public final class HeadlightConfig {
      * True when a flare may be drawn for at least one siding: the global switch is on, or a siding
      * turns it on while the global one is off. Same shape as {@link #beamAnySiding()} - the renderer
      * asks this <em>before</em> iterating trains, so a globally-off feature costs one boolean.
+     *
+     * <p><b>样式是硬性地板</b>：{@code lightStyle = BAND} 时这一句直接 {@code false}，不管侧线
+     * 里写着什么。1.0.67 漏的正是这里 —— 以前第一句是 {@code flareGlobal()}，而侧线循环只看
+     * {@code o.beamFlare == true}，于是一条早先点过灯晕的侧线（或者旧配置里残留的 true）就能在
+     * 「只看光带」的样式下把灯晕整帧放行。
      */
     public boolean flareAnySiding() {
+        if (!styleAllows(LightStyle.FLARE)) {
+            return false;
+        }
         if (flareGlobal()) {
             return true;
         }
