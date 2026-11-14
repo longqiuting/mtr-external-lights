@@ -17,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import dev.js.mtrheadlight.LteLog;
 import dev.js.mtrheadlight.rawmodel.RawMesh;
 import dev.js.mtrheadlight.rawmodel.RawObjParser;
+import dev.js.mtrheadlight.server.RegistrySelfCheck;
 import dev.js.mtrheadlight.xiamen.XiamenObjects;
 import dev.js.mtrheadlight.compat.ItemGroupEvents;
 import net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder;
@@ -592,27 +593,35 @@ public final class EyecandyBlocks {
             return;
         }
 
-        final Block[] blocks = new Block[ENTRIES.size()];
-        for (int i = 0; i < ENTRIES.size(); i++) {
-            final EyecandyEntry entry = ENTRIES.get(i);
-            final List<double[]> boxes = boxesOf(entry);
-            final EyecandyBlock block = new EyecandyBlock(AbstractBlock.Settings.of(Material.METAL)
-                    .mapColor(MapColor.GRAY)
-                    .strength(0.8F)
-                    .sounds(BlockSoundGroup.STONE)
-                    .nonOpaque(), entry, boxes, !hasNoCollision(entry.key()));
-            Registry.register(Registry.BLOCK, entry.blockId(), block);
-            // 方块与物品同一个 id（本模组厦门物件的一贯做法）。
-            final Item item = Registry.register(Registry.ITEM, entry.blockId(),
-                    new BlockItem(block, new Item.Settings()));
-            blocks[i] = block;
-            BLOCKS.put(entry.key(), block);
-            ITEMS.put(entry.key(), item);
+        final List<Block> blocks = new ArrayList<>(ENTRIES.size());
+        for (final EyecandyEntry entry : ENTRIES) {
+            // 每件单独包一层：注册与创建在同一条语句里，某一件的模型 / 碰撞箱算不出来
+            // 只跳过它自己，不会让排在后面的几十件全部留在注册表外（那正是
+            // "Some intrusive holders were not added to registry: [Reference{null=Block{minecraft:air}}]" 的来源）。
+            try {
+                final List<double[]> boxes = boxesOf(entry);
+                final EyecandyBlock block = Registry.register(Registry.BLOCK, entry.blockId(),
+                        new EyecandyBlock(AbstractBlock.Settings.of(Material.METAL)
+                                .mapColor(MapColor.GRAY)
+                                .strength(0.8F)
+                                .sounds(BlockSoundGroup.STONE)
+                                .nonOpaque(), entry, boxes, !hasNoCollision(entry.key())));
+                // 方块与物品同一个 id（本模组厦门物件的一贯做法）。
+                final Item item = Registry.register(Registry.ITEM, entry.blockId(),
+                        new BlockItem(block, new Item.Settings()));
+                blocks.add(block);
+                BLOCKS.put(entry.key(), block);
+                ITEMS.put(entry.key(), item);
+            } catch (Throwable t) {
+                LteLog.LOGGER.error("[lte] eyecandy {} failed to register - skipping it", entry.blockId(), t);
+                RegistrySelfCheck.purgePending("eyecandy " + entry.key());
+            }
         }
 
         // 59 个方块共用一个方块实体类型（渲染器按方块实例上的 entry 挑网格）。
+        // 挂在方块实体类型上的只有真正注册成功的那批（失败的那件不在列表里，不会留 null）。
         entityType = Registry.register(Registry.BLOCK_ENTITY_TYPE, ENTITY_ID,
-                FabricBlockEntityTypeBuilder.create(EyecandyBlockEntity::new, blocks).build());
+                FabricBlockEntityTypeBuilder.create(EyecandyBlockEntity::new, blocks.toArray(new Block[0])).build());
 
         // 页签 1：厦门 25 件追加进「厦门风格物件」（mtrlte:core，别的模块已经建好了这一页）。
         ItemGroupEvents.modifyEntriesEvent(XiamenObjects.CORE_TAB_ID)

@@ -15,6 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import dev.js.mtrheadlight.LteLog;
 import dev.js.mtrheadlight.rawmodel.RawMesh;
 import dev.js.mtrheadlight.rawmodel.RawObjParser;
+import dev.js.mtrheadlight.server.RegistrySelfCheck;
 import dev.js.mtrheadlight.xiamen.XiamenObjects;
 import dev.js.mtrheadlight.compat.LteTabs;
 import net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder;
@@ -589,27 +590,35 @@ public final class EyecandyBlocks {
             return;
         }
 
-        final Block[] blocks = new Block[ENTRIES.size()];
-        for (int i = 0; i < ENTRIES.size(); i++) {
-            final EyecandyEntry entry = ENTRIES.get(i);
-            final List<double[]> boxes = boxesOf(entry);
-            final EyecandyBlock block = new EyecandyBlock(AbstractBlock.Settings.of(Material.STONE)
-                    .mapColor(MapColor.GRAY)
-                    .strength(0.8F)
-                    .sounds(BlockSoundGroup.STONE)
-                    .nonOpaque(), entry, boxes, !hasNoCollision(entry.key()));
-            Registry.register(Registry.BLOCK, entry.blockId(), block);
-            // 方块与物品同一个 id（本模组厦门物件的一贯做法）。
-            final Item item = Registry.register(Registry.ITEM, entry.blockId(),
-                    new BlockItem(block, new Item.Settings()));
-            blocks[i] = block;
-            BLOCKS.put(entry.key(), block);
-            ITEMS.put(entry.key(), item);
+        final List<Block> blocks = new ArrayList<>(ENTRIES.size());
+        for (final EyecandyEntry entry : ENTRIES) {
+            // 每件单独包一层：注册与创建在同一条语句里，某一件的模型 / 碰撞箱算不出来
+            // 只跳过它自己，不会让排在后面的几十件全部留在注册表外（那正是
+            // "Some intrusive holders were not registered: [Reference{null=Block{minecraft:air}}]" 的来源）。
+            try {
+                final List<double[]> boxes = boxesOf(entry);
+                final EyecandyBlock block = new EyecandyBlock(AbstractBlock.Settings.of(Material.STONE)
+                        .mapColor(MapColor.GRAY)
+                        .strength(0.8F)
+                        .sounds(BlockSoundGroup.STONE)
+                        .nonOpaque(), entry, boxes, !hasNoCollision(entry.key()));
+                Registry.register(Registry.BLOCK, entry.blockId(), block);
+                // 方块与物品同一个 id（本模组厦门物件的一贯做法）。
+                final Item item = Registry.register(Registry.ITEM, entry.blockId(),
+                        new BlockItem(block, new Item.Settings()));
+                blocks.add(block);
+                BLOCKS.put(entry.key(), block);
+                ITEMS.put(entry.key(), item);
+            } catch (Throwable t) {
+                LteLog.LOGGER.error("[lte] eyecandy {} failed to register - skipping it", entry.blockId(), t);
+                RegistrySelfCheck.purgePending("eyecandy " + entry.key());
+            }
         }
 
-        // 59 个方块共用一个方块实体类型（渲染器按方块实例上的 entry 挑网格）。
+        // 挂在方块实体类型上的只有真正注册成功的那批（失败的那件不在列表里，不会留 null）。
         entityType = Registry.register(Registry.BLOCK_ENTITY_TYPE, ENTITY_ID,
-                FabricBlockEntityTypeBuilder.create(EyecandyBlockEntity::new, blocks).build());
+                FabricBlockEntityTypeBuilder.create(EyecandyBlockEntity::new,
+                        blocks.toArray(new Block[0])).build());
 
         // 页签 1：厦门 25 件追加进「厦门风格物件」（mtrlte:core，别的模块已经建好了这一页）。
         LteTabs.modify(XiamenObjects.CORE_TAB_ID)
@@ -618,7 +627,9 @@ public final class EyecandyBlocks {
         // 页签 2：南普陀 34 件单开一页。
         final List<EyecandyEntry> nanputuo = entriesOf(EyecandyEntry.Pack.NANPUTUO);
         if (!nanputuo.isEmpty()) {
-            LteTabs.create(NANPUTUO_TAB_ID, () -> new ItemStack(ITEMS.get(nanputuo.get(0).key())));
+            // 图标那一件自己也可能注册失败：按 key 取不到就退回这一页里第一个注册成功的物品，
+            // 一个都没有就用空气 —— 页签图标不许把整个注册流程带崩。
+            LteTabs.create(NANPUTUO_TAB_ID, () -> new ItemStack(iconOf(nanputuo.get(0).key())));
             LteTabs.modify(NANPUTUO_TAB_ID)
                     .register(entries -> addAll(entries, EyecandyEntry.Pack.NANPUTUO));
         }
@@ -651,6 +662,20 @@ public final class EyecandyBlocks {
             }
         }
         return out;
+    }
+
+    /** 页签图标：按 key 取，取不到就退回第一个注册成功的物品，再没有就用空气。 */
+    private static Item iconOf(final String key) {
+        final Item item = ITEMS.get(key);
+        if (item != null) {
+            return item;
+        }
+        for (final Item candidate : ITEMS.values()) {
+            if (candidate != null) {
+                return candidate;
+            }
+        }
+        return net.minecraft.item.Items.AIR;
     }
 
     /** 把某一包的物品按描述文件顺序追加进一个页签。 */

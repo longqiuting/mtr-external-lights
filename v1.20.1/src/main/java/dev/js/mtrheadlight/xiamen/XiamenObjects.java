@@ -6,6 +6,7 @@ import java.util.Map;
 
 import dev.js.mtrheadlight.LteLog;
 import dev.js.mtrheadlight.TabIcons;
+import dev.js.mtrheadlight.server.RegistrySelfCheck;
 import net.fabricmc.fabric.api.itemgroup.v1.FabricItemGroup;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
 import net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder;
@@ -269,7 +270,13 @@ public final class XiamenObjects {
         registered = true;
 
         for (final XiamenLine line : XiamenLine.values()) {
-            register(line);
+            // 一条线路坏掉只跳过这一条（7 个方块），别的线路照常注册。
+            try {
+                register(line);
+            } catch (Throwable t) {
+                LteLog.LOGGER.error("[lte] xiamen {} psd set failed to register - skipping that line", line, t);
+                RegistrySelfCheck.purgePending("xiamen " + line);
+            }
         }
         logo = registerLogo(LOGO_ID);
 

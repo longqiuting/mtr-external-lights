@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import dev.js.mtrheadlight.LteLog;
+import dev.js.mtrheadlight.server.RegistrySelfCheck;
 import dev.js.mtrheadlight.compat.ItemGroupEvents;
 import net.minecraft.block.AbstractBlock;
 import net.minecraft.block.MapColor;
@@ -115,10 +116,17 @@ public final class RailingWallBlocks {
         registered = true;
 
         for (final Variant variant : VARIANTS) {
-            final Identifier id = new Identifier("mtrlte", variant.id());
-            final RailingWallBlock block = Registry.register(Registry.BLOCK, id,
-                    new RailingWallBlock(settings(), variant.boxes()));
-            ITEMS.add(Registry.register(Registry.ITEM, id, new BlockItem(block, new Item.Settings())));
+            // 一条失败只跳过这一条：注册（Registry.register）就在创建的同一条语句里，
+            // 中途抛异常也只会留下这一块孤儿 Block，不会连带别的变体。
+            try {
+                final Identifier id = new Identifier("mtrlte", variant.id());
+                final RailingWallBlock block = Registry.register(Registry.BLOCK, id,
+                        new RailingWallBlock(settings(), variant.boxes()));
+                ITEMS.add(Registry.register(Registry.ITEM, id, new BlockItem(block, new Item.Settings())));
+            } catch (Throwable t) {
+                LteLog.LOGGER.error("[lte] railing wall variant {} failed to register - skipping it", variant.id(), t);
+                RegistrySelfCheck.purgePending("railing wall " + variant.id());
+            }
         }
 
         ItemGroupEvents.modifyEntriesEvent(CORE_TAB_ID)

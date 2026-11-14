@@ -8,6 +8,7 @@ import java.util.Map;
 
 import dev.js.mtrheadlight.LteLog;
 import dev.js.mtrheadlight.TabIcons;
+import dev.js.mtrheadlight.server.RegistrySelfCheck;
 import dev.js.mtrheadlight.compat.ItemGroupEvents;
 import net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder;
 import net.minecraft.block.AbstractBlock;
@@ -269,7 +270,13 @@ public final class XiamenObjects {
         registered = true;
 
         for (final XiamenLine line : XiamenLine.values()) {
-            register(line);
+            // 一条线路坏掉只跳过这一条（7 个方块），别的线路照常注册。
+            try {
+                register(line);
+            } catch (Throwable t) {
+                LteLog.LOGGER.error("[lte] xiamen {} psd set failed to register - skipping that line", line, t);
+                RegistrySelfCheck.purgePending("xiamen " + line);
+            }
         }
         logo = registerLogo(LOGO_ID);
 
@@ -317,52 +324,50 @@ public final class XiamenObjects {
         }
     }
 
-    /** 五条线路的同种方块（给 BE 类型用）。 */
+    /** 五条线路的同种方块（给 BE 类型用）。某条线路注册失败时那一位是 {@code null}，跳过。 */
     private static Block[] blocksOf(final java.util.function.Function<LineSet, Block> pick) {
         final XiamenLine[] lines = XiamenLine.values();
-        final Block[] blocks = new Block[lines.length];
-        for (int i = 0; i < lines.length; i++) {
-            blocks[i] = pick.apply(set(lines[i]));
+        final java.util.List<Block> blocks = new java.util.ArrayList<>(lines.length);
+        for (final XiamenLine line : lines) {
+            final Block block = pick.apply(set(line));
+            if (block != null) {
+                blocks.add(block);
+            }
         }
-        return blocks;
+        return blocks.toArray(new Block[0]);
     }
 
     /** 一条线路的 7 个方块 + 6 个物品。 */
     private static void register(final XiamenLine line) {
         final LineSet set = set(line);
 
-        set.door = new XiamenPsdBlocks.Door(line);
-        Registry.register(Registry.BLOCK, set.doorId, set.door);
+        // 创建与注册在同一条语句里：构造器一执行就把自己挂进注册表的「待绑定」表，
+        // 注册紧跟其后才不会留下孤儿 Block（详见 RegistrySelfCheck 的类注释）。
+        set.door = Registry.register(Registry.BLOCK, set.doorId, new XiamenPsdBlocks.Door(line));
         set.doorItem = Registry.register(Registry.ITEM, set.doorId,
                 new PsdAPGItem(set.door, PsdAPGItem.Kind.DOOR, new Item.Settings()));
 
-        set.glass = new XiamenPsdBlocks.Glass(line);
-        Registry.register(Registry.BLOCK, set.glassId, set.glass);
+        set.glass = Registry.register(Registry.BLOCK, set.glassId, new XiamenPsdBlocks.Glass(line));
         set.glassItem = Registry.register(Registry.ITEM, set.glassId,
                 new PsdAPGItem(set.glass, PsdAPGItem.Kind.GLASS, new Item.Settings()));
 
-        set.end = new XiamenPsdBlocks.GlassEnd(line);
-        Registry.register(Registry.BLOCK, set.endId, set.end);
+        set.end = Registry.register(Registry.BLOCK, set.endId, new XiamenPsdBlocks.GlassEnd(line));
         set.endItem = Registry.register(Registry.ITEM, set.endId,
                 new PsdAPGItem(set.end, PsdAPGItem.Kind.END, new Item.Settings()));
 
         // 吊板：只注册方块（MTR 的 BlockPSDTop 也不进创造页签）。它由 PsdAPGItem 跟着整列一起放下，
         // 没有掉落表，中键选取给的是玻璃物品。
-        set.top = new XiamenPsdBlocks.Top(line);
-        Registry.register(Registry.BLOCK, set.topId, set.top);
+        set.top = Registry.register(Registry.BLOCK, set.topId, new XiamenPsdBlocks.Top(line));
 
-        set.apgDoor = new XiamenPsdBlocks.ApgDoor(line);
-        Registry.register(Registry.BLOCK, set.apgDoorId, set.apgDoor);
+        set.apgDoor = Registry.register(Registry.BLOCK, set.apgDoorId, new XiamenPsdBlocks.ApgDoor(line));
         set.apgDoorItem = Registry.register(Registry.ITEM, set.apgDoorId,
                 new PsdAPGItem(set.apgDoor, PsdAPGItem.Kind.APG_DOOR, new Item.Settings()));
 
-        set.apgGlass = new XiamenPsdBlocks.ApgGlass(line);
-        Registry.register(Registry.BLOCK, set.apgGlassId, set.apgGlass);
+        set.apgGlass = Registry.register(Registry.BLOCK, set.apgGlassId, new XiamenPsdBlocks.ApgGlass(line));
         set.apgGlassItem = Registry.register(Registry.ITEM, set.apgGlassId,
                 new PsdAPGItem(set.apgGlass, PsdAPGItem.Kind.APG_GLASS, new Item.Settings()));
 
-        set.apgEnd = new XiamenPsdBlocks.ApgEnd(line);
-        Registry.register(Registry.BLOCK, set.apgEndId, set.apgEnd);
+        set.apgEnd = Registry.register(Registry.BLOCK, set.apgEndId, new XiamenPsdBlocks.ApgEnd(line));
         set.apgEndItem = Registry.register(Registry.ITEM, set.apgEndId,
                 new PsdAPGItem(set.apgEnd, PsdAPGItem.Kind.APG_END, new Item.Settings()));
     }

@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import dev.js.mtrheadlight.LteLog;
+import dev.js.mtrheadlight.server.RegistrySelfCheck;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
 import net.minecraft.block.AbstractBlock;
 import net.minecraft.block.MapColor;
@@ -139,11 +140,17 @@ public final class RailingGlassBlocks {
         registered = true;
 
         for (final Variant variant : VARIANTS) {
-            final Identifier id = new Identifier("mtrlte", variant.id());
-            final RailingWallBlock block = Registry.register(Registries.BLOCK, id,
-                    new RailingWallBlock(settings(), variant.boxes()));
-            BLOCKS.add(block);
-            ITEMS.add(Registry.register(Registries.ITEM, id, new BlockItem(block, new Item.Settings())));
+            // 一条失败只跳过这一条：注册就在创建的同一条语句里，不会连带别的变体。
+            try {
+                final Identifier id = new Identifier("mtrlte", variant.id());
+                final RailingWallBlock block = Registry.register(Registries.BLOCK, id,
+                        new RailingWallBlock(settings(), variant.boxes()));
+                BLOCKS.add(block);
+                ITEMS.add(Registry.register(Registries.ITEM, id, new BlockItem(block, new Item.Settings())));
+            } catch (Throwable t) {
+                LteLog.LOGGER.error("[lte] railing glass variant {} failed to register - skipping it", variant.id(), t);
+                RegistrySelfCheck.purgePending("railing glass " + variant.id());
+            }
         }
 
         ItemGroupEvents.modifyEntriesEvent(RegistryKey.of(RegistryKeys.ITEM_GROUP, CORE_TAB_ID))

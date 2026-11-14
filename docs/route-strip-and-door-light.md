@@ -618,6 +618,8 @@ v7 起 `drawCurrentDot` 只剩一句 `fillOval`：
 
 ## 8.1 当前站是换乘站：线路主带横穿追逐箭头环
 
+> **v9 已推翻这里“环内红实心圆”的做法**：当前站不再填红圆，改成追逐箭头上半圈变红，见本文最后的 v9 一节。
+
 | 症状 | 原因 | 修法 |
 |---|---|---|
 | 当前站同时是换乘站时，线路色主带从环的左右两侧整个横穿过去，两段弧 / 箭头尖看着被切开一半 | 追逐箭头环的两段弧在 **0° / 180°**（环的左右）各留一个缺口，主线正好从这两个缺口穿过。`drawInterchange` 的 `else` 分支一直铺着一层**环身白底**（`fillOval(white, rOut)`），v8 把当前站换成“环内红色实心圆”后这层白底只存在于非当前站分支 → 当前站的环身是**透明**的，主带直接透出来 | 白底**无条件先画**（两种情况都画），再叠当前站的红实心圆，最后画两段弧 + 箭头尖。环身不透明 → 主带在环边上“断”开，和普通站圆环、非当前站换乘环的表现一致 |
@@ -646,3 +648,81 @@ v7 起 `drawCurrentDot` 只剩一句 `fillOval`：
 - `06-current-is-interchange`：主带在环边断开，两段弧 + 两个箭头尖完整，红圆在箭头下面。
 - 构建：`gradle -p v1.20.1 compileJava` → 通过（仅既有 4 条警告）；没有 clean / build / remapJar，
   没开机，没提交 git。只改 `v1.20.1`。
+
+# 线路条带 v9（当前站换乘：砍掉红圆、改红上半弧 / 修起点端露出的灰刺）— 2026-11-14
+
+两条实机反馈，只改 `v1.20.1` 的 `XiamenStripPainter`（另外三个版本一行未动）。
+
+## 9.1 当前站同时是换乘站：不再填红圆，改成追逐箭头上半圈变红
+
+v8 / v8.1 的做法是「环身白底 → 环内红色实心圆 → 下弧 → 上弧」，用户实拍后确认**错了**：
+
+| 元素 | v8.1 | v9 |
+|---|---|---|
+| 换乘环内部 | 红色实心圆（`CURRENT_FILL`） | **空的**（只有环身白底，主带照样在这里断开） |
+| 上弧（30°→150°）+ 它的箭头尖 | 当前线路色 `ringColor(lineRgb)` | **当前站红 `CURRENT_FILL`** |
+| 下弧（210°→330°）+ 垂尾 / 线路牌 | 换乘线路色 | 不变 |
+| 两段弧之间的空隙 | 保留 | 保留 |
+
+行为矩阵（v9 定稿，`drawCurrentDot` 那条路径<b>没动</b>）：
+
+| 站 | 当前站？ | 画出来 |
+|---|---|---|
+| 普通站 | 是 | 红色实心圆（`drawCurrentDot`，内缩一圈）—— **不变** |
+| 普通站 | 否 | 线路色空心环；已过站用灰 —— **不变** |
+| 换乘站 | 否 | 上弧线路色 + 下弧换乘色 —— **不变** |
+| 换乘站 | 是 | **上弧红 + 下弧换乘色，环内无红圆** —— 本次唯一改动 |
+
+配套变化：
+
+- `visR[]` 的换乘分支不再排除当前站（`swaps[i] != null` 全覆盖）：当前站的换乘标记现在是完整环
+  （半径 `ixRingD/2`），不再是那个更小的红圆，站名让位 / 终点箭尖都该按环算。
+  副作用（正向）：当前站 = 终点 + 换乘时，终点三角的箭尖现在顶到环的真正外缘（以前差 4 px）。
+- 垂尾起点统一 `cy + bodyR - thick * 0.45f`（以前当前站那条是 `- 2f`，按实心圆算的）。
+- `drawInterchange` 去掉没用的 `currentD` 参数。
+
+## 9.2 灰色过站线从起点站那一侧露出一小截
+
+**症状**：条带一端（起点站那侧）露出一小截裸的 `#A7A8A8`，只有部分站台会犯。
+
+**复现**（离线探针）：主线两端原来取 `padLeft` / `rightEdge`（= 首站圆心 ∓ 半径），
+而普通站圆环的外缘（`visR`）比半径大半个描边、**当前站的红实心圆反而更小**
+（`drawCurrentDot` 只画 `d - 2×环宽`，≈ 0.7×直径）。于是“当前站正好落在端头那一格”时，
+首站只有那个小红圆 → `padLeft` 到红圆左边那 4 px 的灰线没人盖 → 露出来。
+
+- 复现用例：`B6`（当前站 = 数据首站，非镜像）灰像素 `x = 82..85`；
+  `B7`（镜像，当前站落在右端）`x = 2634..2637`；`B10`（站名正排）同理。
+
+**修法**：主线两端改成对齐「**端头标记真正画出来的外缘**」，再往里压 `END_JOINT_OVERLAP = 2 px`：
+
+```java
+final float[] markR = ...;  // 普通当前站 = currentDotDiameter(curD)/2，其余 = visR[i]
+final int lineStartX = Math.round(xs[0] - markR[0]) + END_JOINT_OVERLAP;
+final int lineEndX   = Math.round(xs[count - 1] + markR[count - 1]) - END_JOINT_OVERLAP;
+final int lineFrom = flip ? headBaseX : lineStartX;   // 终点箭头那头仍然停在 headBaseX
+final int lineTo   = flip ? lineEndX  : headBaseX;
+```
+
+- 镜像 / 非镜像两条分支对称处理（都只有「非箭头端」用 markR，箭头端仍是 `headBaseX`）。
+- 内压 2 px 保证线头一定压在标记底下：**不会露灰刺，也不会反过来出现“线没接上圆环”的缝**。
+- `currentDotDiameter(curD)` 从 `drawCurrentDot` 里抽出来，绘制和排版用的是同一份算法（不会再各算一套）。
+- 修复后 `B6 / B7 / B10` 的灰像素数 = **0**（没有已过站就没有灰段）；`B1..B5 / B8 / B9`
+  的灰段像素范围与修复前**逐字节相同**（A4 / A5 也一样）—— 只动了端头那一截。
+
+## 9.3 离线预览（`temp/strip-preview-v9/`、`temp/route-strip-preview/`）
+
+渲染器 `temp/route-strip-preview/RouteStripPreview.java`（只 `javac` `XiamenStripPainter`，纯 AWT）：
+
+```
+javac -encoding UTF-8 -d out v1.20.1/src/main/java/dev/js/mtrheadlight/xiamen/XiamenStripPainter.java \
+      temp/route-strip-preview/RouteStripPreview.java
+java -Dfile.encoding=UTF-8 -cp out dev.js.mtrheadlight.xiamen.RouteStripPreview <输出目录>
+```
+
+- `A1..A3` 当前站 = 换乘（绿线 / 红线 / 镜像）：上弧红、下弧橙、环内空、两段空隙保留；
+  `A4` 普通换乘站对照（不变）、`A5` 普通当前站红圆对照（不变）、
+  `A6` 当前站 = 终点 = 换乘（箭尖贴住环）、`A7` 站名正排 + 当前站换乘（牌 / 名不打架）。
+- `B1..B10` 端头：起点普通 / 起点换乘 / 镜像 / 站名正排 / 当前站落在端头（灰刺复现用例）。
+- 修复前后逐用例像素对比：只有 `A1/A2/A3/A6/A7`（红圆 → 红弧）与 `B6/B7/B10`（灰刺消失）有差异。
+- 构建：`gradle -p v1.20.1 compileJava` → `BUILD SUCCESSFUL`；没有 clean / build / remapJar，
+  没开机，没提交 git。
