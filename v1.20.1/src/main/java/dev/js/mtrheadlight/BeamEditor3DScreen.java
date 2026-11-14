@@ -45,12 +45,28 @@ import java.util.TreeSet;
  * │        ║ │                                        │ R/G/B 滑块     │
  * │        ║ │                                        │ ── 几何 ──     │
  * │        ║ │                                        │ 长 / 宽 / 透明 │
+ * │        ║ │                                        │ ── 变换 ──     │
+ * │        ║ │                                        │ 翻转/旋转 90°  │
  * ├──────────┴────────────────────────────────────────┴────────────────┤
  * │ 状态行 / 操作提示                                                  │
  * └────────────────────────────────────────────────────────────────────┘
  *   左侧 ║ 是可见的滚动条（滑轨 + 可拖滑块）；窗口变窄时两栏等比收缩，
  *   中间的 3D 视图优先保住（见 {@link #leftW()} / {@link #rightW()}）。
  * </pre>
+ *
+ * <h2>三轴抓手（Blockbench 式）</h2>
+ * <ul>
+ *   <li><b>移动工具</b>：选中光束上画三根轴杆（X 红 / Y 绿 / Z 蓝）。按住哪根就只沿那根平移，
+ *       另两个 {@code pos} 分量从按下时的快照里原样写回。</li>
+ *   <li><b>旋转工具</b>：画三个<b>对轴环</b>。X 环 = 俯仰（pitch）、Y 环 = 偏航（yaw）、
+ *       Z 环 = 绕光束自转（roll）；同样只改一个 {@code rot} 分量。</li>
+ *   <li><b>步进</b>：默认移动 1/16 格、旋转 2.5°；按住 Shift 是 1/64 格 / 0.5°。
+ *       所有拖动都是「锚点 + k·步长」，不是逐帧累加（{@link BeamGizmo#quantize}）。</li>
+ *   <li><b>数值</b>：视口右上角实时 {@code Δpos / Δrot}（带 {@code 5/16} 这种步进计数），
+ *       右栏给绝对值；松手后状态行写「已移动 X +0.31 格（5×1/16）」。</li>
+ *   <li><b>翻转 / 90°</b>：右栏「变换」六个按钮，或 Alt+X/Y/Z（+Shift = 90°）。
+ *       翻转是关于<b>光束锚点</b>的模型轴镜像 —— 锚点在镜像平面上，所以灯不会飞到地图另一头。</li>
+ * </ul>
  *
  * <h2>数据流</h2>
  * <ul>
@@ -119,6 +135,8 @@ final class BeamEditor3DScreen extends Screen {
     private static final int DRAG_SCROLL = 5;
     /** 按住某根坐标轴拖动：只沿那一根轴移动（射线 × 轴线的最近点投影）。 */
     private static final int DRAG_BEAM_AXIS = 6;
+    /** 按住某个对轴环拖动：只绕那一根轴旋转（射线 ∩ 环平面 → 平面内角度差）。 */
+    private static final int DRAG_BEAM_RING = 7;
 
     // --- slider kinds ------------------------------------------------------------------------
     private static final int SLIDER_R = 0;
@@ -157,6 +175,8 @@ final class BeamEditor3DScreen extends Screen {
 
     private final Screen parent;
     private final TrainPreview.Camera camera = new TrainPreview.Camera();
+    /** 抓手自检只跑一次（结果进日志，见构造器）。 */
+    private static boolean gizmoChecked;
 
     private String vehicleId;
     /** 已经打开过的车型，避免 resize / 返回本页时把编辑中的数值重置。 */
@@ -206,6 +226,10 @@ final class BeamEditor3DScreen extends Screen {
     private int geometrySectionY = -1;
     private int propertiesY = -1;
     private int hintY = -1;
+    /** 右栏「变换」小节的标题基线（-1 = 这一版没排下，按钮也没建）。 */
+    private int transformY = -1;
+    /** 「变换」按钮（翻转 / 90° 各三个轴），没选中光束时整组灰掉。 */
+    private final List<ButtonWidget> transformButtons = new ArrayList<>();
 
     // --- drag state ---------------------------------------------------------------------------
     private int drag = DRAG_NONE;
@@ -230,8 +254,35 @@ final class BeamEditor3DScreen extends Screen {
     private double[] axisAnchor;
     private double[] axisBase;
     private double axisGrab = Double.NaN;
-    /** 悬停在哪根坐标轴上（仅在移动模式、没在拖动时算），用来高亮。 */
+    /** 悬停在哪根坐标轴 / 哪个环上（按当前工具算），用来高亮。 */
     private int hoverAxis = -1;
+
+    /**
+     * 旋转抓手（环）拖动状态：{@code ringAnchorRot} 是按下那一刻的 {@code rot}，
+     * {@code ringAngle0} 是按下时鼠标在环平面内的角度。每帧只用「角度差」去量化，
+     * 另两个 rot 分量原样从快照写回 —— 这就是「拖一个环只改一个角」的保证。
+     */
+    private double[] ringAnchorRot;
+    private double[] ringBase;
+    private double[] ringNormal;
+    private double ringAngle0 = Double.NaN;
+    /** 按下时认定的是平面求交（true）还是屏幕折线（false）；两种方法的角度符号不同，不能混。 */
+    private boolean ringPlanar;
+
+    /** 拖光束本体的自由旋转：按下时的 rot 快照 + 累计像素（Shift 步进要以它为基准重新量化）。 */
+    private double[] rotAnchor;
+    private double rotAccumX;
+    private double rotAccumY;
+
+    /**
+     * 最近一次变换的位移 / 转角（视口右侧的 {@code Δpos / Δrot} 读数）。
+     * 保留到下一次按下或换选中束为止 —— 松手后玩家还能回头看「刚才挪了多少」。
+     */
+    private final double[] deltaPos = new double[3];
+    private final double[] deltaRot = new double[3];
+    private boolean deltaShown;
+    /** 产生上面那份 Δ 时用的步长（松手后还按它显示 {@code 5/16}，不受此刻有无按 Shift 影响）。 */
+    private double deltaMoveStep = BeamGizmo.MOVE_STEP;
 
     BeamEditor3DScreen(final Screen parent, final String vehicleId) {
         super(tr("beam3d.title"));
@@ -244,6 +295,17 @@ final class BeamEditor3DScreen extends Screen {
         LteLog.LOGGER.info("[lte] beam3d: vehicles={} vehicleId={} loaded={}",
                 Integer.valueOf(this.vehicles.size()), describe(this.vehicleId),
                 describe(this.loadedId));
+        // 抓手的纯数学自检（同一组断言在 tools/beam-gizmo-check.js 里）：一次 JVM 只跑一遍。
+        if (!gizmoChecked) {
+            gizmoChecked = true;
+            final String bad = BeamGizmo.selfCheck();
+            if (bad.isEmpty()) {
+                LteLog.LOGGER.info("[lte] beam3d: gizmo self-check OK (move step 1/16, rot step 2.5deg;"
+                        + " each drag changes exactly one axis)");
+            } else {
+                LteLog.LOGGER.warn("[lte] beam3d: gizmo self-check FAILED: {}", bad);
+            }
+        }
     }
 
     /** 日志里区分「null」和空串，两者在 catalog 里含义不同。 */
@@ -749,6 +811,32 @@ final class BeamEditor3DScreen extends Screen {
                 .dimensions(x, y, width, ROW_H).build());
         y += buttonPitch + 4;
 
+        // ── 变换：翻转（关于锚点的镜像） / 绕轴 90° ──
+        // 六个按钮挤在两列 × 三行里：左列翻转、右列旋转，行号 = 轴。
+        this.transformY = -1;
+        this.transformButtons.clear();
+        final int trRowH = 14;
+        final int trGap = 2;
+        final int trBlock = 11 + 3 * (trRowH + trGap) + 10;
+        if (y + trBlock + 40 <= bottom) {
+            final int half = Math.max(30, (width - trGap) / 2);
+            this.transformY = y;
+            y += 11;
+            for (int axis = 0; axis < 3; axis++) {
+                final int a = axis;
+                this.transformButtons.add(this.addDrawableChild(ButtonWidget.builder(
+                                tr("beam3d.transform.flip", BeamGizmo.nameOf(axis)),
+                                b -> flipAxis(a))
+                        .dimensions(x, y, half, trRowH).build()));
+                this.transformButtons.add(this.addDrawableChild(ButtonWidget.builder(
+                                tr("beam3d.transform.rot90", BeamGizmo.nameOf(axis)),
+                                b -> rotateAxis90(a))
+                        .dimensions(x + half + trGap, y, half, trRowH).build()));
+                y += trRowH + trGap;
+            }
+            y += 3;
+        }
+
         this.colorSectionY = y;
         this.geometrySectionY = -1;
         this.propertiesY = -1;
@@ -989,6 +1077,76 @@ final class BeamEditor3DScreen extends Screen {
                 beam == null ? "head" : BeamSession.typeOf(beam)));
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // 变换按钮：翻转（镜像） / 绕轴 90°
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * <b>翻转一根轴</b>：关于「过光束锚点、法线为该模型轴」的平面做镜像。
+     *
+     * <p>镜像作用在<b>方向</b>上（{@code v − 2(v·e)e}），{@code pos} 走同一个公式 —— 因为锚点
+     * 就在平面上，所以位置是恒等的。<b>不能用世界原点做镜像中心</b>：那样 {@code pos = (5,2,3)}
+     * 会翻到 {@code (-5,2,3)}，灯直接飞到地图另一头。
+     *
+     * <p>写回的是「头灯口径」的方向再反解 rot（{@link BeamGizmo#rotFromHead}）——
+     * 尾灯的出厂方向本来就是取反的，这样两种类型都能一次翻对。
+     */
+    private void flipAxis(final int axis) {
+        final Beam beam = selectedBeam();
+        if (beam == null) {
+            this.status = tr("beam3d.needSelection").getString();
+            return;
+        }
+        final double[] rot = beam.rot == null ? new double[]{0.0D, 0.0D, 0.0D} : beam.rot;
+        final double[] head = BeamGizmo.headDirection(rot);
+        final double[] turned = BeamGizmo.mirror(head, axis);
+        beam.rot = BeamGizmo.rotFromHead(turned, rot[2]);
+        if (beam.pos != null) {
+            // 锚点在镜像平面上 ⇒ 这一步是恒等；照样走一遍，语义（和 pos 同时生效）才完整。
+            final double[] pos = BeamGizmo.mirrorPoint(beam.pos, beam.pos, axis);
+            beam.pos[0] = pos[0];
+            beam.pos[1] = pos[1];
+            beam.pos[2] = pos[2];
+            round(beam.pos);
+        }
+        round(beam.rot);
+        this.session.save();
+        clearDeltas();
+        this.status = tr("beam3d.transform.flipped", BeamGizmo.nameOf(axis),
+                String.format(Locale.ROOT, "%.1f", Double.valueOf(beam.rot[0])),
+                String.format(Locale.ROOT, "%.1f", Double.valueOf(beam.rot[1]))).getString();
+        LteLog.LOGGER.info("[lte] beam3d: flipped {} axis (beam {}) -> rot {} / {}",
+                BeamGizmo.nameOf(axis), Integer.valueOf(this.selected + 1),
+                Double.valueOf(beam.rot[0]), Double.valueOf(beam.rot[1]));
+        rebuild();
+    }
+
+    /**
+     * <b>绕模型轴旋转 90°</b>：把方向向量用 Rodrigues 公式转过去，再反解 rot。
+     * 位置不动（绕的是光束自己的锚点）。Z 轴旋转对「本来就沿 Z 的光束」是恒等 —— 那是几何事实，
+     * 不是 bug（光柱是旋转对称的）。
+     */
+    private void rotateAxis90(final int axis) {
+        final Beam beam = selectedBeam();
+        if (beam == null) {
+            this.status = tr("beam3d.needSelection").getString();
+            return;
+        }
+        final double[] rot = beam.rot == null ? new double[]{0.0D, 0.0D, 0.0D} : beam.rot;
+        final double[] head = BeamGizmo.headDirection(rot);
+        final double[] turned = BeamGizmo.rotate(head, BeamGizmo.unit(axis), 90.0D);
+        beam.rot = BeamGizmo.rotFromHead(turned, rot[2]);
+        round(beam.rot);
+        this.session.save();
+        clearDeltas();
+        this.status = tr("beam3d.transform.rotated", BeamGizmo.nameOf(axis),
+                String.format(Locale.ROOT, "%+.1f", Double.valueOf(90.0D))).getString();
+        LteLog.LOGGER.info("[lte] beam3d: rotated {} 90deg (beam {}) -> rot {} / {}",
+                BeamGizmo.nameOf(axis), Integer.valueOf(this.selected + 1),
+                Double.valueOf(beam.rot[0]), Double.valueOf(beam.rot[1]));
+        rebuild();
+    }
+
     /** 「车厢 ×N」按钮文案。 */
     private MutableText carsLabel() {
         return tr("beam3d.cars", Integer.valueOf(this.carCount));
@@ -1139,6 +1297,8 @@ final class BeamEditor3DScreen extends Screen {
             this.lastX = mouseX;
             this.lastY = mouseY;
             this.dragButton = button;
+            // 新的一次操作：上一次的 Δ 读数该让位了。
+            clearDeltas();
             if (button == 0) {
                 // 吸附按钮盖在视口左下角：先吃掉点击，否则会被当成"点空白处"把选中取消掉。
                 final int snap = snapButtonAt(mouseX, mouseY);
@@ -1147,8 +1307,11 @@ final class BeamEditor3DScreen extends Screen {
                     this.drag = DRAG_NONE;
                     return true;
                 }
-                // 坐标轴手柄优先于光束本体：手柄就长在光束起点上，不先判它的话永远点不到。
+                // 抓手优先于光束本体：抓手就长在光束起点上，不先判它的话永远点不到。
                 if (this.mode == MODE_MOVE && beginAxisDrag(mouseX, mouseY)) {
+                    return true;
+                }
+                if (this.mode == MODE_ROTATE && beginRingDrag(mouseX, mouseY)) {
                     return true;
                 }
                 final TrainPreview.Hit hit = this.session == null ? null
@@ -1162,6 +1325,7 @@ final class BeamEditor3DScreen extends Screen {
                         this.status = tr("beam3d.dragMove", Integer.valueOf(hit.index + 1)).getString();
                     } else if (this.mode == MODE_ROTATE) {
                         this.drag = DRAG_BEAM_ROTATE;
+                        this.rotAnchor = null;   // 每次按下都从当前 rot 重新起算（步进要用）
                         this.status = tr("beam3d.dragRotate", Integer.valueOf(hit.index + 1)).getString();
                     } else if (this.mode == MODE_COLOR) {
                         // 颜色工具：点哪束就换哪束的颜色 —— 直接开取色器（色板 + #RRGGBB）。
@@ -1210,6 +1374,9 @@ final class BeamEditor3DScreen extends Screen {
             case DRAG_BEAM_AXIS:
                 moveAlongAxis(mouseX, mouseY);
                 break;
+            case DRAG_BEAM_RING:
+                rotateAlongRing(mouseX, mouseY);
+                break;
             case DRAG_BEAM_ROTATE:
                 rotateSelected(dx, dy);
                 break;
@@ -1227,6 +1394,8 @@ final class BeamEditor3DScreen extends Screen {
     @Override
     public boolean mouseReleased(final double mouseX, final double mouseY, final int button) {
         if (this.drag != DRAG_NONE && button == this.dragButton) {
+            // 松手这一刻把「改了哪一根轴、改了多少」写进状态行（视口里的 Δ 读数会保留）。
+            reportDragResult();
             this.drag = DRAG_NONE;
             this.dragButton = -1;
             this.moveAnchor = null;
@@ -1234,9 +1403,80 @@ final class BeamEditor3DScreen extends Screen {
             this.axisAnchor = null;
             this.axisBase = null;
             this.axisGrab = Double.NaN;
+            this.ringAnchorRot = null;
+            this.ringBase = null;
+            this.ringNormal = null;
+            this.ringAngle0 = Double.NaN;
+            this.rotAnchor = null;
             return true;
         }
         return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    /**
+     * 松手后的状态行：{@code 已移动 X +0.31 格（5×1/16）} / {@code 已旋转 Y +90°}。
+     * 只报「哪一根轴、多少个步进」—— 这三样正好对上玩家的心里模型（轴 + 步长 + 次数）。
+     */
+    private void reportDragResult() {
+        if (!this.deltaShown) {
+            return;
+        }
+        if (this.drag == DRAG_BEAM_AXIS && this.dragAxis >= 0) {
+            this.status = movedStatus(this.dragAxis);
+        } else if (this.drag == DRAG_BEAM_RING && this.dragAxis >= 0) {
+            this.status = rotatedStatus(BeamGizmo.rotIndex(this.dragAxis));
+        } else if (this.drag == DRAG_BEAM_MOVE) {
+            this.status = movedStatus(freeAxis(this.deltaPos));
+        } else if (this.drag == DRAG_BEAM_ROTATE) {
+            this.status = rotatedStatus(freeAxis(this.deltaRot));
+        }
+    }
+
+    /** Δ 三个分量里绝对值最大的那个轴（自由移动 / 自由旋转的状态行要挑一个说）。 */
+    private static int freeAxis(final double[] delta) {
+        int best = 0;
+        for (int axis = 1; axis < 3; axis++) {
+            if (Math.abs(delta[axis]) > Math.abs(delta[best])) {
+                best = axis;
+            }
+        }
+        return best;
+    }
+
+    /** {@code 已移动 X +0.31 格（5×1/16）}。 */
+    private String movedStatus(final int axis) {
+        final double value = this.deltaPos[axis];
+        final int count = BeamGizmo.steps(0.0D, value, this.deltaMoveStep);
+        if (count == 0) {
+            return tr("beam3d.transform.unchanged").getString();
+        }
+        return tr("beam3d.transform.moved", BeamGizmo.nameOf(axis),
+                String.format(Locale.ROOT, "%+.2f", Double.valueOf(value)),
+                Integer.valueOf(Math.abs(count)),
+                BeamGizmo.stepLabel(this.deltaMoveStep)).getString();
+    }
+
+    /** {@code 已旋转 Y +90.0°}（这里的名字是 rot 分量：Y = 偏航 / P = 俯仰 / R = 自转）。 */
+    private String rotatedStatus(final int component) {
+        final double value = this.deltaRot[component];
+        if (Math.abs(value) < 1.0E-9D) {
+            return tr("beam3d.transform.unchanged").getString();
+        }
+        return tr("beam3d.transform.rotated", rotNameOf(component),
+                String.format(Locale.ROOT, "%+.1f", Double.valueOf(value))).getString();
+    }
+
+    /** rot 分量的显示名：{@code rot = [yaw, pitch, roll]} → Y / P / R（和右栏数值行一致）。 */
+    private static String rotNameOf(final int component) {
+        return component == 0 ? "Y" : component == 1 ? "P" : "R";
+    }
+
+    private void clearDeltas() {
+        for (int i = 0; i < 3; i++) {
+            this.deltaPos[i] = 0.0D;
+            this.deltaRot[i] = 0.0D;
+        }
+        this.deltaShown = false;
     }
 
     /**
@@ -1260,7 +1500,7 @@ final class BeamEditor3DScreen extends Screen {
             this.moveAccumX = 0.0D;
             this.moveAccumY = 0.0D;
         }
-        // 累计位移（不是这一帧的增量）：Shift 步进要拿"按下时那一点"重新量化，
+        // 累计位移（不是这一帧的增量）：步进要拿"按下时那一点"重新量化，
         // 否则每帧各自取整会把小位移吃掉，光束拖不动。
         this.moveAccumX += dx;
         this.moveAccumY += dy;
@@ -1268,13 +1508,16 @@ final class BeamEditor3DScreen extends Screen {
         final Vector3f delta = inverse.transformDirection(new Vector3f(
                 (float) (this.moveAccumX / this.camera.scale),
                 (float) (-this.moveAccumY / this.camera.scale), 0.0F));
-        final boolean snap = hasShiftDown();
-        final double x = this.moveAnchor[0] + delta.x;
-        final double y = this.moveAnchor[1] + delta.y;
-        final double z = this.moveAnchor[2] + delta.z;
-        beam.pos[0] = clamp(snap ? BeamSnap.stepped(x) : x, POS_MIN, POS_MAX);
-        beam.pos[1] = clamp(snap ? BeamSnap.stepped(y) : y, POS_MIN, POS_MAX);
-        beam.pos[2] = clamp(snap ? BeamSnap.stepped(z) : z, POS_MIN, POS_MAX);
+        // 默认 1/16 格、Shift 1/64 格：结果 = 锚点 + k·步长（不是"每帧加一点"）。
+        final double step = BeamGizmo.moveStep(hasShiftDown());
+        this.deltaMoveStep = step;
+        for (int axis = 0; axis < 3; axis++) {
+            final double raw = this.moveAnchor[axis] + (axis == 0 ? delta.x : axis == 1 ? delta.y : delta.z);
+            beam.pos[axis] = clamp(BeamGizmo.quantize(this.moveAnchor[axis], raw, step),
+                    POS_MIN, POS_MAX);
+            this.deltaPos[axis] = beam.pos[axis] - this.moveAnchor[axis];
+        }
+        this.deltaShown = true;
         round(beam.pos);
         this.session.save();
     }
@@ -1299,7 +1542,8 @@ final class BeamEditor3DScreen extends Screen {
         }
         final TrainPreview.AxisHit hit = TrainPreview.pickAxis(this.camera, mouseX, mouseY,
                 this.viewX0, this.viewY0, this.viewX1, this.viewY1, beam.pos,
-                TrainPreview.carOffsets(this.subject, this.carCount));
+                TrainPreview.carOffsets(this.subject, this.carCount),
+                BeamGizmo.shaftSize(this.camera.scale));
         if (hit == null) {
             return false;
         }
@@ -1326,8 +1570,8 @@ final class BeamEditor3DScreen extends Screen {
      *
      * <p>位移不是“像素差 / scale”（那样视角一斜就和光标脱节），而是
      * {@code 当前射线×轴线的最近点 − 按下时的那个最近点}：光标始终贴着轴上的同一个点走。
-     * 另外两个分量从按下时的快照里原样写回，保证「只动一根轴」不会因为取整而漂。
-     * Shift 仍然把结果量化到 0.5 格（和自由移动同一个 {@link BeamSnap#stepped}）。
+     * 结果量化到「锚点 + k·步长」（默认 1/16 格，Shift 1/64），另两个分量从按下时的
+     * 快照里<b>原样</b>写回 —— 「只动一根轴」在数值上是逐位成立的，不会因为取整而漂。
      */
     private void moveAlongAxis(final double mouseX, final double mouseY) {
         final Beam beam = selectedBeam();
@@ -1342,33 +1586,158 @@ final class BeamEditor3DScreen extends Screen {
             return;
         }
         final int axis = this.dragAxis;
-        double value = this.axisAnchor[axis] + (t - this.axisGrab);
-        if (hasShiftDown()) {
-            value = BeamSnap.stepped(value);
-        }
-        beam.pos[axis] = clamp(value, POS_MIN, POS_MAX);
+        final double step = BeamGizmo.moveStep(hasShiftDown());
+        this.deltaMoveStep = step;
+        final double raw = this.axisAnchor[axis] + (t - this.axisGrab);
+        beam.pos[axis] = clamp(BeamGizmo.quantize(this.axisAnchor[axis], raw, step),
+                POS_MIN, POS_MAX);
         beam.pos[(axis + 1) % 3] = this.axisAnchor[(axis + 1) % 3];
         beam.pos[(axis + 2) % 3] = this.axisAnchor[(axis + 2) % 3];
+        this.deltaPos[axis] = beam.pos[axis] - this.axisAnchor[axis];
+        this.deltaRot[0] = 0.0D;
+        this.deltaRot[1] = 0.0D;
+        this.deltaRot[2] = 0.0D;
+        this.deltaShown = true;
         round(beam.pos);
         this.session.save();
     }
 
-    /** 鼠标现在悬在哪根轴上（-1 = 没有）。拖动中直接返回正在拖的那根。 */
-    private int axisUnder(final double mouseX, final double mouseY) {
-        if (this.drag == DRAG_BEAM_AXIS) {
+    // ---------------------------------------------------------------------------------------------
+    // 旋转抓手：三个对轴环
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * 按下时看有没有点在某个环上。命中就进入 {@link #DRAG_BEAM_RING}：记下 rot 快照、
+     * 环的圆心与法线、以及按下瞬间鼠标在环平面内的角度。
+     *
+     * <p>三种环的分工见 {@link BeamGizmo#ringNormal}：X = pitch（抬头低头）、
+     * Y = yaw（左右转）、Z = roll（绕光束自转）。每个环的法线在它自己的拖动里是常量，
+     * 所以 {@code Δθ} 连续、不会跳。
+     *
+     * @return true = 已经接管这次按下
+     */
+    private boolean beginRingDrag(final double mouseX, final double mouseY) {
+        final Beam beam = selectedBeam();
+        if (beam == null) {
+            return false;
+        }
+        if (beam.pos == null) {
+            beam.pos = new double[]{0.0D, 0.0D, 0.0D};
+        }
+        if (beam.rot == null) {
+            beam.rot = new double[]{0.0D, 0.0D, 0.0D};
+        }
+        final TrainPreview.RingHit hit = TrainPreview.pickRing(this.camera, mouseX, mouseY,
+                this.viewX0, this.viewY0, this.viewX1, this.viewY1, beam.pos, beam.rot,
+                TrainPreview.carOffsets(this.subject, this.carCount));
+        if (hit == null || Double.isNaN(hit.angle) || !hit.planar) {
+            // 环侧看成一条线（|n·射线| < 0.15）时平面求交退化，拿不到稳定角度：
+            // 这时不接管按下，让它落回「拖光束本体旋转」，免得一按就跳 180°。
+            return false;
+        }
+        this.ringBase = new double[]{beam.pos[0] + hit.ox, beam.pos[1], beam.pos[2] + hit.oz};
+        this.ringNormal = BeamGizmo.ringNormal(hit.axis, beam.rot);
+        this.ringAngle0 = hit.angle;
+        this.ringPlanar = hit.planar;
+        this.ringAnchorRot = beam.rot.clone();
+        this.dragAxis = hit.axis;
+        this.drag = DRAG_BEAM_RING;
+        this.status = tr("beam3d.dragRing", BeamGizmo.nameOf(hit.axis),
+                Integer.valueOf(this.selected + 1), BeamGizmo.stepLabel(BeamGizmo.ROT_STEP))
+                .getString();
+        return true;
+    }
+
+    /**
+     * 只绕 {@link #dragAxis} 这一个环旋转。
+     *
+     * <pre>
+     *   Δθ = wrap(当前环平面内角度 − 按下时的角度)          // rad
+     *   raw = 锚点rot[axis] + sign(axis) · Δθ(度)
+     *   rot[axis] = quantize(锚点, raw, 2.5° / 0.5°)
+     *   另外两个分量 = 锚点里的原值（逐位不动）
+     * </pre>
+     * 量化让旋转<b>永远落在 2.5° 的整数倍上</b>（Shift 时 0.5°），不会累积浮点误差。
+     */
+    private void rotateAlongRing(final double mouseX, final double mouseY) {
+        final Beam beam = selectedBeam();
+        if (beam == null || this.dragAxis < 0 || this.ringAnchorRot == null
+                || this.ringBase == null || this.ringNormal == null
+                || Double.isNaN(this.ringAngle0)) {
+            return;
+        }
+        if (beam.rot == null) {
+            beam.rot = new double[]{0.0D, 0.0D, 0.0D};
+        }
+        final int axis = this.dragAxis;
+        final double angle = TrainPreview.ringAngle(this.camera, mouseX, mouseY,
+                this.viewX0, this.viewY0, this.viewX1, this.viewY1,
+                this.ringBase, this.ringNormal, this.ringPlanar);
+        if (Double.isNaN(angle)) {
+            return;
+        }
+        final double swept = wrapRadians(angle - this.ringAngle0) * 180.0D / Math.PI
+                * BeamGizmo.ringSign(axis);
+        final double step = BeamGizmo.rotStep(hasShiftDown());
+        // X 环拧的是 pitch、Y 环拧的是 yaw —— 分量下标由 rotIndex 决定（不是轴下标）。
+        final int component = BeamGizmo.rotIndex(axis);
+        double value = BeamGizmo.quantize(this.ringAnchorRot[component],
+                this.ringAnchorRot[component] + swept, step);
+        if (component == 1) {
+            // 俯仰只到 ±90°：再往前就是"翻过去了"，玩家要点翻转而不是一直拖。
+            value = clamp(value, -90.0D, 90.0D);
+        } else {
+            value = BeamGizmo.wrap(value);
+        }
+        beam.rot[component] = value;
+        beam.rot[(component + 1) % 3] = this.ringAnchorRot[(component + 1) % 3];
+        beam.rot[(component + 2) % 3] = this.ringAnchorRot[(component + 2) % 3];
+        this.deltaRot[component] = value - this.ringAnchorRot[component];
+        this.deltaPos[0] = 0.0D;
+        this.deltaPos[1] = 0.0D;
+        this.deltaPos[2] = 0.0D;
+        this.deltaShown = true;
+        round(beam.rot);
+        this.session.save();
+    }
+
+    private static double wrapRadians(final double radians) {
+        double r = radians % (2.0D * Math.PI);
+        if (r > Math.PI) {
+            r -= 2.0D * Math.PI;
+        }
+        if (r <= -Math.PI) {
+            r += 2.0D * Math.PI;
+        }
+        return r;
+    }
+
+    /**
+     * 鼠标现在悬在哪根轴上（-1 = 没有）：移动工具看轴杆，旋转工具看对轴环。
+     * 拖动中直接返回正在拖的那根（保证高亮不闪）。
+     */
+    private int gizmoUnder(final double mouseX, final double mouseY) {
+        if (this.drag == DRAG_BEAM_AXIS || this.drag == DRAG_BEAM_RING) {
             return this.dragAxis;
         }
-        if (this.mode != MODE_MOVE || this.drag != DRAG_NONE) {
+        if (this.drag != DRAG_NONE || (this.mode != MODE_MOVE && this.mode != MODE_ROTATE)) {
             return -1;
         }
         final Beam beam = selectedBeam();
         if (beam == null || beam.pos == null) {
             return -1;
         }
-        final TrainPreview.AxisHit hit = TrainPreview.pickAxis(this.camera, mouseX, mouseY,
-                this.viewX0, this.viewY0, this.viewX1, this.viewY1, beam.pos,
-                TrainPreview.carOffsets(this.subject, this.carCount));
-        return hit == null ? -1 : hit.axis;
+        final double[][] offsets = TrainPreview.carOffsets(this.subject, this.carCount);
+        if (this.mode == MODE_MOVE) {
+            final TrainPreview.AxisHit hit = TrainPreview.pickAxis(this.camera, mouseX, mouseY,
+                    this.viewX0, this.viewY0, this.viewX1, this.viewY1, beam.pos, offsets,
+                    BeamGizmo.shaftSize(this.camera.scale));
+            return hit == null ? -1 : hit.axis;
+        }
+        final TrainPreview.RingHit hit = TrainPreview.pickRing(this.camera, mouseX, mouseY,
+                this.viewX0, this.viewY0, this.viewX1, this.viewY1, beam.pos, beam.rot, offsets);
+        // 只高亮「按下去真的能转」的环：侧看成一条线的那种不亮（不然点了没反应像 bug）。
+        return hit == null || !hit.planar ? -1 : hit.axis;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -1440,6 +1809,20 @@ final class BeamEditor3DScreen extends Screen {
         }
     }
 
+    /** Alt 组合键：X/Y/Z → 轴下标（翻转 / 90° 旋转共用）。 */
+    private static int flipKeyOf(final int keyCode) {
+        switch (keyCode) {
+            case GLFW.GLFW_KEY_X:
+                return BeamGizmo.AXIS_X;
+            case GLFW.GLFW_KEY_Y:
+                return BeamGizmo.AXIS_Y;
+            case GLFW.GLFW_KEY_Z:
+                return BeamGizmo.AXIS_Z;
+            default:
+                return -1;
+        }
+    }
+
     /** 快捷键：F/B = 前后，U/D = 上下，L/R = 左右（按钮上的字母一一对应）。 */
     private static int snapKeyOf(final int keyCode) {
         switch (keyCode) {
@@ -1460,7 +1843,12 @@ final class BeamEditor3DScreen extends Screen {
         }
     }
 
-    /** 横向拖动 = 偏航，纵向拖动 = 俯仰（和建模软件里的旋转工具同向）。 */
+    /**
+     * 拖光束本体旋转：横向 = 偏航，纵向 = 俯仰（和建模软件里的旋转工具同向）。
+     *
+     * <p>和环一样<b>量化</b>：默认 2.5°，Shift 0.5°；基准是按下那一刻的 {@code rot}，
+     * 累计像素每帧重新量化，所以慢慢拖也能精确停在 2.5° 的整数倍上。
+     */
     private void rotateSelected(final double dx, final double dy) {
         final Beam beam = selectedBeam();
         if (beam == null) {
@@ -1469,8 +1857,30 @@ final class BeamEditor3DScreen extends Screen {
         if (beam.rot == null) {
             beam.rot = new double[]{0.0D, 0.0D, 0.0D};
         }
-        beam.rot[0] = wrapDegrees(beam.rot[0] + dx * 0.7D);
-        beam.rot[1] = clamp(beam.rot[1] + dy * 0.7D, -89.0D, 89.0D);
+        if (this.rotAnchor == null) {
+            this.rotAnchor = beam.rot.clone();
+            this.rotAccumX = 0.0D;
+            this.rotAccumY = 0.0D;
+        }
+        this.rotAccumX += dx;
+        this.rotAccumY += dy;
+        // 0.9°/px：拖 3px 就跨一格 2.5°，又不至于抖一下跳一大截。
+        final double step = BeamGizmo.rotStep(hasShiftDown());
+        final double yaw = BeamGizmo.quantize(this.rotAnchor[0],
+                this.rotAnchor[0] + this.rotAccumX * 0.9D, step);
+        final double pitch = clamp(BeamGizmo.quantize(this.rotAnchor[1],
+                this.rotAnchor[1] + this.rotAccumY * 0.9D, step), -90.0D, 90.0D);
+        beam.rot[0] = BeamGizmo.wrap(yaw);
+        beam.rot[1] = pitch;
+        beam.rot[2] = this.rotAnchor[2];
+        this.deltaRot[0] = beam.rot[0] - this.rotAnchor[0];
+        this.deltaRot[1] = beam.rot[1] - this.rotAnchor[1];
+        this.deltaRot[2] = 0.0D;
+        this.deltaPos[0] = 0.0D;
+        this.deltaPos[1] = 0.0D;
+        this.deltaPos[2] = 0.0D;
+        this.deltaShown = true;
+        round(beam.rot);
         this.session.save();
     }
 
@@ -1539,6 +1949,18 @@ final class BeamEditor3DScreen extends Screen {
             duplicateBeam();
             return true;
         }
+        // Alt+X/Y/Z = 翻转该轴；Alt+Shift+X/Y/Z = 绕该轴 90°（和右栏「变换」按钮同一对操作）。
+        if ((modifiers & GLFW.GLFW_MOD_ALT) != 0) {
+            final int axis = flipKeyOf(keyCode);
+            if (axis >= 0) {
+                if ((modifiers & GLFW.GLFW_MOD_SHIFT) != 0) {
+                    rotateAxis90(axis);
+                } else {
+                    flipAxis(axis);
+                }
+                return true;
+            }
+        }
         final int snapKey = snapKeyOf(keyCode);
         if (snapKey >= 0) {
             snapSelected(snapKey);
@@ -1565,12 +1987,16 @@ final class BeamEditor3DScreen extends Screen {
 
         // 3D 先画：之后的 2D 全部落在深度 0（最前），不会被模型压住。
         // carCount 只是预览里的编组节数（车体局部坐标不变，所以光束/导出都不受影响）。
-        // 移动模式下给选中的光柱画 XYZ 手柄；悬停/正在拖的那根高亮。
-        this.hoverAxis = axisUnder(mouseX, mouseY);
+        // 抓手跟着工具走：移动 = 三根轴杆，旋转 = 三个对轴环；悬停/正在拖的那一根高亮。
+        this.hoverAxis = gizmoUnder(mouseX, mouseY);
+        final int gizmo = this.selected < 0 ? TrainPreview.GIZMO_NONE
+                : this.mode == MODE_MOVE ? TrainPreview.GIZMO_MOVE
+                : this.mode == MODE_ROTATE ? TrainPreview.GIZMO_ROTATE
+                : TrainPreview.GIZMO_NONE;
         TrainPreview.draw(this.subject, context, this.camera,
                 this.viewX0, this.viewY0, this.viewX1, this.viewY1,
                 this.session == null ? List.of() : this.session.work, this.selected, this.carCount,
-                this.mode == MODE_MOVE && this.selected >= 0, this.hoverAxis);
+                gizmo, this.hoverAxis);
 
         context.fill(0, 0, this.width, TOP_H, 0xE0181818);
         context.fill(0, TOP_H, leftW(), this.height, 0xE0181818);
@@ -1598,6 +2024,19 @@ final class BeamEditor3DScreen extends Screen {
                     tr("beam3d.section.color"), this.width - rightW() + PAD, this.colorSectionY, 0xC0C0C0);
         }
         drawPalette(context, mouseX, mouseY);
+        if (this.transformY >= 0) {
+            final int x = this.width - rightW() + PAD;
+            final int w = Math.max(20, rightW() - 2 * PAD);
+            context.drawTextWithShadow(this.textRenderer, tr("beam3d.section.transform"),
+                    x, this.transformY, 0xC0C0C0);
+            final String keyHint = this.textRenderer.trimToWidth(
+                    tr("beam3d.transform.hint").getString(), w);
+            context.drawTextWithShadow(this.textRenderer, Text.literal(keyHint),
+                    x, this.transformY + 11 + 3 * 16 + 1, 0x808080);
+            for (int i = 0; i < this.transformButtons.size(); i++) {
+                this.transformButtons.get(i).active = this.selected >= 0;
+            }
+        }
         if (this.geometrySectionY >= 0) {
             context.drawTextWithShadow(this.textRenderer,
                     tr("beam3d.section.geometry"), this.width - rightW() + PAD,
@@ -1762,36 +2201,106 @@ final class BeamEditor3DScreen extends Screen {
             context.drawTextWithShadow(this.textRenderer, Text.literal(head), left, top + 12, 0xFFE08A);
 
             if (this.mode == MODE_MOVE) {
-                // 手柄只画一次说明，不占按钮位（三个颜色块 + 一句提示已经够认）。
+                // 抓手只画一次说明，不占按钮位（三个颜色块 + 一句提示已经够认）。
                 context.drawTextWithShadow(this.textRenderer, tr("beam3d.axisHint"),
                         left, top + 24, 0x9DD0FF);
+            } else if (this.mode == MODE_ROTATE) {
+                context.drawTextWithShadow(this.textRenderer, tr("beam3d.ringHint"),
+                        left, top + 24, 0x9DD0FF);
             }
+            // 实时读数贴右上角：左边已经有「第 N 束 · 类型 · 颜色」和工具提示，别再挤。
+            drawDelta(context);
 
             if (this.propertiesY >= 0) {
-                final int x = this.width - rightW() + PAD;
-                context.drawTextWithShadow(this.textRenderer,
-                        Text.literal(String.format(Locale.ROOT, "pos %.2f %.2f %.2f",
-                                Double.valueOf(axis(beam.pos, 0)), Double.valueOf(axis(beam.pos, 1)),
-                                Double.valueOf(axis(beam.pos, 2)))), x, this.propertiesY, 0xE0E0E0);
-                context.drawTextWithShadow(this.textRenderer,
-                        Text.literal(String.format(Locale.ROOT, "rot %.0f %.0f %.0f",
-                                Double.valueOf(axis(beam.rot, 0)), Double.valueOf(axis(beam.rot, 1)),
-                                Double.valueOf(axis(beam.rot, 2)))), x, this.propertiesY + 11, 0xE0E0E0);
+                // 右栏「几何」下面那一行：pos / rot 的绝对值（跟着拖动实时变）。
+                drawValues(context, this.width - rightW() + PAD, this.propertiesY, 0xE0E0E0);
             } else {
                 // 右栏放不下「几何」这一段（窗口矮）：pos / rot 挪到视口里，数值照样看得到。
-                final int line = top + (this.mode == MODE_MOVE ? 36 : 24);
-                context.drawTextWithShadow(this.textRenderer,
-                        Text.literal(String.format(Locale.ROOT, "pos %.2f %.2f %.2f",
-                                Double.valueOf(axis(beam.pos, 0)), Double.valueOf(axis(beam.pos, 1)),
-                                Double.valueOf(axis(beam.pos, 2)))), left, line, 0xC8C8C8);
-                context.drawTextWithShadow(this.textRenderer,
-                        Text.literal(String.format(Locale.ROOT, "rot %.0f %.0f %.0f",
-                                Double.valueOf(axis(beam.rot, 0)), Double.valueOf(axis(beam.rot, 1)),
-                                Double.valueOf(axis(beam.rot, 2)))), left, line + 11, 0xC8C8C8);
+                final int line = top + (this.mode == MODE_MOVE || this.mode == MODE_ROTATE ? 36 : 24);
+                drawValues(context, left, line, 0xC8C8C8);
             }
         } else if (this.session != null && this.session.size() > 0) {
             context.drawTextWithShadow(this.textRenderer, tr("beam3d.pickHint"), left, top + 12, 0x909090);
         }
+    }
+
+    /** 选中光束的绝对值：{@code pos X 0.3125 Y 0 Z -0.5} / {@code rot Y 90 X 0 Z 0}，两行。 */
+    private void drawValues(final DrawContext context, final int x, final int y, final int colour) {
+        final Beam beam = selectedBeam();
+        if (beam == null) {
+            return;
+        }
+        context.drawTextWithShadow(this.textRenderer, Text.literal(
+                        "pos X " + fmtValue(axis(beam.pos, 0))
+                                + "  Y " + fmtValue(axis(beam.pos, 1))
+                                + "  Z " + fmtValue(axis(beam.pos, 2))), x, y, colour);
+        context.drawTextWithShadow(this.textRenderer, Text.literal(
+                        "rot Y " + fmtValue(axis(beam.rot, 0))
+                                + "  P " + fmtValue(axis(beam.rot, 1))
+                                + "  R " + fmtValue(axis(beam.rot, 2))), x, y + 11, colour);
+    }
+
+    /**
+     * 视口右上角的实时读数：{@code Δpos X +0.3125 (5/16)} / {@code Δrot Y +2.5°}。
+     *
+     * <p>只写真的动过的轴（另外两根没动就不占地方）；读数<b>保留到下一次按下</b>，
+     * 所以松手后还能回头看「刚才挪了多少」。括号里的 {@code 5/16} = 走了 5 个 1/16 步进。
+     */
+    private void drawDelta(final DrawContext context) {
+        if (!this.deltaShown) {
+            return;
+        }
+        final String posLine = deltaLine(tr("beam3d.delta.pos").getString(), this.deltaPos, false);
+        final String rotLine = deltaLine(tr("beam3d.delta.rot").getString(), this.deltaRot, true);
+        // 贴右上角、避开顶部那行「编组 N 节」的标记（它在 viewY0+4，9px 高）。
+        int y = this.viewY0 + 24;
+        if (posLine != null) {
+            context.drawTextWithShadow(this.textRenderer, Text.literal(posLine),
+                    Math.max(this.viewX0 + 4, this.viewX1 - 6 - this.textRenderer.getWidth(posLine)),
+                    y, 0xF0F0C0);
+            y += 11;
+        }
+        if (rotLine != null) {
+            context.drawTextWithShadow(this.textRenderer, Text.literal(rotLine),
+                    Math.max(this.viewX0 + 4, this.viewX1 - 6 - this.textRenderer.getWidth(rotLine)),
+                    y, 0xC0E8F0);
+        }
+    }
+
+    private String deltaLine(final String prefix, final double[] delta, final boolean degrees) {
+        final StringBuilder out = new StringBuilder(prefix);
+        for (int axis = 0; axis < 3; axis++) {
+            if (Math.abs(delta[axis]) < 1.0E-9D) {
+                continue;
+            }
+            out.append("  ").append(degrees ? rotNameOf(axis) : BeamGizmo.nameOf(axis)).append(' ');
+            if (degrees) {
+                out.append(String.format(Locale.ROOT, "%+.1f°", Double.valueOf(delta[axis])));
+            } else {
+                out.append(String.format(Locale.ROOT, "%+.4f", Double.valueOf(delta[axis])));
+                final int count = BeamGizmo.steps(0.0D, delta[axis], this.deltaMoveStep);
+                if (count != 0) {
+                    out.append(" (").append(Math.abs(count)).append('/')
+                            .append(Math.abs(this.deltaMoveStep - BeamGizmo.MOVE_STEP_FINE) < 1.0E-9D
+                                    ? 64 : 16).append(')');
+                }
+            }
+        }
+        return out.length() == prefix.length() ? null : out.toString();
+    }
+
+    /** 数值格式化：最多 4 位小数，去掉多余的 0（1/16 = 0.0625 不会被截成 0.06）。 */
+    private static String fmtValue(final double value) {
+        String text = String.format(Locale.ROOT, "%.4f", Double.valueOf(value));
+        if (text.indexOf('.') >= 0) {
+            while (text.endsWith("0")) {
+                text = text.substring(0, text.length() - 1);
+            }
+            if (text.endsWith(".")) {
+                text = text.substring(0, text.length() - 1);
+            }
+        }
+        return text.equals("-0") ? "0" : text;
     }
 
     private void drawFooter(final DrawContext context) {
@@ -1815,21 +2324,11 @@ final class BeamEditor3DScreen extends Screen {
     }
 
     private static double round(final double[] vector) {
+        // 1/64 格 = 0.015625：3 位小数会把精细步进抹掉，这里留 6 位（步进的整倍数仍然精确）。
         for (int i = 0; i < vector.length; i++) {
-            vector[i] = Math.round(vector[i] * 1000.0D) / 1000.0D;
+            vector[i] = Math.round(vector[i] * 1000000.0D) / 1000000.0D;
         }
         return 0.0D;
-    }
-
-    private static double wrapDegrees(final double degrees) {
-        double d = degrees % 360.0D;
-        if (d > 180.0D) {
-            d -= 360.0D;
-        }
-        if (d < -180.0D) {
-            d += 360.0D;
-        }
-        return d;
     }
 
     private static double min(final int kind) {

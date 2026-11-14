@@ -38,6 +38,7 @@ import java.util.Set;
  * <h2>Size on screen</h2>
  * <pre>
  * facing   = -dot(lamp.dir, normalize(lamp - camera))      1 = the lamp looks at you
+ *            （lamp.dir = 灯面朝向 = -out，见 TrainLamps.place；f≈+1 才是"正对着你"）
  * world    = base * (0.45 + 1.4 * facing³)                 base = config beamFlareSize
  * pixels   = world / (2 * d * tan(fov/2)) * screenHeight
  * world   *= max(1, minPx / pixels)                        the minimum-size rule
@@ -729,12 +730,18 @@ public final class LightFlare {
             return;
         }
         diagAt = now;
+        final HeadlightConfig cfg = MtrHeadlightClient.config();
         // 先定格本窗口的 skipped=，无论下面打不打日志都要能回答指令；随后清零。
         lastSkipText = "skipped=offRoute=" + SKIP_OFF_ROUTE.size() + " dark=" + SKIP_DARK.size()
                 + " parked=" + SKIP_PARKED.size();
-        if (windowOn) {
-            MtrHeadlightClient.LOGGER.info("[lte] flare: trains={} lamps={} quads={} noLamp={}"
-                            + " {} drawn={} tex={}{}",
+        if (windowOn && cfg != null) {
+            // style=… band=… flare=… 是这一窗口渲染层实际用的三个值（band/flare 就是
+            // bandGlobal()/flareGlobal()，与帧级门槛同一次调用）。它能当场回答"切了样式为什么
+            // 看不出区别"：数字变了 = 写入与判定都通，问题在几何（facing / 距离 / alpha）；
+            // 数字没变 = 写入或同步那一步没生效。
+            MtrHeadlightClient.LOGGER.info("[lte] flare: style={} band={} flare={} trains={}"
+                            + " lamps={} quads={} noLamp={} {} drawn={} tex={}{}",
+                    cfg.style(), Boolean.valueOf(cfg.bandGlobal()), Boolean.valueOf(cfg.flareGlobal()),
                     Integer.valueOf(dTrains), Integer.valueOf(dLamps), Integer.valueOf(dQuads),
                     Integer.valueOf(dNoLamp), lastSkipText, Boolean.valueOf(dDrawn), dTexture,
                     dDrawError == null ? "" : " err=" + dDrawError);

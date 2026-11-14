@@ -11,7 +11,44 @@ import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
  * binding, plus the throttled rail relight scheduler and the rain-spray tick.
  */
 public final class RenderHooks {
+    /**
+     * 上一次打过的光样式三元组（{@code style/band/flare}）。只在变化时打一行，所以稳态下这段
+     * 逻辑每帧只做一次字符串比较，日志里也不会刷屏。
+     */
+    private static String lastStyleTrace;
+
     private RenderHooks() {
+    }
+
+    /**
+     * 一行取证：<b>写进配置的样式</b> 与 <b>渲染层这一帧实际用的两个布尔</b>。
+     *
+     * <p>为什么要专门打这一行：三档切换"看不出区别"有三种完全不同的可能 —— ①控件没写进配置；
+     * ②写进去了但 {@code beamGlow} / {@code beamFlare} 这两个逐层旧开关把样式盖掉；③两个布尔都对，
+     * 是几何自己不可见（灯晕的 facing 反号就是这种）。这一行把 ①② 和 ③ 当场分开：
+     * <pre>
+     * [lte] lightstyle: applied style=FLARE band=false flare=true (beamGlow=false beamFlare=true)
+     * </pre>
+     * {@code band=} / {@code flare=} 用的就是 {@link HeadlightConfig#bandGlobal()} /
+     * {@link HeadlightConfig#flareGlobal()} —— 与 {@code BeamGlow.render} / {@code LightFlare.render}
+     * 的帧级门槛是<b>同一次调用</b>，不是第二份判断。玩家切档时日志里多一行、数字变了，说明前两步
+     * 都是通的；数字没变就是写入或同步那一步的问题。
+     */
+    private static void traceLightStyle(final HeadlightConfig cfg) {
+        if (cfg == null) {
+            return;
+        }
+        final boolean band = cfg.bandGlobal();
+        final boolean flare = cfg.flareGlobal();
+        final String key = cfg.style() + "|" + band + "|" + flare;
+        if (key.equals(lastStyleTrace)) {
+            return;
+        }
+        lastStyleTrace = key;
+        MtrHeadlightClient.LOGGER.info(
+                "[lte] lightstyle: applied style={} band={} flare={} (beamGlow={} beamFlare={})",
+                cfg.style(), Boolean.valueOf(band), Boolean.valueOf(flare),
+                Boolean.valueOf(cfg.beamGlow), Boolean.valueOf(cfg.beamFlare));
     }
 
     public static void init() {
@@ -44,14 +81,22 @@ public final class RenderHooks {
         }
 
         // 车灯的两套可见几何：光带（BeamGlow，贴地带状面片）和灯晕（LightFlare，灯位加色 billboard）。
-        // 画哪一套由 config.lightStyle 决定（BAND / FLARE / BOTH，默认 BAND），两个渲染器各自读
-        // 自己的开关（beamAnySiding / flareAnySiding），所以这里只负责"都给它们一次机会"：
+        //
+        // 画哪一套由 config.lightStyle 决定（BAND / FLARE / BOTH，默认 BAND）。这里 <b>故意两个都无
+        // 条件调</b>，判定全部在各自的 render 里，两边读的是同一对方法：
+        //   * BeamGlow.render  帧级   cfg.beamAnySiding()   -> bandGlobal() = bandStyle() && beamGlow
+        //                      逐车   eff.beamGlow          -> 同上（侧线可覆盖）
+        //   * LightFlare.render 帧级  cfg.flareAnySiding()  -> flareGlobal() = flareStyle() && beamFlare
+        //                      逐车   eff.beamFlare         -> 同上（侧线可覆盖）
+        // 所以在 RenderHooks 里再加一道 if 只会制造第二个真相来源——这里 <b>只负责给两个渲染器各一次
+        // 机会</b>，并打一行 traceLightStyle() 把"渲染层实际用的两个布尔"写进日志：
         //   * 早/晚两趟回调仍然成对存在（灯晕只认晚趟：早趟之后世界还要画一大段几何，加色四边形
         //     会被后画的东西盖掉 —— 见 LightFlare.render 的说明；光带仍按 ShaderPackProbe 决定哪趟画）；
         //   * 两个渲染器各自 begin/end 自己的顶点缓冲、各自复位 depthMask / blendFunc / cull，
         //     所以 BOTH 叠加时不会重复写面片，也不会把对方的 GL 状态清掉；
         //   * 光带先画、灯晕后画：灯晕是加色贴图，压在上面才是"灯亮着"的样子。
         WorldRenderEvents.AFTER_ENTITIES.register(context -> {
+            traceLightStyle(MtrHeadlightClient.config());
             try {
                 BeamGlow.render(context, false);
             } catch (Throwable t) {

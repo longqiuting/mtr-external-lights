@@ -7,7 +7,9 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.WeakHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -40,22 +42,32 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *       因此 <b>onGround / vy / 包围盒</b> 都不参与几何命中，坡道、弯道、起坡点一视同仁。</li>
  * </ol>
  *
- * <h2>为什么不用表的端点直接查</h2>
+ * <h2>候选集：按「查询点到折线的真实距离」构造（不是包围盒）</h2>
  * 表只按端点索引。实体站在一条 20 格长的弯道中段时，两个端点都在 10 格以外，按端点取格子会漏掉
- * 这条轨道。所以这里维护一份「查询点附近」的轨道缓存：首次命中时把整条弧<b>采样成折线</b>，用折线
- * 的真实包围盒当命中范围，查询点落在「包围盒 + {@link #HALF_WIDTH} + 0.25」里才逐条求最近点。
+ * 这条轨道。所以这里维护一份「查询点附近」的轨道缓存，<b>准入判据是查询点到这条轨道折线的真实
+ * 距离</b>（{@link #CANDIDATE_REACH}），不是「查询点是否落在某个包围盒里」：
  *
- * <p>旧做法是「端点包围盒外扩 {@code CURVE_SLACK=6} 格」。那是个<b>上界很松、下界错得离谱</b>的
- * 近似：一条 90° 弧从弦中间鼓出 {@code r·(1-cos45°) ≈ 0.293r} 格，半径 R 只要超过约 20 格，
- * 弧中段就连同「站在上面的人」一起被挡在缓存外面 —— 逐条采样根本不会发生，人一路掉下去。
- * 采样折线包围盒没有这个问题：R=5 和 R=50 的 90° 弧都保证覆盖（R=50 的 90° 弧中点鼓出弦外
- * 14.6 格，旧方案 6 格外扩完全够不着，新方案照样命中）。
+ * <ul>
+ *   <li><b>第一级（快、且是精确下界）</b>：包围盒距离 {@code bboxDistance}。点到折线的距离
+ *       <b>永远不会小于</b> 点到折线包围盒的距离，所以「包围盒距离 &gt; reach → 丢掉」不会漏掉任何
+ *       真在附近的轨道。它只负责省掉远处的 {@code getPosition} 与逐段投影。</li>
+ *   <li><b>第二级（准）</b>：逐段投影出来的真实距离，超过 {@link #CANDIDATE_REACH} 才丢。</li>
+ * </ul>
  *
- * <h2>接缝</h2>
- * 两条相邻轨道共用一个端点时，缓存里通常两条都在（各自的折线包围盒都覆盖自己的端点），而
- * {@link #nearest} 是「全部候选里取 |横向偏移| 最小的那个」，所以接缝处取的是两段各自最近点中更近的
- * 一个 —— 不需要额外的「按端点配对」逻辑。只有一侧被缓存漏掉时才会偏，而采样包围盒让这种情况
- * 不会发生（见上）。
+ * <p>旧实现两级都在用包围盒，而<b>「进缓存」用的是锚点、「能不能命中」用的是查询点</b>：接缝处
+ * 那一小段轨道只要包围盒没覆盖到查询点，就会被判在候选之外 —— 表现就是「弯道能站、紧接的直道
+ * 整段没有碰撞」。换成真实距离之后，「贴着但不在框内」的轨道照样进候选。
+ *
+ * <h2>接缝：两条相邻轨道都进候选，取 dist 最小的那条</h2>
+ * MTR 相邻节点之间一段一条 {@code Rail}，所以「弯道接直道」在数据里通常是<b>两条</b> {@code Rail}
+ * （共享一个端点），也可能是<b>同一条</b> {@code Rail} 的两段（{@code len1}/{@code len2}，
+ * 实测 segment1 切向 = 起点朝向、segment2 切向 = 终点朝向，接缝处位置连续）。两种形态这里都按
+ * 「每条折线各自投影、全部候选里取最小」处理，不需要额外的配对逻辑。
+ *
+ * <p>接缝处会有一处细节：弯道末端那个投影会被 clamp 在折线端点上（{@code f = 1}），它的 offset
+ * 可能刚好比直道中段的投影小千分之几。只按 dist 取最小的话，选中的会是「已经走到头的弯道」，
+ * 而它的法向在接缝上和直道差了半个弧度。所以这里加一条<b>接缝选边</b>规则：两条候选的距离差在
+ * {@link #SEAM_TIE} 以内时，优先<b>投影落在轨道内部</b>的那条（不是 clamp 在端点上）。
  *
  * <p>实例持有缓存：客户端与服务端各用一个实例（各自的轨道表、各自的缓存中心），互不干扰 ——
  * 单人里两边会同时调用，共用一个缓存槽会互相把对方的缓存冲掉。
@@ -76,11 +88,22 @@ public final class RailBed {
     public static final double SEARCH_RADIUS = 8.0D;
 
     /**
-     * 缓存命中 / 采样判定的外扩量（格）：查询点到折线包围盒的水平距离不超过这个值才值得求最近点。
-     * 比 {@link #HALF_WIDTH} 多 0.25 是给「刚好在边缘」的查询点留余量，也让诊断行能报出
-     * {@code dist=1.4} 这种「差一点点」的读数，而不是直接 {@code -}。
+     * <b>候选准入半径</b>（格）：查询点到轨道折线的<b>真实距离</b>不超过这个值，这条轨道才进候选。
+     *
+     * <p>比 {@link #HALF_WIDTH} 多 1.2：一是接缝处两条轨道要都留在候选里（它们的距离可以差到半格），
+     * 二是诊断行要能报出 {@code dist=1.4} 这种「差一点点」的读数，而不是直接 {@code -}。
+     * 这个值只影响「要不要算这一条」，不影响命中结果本身（命中仍然是 {@link #HALF_WIDTH}）。
      */
-    private static final double CACHE_MARGIN = HALF_WIDTH + 0.25D;
+    public static final double CANDIDATE_REACH = HALF_WIDTH + 1.2D;
+
+    /**
+     * 接缝等距容差（格）：两条候选到查询点的距离差在这个范围内算「一样近」，此时优先
+     * <b>投影落在轨道内部</b>的那条 —— 否则接缝处会永远选「已经走到端点」的那一条。
+     */
+    private static final double SEAM_TIE = 0.02D;
+
+    /** 判定「投影落在折线内部」而不是 clamp 在端点上时，离两端至少这么远（格）。 */
+    private static final double END_EPS = 0.02D;
 
     /**
      * 高度粗筛余量（格）：坡道上同一条轨道的 y 随参数变化，判定用采样得到的 [minY, maxY] 区间。
@@ -108,6 +131,9 @@ public final class RailBed {
      */
     private static final double CELL_MARGIN = 12.0D;
 
+    /** {@code where} 诊断最多列几条候选（按真实距离从近到远）。 */
+    private static final int WHERE_MAX = 8;
+
     /**
      * 一条轨道的预计算量：沿弧长等距的<b>折线</b>（x / z / 弧长 s）、高程曲线的两端、包围盒。
      *
@@ -130,11 +156,13 @@ public final class RailBed {
         final double yStart, yEnd;
         /** 缆车风格（两头各 0.5 格平台 + 中间线性 + 下垂），高程公式与普通轨道不同。 */
         final boolean cable;
+        /** 这条轨道的折线是不是直线（诊断用的 {@code straight=}；几何上只影响读数，不影响命中）。 */
+        final boolean straight;
 
         Entry(final Rail rail, final double length, final double[] xs, final double[] zs,
               final double[] ss, final double minX, final double minZ, final double maxX,
               final double maxZ, final double minY, final double maxY, final double yStart,
-              final double yEnd, final boolean cable) {
+              final double yEnd, final boolean cable, final boolean straight) {
             this.rail = rail;
             this.length = length;
             this.xs = xs;
@@ -149,13 +177,33 @@ public final class RailBed {
             this.yStart = yStart;
             this.yEnd = yEnd;
             this.cable = cable;
+            this.straight = straight;
         }
 
-        /** 点 {@code (qx, qz)} 到包围盒的水平距离是否不超过 {@code margin}（缓存保留判定）。 */
-        boolean within(final double qx, final double qz, final double margin) {
+        /**
+         * 点 {@code (qx, qz)} 到<b>包围盒</b>的水平距离（格）。
+         *
+         * <p>它同时是「点到折线真实距离」的<b>下界</b>（折线整个在包围盒里），所以拿它做剪枝是
+         * 精确的：{@code bboxDistance > reach} ⇒ 真实距离也 {@code > reach}，一定不可能命中。
+         * 反过来<b>不成立</b> —— 这正是旧实现用「包围盒 + 余量」当准入时漏掉「贴着但不在框内」
+         * 那些轨道的原因。
+         */
+        double bboxDistance(final double qx, final double qz) {
             final double dx = Math.max(0.0D, Math.max(minX - qx, qx - maxX));
             final double dz = Math.max(0.0D, Math.max(minZ - qz, qz - maxZ));
-            return dx * dx + dz * dz <= margin * margin;
+            return Math.sqrt(dx * dx + dz * dz);
+        }
+    }
+
+    /** 缓存里的一条候选：轨道几何 + 它到<b>缓存锚点</b>的真实距离（排序 / 诊断用）。 */
+    private static final class Cand {
+        final Entry entry;
+        /** 到锚点的真实折线距离（格）。 */
+        final double anchorDistance;
+
+        Cand(final Entry entry, final double anchorDistance) {
+            this.entry = entry;
+            this.anchorDistance = anchorDistance;
         }
     }
 
@@ -185,6 +233,11 @@ public final class RailBed {
             this.offset = offset;
             this.along = along;
             this.length = length;
+        }
+
+        /** 投影落在折线<b>内部</b>（不是被 clamp 在两端）。接缝选边要用。 */
+        boolean interior() {
+            return along > END_EPS && along < length - END_EPS;
         }
     }
 
@@ -290,12 +343,16 @@ public final class RailBed {
         return Verdict.DY;
     }
 
-    private List<Entry> cache = List.of();
+    private List<Cand> cache = List.of();
     private Object cacheMap;
     private double cacheX = Double.NaN;
     private double cacheZ = Double.NaN;
     private long cacheTick;
     private final AtomicBoolean warned = new AtomicBoolean();
+
+    /** 上一次建缓存扫过多少条轨道 / 有多少条被单条异常跳过（诊断）。 */
+    private int lastScanned;
+    private int lastSkipped;
 
     /**
      * 每条轨道的几何（折线包围盒 + 高程端点）与查询点无关，所以只算一次、跨缓存重建复用。
@@ -317,6 +374,8 @@ public final class RailBed {
         cacheX = Double.NaN;
         cacheZ = Double.NaN;
         cacheTick = 0L;
+        lastScanned = 0;
+        lastSkipped = 0;
         geometry.clear();
         clearLast();
     }
@@ -329,6 +388,16 @@ public final class RailBed {
     /** 缓存里有多少条候选轨道（诊断）。 */
     public int cached() {
         return cache.size();
+    }
+
+    /** 上一次建缓存扫过多少条轨道（诊断：{@code rails=} 后面的 {@code scanned=}）。 */
+    public int scanned() {
+        return lastScanned;
+    }
+
+    /** 上一次建缓存有多少条轨道因为是单条异常被跳过（诊断：这个数不为 0 就说明数据里有坏轨道）。 */
+    public int skipped() {
+        return lastSkipped;
     }
 
     /** 上一次查询有没有在 {@link #HALF_WIDTH} 内找到轨面（诊断）。 */
@@ -390,7 +459,7 @@ public final class RailBed {
                 cellX * 16.0D + 8.0D, cellZ * 16.0D + 8.0D, CELL_MARGIN);
     }
 
-    /** 锚点 + 粗筛外扩量：查询点最多离锚点半个格子对角线（≈11.3 格）。 */
+    /** 锚点 + 查询点可能离锚点的最大距离：候选缓存按这个外扩量建。 */
     private Sample nearest(final Object railsMap, final long tick, final double x, final double y,
                            final double z, final double anchorX, final double anchorZ,
                            final double margin) {
@@ -420,21 +489,28 @@ public final class RailBed {
         }
         refresh(railsMap, tick, anchorX, anchorZ, margin);
         Sample best = null;
-        double bestDistance = Double.MAX_VALUE;
-        for (final Entry entry : cache) {
+        // 接缝选边：距离相同时，优先「投影落在轨道内部」的那条。
+        boolean bestInterior = false;
+        for (final Cand cand : cache) {
+            final Entry entry = cand.entry;
             // 高度先过一遍：坡道上同一条轨道两端高程不同，所以用 [minY, maxY] 的区间判定。
             if (y < entry.minY - HEIGHT_SLACK || y > entry.maxY + HEIGHT_SLACK) {
                 continue;
             }
-            // 采样折线包围盒 + CACHE_MARGIN：包围盒是这条弧本体的真实范围，弯道中段也在里面。
-            if (x < entry.minX - CACHE_MARGIN || x > entry.maxX + CACHE_MARGIN
-                    || z < entry.minZ - CACHE_MARGIN || z > entry.maxZ + CACHE_MARGIN) {
+            // 包围盒距离是真实折线距离的下界：超过准入半径就一定不可能命中，直接跳过（精确剪枝）。
+            if (entry.bboxDistance(x, z) > CANDIDATE_REACH) {
                 continue;
             }
             final Sample sample = column(entry, x, z);
-            if (sample != null && sample.distance < bestDistance) {
-                bestDistance = sample.distance;
+            if (sample == null || sample.distance > CANDIDATE_REACH) {
+                continue;
+            }
+            if (best == null
+                    || sample.distance < best.distance - SEAM_TIE
+                    || (sample.distance <= best.distance + SEAM_TIE
+                            && sample.interior() && !bestInterior)) {
                 best = sample;
+                bestInterior = sample.interior();
             }
         }
         // 取证值先落下来（可能超出 HALF_WIDTH，诊断行需要「差一点」这种读数），再决定是否命中。
@@ -580,14 +656,30 @@ public final class RailBed {
         cache = build(railsMap, anchorX, anchorZ, margin);
     }
 
-    private List<Entry> build(final Object railsMap, final double x, final double z,
-                              final double queryMargin) {
-        final List<Entry> out = new ArrayList<>();
+    /**
+     * 建候选缓存：<b>准入判据是「锚点到这条轨道折线的真实距离」</b>，包围盒只做精确的下界剪枝。
+     *
+     * <p>三条与旧实现不同、也是这次修的东西：
+     * <ol>
+     *   <li>不再用 {@code bbox + CACHE_MARGIN} 当准入 —— 那是「查询点是否落在框里」，贴着框外
+     *       半格的轨道会被判在候选之外，接缝两侧正好就是这个位置；</li>
+     *   <li>单条轨道的任何异常<b>只丢这一条</b>（try/catch 在循环内部）：旧实现把 try 包在整张表
+     *       外面，一条坏轨道就让<b>其后所有候选</b>静默消失，而且 {@code entry()} 失败还是不留日志的，
+     *       所以「弯道在候选里、紧接着的直道不在」可以完全无声地发生；</li>
+     *   <li>候选按到锚点的真实距离<b>升序</b>排列：接缝处两条相邻轨道都在，谁更近一眼能看出来
+     *       （{@code where} 诊断就是按这个顺序打的）。</li>
+     * </ol>
+     */
+    private List<Cand> build(final Object railsMap, final double x, final double z,
+                             final double queryMargin) {
+        final List<Cand> out = new ArrayList<>();
+        lastScanned = 0;
+        lastSkipped = 0;
         if (!(railsMap instanceof Map)) {
             return out;
         }
-        // 缓存保留 / 查询判定共用的水平余量：锚点 + 查询点可能离锚点最远 queryMargin。
-        final double reach = queryMargin + CACHE_MARGIN;
+        // 缓存要覆盖「锚点 + 查询点可能离锚点最远 queryMargin」这一圈里的所有真候选。
+        final double reach = queryMargin + CANDIDATE_REACH;
         // MTR 未 remap：表的泛型实参是 intermediary 名（class_2338），编译期解析不到具名类型，
         // 所以整条链路按 Object/Map<?, ?> 走，运行时就是 Map<BlockPos, Map<BlockPos, Rail>>。
         try {
@@ -607,37 +699,64 @@ public final class RailBed {
                     if (!(railRaw instanceof Rail) || !(endRaw instanceof BlockPos)) {
                         continue;
                     }
-                    final Rail rail = (Rail) railRaw;
-                    if (!physical(rail)) {
-                        // NONE / AIRPLANE_DUMMY 是数据占位，没有真正的轨面，不该接住任何东西。
-                        continue;
+                    // 单条轨道失败只丢它自己 —— 绝不能让一条坏轨道截断整张候选表（旧实现的坑）。
+                    try {
+                        final Cand cand = candidate((Rail) railRaw, start,
+                                (BlockPos) (Object) endRaw, x, z, reach);
+                        if (cand != null) {
+                            out.add(cand);
+                        }
+                    } catch (Throwable t) {
+                        lastSkipped++;
+                        warnOnce(t);
                     }
-                    final BlockPos end = (BlockPos) (Object) endRaw;
-                    final double length = rail.getLength();
-                    if (!(length > 1.0E-3D)) {
-                        continue;
-                    }
-                    // 采样前的保守粗筛：曲线上任一点到两端点中较近那个的距离不超过弧长的一半
-                    // （三角不等式），所以「端点包围盒 + len/2 + 余量」不会漏掉任何真在附近的弧。
-                    // 精确范围由下面的采样折线包围盒给出，这一步只是省掉远处的 getPosition。
-                    final double slack = reach + length * 0.5D + 1.0D;
-                    if (x < Math.min(start.getX(), end.getX()) - slack
-                            || x > Math.max(start.getX(), end.getX()) + slack + 1.0D
-                            || z < Math.min(start.getZ(), end.getZ()) - slack
-                            || z > Math.max(start.getZ(), end.getZ()) + slack + 1.0D) {
-                        continue;
-                    }
-                    final Entry entry = geometry(rail, length);
-                    if (entry == null || !entry.within(x, z, reach)) {
-                        continue;
-                    }
-                    out.add(entry);
                 }
             }
         } catch (Throwable t) {
+            // 整张表的迭代本身出问题（表在别处被改）：已经收到的候选照用。
             warnOnce(t);
         }
+        // 近的排前面（稳定排序：距离相同按扫到的顺序，同一条轨道每次结果一致）。
+        out.sort(Comparator.comparingDouble((Cand c) -> c.anchorDistance));
         return out;
+    }
+
+    /** 一条轨道能不能进候选：先是端点包围盒的廉价粗筛，再是「到折线的真实距离」。 */
+    private Cand candidate(final Rail rail, final BlockPos start, final BlockPos end,
+                           final double x, final double z, final double reach) {
+        lastScanned++;
+        if (!physical(rail)) {
+            // NONE / AIRPLANE_DUMMY 是数据占位，没有真正的轨面，不该接住任何东西。
+            return null;
+        }
+        final double length = rail.getLength();
+        if (!(length > 1.0E-3D) || Double.isNaN(length) || Double.isInfinite(length)) {
+            return null;
+        }
+        // 采样前的保守粗筛：曲线上任一点到两端点中较近那个的距离不超过弧长的一半
+        // （三角不等式），所以「端点包围盒 + len/2 + 余量」不会漏掉任何真在附近的弧。
+        // 精确范围由下面的采样折线包围盒给出，这一步只是省掉远处的 getPosition。
+        final double slack = reach + length * 0.5D + 1.0D;
+        if (x < Math.min(start.getX(), end.getX()) - slack
+                || x > Math.max(start.getX(), end.getX()) + slack + 1.0D
+                || z < Math.min(start.getZ(), end.getZ()) - slack
+                || z > Math.max(start.getZ(), end.getZ()) + slack + 1.0D) {
+            return null;
+        }
+        final Entry entry = geometry(rail, length);
+        if (entry == null) {
+            return null;
+        }
+        // 包围盒距离 = 真实距离的下界：超了就一定不可能命中（精确剪枝，不会漏候选）。
+        if (entry.bboxDistance(x, z) > reach) {
+            return null;
+        }
+        // 真正的准入：到折线的距离。
+        final Sample sample = column(entry, x, z);
+        if (sample == null || sample.distance > reach) {
+            return null;
+        }
+        return new Cand(entry, sample.distance);
     }
 
     /**
@@ -663,7 +782,12 @@ public final class RailBed {
 
     /**
      * 把一条轨道按 {@code min(0.5, len/64)} 的步长<b>整条弧</b>采样成折线（弧长等距），求出真实包围盒，
-     * 并记下高程曲线的两端。采样失败（MTR 抛异常 / 长度病态）返回 {@code null}。
+     * 并记下高程曲线的两端。采样失败（MTR 抛异常 / 长度病态 / 出现 NaN）返回 {@code null}。
+     *
+     * <p>{@code getPosition} 对「同一条 Rail 的两段」是连续的（segment1 = 起点切向那段、
+     * segment2 = 终点切向那段，接缝处位置实测差 1e-9 以内），所以整条弧一次采样不会在接缝处裂开。
+     * 但任何一个顶点出现 NaN 就整条丢弃 —— NaN 包围盒会让 {@code bboxDistance} 永远返回 NaN、
+     * 比较永远为假，那条轨道就会<b>静默地</b>永远进不了候选。
      */
     private static Entry entry(final Rail rail, final double length) {
         final double sampleStep = Math.min(SAMPLE_MAX_STEP, length / SAMPLE_DIVISIONS);
@@ -686,6 +810,9 @@ public final class RailBed {
             if (p == null) {
                 return null;
             }
+            if (!Double.isFinite(p.x) || !Double.isFinite(p.y) || !Double.isFinite(p.z)) {
+                return null;
+            }
             xs[i] = p.x;
             zs[i] = p.z;
             ss[i] = s;
@@ -701,14 +828,44 @@ public final class RailBed {
         final double yStart = sampleY(rail, 0.0D, minY, maxY);
         final double yEnd = sampleY(rail, length, minY, maxY);
         return new Entry(rail, length, xs, zs, ss, minX, minZ, maxX, maxZ, minY, maxY,
-                yStart, yEnd, cable(rail));
+                yStart, yEnd, cable(rail), straight(xs, zs));
+    }
+
+    /**
+     * 折线是不是直线（诊断里的 {@code straight=}）：所有顶点到首尾弦的距离都 ≤ 1mm。
+     *
+     * <p>只读 MTR 的公开 API（{@code getPosition}），不碰 {@code isStraight1/2} 这两个私有字段 ——
+     * 它们在开发环境里能反射到，但运行时是 intermediary 名，靠不住。弯道 R=5 时弧中段离弦
+     * 1.46 格，这个判定分得很干净。
+     */
+    private static boolean straight(final double[] xs, final double[] zs) {
+        final int n = xs.length;
+        if (n < 3) {
+            return true;
+        }
+        final double ex = xs[n - 1] - xs[0];
+        final double ez = zs[n - 1] - zs[0];
+        final double len = Math.sqrt(ex * ex + ez * ez);
+        if (!(len > 1.0E-6D)) {
+            return true;
+        }
+        final double nx = -ez / len;
+        final double nz = ex / len;
+        double worst = 0.0D;
+        for (int i = 1; i < n - 1; i++) {
+            worst = Math.max(worst, Math.abs((xs[i] - xs[0]) * nx + (zs[i] - zs[0]) * nz));
+        }
+        return worst <= 1.0E-3D;
     }
 
     /** 端点 y：{@code getPosition} 拿不到时退回采样区间（宁可给个保守值，也不要 NaN）。 */
     private static double sampleY(final Rail rail, final double s, final double fallback,
                                   final double fallbackHigh) {
         final Vec3d p = position(rail, s);
-        return p == null ? (s <= 0.0D ? fallback : fallbackHigh) : p.y;
+        if (p == null || !Double.isFinite(p.y)) {
+            return s <= 0.0D ? fallback : fallbackHigh;
+        }
+        return p.y;
     }
 
     /**
@@ -741,6 +898,124 @@ public final class RailBed {
         } catch (Throwable e) {
             return null;
         }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // /mtr_lte trackbed where —— 「这个位置到底有哪些轨道在候选里」
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * <b>{@code where} 诊断</b>：在这个位置重新查一次，然后把<b>候选集本身</b>按距离从近到远列出来。
+     *
+     * <p>{@code status} 那一行回答的是「结论是什么」（{@code drop=nohit} / {@code lat} / {@code dy}），
+     * 但「为什么」只有候选表能回答：直道那条轨道到底在不在候选里、它的 {@code dist} 是多少、
+     * 是不是被半宽挡住的。用户站到出问题的位置上跑一次，这一屏就是答案。
+     *
+     * <p>每一行：
+     * <pre>[lte] where #1 dist=0.02 off=+0.02 y=64.00 along=3.20/10.00 straight=yes WOODEN WIN</pre>
+     * 读法：
+     * <ul>
+     *   <li>{@code dist} —— 查询点到这条轨道<b>折线</b>的真实距离（不是包围盒距离）；</li>
+     *   <li>{@code off} —— 有符号横向偏移（法向哪一侧，正负本身是信息）；</li>
+     *   <li>{@code y} —— 投影列处的轨面高度；{@code along/len} —— 投影落在轨道的哪个位置，
+     *       贴着 {@code 0.00} 或 {@code len} 就说明这条已经走到头了（接缝的典型形态）；</li>
+     *   <li>{@code straight=yes|no} —— 折线是直线还是弧（{@code yes} 就是直道那条）；</li>
+     *   <li>{@code WIN} —— 这次真正被选中的那条。没有 {@code WIN} 就是一条都没命中。</li>
+     * </ul>
+     * 表头另给 {@code rails=}（这张表里一共多少条轨道）、{@code near=}（过了廉价粗筛的）、
+     * {@code cand=}（真正进候选的）、{@code skipped=}（单条异常被跳过的 —— 不为 0 就说明数据里有
+     * 坏轨道）。
+     */
+    public String explain(final Object railsMap, final long tick, final double x, final double y,
+                          final double z) {
+        final StringBuilder out = new StringBuilder();
+        final double anchorX = Math.floor(x / 2.0D) * 2.0D;
+        final double anchorZ = Math.floor(z / 2.0D) * 2.0D;
+        out.append("[lte] where at=(").append(fmt(x)).append(", ").append(fmt(y)).append(", ")
+                .append(fmt(z)).append(") anchor=(").append(fmt(anchorX)).append(", ")
+                .append(fmt(anchorZ)).append(')');
+        if (railsMap == null || !(railsMap instanceof Map)) {
+            return out.append(" rails=0 (轨道表为空/未加载 —— 没有 ClientData.RAILS)").toString();
+        }
+        final Sample best = probe(railsMap, tick, x, y, z, anchorX, anchorZ,
+                SEARCH_RADIUS + 2.0D);
+        out.append(" rails=").append(total(railsMap))
+                .append(" near=").append(lastScanned)
+                .append(" cand=").append(cache.size())
+                .append(" skipped=").append(lastSkipped)
+                .append(" halfW=").append(fmt(HALF_WIDTH))
+                .append(" reach=").append(fmt(CANDIDATE_REACH));
+        out.append(" hit=").append(lastHit ? "yes" : "no");
+        if (cache.isEmpty()) {
+            out.append('\n').append("[lte] where: 候选表是空的 —— 这个位置周围 ")
+                    .append(fmt(SEARCH_RADIUS)).append(" 格里一条轨道都没进候选");
+            return out.toString();
+        }
+        int index = 0;
+        for (final Cand cand : cache) {
+            if (index >= WHERE_MAX) {
+                out.append('\n').append("[lte] where: … 还有 ").append(cache.size() - WHERE_MAX)
+                        .append(" 条候选没列");
+                break;
+            }
+            index++;
+            final Entry entry = cand.entry;
+            final Sample sample = column(entry, x, z);
+            final boolean win = best != null && sample != null
+                    && Math.abs(sample.distance - best.distance) < 1.0E-9D
+                    && Math.abs(sample.along - best.along) < 1.0E-9D;
+            out.append('\n').append("[lte] where #").append(index)
+                    .append(" dist=").append(sample == null ? "-" : fmt(sample.distance))
+                    .append(" off=").append(sample == null ? "-" : signed(sample.offset))
+                    .append(" y=").append(sample == null ? "-" : fmt(sample.y))
+                    .append(" along=").append(sample == null ? "-"
+                            : fmt(sample.along) + "/" + fmt(entry.length))
+                    .append(" straight=").append(entry.straight ? "yes" : "no")
+                    .append(" anchorDist=").append(fmt(cand.anchorDistance))
+                    .append(' ').append(type(entry))
+                    .append(win ? " WIN" : (sample == null ? " (超出 reach)"
+                            : (sample.distance > HALF_WIDTH ? " (超出 halfW)" : "")));
+        }
+        if (best == null) {
+            out.append('\n').append("[lte] where: 没有命中 —— 上面每一条的 dist 都比 halfW=")
+                    .append(fmt(HALF_WIDTH)).append(" 大");
+        }
+        return out.toString();
+    }
+
+    /** 表里一共有多少条轨道（{@code where} 的 {@code rails=}）。 */
+    private static int total(final Object railsMap) {
+        int count = 0;
+        try {
+            for (final Map.Entry<?, ?> outer : ((Map<?, ?>) railsMap).entrySet()) {
+                final Object ends = outer.getValue();
+                if (ends instanceof Map) {
+                    count += ((Map<?, ?>) ends).size();
+                }
+            }
+        } catch (Throwable t) {
+            return -1;
+        }
+        return count;
+    }
+
+    /** {@code WOODEN} / {@code PLATFORM} / … —— 诊断里一眼看出这条是哪种轨道。 */
+    private static String type(final Entry entry) {
+        try {
+            return entry.rail.railType.name();
+        } catch (Throwable t) {
+            return "?";
+        }
+    }
+
+    private static String fmt(final double value) {
+        return Double.isNaN(value) || Double.isInfinite(value) ? "-"
+                : String.format(Locale.ROOT, "%.2f", Double.valueOf(value));
+    }
+
+    private static String signed(final double value) {
+        return Double.isNaN(value) || Double.isInfinite(value) ? "-"
+                : String.format(Locale.ROOT, "%+.2f", Double.valueOf(value));
     }
 
     private static double clamp(final double v, final double lo, final double hi) {

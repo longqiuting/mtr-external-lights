@@ -132,6 +132,8 @@ abstract class ConfigWriteTarget {
             HEADLIGHT_MODE, DAMAGE_MIN_SPEED, DAMAGE_MAX, COLLISION_KNOCKBACK,
             COLLISION_KNOCKBACK_K, COLLISION_KNOCKBACK_MAX,
             SCATTER_STRENGTH, SCATTER_RADIUS,
+            // 40：光样式（三档循环，只有全局页有）。号段刻意错开，见 LIGHT_STYLE 的注释。
+            LIGHT_STYLE,
     };
 
     /**
@@ -850,7 +852,7 @@ abstract class ConfigWriteTarget {
                     break;
                 default:
                     c.beamGlow = d.beamGlow;
-            c.beamFlare = d.beamFlare;
+                    c.beamFlare = d.beamFlare;
                     break;
             }
         }

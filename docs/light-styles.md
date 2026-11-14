@@ -119,12 +119,37 @@ lit   = scene + (1 - exp(-added × strength)) × (1 - 0.5 × scene)
   不会一帧画两次；
 * 任何一边抛异常都只影响它自己（各自 try/catch），另一边照旧。
 
+## 灯位（pos）与朝向（dir）是两个符号
+
+`TrainLamps.place()` 里这两件事**各写各的**，别再当成一个符号一起翻：
+
+```
+pos = base + right * lateral + (0, height, 0) + out * (|inset| + FLARE_GAP)   // 位置：+out，推向车脸外
+dir = -out                                                                   // 朝向：−out，渲染用
+beam = out = -dir                                                            // 灯照出去的方向
+```
+
+* `out` 是车端面的**外法线**（车头 +弦、车尾 −弦），位置沿它推出去，灯才不会埋在车头网格里；
+* `LightFlare` 的朝向判定是 `facing = -dot(dir, view)`，`view` 是"灯 → 相机"。灯面朝车外、相机站在
+  车头正前时 `view ≈ out`，要让 `facing ≈ +1`，`dir` 就必须是 `-out`；取 `+out` 时 `facing ≈ -1`，
+  灯晕先被 `facing < MIN_FACING` 判成"背对相机"剔除，剩下的尺寸/亮度也按负值算 ——
+  画面上就是**"光晕朝向反了：车头往车后照"**，同时三档切换看不出区别（灯晕在 BAND 之外的档位里
+  根本不可见）；
+* 方块光照段（`LightController.endSegment`）和散射锥轴（`ScatterLights`）要的是"灯照出去的方向"，
+  所以它们读 `Lamp.beam()`（= `-dir` = `out`），朝向与改 `dir` 之前逐字相同 —— 位置、地面亮斑、
+  空气散射都不动，只有灯晕的朝向变了。
+
 ## 自检
 
-* `/mtr_lte flare status`：`lightStyle`、光带/灯晕各自画不画、方块光照挂钩状态；
-* 日志每 5 秒一行 `[lte] glow: …`（光带）和
-  `[lte] flare: trains=… lamps=… quads=… noLamp=… drawn=… tex=…`（灯晕），紧跟一行
+* `/mtr_lte flare status`：`lightStyle`、`style=… band=… flare=…`（**渲染层实际用的两个布尔**，
+  与两处帧级门槛同源）、光带/灯晕各自画不画、方块光照挂钩状态；
+* 切档瞬间日志里多一行 `[lte] lightstyle: applied style=FLARE band=false flare=true (beamGlow=false beamFlare=true)`
+  —— 只在值变化时打，所以「切了样式日志里没这行」= 没写进配置或没同步；「有这行但画面没变」= 值都对，
+  问题在几何（看下面的 `f=` 朝向 / 距离 / alpha）；
+* 日志每 5 秒一行 `[lte] glow: style=… band=… flare=… cars=… beams=… dirFix=…`（光带）和
+  `[lte] flare: style=… band=… flare=… trains=… lamps=… quads=… noLamp=… drawn=… tex=…`（灯晕），紧跟一行
   `[lte] flare near: #0 d=… f=… w=… px=… a=… fade=… ok|far|back|dim|faded/来源` —— 相机最近的
   3 盏灯，把「quads 在涨但屏幕上没有」拆成**距离 / 朝向 / 世界尺寸（格）/ 屏幕像素 / 最终 alpha**
   五个数；`drawn=false` 或 `err=…` 说明绘制本身抛了，`tex=missing` 说明贴图没打进包。
+  **判朝向**：站在车头正前方看头灯，`f` 应该接近 `+1.00`；`f≈-1.00` 就是灯面朝向反了。
 * 光带看不到时有 `[lte] glow: … near= skipped=` 的分类计数，灯晕看不到时看 `noLamp=` 和 `near:` 行。

@@ -49,16 +49,23 @@ import java.util.List;
  * out     = head ? pose.carBodyForward(car) : -pose.carBodyForward(car)   // unit, includes grade
  * right   = normalize(out x (0,1,0))             // horizontal, so a lamp never banks
  * lamp    = face + right * lateral + (0, height, 0) + out * (|inset| + FLARE_GAP)
- * dir     = out, then rotated by the entry's own yaw/pitch if it declares a rot
+ * dir     = -(out rotated by the entry's own yaw/pitch)   // 灯面朝向，渲染用
+ * beam    = out                                          // 灯照出去的方向 = -dir
  * </pre>
  *
- * <p><b>Why {@code + out} and not {@code - out}.</b> {@code out} is the <em>outward</em> normal of the
- * car's end face (see the {@code out} assignment in {@link #place}: {@code +chord} for the head,
- * {@code -chord} for the tail), so pushing the lamp along {@code +out} puts it in front of the face,
- * in the air, where it belongs. The previous version did {@code base - out * back}, i.e. it pushed
- * the lamp <b>into</b> the car body - which is exactly the report this fixes: the flare and the
- * (now removed) air haze appeared <em>inside</em> the car. A lamp at {@code base=(0,0,0)} with
- * {@code out=(1,0,0)} and nothing measured therefore sits at {@code x = +FLARE_GAP = +0.08}.
+ * <p><b>Why {@code + out} and not {@code - out} for the position.</b> {@code out} is the <em>outward</em>
+ * normal of the car's end face (see the {@code out} assignment in {@link #place}: {@code +chord} for
+ * the head, {@code -chord} for the tail), so pushing the lamp along {@code +out} puts it in front of
+ * the face, in the air, where it belongs. The previous version did {@code base - out * back}, i.e. it
+ * pushed the lamp <b>into</b> the car body - which is exactly the report that fixed the position: the
+ * flare appeared <em>inside</em> the car. A lamp at {@code base=(0,0,0)} with {@code out=(1,0,0)} and
+ * nothing measured therefore sits at {@code x = +FLARE_GAP = +0.08}.
+ *
+ * <p><b>Position and beam direction are two separate signs.</b> The position uses {@code +out}; the
+ * lamp's own facing ({@code Lamp#dir}) uses {@code -out}, because {@code LightFlare} measures
+ * {@code facing = -dot(dir, view)} and that must come out {@code +1} when the lamp points at the
+ * camera. Flipping one never flips the other - see the block in {@link #place}, and
+ * {@code Lamp#beam()} for "the way the light actually travels" (which is {@code out}, unchanged).
  *
  * <p><b>Why the car body chord and not the rail tangent.</b> MTR rotates the car body by the chord
  * between its own two faces ({@code Train#calculateCar}: yaw from {@code positions[car]} and
@@ -103,7 +110,14 @@ public final class TrainLamps {
     public static final class Lamp {
         /** Lamp centre, world space. */
         public final Vec3d pos;
-        /** Unit heading out of the lamp (already contains the grade and any declared rot). */
+        /**
+         * 灯<b>面</b>朝向（单位向量，已含坡度与声明的 rot）：<b>与灯照出去的方向相反</b>。
+         *
+         * <p>这是 {@code LightFlare.quad()} 的 {@code facing = -dot(dir, view)} 要的那一侧（见
+         * {@link TrainLamps#place}）。想要"灯照出去的方向"（方块光照段、散射锥轴）请用
+         * {@link #beam()}，它就是这个向量的反向 —— 两者只差一个符号，位置 {@link #pos} 与
+         * 它们无关。
+         */
         public final Vec3d dir;
         /** 0xRRGGBB. */
         public final int rgb;
@@ -130,11 +144,24 @@ public final class TrainLamps {
             this.source = source;
         }
 
+        /**
+         * 灯<b>照出去</b>的方向（单位向量）= {@code -dir}，也就是车端面的外法线 {@code out}。
+         *
+         * <p>物理量在这一边：光从灯口离开车身的方向。{@code LightController} 的方块光照段
+         * （{@code centre -> centre + beam * length}）和 {@code ScatterLights} 的锥轴都用它，
+         * 所以 {@link #dir} 取反之后这些人的朝向一个都没变。
+         */
+        public Vec3d beam() {
+            return dir.multiply(-1.0D);
+        }
+
         @Override
         public String toString() {
+            final Vec3d b = beam();
             return (head ? "head" : "tail") + "(" + source
                     + " @" + fmt(pos.x) + "," + fmt(pos.y) + "," + fmt(pos.z)
-                    + " dir=" + fmt(dir.x) + "," + fmt(dir.y) + "," + fmt(dir.z) + ")";
+                    + " dir=" + fmt(dir.x) + "," + fmt(dir.y) + "," + fmt(dir.z)
+                    + " beam=" + fmt(b.x) + "," + fmt(b.y) + "," + fmt(b.z) + ")";
         }
     }
 
@@ -267,14 +294,28 @@ public final class TrainLamps {
                 .add(out.multiply(outward));
 
         /*
-         * dir 就是车灯照出去的方向：车头沿 +弦、车尾沿 -弦（`out` 已经按 isHead 取过向，见上面）。
-         * `out` 同时用在 `pos = base + out * outward` 里：灯沿外向推到车脸外面，方向也是外向，
-         * 位置和方向现在<b>同号</b>——上一版位置用了 -out（推到车身里），才是「光晕翻进车厢」的真因。
+         * 位置和照射方向是两件互不相干的事，别再绑在一起翻 —— 之前两次出错都是因为把它们当成一个
+         * 符号：
+         *
+         *   位置：pos = base + out * outward    // 沿端面外法线 +out 推到车脸外面（位置本来就是对的）
+         *   方向：dir = -out                    // 与位置用的 out <b>相反</b>
+         *
+         * 为什么方向要取反：LightFlare.quad() 的朝向判定是
+         *     facing = -dot(lamp.dir, view)        // view = 归一化(相机 - 灯位)
+         * 灯面朝车外、相机站在车头正前方时 view ≈ out，要让 facing ≈ +1（"这盏灯正对着你"），
+         * dir 就必须是 -out。dir 取 +out 时 facing ≈ -1：灯晕先被 `facing < MIN_FACING` 当成
+         * "背对相机"剔除，侥幸留下来的尺寸项 0.45 + 1.4*facing³ 与亮度项一起变负/被钳到 0 ——
+         * 画面上就是"光晕朝向还是反的：车头往车后照"。
+         *
+         * 取反只发生在方向这一步，pos 用的 out 一个字没动。想拿"灯照出去的方向"（方块光照段、
+         * 散射锥轴）用下面的 `Lamp.beam()`，它就是 -dir = out，所以地面亮斑和散射锥的朝向照旧。
          */
-        Vec3d dir = out;
+        Vec3d aim = out;
         if (r.rot != null && r.rot.length >= 2) {
-            dir = rotate(dir, right, r.rot[0], r.rot[1]);
+            // 先按声明把"照出去的方向"转好（yaw 再 pitch，编辑器的顺序），语义与旧版一致；
+            aim = rotate(aim, right, r.rot[0], r.rot[1]);
         }
+        final Vec3d dir = aim.multiply(-1.0D);
         final int rgb = r.declared ? r.color
                 : (r.isHead() ? eff.beamHeadColor : eff.beamTailColor);
         final double alpha = clamp(r.alpha / ALPHA_UNIT, 0.2D, 3.0D);
@@ -329,13 +370,19 @@ public final class TrainLamps {
         return n == 0 ? Vec3d.ZERO : sum.multiply(1.0D / n);
     }
 
-    /** Mean heading of one end (unit), or {@link Vec3d#ZERO} when that end has no lamp. */
+    /**
+     * Mean direction the light <b>travels out</b> of one end (unit), or {@link Vec3d#ZERO} when that
+     * end has no lamp.
+     *
+     * <p>取的是 {@link Lamp#beam()}（= {@code -dir}）：方块光照段从灯位沿这个方向延伸到
+     * {@code wedgeLength} 格，所以它必须是"照出去"的那一侧，而不是渲染用的灯面朝向。
+     */
     public static Vec3d heading(final List<Lamp> lamps, final boolean head) {
         Vec3d sum = Vec3d.ZERO;
         int n = 0;
         for (final Lamp lamp : lamps) {
             if (lamp.head == head) {
-                sum = sum.add(lamp.dir);
+                sum = sum.add(lamp.beam());
                 n++;
             }
         }

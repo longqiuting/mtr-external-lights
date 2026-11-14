@@ -3,6 +3,7 @@ package dev.js.mtrheadlight;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import dev.js.mtrheadlight.collision.CollisionImpact;
+import dev.js.mtrheadlight.collision.CollisionSystem;
 import dev.js.mtrheadlight.collision.Trackbed;
 import dev.js.mtrheadlight.mtr.BuiltInTrains;
 import dev.js.mtrheadlight.server.ServerConfig;
@@ -259,6 +260,8 @@ public final class Commands {
                         .executes(context -> trackbedStatus(context.getSource()))
                         .then(ClientCommandManager.literal("status")
                                 .executes(context -> trackbedStatus(context.getSource())))
+                        .then(ClientCommandManager.literal("where")
+                                .executes(context -> trackbedWhere(context.getSource())))
                         .then(ClientCommandManager.literal("on")
                                 .executes(context -> setTrackbedWatch(context.getSource(), true)))
                         .then(ClientCommandManager.literal("off")
@@ -311,10 +314,11 @@ public final class Commands {
      * 专门回答「站在轨道上、过弯道就掉下去」。
      *
      * <p>{@code status} 立刻打一行并打开每 5 秒一次的同类日志：
-     * <pre>[lte] trackbed: rails=N hit=yes|no y=… dist=… off=… halfW=… dy=… onGround=…
+     * <pre>[lte] trackbed: rails=N scanned=N skipped=0 hit=yes|no y=… dist=… off=… halfW=… dy=… onGround=…
      *                 moved=… drop=snap|dy|lat|nohit|jump|block|space snapped=…
      *                 drops=snap:57 dy:0 lat:0 nohit:0 jump:2 block:0 space:0</pre>
-     * {@code rails} 是缓存里候选轨道条数；{@code drop=} 是<b>上一步的结论</b>：
+     * {@code rails} 是缓存里候选轨道条数；{@code scanned} 这次建缓存扫过多少条、{@code skipped}
+     * 有多少条属于单条异常（不为 0 就说明轨道表里有坏轨道）；{@code drop=} 是<b>上一步的结论</b>：
      * {@code nohit} = 缓存里没有近处的轨道；{@code lat} = 轨道找到了但横向偏移超半宽；
      * {@code dy} = 横向踩在道床上、脚底与轨面的高差不在窗口里（{@code dy} 正负会告诉你是在轨面上方
      * 还是下方 —— 上坡就是负的）；{@code jump} = 起跳那一 tick 故意让开；
@@ -341,6 +345,54 @@ public final class Commands {
             LteLog.LOGGER.info(Trackbed.describe(Trackbed.snapped()));
         }
         source.sendFeedback(Text.literal("LTE：道床取证" + (on ? "已打开（每 5 秒一行）" : "已关闭")));
+        return 1;
+    }
+
+    /**
+     * <b>{@code /mtr_lte trackbed where}</b> —— 在<b>玩家当前位置</b>重查一次，把候选集逐条打出来。
+     *
+     * <p>{@code status} 只说结论（{@code drop=nohit} / {@code lat} / {@code dy}），但「弯道接直道后
+     * 直道整段没有碰撞」这种问题必须看<b>候选表</b>才答得了：直道那条轨道到底在不在候选里、
+     * 它的 {@code dist} 是多少、{@code along} 是不是已经贴在端点（接缝的典型形态）、
+     * {@code straight=yes} 的那条是不是直道。
+     *
+     * <p>输出两行表头 + 每条候选一行（按距离从近到远，最多 8 条），{@code WIN} 标出真正选中的那条：
+     * <pre>[lte] where at=(12.31, 64.00, 5.50) anchor=(12.00, 4.00) rails=214 near=6 cand=2
+     *            skipped=0 halfW=1.30 reach=2.50 hit=yes
+     * [lte] where #1 dist=0.02 off=+0.02 y=64.00 along=3.20/10.00 straight=yes anchorDist=0.02 WOODEN WIN
+     * [lte] where #2 dist=5.10 off=-5.10 y=64.00 along=7.85/7.85 straight=no anchorDist=7.53 WOODEN</pre>
+     *
+     * 读法（用户现场就靠这几条判断）：
+     * <ul>
+     *   <li>{@code cand=} 一条都没有 → 这个位置周围根本没有轨道进候选（轨道表没加载 / 位置不对）；</li>
+     *   <li>表里<b>没有 {@code straight=yes} 的行</b> → 直道那条连候选都不是（这次修的就是这个）；</li>
+     *   <li>有直道那行但 {@code dist > halfW} → 轨道找到了、人没踩在道床上（横向问题）；</li>
+     *   <li>{@code along} 紧贴 {@code 0.00} 或 {@code len} → 这条已经走到头了，接缝另一侧那条才是
+     *       该选中的；</li>
+     *   <li>{@code skipped=} 不为 0 → 表里有单条坏轨道被跳过（旧实现会被它截断整张候选表）。</li>
+     * </ul>
+     */
+    private static int trackbedWhere(final FabricClientCommandSource source) {
+        final net.minecraft.client.MinecraftClient client =
+                net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || client.world == null) {
+            source.sendFeedback(Text.literal("LTE：where 需要在游戏里、有玩家位置才能查"));
+            return 0;
+        }
+        final net.minecraft.client.network.ClientPlayerEntity player = client.player;
+        final String[] lines = Trackbed.where(client.world, CollisionSystem.tickCount(),
+                player.getX(), player.getY(), player.getZ());
+        for (final String line : lines) {
+            if (line.isEmpty()) {
+                continue;
+            }
+            LteLog.LOGGER.info(line);
+            source.sendFeedback(Text.literal(line));
+        }
+        source.sendFeedback(Text.literal(
+                "LTE：where 读法 — cand=0 表示周围没有轨道进候选；表里没有 straight=yes 那行表示"
+                        + "直道连候选都不是；dist>halfW 表示找到了但横向没踩上；"
+                        + "along 贴 0/len 表示这条已到头（该选接缝对面那条）"));
         return 1;
     }
 
@@ -431,7 +483,12 @@ public final class Commands {
     private static int flareStatus(final FabricClientCommandSource source) {
         final HeadlightConfig cfg = MtrHeadlightClient.config();
         final HeadlightConfig.Effective eff = cfg.effectiveFor(0L);
+        // 这一行刻意把「样式写了什么」和「渲染层实际用的两个布尔」并排打出来，而且 band/flare 直接读
+        // bandGlobal()/flareGlobal() —— 那是 BeamGlow.render / LightFlare.render 的帧级门槛本身，
+        // 不是第二份判断。三档切换"看不出区别"时，先看这两个 true/false 有没有跟着变。
         source.sendFeedback(Text.literal("LTE：lightStyle = " + cfg.style()
+                + " style=" + cfg.style().name()
+                + " band=" + cfg.bandGlobal() + " flare=" + cfg.flareGlobal()
                 + "（光带=" + (eff.beamGlow ? "画" : "不画")
                 + "，灯晕=" + (eff.beamFlare ? "画" : "不画")
                 + "；用 /mtr_lte flare style band|flare|both 切换）"
@@ -487,7 +544,9 @@ public final class Commands {
         cfg.save();
         source.sendFeedback(Text.literal("LTE：lightStyle = " + cfg.style()
                 + (style == HeadlightConfig.LightStyle.BAND ? "（光带）"
-                : style == HeadlightConfig.LightStyle.FLARE ? "（灯晕）" : "（光带 + 灯晕）")));
+                : style == HeadlightConfig.LightStyle.FLARE ? "（灯晕）" : "（光带 + 灯晕）")
+                + " band=" + cfg.bandGlobal() + " flare=" + cfg.flareGlobal()
+                + "（渲染层每帧读这两个布尔；日志里那行 [lte] lightstyle: applied … 会在下一次绘制时出现）"));
         return 1;
     }
 

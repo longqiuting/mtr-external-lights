@@ -228,13 +228,16 @@ public final class Trackbed {
 
     /**
      * 诊断行（{@code [lte] trackbed: …}），命令与每 5 秒的日志共用：
-     * {@code rails} 缓存条数、{@code hit} 是否命中半宽、{@code y} 轨面高度、{@code dist}
+     * {@code rails} 缓存候选条数、{@code scanned} 这次建缓存扫过多少条轨道、{@code skipped} 有多少条
+     * 因为是单条异常被跳过（不为 0 就说明数据里有坏轨道）、{@code hit} 是否命中半宽、{@code y} 轨面高度、{@code dist}
      * 横向距离、{@code off} 有符号横向偏移、{@code halfW} 半宽、{@code dy} 脚底 − 轨面、
      * {@code onGround}/{@code moved} 这一 tick 的状态、{@code drop} 最新结论、
      * {@code snapped} 上一个完整 tick 有没有真被按上去、{@code drops} 各结论计数。
      */
     public static String describe(final boolean isSnapped) {
         return "[lte] trackbed: rails=" + cached()
+                + " scanned=" + BED.scanned()
+                + " skipped=" + BED.skipped()
                 + " hit=" + (hit() ? "yes" : "no")
                 + " y=" + number(BED.lastY())
                 + " dist=" + number(BED.lastDistance())
@@ -303,15 +306,39 @@ public final class Trackbed {
         if (world == null) {
             return null;
         }
-        Object rails;
-        try {
-            rails = ClientData.RAILS;
-        } catch (Throwable t) {
+        Object rails = rails();
+        if (rails == null) {
             return null;
         }
         final RailBed.Sample sample = BED.probe(rails, tick, x, y, z);
         return sample == null ? null
                 : new Sample(sample.y, sample.distance, sample.offset, sample.along,
                         sample.length);
+    }
+
+    /**
+     * <b>{@code /mtr_lte trackbed where}</b> —— 在这个位置把<b>候选集本身</b>逐条打出来。
+     *
+     * <p>{@code status} 回答「结论是什么」（{@code drop=nohit}/{@code lat}/{@code dy}），{@code where}
+     * 回答「为什么」：直道那条轨道到底在不在候选里、它的 {@code dist} 是多少、{@code along} 是不是
+     * 已经贴在端点（接缝的典型形态）、{@code straight=yes} 的是不是直道那条。站在出问题的位置上
+     * 跑一次，就不需要再靠猜。
+     *
+     * <p>返回的是若干行（第一行是表头）。轨道表没加载时只有一行说明。
+     */
+    public static String[] where(final ClientWorld world, final long tick, final double x,
+                                 final double y, final double z) {
+        final Object rails = world == null ? null : rails();
+        final String text = BED.explain(rails, tick, x, y, z);
+        return text.split("\\R", -1);
+    }
+
+    /** {@code ClientData.RAILS}（{@code Map<BlockPos, Map<BlockPos, Rail>>}），拿不到时 {@code null}。 */
+    private static Object rails() {
+        try {
+            return ClientData.RAILS;
+        } catch (Throwable t) {
+            return null;
+        }
     }
 }

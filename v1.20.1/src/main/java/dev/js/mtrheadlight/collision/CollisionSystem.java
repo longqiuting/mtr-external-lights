@@ -289,6 +289,15 @@ public final class CollisionSystem {
     /** 自己的 tick 计数：不依赖 {@code LightController} 的计数器（那条可能提前 return）。 */
     private static long ticks;
 
+    /**
+     * 当前 tick 计数（{@code /mtr_lte trackbed where} 要用它复用同一份道床缓存）。
+     *
+     * <p>和判定路径用同一个计数器，命令那次查询就不会因为 tick 编号不同而白重建一次缓存。
+     */
+    public static long tickCount() {
+        return ticks;
+    }
+
     /** 本 tick 移动前的脚底 y（道床「从上方穿过」判定）。 */
     private static double startY = Double.NaN;
 

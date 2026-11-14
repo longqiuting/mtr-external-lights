@@ -32,7 +32,7 @@ import java.util.List;
  * <h2>What one lamp becomes in the shader</h2>
  * <pre>
  *   pos   = lamp position, camera relative        w = glow radius R, blocks
- *   dir   = lamp heading (unit, already graded)   w = beam length, blocks
+ *   dir   = lamp beam (unit: the way the light travels, = Lamp.beam())   w = beam length, blocks
  *   color = lamp colour, 0..1 linear              w = intensity (flare alpha, faded)
  * </pre>
  * The radius is {@code scatterRadius} for a head lamp and a bit smaller for a tail lamp: a red tail
@@ -139,9 +139,16 @@ final class ScatterLights {
                 c.px = lamp.pos.x - camera.x;
                 c.py = lamp.pos.y - camera.y;
                 c.pz = lamp.pos.z - camera.z;
-                c.dx = lamp.dir.x;
-                c.dy = lamp.dir.y;
-                c.dz = lamp.dir.z;
+                /*
+                 * 锥轴 = 灯照出去的方向。用 Lamp.beam()（= -dir）而不是 Lamp.dir：
+                 * dir 是灯面朝向（LightFlare 的 facing 公式要的那一侧，取反后的），锥轴要的是
+                 * 光离开车体的方向。两者只差一个符号，所以这里取反之后，散射的照亮方向与
+                 * dir 改动之前逐字相同（见 TrainLamps.place 的注释）。
+                 */
+                final Vec3d beam = lamp.beam();
+                c.dx = beam.x;
+                c.dy = beam.y;
+                c.dz = beam.z;
                 c.power = power;
                 c.radius = radius;
                 c.length = lamp.length;

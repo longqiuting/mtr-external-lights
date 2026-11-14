@@ -119,12 +119,15 @@ function lampsOf(id, spacing) {
 
 /** TrainLamps.place(): car-local lamp -> world, for a car whose lead face is at `base`. */
 function place(lamp, base, out, head) {
-    const dir = head ? out : { x: -out.x, y: -out.y, z: -out.z };
+    // out = 端面外法线（车头 +弦 / 车尾 -弦）。位置用它，灯面朝向 dir 是它的反向：
+    //   pos = base + right*lateral + (0,height,0) + out*(|inset| + FLARE_GAP)
+    //   dir = -out      （LightFlare 的 facing = -dot(dir, view) 要的那一侧）
+    const outDir = head ? out : { x: -out.x, y: -out.y, z: -out.z };
     // right = out x up, then normalised (name it exactly as the Java side does).
     let right = {
-        x: dir.y * 0 - dir.z * 1,
-        y: dir.z * 0 - dir.x * 0,
-        z: dir.x * 1 - dir.y * 0,
+        x: outDir.y * 0 - outDir.z * 1,
+        y: outDir.z * 0 - outDir.x * 0,
+        z: outDir.x * 1 - outDir.y * 0,
     };
     const len = Math.hypot(right.x, right.y, right.z);
     right = { x: right.x / len, y: right.y / len, z: right.z / len };
@@ -133,11 +136,12 @@ function place(lamp, base, out, head) {
         MIN_LAMP_HEIGHT, MAX_LAMP_HEIGHT);
     const outward = clamp(Math.abs(lamp.inset), 0, MAX_AHEAD) + FLARE_GAP;
     return {
-        x: base.x + right.x * lateral + dir.x * outward,
-        y: base.y + height + dir.y * outward,
-        z: base.z + right.z * lateral + dir.z * outward,
+        x: base.x + right.x * lateral + outDir.x * outward,
+        y: base.y + height + outDir.y * outward,
+        z: base.z + right.z * lateral + outDir.z * outward,
         right,
-        dir,
+        dir: { x: -outDir.x, y: -outDir.y, z: -outDir.z },
+        beam: outDir,
     };
 }
 

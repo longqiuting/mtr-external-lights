@@ -201,8 +201,18 @@ public final class BeamGlow {
         // 过弯时 dirFix 应当等于有效端数（每列车 2）；若为 0 而 beams>0，说明弦退化了、走的是
         // 切线兜底 —— 那正是"弯道乱晃"的老症状。光带开关整窗口都没开时这一行不打。
         if (windowOn) {
-            MtrHeadlightClient.LOGGER.info("[lte] glow: cars={} beams={} dirFix={}",
-                    dCars, dBeams, dDirFix);
+            // style=… band=… flare=… 与 [lte] flare: 那行同源（bandGlobal()/flareGlobal()），
+            // 两行并排就能看出"这一帧该画哪一套"和"实际画了几束"。
+            final HeadlightConfig cfg = MtrHeadlightClient.config();
+            if (cfg == null) {
+                MtrHeadlightClient.LOGGER.info("[lte] glow: cars={} beams={} dirFix={}",
+                        dCars, dBeams, dDirFix);
+            } else {
+                MtrHeadlightClient.LOGGER.info("[lte] glow: style={} band={} flare={}"
+                                + " cars={} beams={} dirFix={}",
+                        cfg.style(), Boolean.valueOf(cfg.bandGlobal()),
+                        Boolean.valueOf(cfg.flareGlobal()), dCars, dBeams, dDirFix);
+            }
         }
         windowOn = false;
         dCars = 0;
