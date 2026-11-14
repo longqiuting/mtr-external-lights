@@ -41,7 +41,6 @@
     ],
     "client": [
       "dev.js.mtrheadlight.MtrHeadlightClient",
-      "dev.js.mtrheadlight.ldl.PlayerLightClient",
       "dev.js.mtrheadlight.collision.CollisionBootstrap",
       "dev.js.mtrheadlight.mtr.BuiltInTrainsInit",
       "dev.js.mtrheadlight.VehicleLightsJsonClient",
@@ -61,9 +60,6 @@
     ],
     "modmenu": [
       "dev.js.mtrheadlight.ModMenuIntegration"
-    ],
-    "lambdynlights:initializer": [
-      "dev.js.mtrheadlight.ldl.PlayerLightInitializer"
     ]
   },
   "depends": {

@@ -85,7 +85,6 @@ public final class HeadlightConfig {
      * {@link #enabled}（列车灯总开关）<b>互不影响</b>：列车灯全关掉时玩家自己手里的火把照样亮 ——
      * 「关灯」关的是车，不是玩家的火把。
      */
-    public boolean playerDynamicLight = true;
 
 
     /** Only lights for transport mode TRAIN (ignore boats / cable cars / planes). */
@@ -2061,7 +2060,6 @@ public final class HeadlightConfig {
         // (beamBand / beamFlare / beamScatter) and drops the rail-bake subsystem (rails no longer
         // glow); see the block at the end of this method.
         // Version 26 flips the shipped defaults from "all three on" to "only the band on"
-        // (beamFlare / beamScatter both false) and appends playerDynamicLight (default true, only
         // active when LambDynamicLights is installed); see the last block of this method.
         if (configVersion < 21) {
             // Version 21 turns the beam cone off by default (still experimental) and appends

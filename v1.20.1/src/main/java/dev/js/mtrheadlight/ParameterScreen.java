@@ -1,6 +1,5 @@
 package dev.js.mtrheadlight;
 
-import dev.js.mtrheadlight.ldl.PlayerDynamicLight;
 import dev.js.mtrheadlight.mtr.BuiltInTrains;
 import mtr.data.Siding;
 import net.minecraft.client.MinecraftClient;
@@ -450,7 +449,6 @@ public final class ParameterScreen extends Screen {
                 this.rows.add(Row.toggleWide(ConfigWriteTarget.DYNAMIC_LIGHT));
                 if (isGlobal()) {
                     // 手持动态光源：全局开关，需要 LambDynamicLights；没装时这一行置灰并注明。
-                    this.rows.add(Row.toggleWideNeedsLdl(ConfigWriteTarget.PLAYER_DYNAMIC_LIGHT));
                 }
                 // ---- 滑块（数值）全部在开关之下 ----
                 this.rows.add(Row.value(ConfigWriteTarget.DISTANCE));
@@ -569,10 +567,7 @@ public final class ParameterScreen extends Screen {
             }
             case ROW_TOGGLE_WIDE: {
                 // 两边格合成一个按钮：这一行没有数值可配，强塞一个无关滑块只会误导。
-                final boolean ldlMissing = row.needsLdl && !PlayerDynamicLight.modPresent();
-                final Text wideLabel = ldlMissing
-                        ? toggleLabel(row.toggle).copy().append(tr("hint.needsLdl"))
-                        : toggleLabel(row.toggle);
+                final Text wideLabel = toggleLabel(row.toggle);
                 final ButtonWidget button = addButton(this.colX, y,
                         this.colW - RESET_W - GAP, ROW_H, wideLabel, b -> {
                             this.target.writeToggle(row.toggle,
@@ -584,11 +579,6 @@ public final class ParameterScreen extends Screen {
                         });
                 if (row.toggle == ConfigWriteTarget.DAMAGE_IN_CREATIVE) {
                     button.setTooltip(Tooltip.of(tr("hint.damageInCreative")));
-                }
-                if (ldlMissing) {
-                    // 「点了没反应」是最糟的三种状态之一：置灰 + 一句为什么。
-                    button.active = false;
-                    button.setTooltip(Tooltip.of(tr("hint.needsLdlTooltip")));
                 }
                 addResetButton(row, y);
                 break;
@@ -828,11 +818,6 @@ public final class ParameterScreen extends Screen {
                 // 同上，全局开关；它只关「照亮表面」那一层，光雾留着。
                 return tr(this.target.readToggle(which)
                         ? "opt.scatterSurface.on" : "opt.scatterSurface.off");
-            case ConfigWriteTarget.PLAYER_DYNAMIC_LIGHT:
-                // 全局开关（侧线页不生成这一行）。没装 LDL 时这一行会被置灰并补一句
-                // 「需要 LDL」—— 文字仍然由这里给出，见 buildRow 的 ROW_TOGGLE_WIDE。
-                return tr(this.target.readToggle(which)
-                        ? "opt.playerLight.on" : "opt.playerLight.off");
             default:
                 return follow(this.target.readToggle(which)
                         ? tr("opt.band.on") : tr("opt.band.off"), which);
@@ -1399,11 +1384,6 @@ public final class ParameterScreen extends Screen {
         final boolean head;
         /** True for the per-siding entry: disabled (and annotated) outside a save. */
         final boolean needsWorld;
-        /**
-         * True for a row whose feature only works with LambDynamicLights installed
-         * ({@link ConfigWriteTarget#PLAYER_DYNAMIC_LIGHT}): without it the row is greyed out and
-         * says so, instead of accepting clicks that do nothing.
-         */
         final boolean needsLdl;
         final Text label;
         final Runnable action;
@@ -1430,10 +1410,6 @@ public final class ParameterScreen extends Screen {
             return new Row(ROW_TOGGLE_WIDE, toggle, -1, false, false, false, Text.empty(), null);
         }
 
-        /** {@link #toggleWide} 的一行，但没有 LambDynamicLights 时置灰并注明原因。 */
-        static Row toggleWideNeedsLdl(final int toggle) {
-            return new Row(ROW_TOGGLE_WIDE, toggle, -1, false, false, true, Text.empty(), null);
-        }
 
         static Row value(final int value) {
             return new Row(ROW_VALUE, -1, value, false, false, false, Text.empty(), null);

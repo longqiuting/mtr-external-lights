@@ -117,16 +117,6 @@ abstract class ConfigWriteTarget {
      * 都写在「光源」分区里。号段 41 是数值表（0–35）与开关表（0–38）之外的空位。
      */
     static final int BEAM_FLARE = 41;
-    /**
-     * 玩家手持动态光源（{@link HeadlightConfig#playerDynamicLight}）：手里拿着会发光的方块时，
-     * 在玩家身上挂一个动态点光源。全局开关，逐侧线页不生成 —— 它跟着玩家走，和「哪条侧线的车」
-     * 毫无关系。
-     *
-     * <p><b>没有 LambDynamicLights 时这一行照样在、照样能点、照样存</b>：功能本身在运行期降级成
-     * 空操作（见 {@code dev.js.mtrheadlight.ldl.PlayerDynamicLight}），把整行藏起来只会让玩家
-     * 以为自己关错了东西。42 是 {@link #BEAM_FLARE}（41）之后第一个空位。
-     */
-    static final int PLAYER_DYNAMIC_LIGHT = 42;
     static final int[] ALL_VALUES = {
             DISTANCE, LUMINANCE, HEAD_LENGTH, BEAM_DISTANCE, BEAM_HEAD_LENGTH,
             BEAM_TAIL_LENGTH, BEAM_WIDTH, BEAM_HEAD_HEIGHT, BEAM_TAIL_HEIGHT,
@@ -191,7 +181,7 @@ abstract class ConfigWriteTarget {
     static final int[] ALL_TOGGLES = {
             MASTER, DYNAMIC_LIGHT, LIGHT_BAND, BEAM_FLARE, RAIN_SPRAY, BUILTIN_TRAINS,
             TRAIN_COLLISION, TRACKBED, TRAIN_DAMAGE, TRAIN_MOBS, RAIN_HUSH, DAMAGE_IN_CREATIVE,
-            SCATTER, SCATTER_SURFACE, PLAYER_DYNAMIC_LIGHT,
+            SCATTER, SCATTER_SURFACE,
     };
 
     /**
@@ -563,9 +553,6 @@ abstract class ConfigWriteTarget {
                     return config().beamScatter;
                 case SCATTER_SURFACE:
                     return config().scatterSurface;
-                case PLAYER_DYNAMIC_LIGHT:
-                    // 不挂在 enabled 上：列车总开关关掉时，玩家手里的火把照样要亮。
-                    return config().playerDynamicLight;
                 default:
                     return false;
             }
@@ -615,9 +602,6 @@ abstract class ConfigWriteTarget {
                     break;
                 case SCATTER_SURFACE:
                     config().scatterSurface = on;
-                    break;
-                case PLAYER_DYNAMIC_LIGHT:
-                    config().playerDynamicLight = on;
                     break;
                 default:
                     config().beamFlare = on;
@@ -821,9 +805,6 @@ abstract class ConfigWriteTarget {
                 case SCATTER_SURFACE:
                     c.scatterSurface = d.scatterSurface;
                     break;
-                case PLAYER_DYNAMIC_LIGHT:
-                    c.playerDynamicLight = d.playerDynamicLight;
-                    break;
                 default:
                     c.beamBand = d.beamBand;
                     c.beamFlare = d.beamFlare;
@@ -905,7 +886,6 @@ abstract class ConfigWriteTarget {
             c.scatterSurface = d.scatterSurface;
             c.scatterStrength = d.scatterStrength;
             c.scatterRadius = d.scatterRadius;
-            c.playerDynamicLight = d.playerDynamicLight;
             // Restoring the globals while a siding still overrode them would leave the world on the
             // old numbers - "全部恢复默认" means the overrides go too.
             if (c.sidingSettings != null) {
@@ -1006,7 +986,6 @@ abstract class ConfigWriteTarget {
                 case SCATTER_RADIUS:
                 case SCATTER:
                 case SCATTER_SURFACE:
-                case PLAYER_DYNAMIC_LIGHT:
                     ignored(which);
                     return 0.0D;
                 default:
@@ -1081,7 +1060,6 @@ abstract class ConfigWriteTarget {
                 case SCATTER_RADIUS:
                 case SCATTER:
                 case SCATTER_SURFACE:
-                case PLAYER_DYNAMIC_LIGHT:
                     ignored(which);
                     break;
                 default:
@@ -1115,7 +1093,6 @@ abstract class ConfigWriteTarget {
                 case DAMAGE_IN_CREATIVE:
                 case SCATTER:
                 case SCATTER_SURFACE:
-                case PLAYER_DYNAMIC_LIGHT:
                     ignored(which);
                     return false;
                 default:
@@ -1155,7 +1132,6 @@ abstract class ConfigWriteTarget {
                 case DAMAGE_IN_CREATIVE:
                 case SCATTER:
                 case SCATTER_SURFACE:
-                case PLAYER_DYNAMIC_LIGHT:
                     ignored(which);
                     break;
                 default:
@@ -1237,7 +1213,6 @@ abstract class ConfigWriteTarget {
                 case SCATTER_RADIUS:
                 case SCATTER:
                 case SCATTER_SURFACE:
-                case PLAYER_DYNAMIC_LIGHT:
                     ignored(which);
                     return true;
                 default:
@@ -1273,7 +1248,6 @@ abstract class ConfigWriteTarget {
                 case DAMAGE_IN_CREATIVE:
                 case SCATTER:
                 case SCATTER_SURFACE:
-                case PLAYER_DYNAMIC_LIGHT:
                     ignored(which);
                     return true;
                 default:
@@ -1379,7 +1353,6 @@ abstract class ConfigWriteTarget {
                 case SCATTER_RADIUS:
                 case SCATTER:
                 case SCATTER_SURFACE:
-                case PLAYER_DYNAMIC_LIGHT:
                     ignored(which);
                     break;
                 default:
@@ -1424,7 +1397,6 @@ abstract class ConfigWriteTarget {
                 case DAMAGE_IN_CREATIVE:
                 case SCATTER:
                 case SCATTER_SURFACE:
-                case PLAYER_DYNAMIC_LIGHT:
                     ignored(which);
                     break;
                 default:
