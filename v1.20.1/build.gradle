@@ -12,9 +12,8 @@ def gitCount = { ->
         return null
     }
 }()
-version = (gitCount != null && gitCount ==~ /\d+/)
-        ? "${project.mod_version.replaceAll(/\.\d+$/, '')}.${gitCount}"
-        : project.mod_version
+// 2.0.0 起版本号固定为 mod_version（不再按提交数自增）。
+version = project.mod_version
 group = project.maven_group
 
 base {
