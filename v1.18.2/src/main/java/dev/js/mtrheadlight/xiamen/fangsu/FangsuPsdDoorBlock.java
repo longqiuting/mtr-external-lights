@@ -379,8 +379,16 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
          * @param tickDelta  当前帧的 partialTick
          */
         public float progress(final long ticks, final float tickDelta) {
-            // MTR 3.2.2 没有 getOpenValue()：getOpen(tickDelta) 返回同一刻度的平滑值。
-            return this.animation.update(this.getOpen(1.0F) / (float) MAX_OPEN_VALUE, ticks, tickDelta);
+            /*
+             * 量纲：MTR 3.2.2 的 {@code getOpen(float)} 返回的<b>已经是归一化的 0..1</b>
+             * （javap 见 {@code mtr.block.BlockPSDAPGDoorBase$TileEntityPSDAPGDoorBase#getOpen}：
+             * 末尾 {@code getfield openClient; ldc 32.0f; fdiv; freturn}），所以这里<b>不能再除
+             * {@code MAX_OPEN_VALUE}</b>。以前多除了一次 32，目标进度只有 {@code 32/32/32 = 0.031}，
+             * 门扇只滑 3% —— 肉眼就是「只开一条缝」（1.19.4 上是同一个量纲错，那次是少乘了 32）。
+             *
+             * <p>3.6.x 的 {@code getOpenValue()} 才是原始 0..32，那条路不在这里（1.18.2 固定 3.2.2）。
+             */
+            return this.animation.update(this.getOpen(1.0F), ticks, tickDelta);
         }
     }
 }

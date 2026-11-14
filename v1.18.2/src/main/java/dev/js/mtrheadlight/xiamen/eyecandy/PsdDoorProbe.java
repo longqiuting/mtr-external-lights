@@ -34,7 +34,9 @@ import net.minecraft.world.World;
  * {@code isOpen()} 只是 {@code open > 0}）。所以关门动画的整段时间里 {@code isOpen()} 还是
  * {@code true} —— 只看布尔值只能等门<b>完全合上</b>才拿到「关」，警示灯自然就晚了。
  *
- * <p>这里改用 {@link TileEntityPSDAPGDoorBase#getOpenValue()} 记下每扇门上一次的 open 值：
+ * <p>这里改用 3.2.2 的 {@code getOpen(float)}（<b>归一化 0..1</b>，见
+ * {@code BlockPSDAPGDoorBase$TileEntityPSDAPGDoorBase#getOpen} 的 {@code openClient / 32}）
+ * 乘回 {@code MAX_OPEN_VALUE} 得到 0..32 的刻度，记下每扇门上一次的 open 值：
  * <b>值在变小 = 正在关</b>（{@link Scan#closing}）。拿到中间态就能在门刚开始动的那一 tick 起闪。
  * 只认「变小」，不需要知道满值是不是 32，也不依赖某一版 MTR 的常量。
  *
@@ -166,9 +168,15 @@ public final class PsdDoorProbe {
         if (state.getBlock() instanceof BlockPSDAPGDoorBase) {
             final BlockEntity entity = world.getBlockEntity(pos);
             if (entity instanceof TileEntityPSDAPGDoorBase door) {
-                // MTR 3.2.2 没有 getOpenValue()，只有 getOpen(tickDelta)（返回同一刻度的平滑值）；
-                // 这里只关心「值在变小」，取整后语义不变。
-                return Integer.valueOf(Math.round(door.getOpen(1.0F)));
+                /*
+                 * 量纲：3.2.2 的 {@code getOpen(float)} 返回的是<b>归一化 0..1</b>
+                 * （{@code openClient / 32}），而这里的调用方要的是「MTR 那套 0..32 的原始刻度」
+                 * （见方法注释：只有「值在变小」这个沿有意义，0/1 两档会丢掉中间态）。
+                 * 所以乘回 MAX_OPEN_VALUE，而不是 {@code Math.round(getOpen(...))} —— 那样只会
+                 * 得到 0 或 1，关门动画中间那 30 个刻度全被压平，探针判「正在关门」就不准了。
+                 */
+                return Integer.valueOf(Math.round(
+                        door.getOpen(1.0F) * (float) BlockPSDAPGDoorBase.MAX_OPEN_VALUE));
             }
             return Integer.valueOf(0);
         }

@@ -3,6 +3,7 @@ package dev.js.mtrheadlight.xiamen.drinks;
 
 import java.util.List;
 
+import dev.js.mtrheadlight.LteLog;
 import dev.js.mtrheadlight.bind.MtrBalance;
 import dev.js.mtrheadlight.rawmodel.RawModelJson;
 import net.minecraft.block.AbstractBlock;
@@ -34,6 +35,7 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
+import net.minecraft.util.registry.Registry;
 import java.util.Random;
 import net.minecraft.util.shape.VoxelShape;
 import net.minecraft.util.shape.VoxelShapes;
@@ -457,6 +459,31 @@ public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEn
         final Potion potion = preset.pick(random);
         final ItemStack bottle = new ItemStack(Items.POTION);
         PotionUtil.setPotion(bottle, potion);
+        /*
+         * 名字必须<b>在把瓶子交给背包之前</b>取下来 —— 这是 1.18.2 唯一的一件事。
+         *
+         * <p>{@code PlayerInventory.insertStack(ItemStack)} 拿走的是<b>同一个对象</b>：
+         * 字节码里是 {@code stack.setCount(addStack(stack))}，装进去了 addStack 就返回 0，
+         * 于是调用方手里那份 {@code bottle} 变成空栈。而 1.18.2 的
+         * {@code ItemStack#getItem()} 是 {@code empty ? Items.AIR : item}（javap 实证），
+         * 空栈的 {@code getName()} 于是解析成 {@code block.minecraft.air} —— 中文就是「空气」。
+         * 1.19+ 的 {@code getItem()} 直接返回 {@code item}，所以那边同一段代码一直没有症状，
+         * 只有 1.18.2 会「售出空气」。
+         */
+        final Text potionName = bottle.getName();
+        /*
+         * 诊断（一次售货一行）：potion / item / NBT / 解析出来的名字各自是什么。
+         * 全部包在 try 里、拼成一个串 —— 诊断本身绝不能影响这笔交易（哪怕是 getId 抛了）。
+         */
+        String diag;
+        try {
+            diag = "potion=" + Registry.POTION.getId(potion)
+                    + " item=" + Registry.ITEM.getId(bottle.getItem())
+                    + " nbt=" + bottle.getNbt()
+                    + " name=\"" + potionName.getString() + "\"";
+        } catch (Throwable t) {
+            diag = "potion=? item=? nbt=? name=? (" + t.getClass().getSimpleName() + ")";
+        }
 
         // 先扣钱再给货：扣钱失败（MTR 没有记分板 / 分数写不进去）就不发东西，避免白送。
         final int after = MtrBalance.add(world, player, -PRICE);
@@ -467,6 +494,8 @@ public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEn
         if (!player.getInventory().insertStack(bottle)) {
             player.dropItem(bottle, false);
         }
+        LteLog.LOGGER.info("[lte] drinks: {} emptyAfterInsert={}", diag,
+                Boolean.valueOf(bottle.isEmpty()));
 
         // 「叮」一声 + 开门 + 排一次关门 tick。
         world.playSound(null, base, SoundEvents.BLOCK_NOTE_BLOCK_BELL, SoundCategory.BLOCKS, 0.9F, 1.4F);
@@ -474,7 +503,7 @@ public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEn
         world.setBlockState(base, baseState.with(OPEN, true), Block.NOTIFY_ALL);
         WorldTicks.schedule(world, base, DrinksMachineObjects.bottom(), OPEN_TICKS);
 
-        player.sendMessage(new TranslatableText("message.mtrlte.drinks_machine.bought", bottle.getName(), after), true);
+        player.sendMessage(new TranslatableText("message.mtrlte.drinks_machine.bought", potionName, after), true);
         return ActionResult.SUCCESS;
     }
 

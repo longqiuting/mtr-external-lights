@@ -19,6 +19,7 @@ import net.minecraft.client.render.VertexFormats;
 import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL14;
+import org.lwjgl.opengl.GL30;
 
 import java.util.Locale;
 
@@ -90,8 +91,31 @@ import java.util.Locale;
  * in the fragment loop. No texture fetch inside the loop, no per-lamp draw. {@code scatterSurface}
  * off skips the whole per-lamp block (a uniform branch, so the normal/spot/N-dot-L work is not
  * executed at all) and the pass writes the scene back unchanged. Zero lamps means the method returns
- * before touching GL - no copies, no framebuffer, no program bind. A shader pack (Iris/OptiFine)
- * owns the pipeline and the depth buffer, so the pass is skipped there with one log line.
+ * before touching GL - no copies, no framebuffer, no program bind.
+ *
+ * <h2>Two timings: with and without a shader pack</h2>
+ * Without a pack ({@link ShaderPackProbe#active()} false) the whole pass runs inside
+ * {@code WorldRenderEvents.LAST}: depth copy, colour copy and the composite, one after the other -
+ * that path was already proven in game.
+ *
+ * <p>With a pack (Iris / OptiFine) {@code LAST} is <b>inside</b> the pack's own world rendering, so
+ * anything written there is overwritten by the pack's composite. The pass therefore splits in two
+ * ( {@code scatterUnderShaders}, on by default):
+ *
+ * <pre>
+ *   LAST (in the pack's world pass)   depth blit only + record proj*view, lamp arrays,
+ *                                     copy size.  No colour is written.
+ *   GameRenderer#renderWorld RETURN   {@link #renderDeferred()} (called by
+ *   (= renderLevel)                   GameRendererScatterMixin): the pack has composited, the main
+ *                                     framebuffer IS the screen - colour blit + composite here.
+ * </pre>
+ *
+ * <p>The colour copy deliberately happens in the second step, never in the first: inside the pack's
+ * pass the colour attachment holds pre-composite (often HDR) values, which would make a terrible
+ * albedo and would be thrown away anyway.
+ *
+ * <p>With {@code scatterUnderShaders = false} the old behaviour is back: under a pack the pass steps
+ * aside entirely with one log line ({@code reason=shader-pack}).
  */
 public final class ScatterPass {
 
@@ -171,6 +195,41 @@ public final class ScatterPass {
     private static boolean diagBlendEnabled;
     private static int diagBlendSrc = -1;
     private static int diagBlendDst = -1;
+
+    /* ------------------------------------------------------------------------------------------
+     * 光影（Iris / OptiFine）下的「两段式」：LAST 采深度、renderWorld 返回之后合成。
+     * 见 {@link #renderDeferred()}。
+     * ---------------------------------------------------------------------------------------- */
+
+    /**
+     * 延迟合成里两份拷贝与当前帧的一致程度，{@code depth=} 那一格打的就是它：
+     * {@code none}（还没采过）/ {@code fresh}（这一帧采的）/ {@code stale…}（上一帧的、没人取的、
+     * 或者采集时 glGetError 非 0）。<b>「光影下看不到」时先看这一格。</b>
+     */
+    private static String depthState = "none";
+    /** LAST 里已经采好深度、等着 {@code renderWorld} 返回后合成。每帧进 {@link #render} 时清。 */
+    private static boolean deferredArmed;
+    /** 采样时刻（纳秒）：延迟合成用它判「这份深度是不是这一帧的」。 */
+    private static long deferredStamp;
+    /** 采集时的灯数 / 覆盖探针 / 拷贝尺寸。 */
+    private static int deferredLights;
+    private static boolean deferredCoverage;
+    private static int deferredWidth = -1;
+    private static int deferredHeight = -1;
+    /** 这个窗口里延迟合成成功了几帧（{@code deferred=} 那一格）。 */
+    private static int deferredFrames;
+    /** 最近一次延迟合成的结果，一个词；{@code defer=} 那一格。 */
+    private static String deferredReason = "never-called";
+    /** mixin 到底有没有调进来过（没有 = 注入没插上，或者根本没开光影）。 */
+    private static boolean deferredCalledOnce;
+    /** 尺寸不一致 / 失败各只提示一次。 */
+    private static boolean deferredSizeWarned;
+    private static boolean deferredWarned;
+    /**
+     * 深度算「这一帧的」的窗口：{@code LAST} 与 {@code renderWorld} 的 RETURN 之间只隔几个毫秒，
+     * 200 ms 已经宽到能容忍一次卡顿，又窄到不可能跨帧。
+     */
+    private static final long DEPTH_FRESH_NANOS = 200_000_000L;
 
     private ScatterPass() {
     }
@@ -264,6 +323,16 @@ public final class ScatterPass {
          */
         calls++;
         heartbeat(MtrHeadlightClient.config());
+        /*
+         * 上一帧「等合成」的标记如果还挂着，说明 {@code renderWorld} 的 RETURN 没有来取它（mixin 没
+         * 插上，或者两趟之间游戏早退了）。那份深度对新的一帧已经过期，绝不能再拿去合成：记成 stale
+         * 并把原因写进日志，{@code defer=} 那一格就是「注入到底有没有生效」的答案。
+         */
+        if (deferredArmed) {
+            deferredArmed = false;
+            depthState = "stale(unconsumed)";
+            deferredReason = "not-consumed";
+        }
         try {
             final MinecraftClient client = MinecraftClient.getInstance();
             if (client == null || client.world == null || client.player == null) {
@@ -300,14 +369,22 @@ public final class ScatterPass {
                         : (!cfg.enabled ? "off(master)" : "off(beamScatter=false)");
                 return;
             }
-            if (shaderPackActive()) {
-                lastReason = "shader-pack(no-framebuffer-access)";
+            /*
+             * 光影包（Iris / OptiFine）接管管线时走<b>两段式</b>：LAST 只采深度（下面的 DepthCopy），
+             * 颜色合成推迟到 GameRenderer#renderWorld 返回之后 —— 见 {@link #renderDeferred()}。
+             *
+             * <p>scatterUnderShaders=false 时退回旧行为：光影下整条 pass 让路，只留一行日志。
+             */
+            final boolean pack = shaderPackActive();
+            if (pack && !cfg.scatterUnderShaders) {
+                lastReason = "shader-pack(scatterUnderShaders=false)";
                 if (!packWarned) {
                     packWarned = true;
                     MtrHeadlightClient.LOGGER.info(
-                            "[lte] scatter: shader pack active - the screen-space scattering pass "
-                                    + "stays out of the pipeline (the pack owns the framebuffer "
-                                    + "and the depth buffer)");
+                            "[lte] scatter: shader pack active and scatterUnderShaders=false - the "
+                                    + "screen-space scattering pass stays out of the pipeline (the "
+                                    + "pack owns the framebuffer and the depth buffer); turn "
+                                    + "\"air scatter under shaders\" on to composite after the pack");
                 }
                 return;
             }
@@ -348,26 +425,16 @@ public final class ScatterPass {
                 return;
             }
             lastDepthError = DepthCopy.lastError();
-            /*
-             * The colour copy is not optional any more: the composite writes
-             * scene + light * albedo, so without a copy of the scene there is nothing to write back
-             * (the pass would have to sample the attachment it is drawing into). Failing here means
-             * no pass at all - not a black screen.
-             */
-            if (!ColorCopy.update(framebuffer)) {
-                lastReason = "color-copy-failed";
-                if (!colorWarned) {
-                    colorWarned = true;
-                    MtrHeadlightClient.LOGGER.warn("[lte] scatter: the scene colour could not be "
-                            + "copied this frame - the pass stays off (there is no albedo to light)");
-                }
-                return;
-            }
+            // 这一帧的深度是真的拷到了 —— `depth=` 那一格由这一行负责（见 depthState 的注释）。
+            depthState = "fresh";
 
             /*
              * Depth reconstruction matrix: inverse(projection * view). Everything stays
              * camera-relative - the lamp positions are already relative to the camera - so no large
              * world coordinates ever reach a float in the shader.
+             *
+             * <p>光影路径下这一份矩阵在 LAST 里算、在 renderDeferred() 里用：那时已经没有
+             * WorldRenderContext（也没有相机矩阵栈），而建矩阵要用到 context 的视图矩阵。
              */
             final Matrix4f view = viewMatrix(context, client);
             VIEW_PROJ.set(RenderSystem.getProjectionMatrix()).mul(view);
@@ -381,6 +448,46 @@ public final class ScatterPass {
              */
             final boolean coverage = debugMode == 0
                     && (probeRequested || (cfg.scatterSurface && litProbeDue()));
+
+            if (pack) {
+                /*
+                 * 光影路径 #1（在 LAST 里）：到这里为止 —— 深度已在上面拷好，重建矩阵与灯阵都在
+                 * 静态字段里，尺寸记下来。
+                 *
+                 * <b>一个颜色像素都不写</b>：此刻的颜色附件是光影合成<b>之前</b>的内容（很多包是
+                 * HDR 中间结果，值可以 &gt; 1），既不能当 albedo，写进去也会被它自己的 composite
+                 * 盖掉。颜色拷贝与整屏合成交给 {@link #renderDeferred()}（renderWorld 返回之后）。
+                 */
+                deferredLights = lights;
+                deferredCoverage = coverage;
+                deferredWidth = DepthCopy.width();
+                deferredHeight = DepthCopy.height();
+                deferredStamp = System.nanoTime();
+                deferredArmed = true;
+                deferredReason = "armed(waiting for renderWorld return)";
+                lastLights = lights;
+                maxLights = Math.max(maxLights, lights);
+                lastReason = "pack(deferred)";
+                return;
+            }
+
+            /*
+             * The colour copy is not optional any more: the composite writes
+             * scene + light * albedo, so without a copy of the scene there is nothing to write back
+             * (the pass would have to sample the attachment it is drawing into). Failing here means
+             * no pass at all - not a black screen. 光影路径下这一份拷贝在 renderDeferred() 里做
+             * （那时颜色附件才是屏幕上真正看到的内容）。
+             */
+            if (!ColorCopy.update(framebuffer)) {
+                lastReason = "color-copy-failed";
+                if (!colorWarned) {
+                    colorWarned = true;
+                    MtrHeadlightClient.LOGGER.warn("[lte] scatter: the scene colour could not be "
+                            + "copied this frame - the pass stays off (there is no albedo to light)");
+                }
+                return;
+            }
+
             ScatterProgram.uniforms(INVERSE, MAX_RAY, COS_INNER, COS_OUTER, strength(cfg),
                     ATTENUATION_REF, cfg.scatterSurface, coverage, debugMode, lights,
                     LIGHT_POS, LIGHT_DIR, LIGHT_COLOR);

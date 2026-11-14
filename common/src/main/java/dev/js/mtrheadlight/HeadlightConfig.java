@@ -380,6 +380,26 @@ public final class HeadlightConfig {
      */
     public boolean scatterSurface = true;
 
+    /**
+     * 散射在<b>开光影（Iris / OptiFine）时也跑</b>（默认开）。
+     *
+     * <p>光影包接管管线时，{@code WorldRenderEvents.LAST} 落在<b>光影自己的世界渲染之内</b>：
+     * 那一刻写进主帧缓冲的颜色随后会被光影的 composite 覆盖，所以旧版本只能整条 pass 让路
+     * （日志 {@code reason=shader-pack}）。开着这个开关时改成两个时机：
+     * <ul>
+     *   <li>{@code LAST}：只把这一帧的深度拷到我们自己的纹理里，记下 {@code proj*view}、相机位置
+     *       和灯阵，<b>一个颜色像素都不写</b>；</li>
+     *   <li>{@code GameRenderer#renderWorld}（1.20.1 的 {@code renderLevel}）<b>返回之后</b>：由
+     *       {@code GameRendererScatterMixin} 调 {@code ScatterPass.renderDeferred()}，这时光影已经
+     *       合成完、主帧缓冲就是屏幕，颜色拷贝与整屏合成都在这里做。</li>
+     * </ul>
+     *
+     * <p>关掉它就回到旧行为：光影下不跑，只留一行 {@code reason=shader-pack} 的日志。
+     * 无光影时这个开关没有任何影响（那条路一直在 {@code LAST} 里一次画完）。父开关是
+     * {@link #beamScatter}。配置界面在「光源 → 空气散射」，中文行名「光影下也生效」。
+     */
+    public boolean scatterUnderShaders = true;
+
     /** {@link #scatterStrength} 钳制到 [0.1, 3]。 */
     public double scatterStrengthClamped() {
         return clamp(scatterStrength, 0.1D, 3.0D);

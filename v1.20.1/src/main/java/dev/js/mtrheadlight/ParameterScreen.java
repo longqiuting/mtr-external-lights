@@ -444,6 +444,8 @@ public final class ParameterScreen extends Screen {
                     this.rows.add(Row.toggleWide(ConfigWriteTarget.SCATTER));
                     // 表面项是散射的第二个开关（光雾 / 照亮表面两层），所以紧跟在散射下面。
                     this.rows.add(Row.toggleWide(ConfigWriteTarget.SCATTER_SURFACE));
+                    // 第三个：光影（Iris / OptiFine）接管时还跑不跑。仍是开关，所以留在开关块里。
+                    this.rows.add(Row.toggleWide(ConfigWriteTarget.SCATTER_SHADERS));
                 }
                 // 真实照亮：写进区块网格的方块光照，"照在地上"的那一层，一直是开关。
                 this.rows.add(Row.toggleWide(ConfigWriteTarget.DYNAMIC_LIGHT));
@@ -818,6 +820,10 @@ public final class ParameterScreen extends Screen {
                 // 同上，全局开关；它只关「照亮表面」那一层，光雾留着。
                 return tr(this.target.readToggle(which)
                         ? "opt.scatterSurface.on" : "opt.scatterSurface.off");
+            case ConfigWriteTarget.SCATTER_SHADERS:
+                // 同上，全局开关；只有开光影时才看得出区别。
+                return tr(this.target.readToggle(which)
+                        ? "opt.scatterShaders.on" : "opt.scatterShaders.off");
             default:
                 return follow(this.target.readToggle(which)
                         ? tr("opt.band.on") : tr("opt.band.off"), which);

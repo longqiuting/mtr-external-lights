@@ -171,6 +171,18 @@ public final class ScatterPass {
     private static boolean diagBlendEnabled;
     private static int diagBlendSrc = -1;
     private static int diagBlendDst = -1;
+    /**
+     * 深度重建矩阵的健康度：{@code inverseErr = |inv(proj*view) * (proj*view) - I|} 的最大元素偏差。
+     *
+     * <p>1.18.2 上这条链曾经整段静默坏死（替身矩阵从原版矩阵拷贝时每帧抛
+     * {@code BufferUnderflowException}），而它不会在任何别的地方留下痕迹 —— 画面只是「没有光」。
+     * 这个数字把「矩阵到底是不是对的」变成一个能看的格子（{@code inverse=ok|bad(0.99)}），
+     * 与 1.19.2 / 1.19.4 那两份的诊断行保持同一套字段。
+     */
+    private static boolean inverseOk;
+    private static float inverseErr = Float.POSITIVE_INFINITY;
+    /** {@code cfg == null} 的那一行只打一次（启动头几帧）。 */
+    private static boolean noConfigAnnounced;
 
     private ScatterPass() {
     }
@@ -372,6 +384,14 @@ public final class ScatterPass {
             final Matrix4f view = viewMatrix(context, client);
             VIEW_PROJ.set(RenderSystem.getProjectionMatrix()).mul(view);
             INVERSE.set(VIEW_PROJ).invert();
+            /*
+             * 求完逆立刻自证一次：{@code INVERSE * VIEW_PROJ} 必须等于单位阵。
+             * 替身矩阵的 invert() 是标准余子式展开（不是 1.19.2 那份会把投影矩阵缩放掉的
+             * 原版实现），所以这里正常情况下应该是个 1e-6 量级的数；一旦它是 0.99 这种，
+             * 就别再去 shader 里找原因了。
+             */
+            inverseErr = inverseError(INVERSE, VIEW_PROJ);
+            inverseOk = inverseErr < 1.0E-3F;
             lastMatrix = viewSource == null ? "unknown" : viewSource;
 
             /*
@@ -454,8 +474,9 @@ public final class ScatterPass {
      * 每帧几盏灯、两份拷贝成不成、litPx、深度重建矩阵来自哪个候选。
      *
      * <pre>
-     *   [lte] scatter pass: frames=300 lights=4 depth=1920x1080 ok color=1920x1080 ok blend=replace
-     *                       litPx≈15234 matrix=context maxLights=4 avgMs=0.42 surface=on pack=false reason=ok
+     *   [lte] scatter: frames=300 lights=4 program=ok depth=1920x1080 ok color=1920x1080 ok
+     *                  litPx≈15234 inverse=ok blend=replace matrix=context calls=301 maxLights=4
+     *                  avgMs=0.42 surface=on debug=off pack=false reason=ok
      *   [lte] scatter light0: pos=(…) dir=(…) rgb=(…) power=… radius=… beam=… coneDeg=20.0/56.6 depthErr=ok
      * </pre>
      *
@@ -469,10 +490,16 @@ public final class ScatterPass {
      * </ul>
      */
     private static void heartbeat(final HeadlightConfig cfg) {
+        final long now = System.currentTimeMillis();
         if (cfg == null) {
+            // 配置还没建出来（启动头几帧）：也照打一行，否则「一行都没有」会被读成「pass 没被调用」。
+            if (!noConfigAnnounced) {
+                noConfigAnnounced = true;
+                MtrHeadlightClient.LOGGER.info("[lte] scatter: frames=0 lights=0 program=none "
+                        + "depth=none color=none litPx=none inverse=none reason=no-config");
+            }
             return;
         }
-        final long now = System.currentTimeMillis();
         if (!cfg.beamScatter) {
             // 关着的时候只提醒一次：否则「没日志」会被读成「日志坏了」。
             if (!offAnnounced) {
@@ -493,13 +520,14 @@ public final class ScatterPass {
         uploadLogWanted = true;
         ScatterProgram.requestReadback();
         MtrHeadlightClient.LOGGER.info(String.format(Locale.ROOT,
-                "[lte] scatter pass: frames=%d lights=%d depth=%s color=%s blend=%s "
-                        + "litPx=%s matrix=%s calls=%d maxLights=%d avgMs=%.2f surface=%s "
-                        + "debug=%s pack=%s reason=%s",
-                Integer.valueOf(frames), Integer.valueOf(lastLights), depthText(), colorText(),
-                blendText(), litPixels(cfg), lastMatrix, Integer.valueOf(calls),
-                Integer.valueOf(maxLights), Double.valueOf(avg), cfg.scatterSurface ? "on" : "off",
-                debugName(), Boolean.valueOf(shaderPackActive()), lastReason));
+                "[lte] scatter: frames=%d lights=%d program=%s depth=%s color=%s litPx=%s "
+                        + "inverse=%s blend=%s matrix=%s calls=%d maxLights=%d avgMs=%.2f "
+                        + "surface=%s debug=%s pack=%s reason=%s",
+                Integer.valueOf(frames), Integer.valueOf(lastLights), ScatterProgram.status(),
+                depthText(), colorText(), litPixels(cfg), inverseText(), blendText(), lastMatrix,
+                Integer.valueOf(calls), Integer.valueOf(maxLights), Double.valueOf(avg),
+                cfg.scatterSurface ? "on" : "off", debugName(), Boolean.valueOf(shaderPackActive()),
+                lastReason));
         MtrHeadlightClient.LOGGER.info("[lte] scatter light0: {} depthErr={}",
                 light0, lastDepthError < 0 ? "none"
                         : (lastDepthError == 0 ? "ok" : "0x" + Integer.toHexString(lastDepthError)));
@@ -558,6 +586,40 @@ public final class ScatterPass {
                                     + "is skipped entirely");
         }
         MtrHeadlightClient.LOGGER.info("[lte] scatter upload: {} {}", staged, back);
+    }
+
+    /**
+     * {@code |a * b - I|} 的最大元素偏差：给 5 秒行里 {@code inverse=} 这一格当「逆矩阵到底对不对」的证据。
+     * 只在对角线上应当是 1、其余是 0，所以一次乘加和取绝对值就够了。
+     */
+    private static float inverseError(final Matrix4f a, final Matrix4f b) {
+        if (a == null || b == null) {
+            return Float.POSITIVE_INFINITY;
+        }
+        final float[] ea = a.columnMajor();
+        final float[] eb = b.columnMajor();
+        float worst = 0.0F;
+        for (int row = 0; row < 4; row++) {
+            for (int col = 0; col < 4; col++) {
+                float sum = 0.0F;
+                for (int k = 0; k < 4; k++) {
+                    // 列主序：元素 (row, col) 在 col * 4 + row。
+                    sum += ea[k * 4 + row] * eb[col * 4 + k];
+                }
+                final float want = row == col ? 1.0F : 0.0F;
+                worst = Math.max(worst, Math.abs(sum - want));
+            }
+        }
+        return worst;
+    }
+
+    /** {@code inverse=} 那一格（{@code none} = 本窗口还没算过矩阵）。 */
+    private static String inverseText() {
+        if (Float.isInfinite(inverseErr)) {
+            return "none";
+        }
+        return inverseOk ? "ok"
+                : String.format(Locale.ROOT, "bad(%.3f)", Float.valueOf(inverseErr));
     }
 
     /**
@@ -773,7 +835,19 @@ public final class ScatterPass {
             noteViewSource("context");
             return candidate;
         }
-        final Matrix4f renderSystem = new Matrix4f(RenderSystem.getModelViewMatrix());
+        /*
+         * 第二条来源也必须包在 try 里：1.18.2 的替身矩阵曾经在「从原版矩阵拷贝」这一步每帧
+         * 抛 BufferUnderflowException（见 dev.js.mtrheadlight.clientgui.Matrix4f#readVanilla），
+         * 而这里原来是<b>裸调用</b> —— 一个坏掉的导出会让整条 pass 在拿到任何矩阵之前就抛出去，
+         * 于是「散射不工作」在日志里只剩一句 exception:BufferUnderflowException。
+         * 现在三条来源任意一条坏掉都只是被跳过，最后总有 rebuilt 兜底。
+         */
+        Matrix4f renderSystem = null;
+        try {
+            renderSystem = new Matrix4f(RenderSystem.getModelViewMatrix());
+        } catch (Throwable ignored) {
+            renderSystem = null;
+        }
         if (rigid(renderSystem)) {
             noteViewSource("render");
             return renderSystem;

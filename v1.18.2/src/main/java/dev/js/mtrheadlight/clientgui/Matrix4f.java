@@ -47,10 +47,38 @@ public final class Matrix4f {
      * {@code net.minecraft.util.math.Matrix4f}，不是 JOML 那个类型）。
      */
     public Matrix4f(final net.minecraft.util.math.Matrix4f vanilla) {
+        readVanilla(vanilla, this.m);
+    }
+
+    /**
+     * 把原版矩阵导出成列主序 {@code float[16]}（{@code out[col * 4 + row]}）。
+     *
+     * <p><b>不能 {@code flip()} 之后再 {@code get()}。</b> 1.18.2 的
+     * {@code Matrix4f#writeColumnMajor(FloatBuffer)} 逐字节是<b>绝对下标写入</b>
+     * （javap：{@code buffer.put(pack(i, j), value)} → {@code FloatBuffer.put(int,float)}），
+     * 写完之后 buffer 的 <b>position 仍然是 0</b>。于是 {@code flip()} 把 limit 也设成 0，
+     * 紧接着的 {@code get(float[])} 需要 16 个剩余元素、实际剩 0 个，直接抛
+     * {@code BufferUnderflowException}。
+     *
+     * <p>这不是理论问题：1.18.2 上散射 pass 的 view 矩阵（{@code context.matrixStack()}
+     * 与 {@code RenderSystem.getModelViewMatrix()} 两条来源）、投影矩阵（
+     * {@code VIEW_PROJ.set(RenderSystem.getProjectionMatrix())}）全都走这个构造器，
+     * 所以整条 pass 每帧在 {@code new Matrix4f(...)} 就抛出去、从来不落笔 ——
+     * 画面里既没有光雾也没有照亮的地面，日志只有 {@code reason=exception:BufferUnderflowException}。
+     *
+     * <p>正确做法是按<b>绝对下标</b>取这 16 个数（{@code readColumnMajor} 也是这么读的）。
+     */
+    private static void readVanilla(final net.minecraft.util.math.Matrix4f vanilla, final float[] out) {
         final FloatBuffer buf = FloatBuffer.allocate(16);
         vanilla.writeColumnMajor(buf);
-        buf.flip();
-        buf.get(this.m);
+        for (int i = 0; i < 16; i++) {
+            out[i] = buf.get(i);
+        }
+    }
+
+    /** 列主序副本（诊断用；改返回值不会动到这张矩阵）。 */
+    public float[] columnMajor() {
+        return this.m.clone();
     }
 
     /** JOML 的 16 参构造器；参数顺序就是内存里的列主序（{@code m00 m01 m02 m03 m10 …}）。 */
@@ -244,10 +272,7 @@ public final class Matrix4f {
 
     /** 从原版矩阵拷贝（1.18.2 的 {@code RenderSystem#getModelViewMatrix()} 返回它）。 */
     public Matrix4f set(final net.minecraft.util.math.Matrix4f vanilla) {
-        final FloatBuffer buf = FloatBuffer.allocate(16);
-        vanilla.writeColumnMajor(buf);
-        buf.flip();
-        buf.get(this.m);
+        readVanilla(vanilla, this.m);
         return this;
     }
 
