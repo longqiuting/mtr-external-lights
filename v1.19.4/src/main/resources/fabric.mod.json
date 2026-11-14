@@ -33,6 +33,7 @@
     "mtrlte.scatter.mixins.json",
     "mtrlte.mtr.mixins.json",
     "mtrlte.mtrserver.mixins.json",
+    "mtrlte.registry.mixins.json",
     "mtrlte.beamlight.mixins.json"
   ],
   "entrypoints": {

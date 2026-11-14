@@ -10,6 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import dev.js.mtrheadlight.LteLog;
 import dev.js.mtrheadlight.rawmodel.RawMesh;
 import dev.js.mtrheadlight.rawmodel.RawObjParser;
+import dev.js.mtrheadlight.server.RegistrySelfCheck;
 import dev.js.mtrheadlight.xiamen.XiamenObjects;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
 import net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder;
@@ -159,41 +160,52 @@ public final class FangsuPsdBlocks {
         final List<Block> autoBlocks = new ArrayList<>(4);
         final List<Block> manualBlocks = new ArrayList<>(10);
         for (final FangsuPsdDef def : DEFS) {
-            final Identifier id = new Identifier(NAMESPACE, def.id());
-            final Block block;
-            final Item item;
-            // 端门 = 手动（驾驶钥匙）；滑动门 = 自动（MTR 列车）。两个方块类，见类注释。
-            if (def.kind() == FangsuPsdDef.Kind.END_DOOR) {
-                final FangsuPsdEndDoorBlock endDoor = new FangsuPsdEndDoorBlock(def);
-                Registry.register(Registries.BLOCK, id, endDoor);
-                item = registerItem(id, endDoor);
-                endDoor.setItem(item);
-                manualBlocks.add(endDoor);
-                block = endDoor;
-            } else {
-                final FangsuPsdDoorBlock autoDoor = new FangsuPsdDoorBlock(def);
-                Registry.register(Registries.BLOCK, id, autoDoor);
-                item = registerItem(id, autoDoor);
-                autoDoor.setItem(item);
-                autoBlocks.add(autoDoor);
-                block = autoDoor;
+            // 每个变体单独包一层：注册就在创建的同一条语句里，某个变体坏掉只跳过它自己。
+            try {
+                final Identifier id = new Identifier(NAMESPACE, def.id());
+                final Block block;
+                final Item item;
+                // 端门 = 手动（驾驶钥匙）；滑动门 = 自动（MTR 列车）。两个方块类，见类注释。
+                if (def.kind() == FangsuPsdDef.Kind.END_DOOR) {
+                    final FangsuPsdEndDoorBlock endDoor = new FangsuPsdEndDoorBlock(def);
+                    Registry.register(Registries.BLOCK, id, endDoor);
+                    item = registerItem(id, endDoor);
+                    endDoor.setItem(item);
+                    manualBlocks.add(endDoor);
+                    block = endDoor;
+                } else {
+                    final FangsuPsdDoorBlock autoDoor = new FangsuPsdDoorBlock(def);
+                    Registry.register(Registries.BLOCK, id, autoDoor);
+                    item = registerItem(id, autoDoor);
+                    autoDoor.setItem(item);
+                    autoBlocks.add(autoDoor);
+                    block = autoDoor;
+                }
+                BLOCKS.put(id, block);
+                ITEMS.put(id, item);
+            } catch (Throwable t) {
+                LteLog.LOGGER.error("[lte] fangsu psd door {} failed to register - skipping it", def.id(), t);
+                RegistrySelfCheck.purgePending("fangsu psd " + def.id());
             }
-            BLOCKS.put(id, block);
-            ITEMS.put(id, item);
         }
 
         GLASS_DEFS.clear();
         GLASS_DEFS.addAll(FangsuPsdGlassDef.load());
         final List<Block> glassBlocks = new ArrayList<>(GLASS_DEFS.size());
         for (final FangsuPsdGlassDef def : GLASS_DEFS) {
-            final Identifier id = new Identifier(NAMESPACE, def.id());
-            final FangsuPsdGlassBlock block = new FangsuPsdGlassBlock(def);
-            Registry.register(Registries.BLOCK, id, block);
-            final Item item = registerItem(id, block);
-            block.setItem(item);
-            GLASS_BLOCKS.put(id, block);
-            ITEMS.put(id, item);
-            glassBlocks.add(block);
+            try {
+                final Identifier id = new Identifier(NAMESPACE, def.id());
+                final FangsuPsdGlassBlock block = new FangsuPsdGlassBlock(def);
+                Registry.register(Registries.BLOCK, id, block);
+                final Item item = registerItem(id, block);
+                block.setItem(item);
+                GLASS_BLOCKS.put(id, block);
+                ITEMS.put(id, item);
+                glassBlocks.add(block);
+            } catch (Throwable t) {
+                LteLog.LOGGER.error("[lte] fangsu psd glass {} failed to register - skipping it", def.id(), t);
+                RegistrySelfCheck.purgePending("fangsu glass " + def.id());
+            }
         }
 
         if (autoBlocks.isEmpty() && manualBlocks.isEmpty()) {

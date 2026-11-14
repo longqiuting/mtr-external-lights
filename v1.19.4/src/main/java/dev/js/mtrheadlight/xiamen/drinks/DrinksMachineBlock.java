@@ -462,6 +462,8 @@ public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEn
             player.sendMessage(Text.translatable("message.mtrlte.drinks_machine.no_money", balance, PRICE), true);
             return ActionResult.SUCCESS;
         }
+        // 名字必须在交给背包之前取：insertStack 会把同一个 ItemStack 清空（1.18.2 起 getItem() 返回 air）。
+        final Text potionName = bottle.getName();
         if (!player.getInventory().insertStack(bottle)) {
             player.dropItem(bottle, false);
         }
@@ -472,7 +474,7 @@ public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEn
         world.setBlockState(base, baseState.with(OPEN, true), Block.NOTIFY_ALL);
         world.scheduleBlockTick(base, DrinksMachineObjects.bottom(), OPEN_TICKS);
 
-        player.sendMessage(Text.translatable("message.mtrlte.drinks_machine.bought", bottle.getName(), after), true);
+        player.sendMessage(Text.translatable("message.mtrlte.drinks_machine.bought", potionName, after), true);
         return ActionResult.SUCCESS;
     }
 

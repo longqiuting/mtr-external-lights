@@ -6,7 +6,9 @@ import java.util.Map;
 
 import dev.js.mtrheadlight.LteLog;
 import dev.js.mtrheadlight.TabIcons;
+import dev.js.mtrheadlight.server.RegistrySelfCheck;
 import net.fabricmc.fabric.api.itemgroup.v1.FabricItemGroup;
+import net.fabricmc.fabric.api.itemgroup.v1.FabricItemGroupEntries;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
 import net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder;
 import net.minecraft.block.AbstractBlock;
@@ -272,7 +274,13 @@ public final class XiamenObjects {
         registered = true;
 
         for (final XiamenLine line : XiamenLine.values()) {
-            register(line);
+            // 一条线路坏掉只跳过这一条（7 个方块），别的线路照常注册。
+            try {
+                register(line);
+            } catch (Throwable t) {
+                LteLog.LOGGER.error("[lte] xiamen {} psd set failed to register - skipping that line", line, t);
+                RegistrySelfCheck.purgePending("xiamen " + line);
+            }
         }
         logo = registerLogo(LOGO_ID);
 
@@ -307,12 +315,7 @@ public final class XiamenObjects {
                     entries.add(logo);
                     for (final XiamenLine line : XiamenLine.values()) {
                         final LineSet set = set(line);
-                        entries.add(set.door);
-                        entries.add(set.glass);
-                        entries.add(set.end);
-                        entries.add(set.apgDoor);
-                        entries.add(set.apgGlass);
-                        entries.add(set.apgEnd);
+                        addIfPresent(entries, set.door, set.glass, set.end, set.apgDoor, set.apgGlass, set.apgEnd);
                     }
                 });
 
@@ -324,14 +327,26 @@ public final class XiamenObjects {
         }
     }
 
-    /** 五条线路的同种方块（给 BE 类型用）。 */
+    /** 五条线路的同种方块（给 BE 类型用）。某条线路注册失败时那一位是 {@code null}，跳过。 */
     private static Block[] blocksOf(final java.util.function.Function<LineSet, Block> pick) {
         final XiamenLine[] lines = XiamenLine.values();
-        final Block[] blocks = new Block[lines.length];
-        for (int i = 0; i < lines.length; i++) {
-            blocks[i] = pick.apply(set(lines[i]));
+        final java.util.List<Block> blocks = new java.util.ArrayList<>(lines.length);
+        for (final XiamenLine line : lines) {
+            final Block block = pick.apply(set(line));
+            if (block != null) {
+                blocks.add(block);
+            }
         }
-        return blocks;
+        return blocks.toArray(new Block[0]);
+    }
+
+    /** 往页签里加一批方块；注册失败（{@code null}）的那几个跳过 —— 页签不许塞 null。 */
+    private static void addIfPresent(final FabricItemGroupEntries entries, final Block... blocks) {
+        for (final Block block : blocks) {
+            if (block != null) {
+                entries.add(block);
+            }
+        }
     }
 
     /** 一条线路的 7 个方块 + 6 个物品。 */
