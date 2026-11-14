@@ -118,6 +118,7 @@ N      = normalize(cross(dFdx(P), dFdy(P)))        // 面法线；dot(N,P)>0 时
 
 L      = normalize(lamp - P)
 spot   = smooth( dot(axis, -L) ; cosOuter→cosInner )   // 光束锥门：灯只照它指的方向
+                                                       // -L = lamp -> P，与 +axis 同向才对
 win    = 1 - smooth( (|lamp-P| - 0.6len) / 0.4len )    // 距离窗：光束末端之外不照
 att    = 1 / (1 + |lamp-P|² / 9)                       // ~1/d² 辐照度
 NdotL  = max(dot(N, L), 0)
@@ -174,6 +175,60 @@ lit    = scene + (1 - exp(-added · strength)) · (1 - 0.5 · scene)
 2. **uniform 必须真的被着色器读到。** 驱动器会把没用到的 uniform 优化掉，然后 MC 打
    `Shader X could not find uniform named Y` 并返回 `null`——如果代码不检查，pass 会拿旧值画一整帧，
    表现为"效果偶尔不对"而不是报错。这里每个 uniform 都 `require()`，缺一个就整体停用并 WARN 一次。
+3. **`vec4` 数组在 1.20.1 的 core shader json 里根本写不出来 → 灯阵必须手工 `glUniform4fv`。**
+   这是 1.0.62「`debug surface` / `debug cone` 全黑、一点照亮都没有」的唯一真凶，而当时日志里
+   每个字段都正常。链条如下（全部可从字节码与真机验证，见下面的实测）：
+   * `GlUniform.getTypeIndex` 只认 `int` / `float` / `matrix2x2|3x3|4x4`。写 `"type": "vec4"`
+     得到 `-1`，`upload()` 直接打 "type value (-1) is not a valid type" 然后什么都不发。
+   * 写 `"type": "float", "count": 64`（本模组原来的写法）→ `dataType = FLOAT` → `uploadFloats()`
+     走 `glUniform1fv`：64 个标量往一个 `vec4[16]` 位置发。**`GL_INVALID_OPERATION`，数组停在
+     json 默认值**——而默认值里 `uLightColor[i].w`（强度）是 `0`。
+   * `"float" + count 1..4 = vec4` 那条捷径救不了它：`ShaderProgram.addUniform` 的 `count-1`
+     提升只在 `count <= 4`（单值 uniform）时生效，数组一律不行。
+   * 后果正好是那组反馈：片元循环第一句是 `if (power <= 1e-4) continue;`，16 盏灯全是 power 0，
+     **循环体一次都没进**，于是表面项、体积项、以及三个 debug 通道（`surface` 的 R/G/B、`cone` 的
+     B：`dbgLamps` 也停在 0）全是 0；而 `debug normal` 一盏灯都不需要，照常出图。
+
+   **现在的做法**：json 里**不声明**这三个数组，链接后用
+   `glUniform.getUniformLocation(glRef, "uLightPos")` 之类各查一次**数组首地址**，把 16 个 `vec4`
+   装进常驻 `FloatBuffer`，在 `ShaderProgram.bind()` 之后**一次一个** `glUniform4fv` 推上去
+   （`RenderSystem.glUniform4(int, FloatBuffer)` → `count = remaining/4 = 16`）。bind 必须在前面：
+   uniform 写入落在**当前绑定的程序**上，写错程序是静默的；而
+   `BufferRenderer.drawWithGlobalProgram` 里那次 `apply()` 只会再绑同一个程序并重发 json 里的
+   uniform，不碰这三个，所以值能活到光栅化。
+
+   **约定（唯一一条）**：`uLightDir = 灯照射方向（朝车外，单位向量）`。着色器里扇面轴就是
+   `+dir`：表面项比的是 `dot(axis, lamp -> P)`，体积项比的是 `dot(mid - lamp, axis)`，相位用的是
+   `cosθ = ∠(dir, -rd)`（光沿 `+dir` 走，相机沿 `rd` 看）。`TrainLamps.Lamp.dir` 正是「朝车外」
+   （`place()` 里 `dir = -out`，`out` 是车体的内向弦），所以两边同向、不需要再取反。
+   `[lte] scatter upload:` 那行打印的 `dir` 应当指向车头前方（车尾灯指向车后）。
+
+   **自证手段**（正常运行时每 5 秒一行，不靠猜）：
+   * 编译时一行 `[lte] scatter uniforms: uLightPos[0]=… uLightDir[0]=… …`——位置 `-1` 就是
+     「被优化掉了」或「名字对不上」。
+   * 运行时一行 `[lte] scatter upload: pos=(…) dir=(…) rgb=(…) cosIn=… cosOut=… power=…`
+     加 `gl[0] pos=(…) dir=(…) rgb=(…) power=…`。后半段是 `glGetUniformfv` **从程序里回读**的，
+     不是我们以为传进去的；`power=0` 会直接附一句 "the GPU never got the lamps"。
+   * `/mtr_lte scatter status` 里也带 `uniforms[…]`。
+
+   **实测（NVIDIA 621.24 / GL 3.3 core，`tools/ShaderCompileCheck.java` + 一次性数组上传探针）**：
+
+   ```
+   glGetActiveUniform 枚举（12 个活动 uniform，数组 size 真的是 16）：
+     Sampler0 @0   Sampler1 @1   uCone @2   uCount @3   uDebug @4   uInvViewProj @5
+     uLightColor[0] size=16 @6    uLightDir[0] size=16 @22    uLightPos[0] size=16 @38
+     uParams @54   uSurface @55   uTest @56
+   A) 1.0.62 的路径 glUniform1fv(64 floats) -> glGetError=0x502 (GL_INVALID_OPERATION)
+      回读 uLightColor[0] = (0,0,0,0)        <- power 恒 0，循环体永不执行
+   B) 现在的路径 glUniform4fv(16 vec4)      -> glGetError=0x0
+      回读 = (1.25,-0.5,4,6) / (0,0,-1,32) / (1,0.95,0.85,0.62)   与上传值逐位一致（含第 15 槽）
+   ```
+
+   **`debug surface` 该看到什么**：R = `max(N·L)`、G = 锥内权重、B = 距离衰减 × 窗口，三者都是
+   「所有灯里最大的那份」。灯在车头外侧、略高于地面，所以**地面（占屏幕大头）R 普遍 > 0**，
+   而竖直的墙只在朝向灯的一侧有 R；天空恒黑（没有表面）。G 只出现在灯的光锥投到屏幕上的那片
+   楔形里（约 57° 外角以外是 0），B 在光束长度内都很亮。`debug cone` 的 B（有灯）应当是整屏 1
+   （除天空外），`debug normal` 不变（地面绿、天空黑）。
 
 其它：构造参数是 `(ResourceFactory, String, VertexFormat)`（**没有** drawMode / bufferSize 那套旧参数），
 `VertexFormat` 用 `VertexFormats.POSITION`，json 的 `attributes` 必须与之对应（只有 `Position`）。

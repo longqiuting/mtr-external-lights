@@ -9,6 +9,7 @@ import dev.js.mtrheadlight.ShaderPackProbe;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.Framebuffer;
+import net.minecraft.client.gl.ShaderProgram;
 import net.minecraft.client.render.BufferBuilder;
 import net.minecraft.client.render.BufferRenderer;
 import net.minecraft.client.render.GameRenderer;
@@ -160,6 +161,13 @@ public final class ScatterPass {
     private static boolean probeRequested;
     private static int lastLitPixels = -1;
     private static long lastProbeMs;
+    /**
+     * 5 秒窗口到点时置位：下一次 {@code draw()} 之后（程序刚绑过、GL 里就是这一帧真实的值）打一行
+     * {@code [lte] scatter upload:}，并把 {@code uLightPos/uLightDir/uLightColor} 的首槽从 GPU 回读出来
+     * 对照。这是「uniform 到底传没传上去」唯一能自己回答的证据 —— 1.0.62 里这三个数组根本没到 GPU，
+     * 而日志里每个字段看起来都正常。
+     */
+    private static boolean uploadLogWanted;
 
     /* ------------------------------------------------------------------------------------------
      * 每 5 秒一行的自诊断。见 {@link #heartbeat}。
@@ -396,6 +404,11 @@ public final class ScatterPass {
                     coverage, debugMode, lights, LIGHT_POS, LIGHT_DIR, LIGHT_COLOR);
 
             draw();
+            if (uploadLogWanted) {
+                // 5 秒行里「这一次到底传上去的是什么」：先是我们填进去的，再是 GPU 回读的。
+                uploadLogWanted = false;
+                logUpload(lights);
+            }
 
             if (coverage) {
                 // Blit + 20 KB readback, once - only on the frame the status command asked for.
@@ -494,6 +507,9 @@ public final class ScatterPass {
         }
         windowStart = now;
         final double avg = msCount == 0 ? 0.0D : msSum / msCount;
+        // 这一窗口结束，下一次 pass 画完时把「上传了什么 / GPU 里是什么」打一行。
+        uploadLogWanted = true;
+        ScatterProgram.requestReadback();
         MtrHeadlightClient.LOGGER.info(String.format(Locale.ROOT,
                 "[lte] scatter pass: frames=%d lights=%d depth=%s color=%s blend=%s "
                         + "litPx=%s matrix=%s calls=%d maxLights=%d avgMs=%.2f surface=%s "
@@ -510,6 +526,56 @@ public final class ScatterPass {
         maxLights = 0;
         msSum = 0.0D;
         msCount = 0;
+    }
+
+    /**
+     * 每 5 秒一行：<b>这一帧真正推给 GPU 的灯参数</b>，外加 GPU 回读的首槽做对照。
+     *
+     * <pre>
+     *   [lte] scatter upload: pos=(1.23,-0.50,4.00) dir=(0.00,0.00,-1.00) rgb=(1.00,0.95,0.85)
+     *                         cosIn=0.94 cosOut=0.55 power=0.62 radius=6.0 beam=32.0 lamps=4
+     *                         gl[0] pos=(1.23,-0.50,4.00) dir=(0.00,0.00,-1.00) rgb=(1.00,0.95,0.85) power=0.62
+     * </pre>
+     *
+     * 两段必须一致。{@code gl[0]} 是 {@code glGetUniformfv} 从<b>程序里</b>读回来的，不是我们以为
+     * 传进去的：1.0.62 的那次故障里第一段一直是好的（{@code TrainLamps} 的数是真值），第二段是
+     * {@code power=0} —— 因为 json 里把 {@code vec4[16]} 声明成 {@code float}, 驱动用
+     * {@code glUniform1fv} 收了它，{@code GL_INVALID_OPERATION}，数组停在默认值 0。于是
+     * {@code if (power <= 1e-4) continue;} 把整个循环跳空，表面项、体积项、三个 debug 通道全是 0，
+     * 而 {@code debug normal} 照常（它一盏灯都不需要）。
+     *
+     * <p>{@code dir} 的语义只有一种，与 {@code docs/screen-space-scatter.md} 的约定一致：
+     * <b>{@code uLightDir = 灯照射方向（朝车外，单位向量）}</b>。着色器里扇面轴就是
+     * {@code +dir}：{@code dot(axis, lamp -> P)}。这一行打印的 {@code dir} 应该指向车头前方
+     * （车尾灯则指向车后），而不是指回车厢。
+     */
+    private static void logUpload(final int lights) {
+        final String staged = String.format(Locale.ROOT,
+                "pos=(%.2f,%.2f,%.2f) dir=(%.2f,%.2f,%.2f) rgb=(%.2f,%.2f,%.2f) cosIn=%.2f "
+                        + "cosOut=%.2f power=%.2f radius=%.1f beam=%.1f lamps=%d",
+                Float.valueOf(LIGHT_POS[0]), Float.valueOf(LIGHT_POS[1]), Float.valueOf(LIGHT_POS[2]),
+                Float.valueOf(LIGHT_DIR[0]), Float.valueOf(LIGHT_DIR[1]), Float.valueOf(LIGHT_DIR[2]),
+                Float.valueOf(LIGHT_COLOR[0]), Float.valueOf(LIGHT_COLOR[1]),
+                Float.valueOf(LIGHT_COLOR[2]), Float.valueOf(COS_INNER), Float.valueOf(COS_OUTER),
+                Float.valueOf(LIGHT_COLOR[3]), Float.valueOf(LIGHT_POS[3]),
+                Float.valueOf(LIGHT_DIR[3]), Integer.valueOf(lights));
+        final float[] gl = ScatterProgram.lastReadback();
+        String back;
+        if (gl == null) {
+            back = "gl[0]=missing(readback not taken)";
+        } else {
+            back = String.format(Locale.ROOT,
+                    "gl[0] pos=(%.2f,%.2f,%.2f) dir=(%.2f,%.2f,%.2f) rgb=(%.2f,%.2f,%.2f) power=%.2f "
+                            + "%s",
+                    Float.valueOf(gl[0]), Float.valueOf(gl[1]), Float.valueOf(gl[2]),
+                    Float.valueOf(gl[4]), Float.valueOf(gl[5]), Float.valueOf(gl[6]),
+                    Float.valueOf(gl[8]), Float.valueOf(gl[9]), Float.valueOf(gl[10]),
+                    Float.valueOf(gl[11]),
+                    gl[11] > 1.0E-4F ? ""
+                            : " <- the GPU never got the lamps: power is still 0, the per-lamp loop "
+                                    + "is skipped entirely");
+        }
+        MtrHeadlightClient.LOGGER.info("[lte] scatter upload: {} {}", staged, back);
     }
 
     /**
@@ -571,6 +637,19 @@ public final class ScatterPass {
         final int color = ColorCopy.texture();
         RenderSystem.setShaderTexture(1, color == -1 ? 0 : color);
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
+        /*
+         * Bind now, upload the lamp arrays, then draw. The json cannot declare a vec4[] array in
+         * 1.20.1 (see ScatterProgram), so uLightPos/uLightDir/uLightColor are pushed by hand with one
+         * glUniform4fv each - and a uniform write lands in whichever program is *currently* bound, so
+         * the program has to be bound first. The apply() inside drawWithGlobalProgram below re-binds
+         * the same program and re-uploads the json uniforms; it never touches these three.
+         */
+        final ShaderProgram program = ScatterProgram.program();
+        if (program == null) {
+            return;
+        }
+        program.bind();
+        ScatterProgram.uploadArrays();
         /*
          * Blending off, dst = src: the shader writes the *whole* screen colour (scene + lamp light),
          * so it must replace the pixel, not add to it. The json has no "blend" section for the same
@@ -756,6 +835,7 @@ public final class ScatterPass {
         sb.append(" litPx=").append(litPixels(cfg));
         sb.append(" matrix=").append(lastMatrix);
         sb.append(" debug=").append(debugName());
+        sb.append(" uniforms[").append(ScatterProgram.locations()).append(']');
         sb.append(" reason=").append(lastReason);
         if (ScatterProgram.failure() != null) {
             sb.append(" failure=").append(ScatterProgram.failure());

@@ -54,8 +54,8 @@ final class GlowCompat {
     static boolean diagCullEnabled;
     /** 这次 draw 实际绑在贴图槽 0 上的 GL 纹理 id；0 = 什么都没绑。 */
     static int diagTextureId = -1;
-    /** 这次 draw 是不是走了 {@code alwaysDepth} 那条分支。 */
-    static boolean diagAlwaysDepth;
+    /** 这次 draw 是不是走了 {@code forceOcclusion}（强制 {@code GL_LEQUAL}）那条分支。 */
+    static boolean diagForceOcclusion;
 
     /**
      * Draws {@code count} floats (x y z r g b a per vertex, quad order) in camera-relative space.
@@ -108,29 +108,31 @@ final class GlowCompat {
     }
 
     /**
-     * {@link #drawTextured} 的深度覆盖版本。
+     * {@link #drawTextured} 的深度版本：{@code forceOcclusion = true} 时把深度<b>比较</b>函数<b>强制</b>
+     * 成 {@code GL_LEQUAL}（写完再还原成进来时的那一个）：四边形仍然不写深度、仍然加色，但它<b>会</b>
+     * 被车体 / 站台 / 隧道壁按深度挡掉。
      *
-     * <p>{@code alwaysDepth = true} 时把深度<b>比较</b>函数换成 {@code GL_ALWAYS}（写完再还原成进来
-     * 时的那一个）：四边形仍然不写深度、仍然加色，但不再被车体/站台/隧道壁挡掉。
-     *
-     * <p>为什么灯晕需要它：灯晕挂在灯位上，而灯位在车体端面<b>里面</b>几个厘米（{@code TrainLamps}
-     * 的 {@code FLARE_GAP} + 模型的 {@code inset}）。即使再往相机拉 2 格，斜视时这个四边形仍可能
-     * 有一半埋在车头网格里 —— 于是「quads 一直在涨、屏幕上什么都没有」。加色四边形遮挡不了场景，
-     * 穿过去最多是隔着墙看到一点光晕，比彻底看不见好得多。
+     * <p>为什么灯晕要「强制 LEQUAL」而不是 {@code GL_ALWAYS}：1.0.62 用 ALWAYS 换来了「看得见」，
+     * 代价是隔着方块、隔着轨道、隔着整座山也能看见灯晕 —— 加色四边形不测深度，于是它穿墙。遮挡
+     * 只能靠<b>位置</b>解决：{@code TrainLamps} 把灯放在端面<b>外侧</b>（{@code back = inset +
+     * FLARE_GAP} 沿「向外」方向推，所以至少 0.08 格外、模型量到的 inset 还会再往外），四边形再从
+     * 那里往相机拉一点点（{@code LightFlare#MAX_PULL} = 0.6 格上限），够把它从灯座里拔出来，
+     * 又不至于穿到墙外。而「不被别的模组留下的深度状态吃掉」靠这里的强制 LEQUAL：深度函数是全局
+     * 状态，进出都不许假设。
      *
      * <h2>为什么不走 RenderSystem：1.20.1 的缓存会把这次设置吃掉</h2>
      * {@code RenderSystem.depthFunc} → {@code GlStateManager._depthFunc}，而后者在 1.20.1 里是
      * <b>带缓存的</b>（javap 出来的字节码就是 {@code if (func == DEPTH.func) return;}，值相等时
      * 根本不调 {@code glDepthFunc}）。只要有别的模组直接调过一次 {@code glDepthFunc}（Sodium /
-     * Embeddium 这类优化模组满街都是），缓存就和真实 GL 状态脱钩：我们「设了 ALWAYS」，实际什么
-     * 都没发生，灯晕继续被车体挡掉。所以这里用 {@link #forceDepthFunc} 直调 GL。
+     * Embeddium 这类优化模组满街都是），缓存就和真实 GL 状态脱钩：我们「设了 LEQUAL」，实际硬件上
+     * 可能还留着别人设的 ALWAYS / NEVER。所以这里用 {@link #forceDepthFunc} 直调 GL。
      *
      * <p>另外每次 draw 之后都用 {@code glGetInteger(GL_DEPTH_FUNC)} / {@code glIsEnabled} 把
      * <b>真实</b>状态读回来放进 {@code diag*} 字段 —— 灯晕那条 5 秒日志报的就是这个值，不是我们
      * 以为设了什么。
      */
     static void drawTextured(final float[] data, final int count, final MatrixStack stack,
-                             final Identifier texture, final boolean alwaysDepth) {
+                             final Identifier texture, final boolean forceOcclusion) {
         final Matrix4f matrix = stack.peek().getPositionMatrix();
         RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
         RenderSystem.setShaderTexture(0, texture);
@@ -139,9 +141,10 @@ final class GlowCompat {
         RenderSystem.blendFunc(GlStateManager.SrcFactor.SRC_ALPHA, GlStateManager.DstFactor.ONE);
         RenderSystem.enableDepthTest();
         // 进来时上一位调用者留下的深度函数（可能是任何值，不许假设 LEQUAL）。
-        final int entryFunc = alwaysDepth ? GL11.glGetInteger(GL11.GL_DEPTH_FUNC) : -1;
-        if (alwaysDepth) {
-            forceDepthFunc(GL11.GL_ALWAYS);
+        final int entryFunc = forceOcclusion ? GL11.glGetInteger(GL11.GL_DEPTH_FUNC) : -1;
+        if (forceOcclusion) {
+            // 遮挡 = LEQUAL（深度真的在挡），而不是 1.0.62 的 ALWAYS（穿墙可见）。
+            forceDepthFunc(GL11.GL_LEQUAL);
         }
         RenderSystem.depthMask(false);
         RenderSystem.disableCull();
@@ -172,10 +175,10 @@ final class GlowCompat {
         diagBlendEnabled = GL11.glIsEnabled(GL11.GL_BLEND);
         diagCullEnabled = GL11.glIsEnabled(GL11.GL_CULL_FACE);
         diagTextureId = RenderSystem.getShaderTexture(0);
-        diagAlwaysDepth = alwaysDepth;
+        diagForceOcclusion = forceOcclusion;
         diagDepthFuncOnEntry = entryFunc;
 
-        if (alwaysDepth) {
+        if (forceOcclusion) {
             forceDepthFunc(entryFunc == -1 ? GL11.GL_LEQUAL : entryFunc);
         }
         RenderSystem.depthMask(true);

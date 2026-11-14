@@ -46,8 +46,10 @@ uniform int uCount;                         // lamps actually filled in
 uniform int uTest;                          // 1 = /mtr_lte lighttest: fixed red output, no maths at all
 uniform int uDebug;                         // 0 = off, 1 = surface (N.L/cone/att), 2 = normal, 3 = cone
 uniform vec4 uLightPos[16];                 // xyz = lamp, camera relative; w = glow radius R
-uniform vec4 uLightDir[16];                 // xyz = unit heading; w = beam length
+uniform vec4 uLightDir[16];                  // xyz = uLightDir = 灯照射方向（朝车外，单位向量）; w = beam length
 uniform vec4 uLightColor[16];               // rgb = colour; w = intensity
+// 三个数组由 ScatterProgram 在 bind 之后用 glUniform4fv 一次上传（1.20.1 的 core shader json
+// 表达不了 vec4[]：那里只有 int / float / matrixN，写成 float 会被发成 glUniform1fv 而整条失效）。
 
 in vec2 vUv;
 out vec4 fragColor;
@@ -185,8 +187,9 @@ void main() {
             vec3 toLampD = lamp - P;
             float dD = length(toLampD);
             if (dD > 1.0e-3) {
-                vec3 LD = toLampD / dD;
-                float cosD = dot(axis, -LD);
+                vec3 LD = toLampD / dD;                 // P -> lamp（N·L 用的方向）
+                vec3 toPointD = -LD;                    // lamp -> P（灯发出的光前进的方向）
+                float cosD = dot(axis, toPointD);       // 扇面轴就是 +axis
                 float spotD = smooth01((cosD - cosOuter) / max(cosInner - cosOuter, 1.0e-3));
                 float attD = 1.0 / (1.0 + dD * dD / attRef);
                 float winD = 1.0 - smooth01((dD - beamLength * 0.6)
@@ -208,8 +211,11 @@ void main() {
             float d = length(toLamp);
             if (d > 1.0e-3) {
                 vec3 L = toLamp / d;
-                // Cone gate: the beam axis vs the direction the lamp actually sends light along.
-                float cosAngle = dot(axis, -L);
+                // 扇面轴 = +axis，也就是「从灯里出来的光走的方向」（uLightDir 约定：朝车外、单位向量）。
+                // 所以这里比的是 axis 与 lamp -> P，而不是 P -> lamp：后者会把整个锥体转到灯背后，
+                // 于是除灯正对相机的那一瞬之外 N·L 与锥两项同时为 0（「一点照亮都没有」）。
+                vec3 toPoint = -L;
+                float cosAngle = dot(axis, toPoint);
                 float spot = smooth01((cosAngle - cosOuter) / max(cosInner - cosOuter, 1.0e-3));
                 // Distance window: no light past the end of the beam.
                 float win = 1.0 - smooth01((d - beamLength * 0.6) / max(beamLength * 0.4, 1.0e-3));
@@ -245,14 +251,17 @@ void main() {
         float dist = length(toMid);
         vec3 midDir = dist > 1.0e-4 ? toMid / dist : axis;
 
-        // Cone gate: the lamp only lights the air it is pointed at. The halo term keeps the air
-        // immediately around the lamp glowing in every direction (that is the flare's own volume).
+        // Cone gate: the lamp only lights the air it is pointed at. midDir is lamp -> mid, i.e. the
+        // same "out of the lamp" direction as the surface term's toPoint, so the axis is +dir here
+        // too. The halo term keeps the air immediately around the lamp glowing in every direction
+        // (that is the flare's own volume).
         float cosAngle = dot(midDir, axis);
         float cone = smooth01((cosAngle - cosOuter) / max(cosInner - cosOuter, 1.0e-3));
         float halo = 1.0 - smooth01(dist / radius);
         cone = max(cone, halo);
 
         // Axial window: nothing past the end of the beam, so the beam length is a real cut.
+        // axial > 0 in front of the lamp, < 0 behind it - the same +axis convention.
         float axial = dot(toMid, axis);
         float window = 1.0 - smooth01((axial - beamLength * 0.6) / max(beamLength * 0.4, 1.0e-3));
         window = max(window, halo);
