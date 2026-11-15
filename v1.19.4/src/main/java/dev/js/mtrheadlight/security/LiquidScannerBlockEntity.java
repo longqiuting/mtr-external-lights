@@ -48,6 +48,12 @@ public class LiquidScannerBlockEntity extends BlockEntity {
     /** 没收名单：字符串列表（药水 id）。 */
     private static final String TAG_CONFISCATE = "confiscate";
 
+    /** 名单格式版本：{@code 0} = 没有岩浆这一项的老名单。 */
+    private static final String TAG_LIST_VERSION = "ListVersion";
+
+    /** 当前名单格式版本。1 = 名单里带岩浆（{@code mtrlte:liquid/lava}）。 */
+    private static final int LIST_VERSION = 1;
+
     private boolean configured;
     /** 有序，界面里的顺序稳定；{@link LinkedHashSet} 顺便去重。 */
     private final Set<Identifier> confiscate = new LinkedHashSet<>();
@@ -100,6 +106,7 @@ public class LiquidScannerBlockEntity extends BlockEntity {
     public void writeNbt(final NbtCompound nbt) {
         super.writeNbt(nbt);
         nbt.putBoolean(TAG_CONFIGURED, this.configured);
+        nbt.putInt(TAG_LIST_VERSION, LIST_VERSION);
         final NbtList list = new NbtList();
         for (final Identifier id : this.confiscate) {
             list.add(NbtString.of(id.toString()));
@@ -118,6 +125,11 @@ public class LiquidScannerBlockEntity extends BlockEntity {
             if (id != null) {
                 this.confiscate.add(id);
             }
+        }
+        // 老存档（这个键出现之前配过的机器）里没有岩浆：补进去一次。
+        // 之后的版本都靠 LIST_VERSION 认，玩家在界面里取消勾选不会又被塞回来。
+        if (this.configured && nbt.getInt(TAG_LIST_VERSION) < 1) {
+            this.confiscate.add(LiquidScannerBlock.LIQUID_LAVA);
         }
     }
 }
