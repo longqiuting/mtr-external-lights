@@ -1,5 +1,7 @@
 package dev.js.mtrheadlight.security;
 
+import java.util.List;
+
 import net.minecraft.block.AbstractBlock;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockEntityProvider;
@@ -15,6 +17,7 @@ import net.minecraft.item.ItemPlacementContext;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
+import net.minecraft.potion.Potion;
 import net.minecraft.potion.PotionUtil;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -26,7 +29,9 @@ import net.minecraft.state.property.EnumProperty;
 import net.minecraft.util.StringIdentifiable;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
+import net.minecraft.registry.Registries;
 import net.minecraft.util.Hand;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
@@ -286,32 +291,88 @@ public final class LiquidScannerBlock extends HorizontalFacingBlock implements B
     }
 
 
+    /** 非药水液体的名单 id —— 与药水类型 id 并列在同一份「没收名单」里。 */
+    public static final Identifier LIQUID_WATER = new Identifier("mtrlte", "liquid/water");
+    public static final Identifier LIQUID_MILK = new Identifier("mtrlte", "liquid/milk");
+    public static final Identifier LIQUID_HONEY = new Identifier("mtrlte", "liquid/honey");
+    public static final Identifier LIQUID_COD = new Identifier("mtrlte", "liquid/cod");
+    public static final Identifier LIQUID_SALMON = new Identifier("mtrlte", "liquid/salmon");
+    public static final Identifier LIQUID_PUFFERFISH = new Identifier("mtrlte", "liquid/pufferfish");
+    public static final Identifier LIQUID_TROPICAL_FISH = new Identifier("mtrlte", "liquid/tropical_fish");
+    public static final Identifier LIQUID_AXOLOTL = new Identifier("mtrlte", "liquid/axolotl");
+    public static final Identifier LIQUID_TADPOLE = new Identifier("mtrlte", "liquid/tadpole");
+
     /**
-     * 这一叠物品算不算「液体」—— 会拿去给机器验一遍的那些。
+     * 配置界面里额外列出的非药水液体。
      *
-     * <p>除了三款药水（普通 / 喷溅 / 滞留），还有原版那些装液体的桶与瓶子：
-     * 牛奶、水、蜂蜜，以及五种生物桶（1.19 起再加蝌蚪桶）。
-     * 生物桶里装的是水 + 生物，没有药水效果，所以默认判定下一定放行；
-     * 想让某台机器没收它们，就在配置名单里勾「空药水」（{@code minecraft:empty}）——
-     * 非药水液体的 id 都归到那一档。</p>
+     * <p><b>岩浆桶故意不在这个表里</b>：它不管名单怎么配都直接没收
+     * （见 {@link #isAlwaysConfiscated}），列出来反而会让人以为取消勾选就能带进去。</p>
      */
-    public static boolean isLiquid(final ItemStack stack) {
+    public static final List<Identifier> EXTRA_LIQUIDS = List.of(
+            LIQUID_WATER,
+            LIQUID_MILK,
+            LIQUID_HONEY,
+            LIQUID_COD,
+            LIQUID_SALMON,
+            LIQUID_PUFFERFISH,
+            LIQUID_TROPICAL_FISH,
+            LIQUID_AXOLOTL,
+            LIQUID_TADPOLE);
+
+    /**
+     * 这叠物品对应的「液体 id」：药水给它在 {@code POTION} 注册表里的 id，
+     * 水 / 牛奶 / 蜂蜜 / 生物桶给上面那几个固定 id，其它一律 {@code null}。
+     *
+     * <p>喷溅与滞留药水读的是同一个 {@code Potion} 字段，所以三款药水共用一条名单项 ——
+     * 勾了「迅捷」就三种形态一起收。</p>
+     */
+    public static Identifier liquidId(final ItemStack stack) {
         if (stack == null || stack.isEmpty()) {
-            return false;
+            return null;
         }
         final Item item = stack.getItem();
-        return item == Items.POTION
-                || item == Items.SPLASH_POTION
-                || item == Items.LINGERING_POTION
-                || item == Items.MILK_BUCKET
-                || item == Items.WATER_BUCKET
-                || item == Items.HONEY_BOTTLE
-                || item == Items.COD_BUCKET
-                || item == Items.SALMON_BUCKET
-                || item == Items.PUFFERFISH_BUCKET
-                || item == Items.TROPICAL_FISH_BUCKET
-                || item == Items.AXOLOTL_BUCKET
-                || item == Items.TADPOLE_BUCKET;
+        if (item == Items.POTION || item == Items.SPLASH_POTION || item == Items.LINGERING_POTION) {
+            final Potion potion = PotionUtil.getPotion(stack);
+            return potion == null ? null : Registries.POTION.getId(potion);
+        }
+        if (item == Items.WATER_BUCKET) {
+            return LIQUID_WATER;
+        }
+        if (item == Items.MILK_BUCKET) {
+            return LIQUID_MILK;
+        }
+        if (item == Items.HONEY_BOTTLE) {
+            return LIQUID_HONEY;
+        }
+        if (item == Items.COD_BUCKET) {
+            return LIQUID_COD;
+        }
+        if (item == Items.SALMON_BUCKET) {
+            return LIQUID_SALMON;
+        }
+        if (item == Items.PUFFERFISH_BUCKET) {
+            return LIQUID_PUFFERFISH;
+        }
+        if (item == Items.TROPICAL_FISH_BUCKET) {
+            return LIQUID_TROPICAL_FISH;
+        }
+        if (item == Items.AXOLOTL_BUCKET) {
+            return LIQUID_AXOLOTL;
+        }
+        if (item == Items.TADPOLE_BUCKET) {
+            return LIQUID_TADPOLE;
+        }
+        return null;
+    }
+
+    /** 这一叠物品算不算「液体」—— 会拿去给机器验一遍的那些。 */
+    public static boolean isLiquid(final ItemStack stack) {
+        return liquidId(stack) != null || isAlwaysConfiscated(stack);
+    }
+
+    /** 岩浆桶：不看名单，一律没收。 */
+    public static boolean isAlwaysConfiscated(final ItemStack stack) {
+        return stack != null && !stack.isEmpty() && stack.getItem() == Items.LAVA_BUCKET;
     }
 
     /** 「有负面效果就算有害」—— 机器没配过名单时的默认判定（也是界面「恢复默认」预选的那份）。 */
@@ -373,7 +434,8 @@ public final class LiquidScannerBlock extends HorizontalFacingBlock implements B
         // ② 检测：配过名单就只看名单，没配过退回「有负面效果就没收」。
         final LiquidScannerBlockEntity entity =
                 world.getBlockEntity(pos) instanceof LiquidScannerBlockEntity be ? be : null;
-        final boolean confiscate = entity == null ? isHarmful(held) : entity.shouldConfiscate(held);
+        final boolean confiscate = isAlwaysConfiscated(held)
+                || (entity == null ? isHarmful(held) : entity.shouldConfiscate(held));
 
         if (confiscate) {
             // 没收：手里那一瓶减 1，罐子一起收走（与素材一致）。

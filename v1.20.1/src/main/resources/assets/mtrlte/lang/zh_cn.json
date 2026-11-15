@@ -759,5 +759,14 @@
   "tooltip.mtrlte.signal_link.selected": "已选节点：%s",
   "tooltip.mtrlte.signal_link.selected_lamp": "已选信号灯：%s",
   "tooltip.mtrlte.texture_source": "贴图：厦门地铁一号线",
-  "tooltip.mtrlte.ticket_machine_xiamen": "右键购票；用 MTR 刷子右键循环切换：方速界面 → 原版界面 → 节能关机"
+  "tooltip.mtrlte.ticket_machine_xiamen": "右键购票；用 MTR 刷子右键循环切换：方速界面 → 原版界面 → 节能关机",
+  "screen.mtrlte.liquid.water": "水",
+  "screen.mtrlte.liquid.milk": "牛奶",
+  "screen.mtrlte.liquid.honey": "蜂蜜",
+  "screen.mtrlte.liquid.cod": "鳕鱼桶",
+  "screen.mtrlte.liquid.salmon": "鲑鱼桶",
+  "screen.mtrlte.liquid.pufferfish": "河豚桶",
+  "screen.mtrlte.liquid.tropical_fish": "热带鱼桶",
+  "screen.mtrlte.liquid.axolotl": "美西螈桶",
+  "screen.mtrlte.liquid.tadpole": "蝌蚪桶"
 }

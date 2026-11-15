@@ -98,6 +98,7 @@ public final class LiquidScannerConfigScreen extends Screen {
     /** 注册表里所有药水，按界面语言里的名字排序（同名的按 id 兜底）。 */
     private static List<Identifier> sortedPotions() {
         final List<Identifier> out = new ArrayList<>(Registry.POTION.getIds());
+        out.addAll(LiquidScannerBlock.EXTRA_LIQUIDS);
         out.sort(Comparator.<Identifier, String>comparing(id -> nameOf(id).getString(),
                 String.CASE_INSENSITIVE_ORDER).thenComparing(Identifier::toString));
         return out;
@@ -123,6 +124,9 @@ public final class LiquidScannerConfigScreen extends Screen {
 
     /** 药水显示名：有翻译就用翻译（{@code 迅捷药水}），没有就退回 id 的 path。 */
     private static Text nameOf(final Identifier id) {
+        if (LiquidScannerBlock.EXTRA_LIQUIDS.contains(id)) {
+            return new TranslatableText("screen.mtrlte.liquid." + id.getPath().substring("liquid/".length()));
+        }
         final Potion potion = Registry.POTION.get(id);
         if (potion != null) {
             final String key = potion.finishTranslationKey("item.minecraft.potion.effect.");
@@ -131,6 +135,35 @@ public final class LiquidScannerConfigScreen extends Screen {
             }
         }
         return new LiteralText(id.getPath());
+    }
+
+    /** 非药水液体在图例里用的颜色（药水返回 0，走药水本身的颜色）。 */
+    private static int liquidColor(final Identifier id) {
+        if (id.equals(LiquidScannerBlock.LIQUID_WATER)) {
+            return 0x3F76E4;
+        }
+        if (id.equals(LiquidScannerBlock.LIQUID_MILK)) {
+            return 0xF2F2F2;
+        }
+        if (id.equals(LiquidScannerBlock.LIQUID_HONEY)) {
+            return 0xE8A200;
+        }
+        if (id.equals(LiquidScannerBlock.LIQUID_COD)) {
+            return 0xB98A50;
+        }
+        if (id.equals(LiquidScannerBlock.LIQUID_SALMON)) {
+            return 0xC46A5A;
+        }
+        if (id.equals(LiquidScannerBlock.LIQUID_PUFFERFISH)) {
+            return 0xD8C24A;
+        }
+        if (id.equals(LiquidScannerBlock.LIQUID_TROPICAL_FISH)) {
+            return 0xE0559C;
+        }
+        if (id.equals(LiquidScannerBlock.LIQUID_AXOLOTL)) {
+            return 0xE88BB4;
+        }
+        return 0;
     }
 
     /** 按搜索框内容重建 {@link #view}。 */
@@ -268,8 +301,12 @@ public final class LiquidScannerConfigScreen extends Screen {
 
         // 右侧：药水颜色点 + id（颜色点让「喷溅 / 滞留」这类同名的也能一眼认出）
         final Potion potion = Registry.POTION.get(id);
-        if (potion != null) {
-            final int dotX = this.listX + this.listW - 14;
+        final int dotX = this.listX + this.listW - 14;
+        final int extraColor = liquidColor(id);
+        if (extraColor != 0) {
+            context.fill(dotX, y + 5, dotX + 8, y + 13, 0xFF000000 | extraColor);
+            context.drawBorder(dotX, y + 5, 8, 8, 0x60FFFFFF);
+        } else if (potion != null) {
             context.fill(dotX, y + 5, dotX + 8, y + 13,
                     0xFF000000 | (PotionUtil.getColor(potion) & 0xFFFFFF));
             context.drawBorder(dotX, y + 5, 8, 8, 0x60FFFFFF);

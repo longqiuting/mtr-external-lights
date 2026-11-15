@@ -75,17 +75,13 @@ public class LiquidScannerBlockEntity extends BlockEntity {
         if (!this.configured) {
             return LiquidScannerBlock.isHarmful(stack);
         }
-        final Identifier id = potionId(stack);
+        final Identifier id = LiquidScannerBlock.liquidId(stack);
         return id != null && this.confiscate.contains(id);
     }
 
-    /** 物品栈里的药水类型 id（无法解析 → {@code null}）。 */
+    /** 物品栈里的液体 id（药水类型 id 或 {@link LiquidScannerBlock#EXTRA_LIQUIDS} 里那几个）。 */
     public static Identifier potionId(final ItemStack stack) {
-        final Potion potion = PotionUtil.getPotion(stack);
-        if (potion == null) {
-            return null;
-        }
-        return Registries.POTION.getId(potion);
+        return LiquidScannerBlock.liquidId(stack);
     }
 
     /** 覆盖整份名单（服务端写、{@link LiquidScannerNet} 校验过的 id）。 */

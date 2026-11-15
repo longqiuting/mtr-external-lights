@@ -758,5 +758,13 @@
   "tooltip.mtrlte.signal_link.selected": "Node selected: %s",
   "tooltip.mtrlte.signal_link.selected_lamp": "Signal light selected: %s",
   "tooltip.mtrlte.texture_source": "Textures: Xiamen Line 1",
-  "tooltip.mtrlte.ticket_machine_xiamen": "Right-click to buy tickets; right-click with MTR's brush to cycle: fangsu UI → vanilla UI → eco power-off"
+  "tooltip.mtrlte.ticket_machine_xiamen": "Right-click to buy tickets; right-click with MTR's brush to cycle: fangsu UI → vanilla UI → eco power-off",
+  "screen.mtrlte.liquid.water": "Water",
+  "screen.mtrlte.liquid.milk": "Milk",
+  "screen.mtrlte.liquid.honey": "Honey",
+  "screen.mtrlte.liquid.cod": "Bucket of Cod",
+  "screen.mtrlte.liquid.salmon": "Bucket of Salmon",
+  "screen.mtrlte.liquid.pufferfish": "Bucket of Pufferfish",
+  "screen.mtrlte.liquid.tropical_fish": "Bucket of Tropical Fish",
+  "screen.mtrlte.liquid.axolotl": "Bucket of Axolotl"
 }

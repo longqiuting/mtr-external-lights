@@ -147,7 +147,7 @@ public final class LiquidScannerNet {
         // 只留注册表里真有的药水：模组被卸载后存档里的旧 id 会落到这里。
         final Set<Identifier> valid = new LinkedHashSet<>();
         for (final Identifier id : ids) {
-            if (Registry.POTION.containsId(id)) {
+            if (Registry.POTION.containsId(id) || LiquidScannerBlock.EXTRA_LIQUIDS.contains(id)) {
                 valid.add(id);
             }
         }
