@@ -123,5 +123,7 @@ public class PowerBankItem extends Item {
             tooltip.add(Text.translatable("tooltip.mtrlte.power_bank.held",
                     heldMinutes(stack, System.currentTimeMillis())).formatted(Formatting.AQUA));
         }
+        // 最下面那行红色小字（用户要求：无 3C 认证提醒）
+        tooltip.add(Text.translatable("tooltip.mtrlte.power_bank.warning").formatted(Formatting.RED));
     }
 }
