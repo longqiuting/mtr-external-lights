@@ -409,7 +409,7 @@ public final class ParameterScreen extends Screen {
      *   碰撞  车体碰撞 · 碰撞高度 · 道床碰撞 · 车头延长 · 车尾延长 · 车顶掉落速度 · 车顶弯道半径
      *   粒子  雨天水雾|水雾起始速度 · 挡雨
      *   伤害  伤害开关 · 创造模式也受伤 · 伤害起点速度 · 伤害上限 · 4 个速度档 · 4 个伤害系数 · 撞飞距离 · 2 个竖直初速 · 冲量冷却 · 生物受伤
-     *   其他  内置车型屏蔽 · 重载内置车型 · 立即重载光源
+     *   其他  内置车型屏蔽 · 门音响 · 重载内置车型 · 厦门 PIDS
      * </pre>
      * 「车灯模式」放在光源分区第二行（用户要求：它决定灯什么时候亮，属于光源，不属于其他），
      * 并且只在全局页出现 —— 它没有侧线覆盖。
@@ -538,7 +538,13 @@ public final class ParameterScreen extends Screen {
                 break;
             default:
                 if (isGlobal()) {
+                    // ---- 开关 ----
                     this.rows.add(Row.toggleWide(ConfigWriteTarget.BUILTIN_TRAINS));
+                    // 门音响：方速（BRT 高 / 低）滑动屏蔽门开 / 关时播 mtrlte:brt_door。
+                    // 全局开关，与每块门自己的 NBT 开关（MTR 刷子右键）是「与」关系；
+                    // 音效在客户端渲染器里播，所以这一行只影响本机。
+                    this.rows.add(Row.toggleWide(ConfigWriteTarget.FANGSU_DOOR_SOUND));
+                    // ---- 动作 ----
                     this.rows.add(Row.action(tr("btn.reloadTrains"), this::reloadTrains));
                     // 厦门 PIDS 的三个全局显示开关（本地时间 / 即将进站 / 广告）。
                     // 从主界面搬到这里：主界面只留「进哪个流程」这一层，具体开关归「全局 → 其他」。
@@ -832,6 +838,10 @@ public final class ParameterScreen extends Screen {
                 // 同上，全局开关；只有开光影时才看得出区别。
                 return tr(this.target.readToggle(which)
                         ? "opt.scatterShaders.on" : "opt.scatterShaders.off");
+            case ConfigWriteTarget.FANGSU_DOOR_SOUND:
+                // 全局开关（音效只在客户端播），侧线页根本不生成这一行，所以不走 follow()。
+                return tr(this.target.readToggle(which)
+                        ? "opt.doorSound.on" : "opt.doorSound.off");
             default:
                 return follow(this.target.readToggle(which)
                         ? tr("opt.band.on") : tr("opt.band.off"), which);

@@ -24,5 +24,14 @@
         "pitch": 0.5
       }
     ]
+  },
+  "brt_door": {
+    "category": "block",
+    "sounds": [
+      {
+        "name": "mtrlte:brt_door",
+        "pitch": 1.0
+      }
+    ]
   }
 }

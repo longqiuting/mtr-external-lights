@@ -187,10 +187,16 @@ abstract class ConfigWriteTarget {
      * 无光影时这个开关不参与任何判断。42 是 {@link #BEAM_FLARE}（41）之后第一个空位。
      */
     static final int SCATTER_SHADERS = 42;
+    /**
+     * 方速（BRT）滑动屏蔽门的开关门音效（{@link HeadlightConfig#fangsuDoorSound}，默认开）。
+     * 全局开关：音效只在客户端播，与「哪条侧线的车」无关，所以侧线页不生成、也不接受写入。
+     * 43 是 {@link #SCATTER_SHADERS}（42）之后第一个空位。
+     */
+    static final int FANGSU_DOOR_SOUND = 43;
     static final int[] ALL_TOGGLES = {
             MASTER, DYNAMIC_LIGHT, LIGHT_BAND, BEAM_FLARE, RAIN_SPRAY, BUILTIN_TRAINS,
             TRAIN_COLLISION, TRACKBED, TRAIN_DAMAGE, TRAIN_MOBS, RAIN_HUSH, DAMAGE_IN_CREATIVE,
-            SCATTER, SCATTER_SURFACE, SCATTER_SHADERS,
+            SCATTER, SCATTER_SURFACE, SCATTER_SHADERS, FANGSU_DOOR_SOUND,
     };
 
     /**
@@ -564,6 +570,8 @@ abstract class ConfigWriteTarget {
                     return config().scatterSurface;
                 case SCATTER_SHADERS:
                     return config().scatterUnderShaders;
+                case FANGSU_DOOR_SOUND:
+                    return config().fangsuDoorSound;
                 default:
                     return false;
             }
@@ -616,6 +624,9 @@ abstract class ConfigWriteTarget {
                     break;
                 case SCATTER_SHADERS:
                     config().scatterUnderShaders = on;
+                    break;
+                case FANGSU_DOOR_SOUND:
+                    config().fangsuDoorSound = on;
                     break;
                 default:
                     config().beamFlare = on;
@@ -822,6 +833,9 @@ abstract class ConfigWriteTarget {
                 case SCATTER_SHADERS:
                     c.scatterUnderShaders = d.scatterUnderShaders;
                     break;
+                case FANGSU_DOOR_SOUND:
+                    c.fangsuDoorSound = d.fangsuDoorSound;
+                    break;
                 default:
                     c.beamBand = d.beamBand;
                     c.beamFlare = d.beamFlare;
@@ -904,6 +918,7 @@ abstract class ConfigWriteTarget {
             c.scatterUnderShaders = d.scatterUnderShaders;
             c.scatterStrength = d.scatterStrength;
             c.scatterRadius = d.scatterRadius;
+            c.fangsuDoorSound = d.fangsuDoorSound;
             // Restoring the globals while a siding still overrode them would leave the world on the
             // old numbers - "全部恢复默认" means the overrides go too.
             if (c.sidingSettings != null) {
@@ -1005,6 +1020,7 @@ abstract class ConfigWriteTarget {
                 case SCATTER:
                 case SCATTER_SURFACE:
                 case SCATTER_SHADERS:
+                case FANGSU_DOOR_SOUND:
                     ignored(which);
                     return 0.0D;
                 default:
@@ -1080,6 +1096,7 @@ abstract class ConfigWriteTarget {
                 case SCATTER:
                 case SCATTER_SURFACE:
                 case SCATTER_SHADERS:
+                case FANGSU_DOOR_SOUND:
                     ignored(which);
                     break;
                 default:
@@ -1114,6 +1131,7 @@ abstract class ConfigWriteTarget {
                 case SCATTER:
                 case SCATTER_SURFACE:
                 case SCATTER_SHADERS:
+                case FANGSU_DOOR_SOUND:
                     ignored(which);
                     return false;
                 default:
@@ -1154,6 +1172,7 @@ abstract class ConfigWriteTarget {
                 case SCATTER:
                 case SCATTER_SURFACE:
                 case SCATTER_SHADERS:
+                case FANGSU_DOOR_SOUND:
                     ignored(which);
                     break;
                 default:
@@ -1236,6 +1255,7 @@ abstract class ConfigWriteTarget {
                 case SCATTER:
                 case SCATTER_SURFACE:
                 case SCATTER_SHADERS:
+                case FANGSU_DOOR_SOUND:
                     ignored(which);
                     return true;
                 default:
@@ -1272,6 +1292,7 @@ abstract class ConfigWriteTarget {
                 case SCATTER:
                 case SCATTER_SURFACE:
                 case SCATTER_SHADERS:
+                case FANGSU_DOOR_SOUND:
                     ignored(which);
                     return true;
                 default:
@@ -1378,6 +1399,7 @@ abstract class ConfigWriteTarget {
                 case SCATTER:
                 case SCATTER_SURFACE:
                 case SCATTER_SHADERS:
+                case FANGSU_DOOR_SOUND:
                     ignored(which);
                     break;
                 default:
@@ -1423,6 +1445,7 @@ abstract class ConfigWriteTarget {
                 case SCATTER:
                 case SCATTER_SURFACE:
                 case SCATTER_SHADERS:
+                case FANGSU_DOOR_SOUND:
                     ignored(which);
                     break;
                 default:

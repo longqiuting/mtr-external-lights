@@ -1,5 +1,22 @@
 # 更新日志
 
+## 方速（BRT）滑动屏蔽门开关门音效（四版通用）
+
+- **音效**：`assets/mtrlte/sounds/brt_door.ogg`（Ogg Vorbis / 单声道 / 44100 Hz，MC 只吃这一种），
+  `sounds.json` 里注册 `brt_door`（`category=block`、`pitch=1.0`），运行期的 `SoundEvent`
+  由 `FangsuPsdSounds` 注册进 `SOUND_EVENT`（只写 sounds.json、不注册事件的话「能开关但没声音」）。
+  高 / 低两款滑动门共用 `FangsuPsdDoorBlock`，所以一处改动两扇都响。
+- **播放时机**：开、关各一次，判定用方块实体里 MTR 的 `open` 值**边沿** —— 1.20.1 是
+  `getOpenValue()` 的 `0 ↔ >0`；1.18.2 / 1.19.2 / 1.19.4（MTR 3.2.2 没有 `getOpenValue()`，
+  `getOpen(float)` 又有状态、每调一次推进动画）用 `isOpen()`（`open > 0`）的布尔边沿，判据等价。
+  **只在客户端播**（渲染器画下段的那一次调用里），服务端不参与、不会每人一遍。
+  首帧 / 离开视线超过 40 tick 只记基线，进出站不会被补一声；0..32 的中间态不播，不会连响。
+- **全局开关**：「全局配置 → 其他」新增一行「门音响」（`fangsuDoorSound`，默认开，
+  英文 `Door sounds`），只影响本机（配置是客户端的）。
+- **单方块开关**：MTR 刷子右键这两款门 = 切换这块门的音效（上下两段一起，存方块实体 NBT
+  `lte_door_sound`，`syncData()` 同步给客户端），动作栏提示「门音响：开/关」。
+  与全局开关是「与」关系。刷子原来的「手动开关门」让位给这个开关，潜行 + 刷子仍是父类的锁定 / 解锁。
+
 ## 内置「厦门风格轨道」追加包（1.20.1）
 
 - 把 `厦门风格物件包` 里的 `assets/mtrsteamloco/rails/`（9 个轨道模型 + 贴图，共 29 个文件，947 KB）

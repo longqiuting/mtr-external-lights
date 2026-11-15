@@ -16,6 +16,8 @@ import net.minecraft.client.item.TooltipContext;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemPlacementContext;
 import net.minecraft.item.ItemStack;
+import net.minecraft.sound.SoundCategory;
+import net.minecraft.sound.SoundEvents;
 import net.minecraft.state.StateManager;
 import net.minecraft.state.property.DirectionProperty;
 import net.minecraft.text.Text;
@@ -57,8 +59,7 @@ import net.minecraft.world.World;
  * <ol>
  *   <li><b>空手</b> → 租出一个充电宝（{@code rentedAt} 写进物品 NBT，服务端权威）。
  *       余额为负时拒绝租借；已经有一个没还的也拒绝，避免一个人囤一堆；</li>
- *   <li><b>手持充电宝</b> → 归还：按<a href="#fee">持有时间</a>每满 10 分钟扣 2（MTR 余额，
- *       见 {@link MtrBalance}），不满 10 分钟不扣；</li>
+ *   <li><b>手持充电宝</b> → 归还：按<a href="#fee">持有时间</a>扣费（MTR 余额，见 {@link MtrBalance}）；</li>
  *   <li><b>手持别的东西</b> → 一句提示，不误触。</li>
  * </ol>
  * <p>下半部分 {@code charger_bottom} <b>没有任何交互</b>：它的 {@code onUse} 直接
@@ -72,9 +73,19 @@ import net.minecraft.world.World;
  * 不经过 BER、也不改 blockstate（两份 blockstate 依然只有 {@code facing}）。
  *
  * <h2 id="fee">计费</h2>
- * <p>{@code fee = floor(持有毫秒 / 600000) × 2}。时间来自物品 NBT 里的 {@code rentedAt}
- * （服务端 {@code System.currentTimeMillis()}），所以计费与客户端时钟无关；
- * 扣费允许把余额扣成负数（欠费是「余额为负不能租借」的前提，见 {@link MtrBalance}）。
+ * <p><b>前 {@value PowerBankItem#GRACE_MINUTES} 分钟免费</b>；超过之后<b>每
+ * {@value PowerBankItem#PERIOD_MINUTES} 分钟 {@value PowerBankItem#FEE_PER_PERIOD} 元</b>，
+ * 不足一档向上取整；<b>24 小时封顶</b>（{@value PowerBankItem#MAX_PERIODS} 档 =
+ * {@value PowerBankItem#MAX_FEE} 元）；<b>超过 24 小时不可归还</b> —— 机器拒收（物品留给玩家），
+ * 扣 {@value PowerBankItem#OVERDUE_FEE} 元买断罚款，且只扣一次。
+ * 时间来自物品 NBT 里的 {@code rentedAt}（服务端 {@code System.currentTimeMillis()}），
+ * 所以计费与客户端时钟无关；扣费允许把余额扣成负数（欠费是「余额为负不能租借」的前提，
+ * 见 {@link MtrBalance}）。
+ *
+ * <h2>声音</h2>
+ * <p>租出与归还成功都播一声「叮」（{@code BLOCK_NOTE_BLOCK_BELL} + {@code ENTITY_EXPERIENCE_ORB_PICKUP}），
+ * 音量 / 音高与 {@code DrinksMachineBlock} 的售货提示<b>逐字一致</b>；只在服务端播，
+ * 客户端靠原版声音包同步。拒收（超时买断）不播 —— 那不是一次成功的归还。
  */
 public class ChargerBlock extends HorizontalFacingBlock implements BlockEntityProvider {
 
@@ -228,19 +239,19 @@ public class ChargerBlock extends HorizontalFacingBlock implements BlockEntityPr
 
         final ItemStack held = player.getStackInHand(hand);
         if (held.getItem() instanceof PowerBankItem) {
-            returnPowerBank(world, player, held);
+            returnPowerBank(world, pos, player, held);
             return ActionResult.SUCCESS;
         }
         if (!held.isEmpty()) {
             player.sendMessage(Text.translatable("message.mtrlte.charger.hand_not_empty"), true);
             return ActionResult.SUCCESS;
         }
-        rentPowerBank(world, player);
+        rentPowerBank(world, pos, player);
         return ActionResult.SUCCESS;
     }
 
     /** 空手右键上半部分：租出一个。 */
-    private static void rentPowerBank(final World world, final PlayerEntity player) {
+    private static void rentPowerBank(final World world, final BlockPos pos, final PlayerEntity player) {
         if (findRented(player) != null) {
             player.sendMessage(Text.translatable("message.mtrlte.charger.already_rented"), true);
             return;
@@ -256,33 +267,106 @@ public class ChargerBlock extends HorizontalFacingBlock implements BlockEntityPr
         if (!player.getInventory().insertStack(powerBank)) {
             player.dropItem(powerBank, false);
         }
+        ding(world, pos);
         player.sendMessage(Text.translatable("message.mtrlte.charger.rented"), true);
+        // 计费规则只在这里说一次，而且走聊天栏（false）；不进物品 tooltip。
+        player.sendMessage(Text.translatable("message.mtrlte.charger.rule",
+                PowerBankItem.GRACE_MINUTES, PowerBankItem.PERIOD_MINUTES, PowerBankItem.FEE_PER_PERIOD,
+                PowerBankItem.MAX_PERIODS, PowerBankItem.MAX_FEE,
+                PowerBankItem.OVERDUE_HOURS, PowerBankItem.OVERDUE_FEE), false);
     }
 
-    /** 手持充电宝右键上半部分：按租期扣费后收走。 */
-    private static void returnPowerBank(final World world, final PlayerEntity player, final ItemStack held) {
+    /**
+     * 手持充电宝右键上半部分：结算后收走。
+     *
+     * <p><b>超过 {@value PowerBankItem#OVERDUE_HOURS} 小时</b>：机器拒收（不当作归还），
+     * 红字提示 + 扣 {@value PowerBankItem#OVERDUE_FEE} 元「买断」罚款，
+     * 并往物品 NBT 写 {@code expiredFine=true} —— <b>物品留在玩家手里</b>，
+     * 这 {@value PowerBankItem#OVERDUE_FEE} 元只扣一次：之后再右键只重复红字提示，
+     * 不再扣钱、也不再结算。惩罚允许把余额扣成负数（见 {@link MtrBalance}）。
+     */
+    private static void returnPowerBank(final World world, final BlockPos pos, final PlayerEntity player,
+                                        final ItemStack held) {
         if (!PowerBankItem.isRented(held)) {
             // 没有租借记录（创造模式拿的 / 刷出来的）：照收，不计费。
             held.decrement(1);
+            ding(world, pos);
             player.sendMessage(Text.translatable("message.mtrlte.charger.returned_free",
                     MtrBalance.get(world, player)), true);
             return;
         }
 
         final long now = System.currentTimeMillis();
+
+        if (PowerBankItem.isOverdue(held, now)) {
+            rejectOverdue(world, player, held, now);
+            return;
+        }
+
         final long minutes = PowerBankItem.heldMinutes(held, now);
+        final long periods = PowerBankItem.billedPeriods(held, now);
         final int fee = PowerBankItem.fee(held, now);
         final int balance = MtrBalance.add(world, player, -fee);
 
         held.decrement(1);
-        player.sendMessage(Text.translatable("message.mtrlte.charger.returned", minutes, fee, balance), true);
+        ding(world, pos);
+        player.sendMessage(Text.translatable("message.mtrlte.charger.returned",
+                minutes, periods, fee, balance), true);
     }
 
-    /** 背包里有没有一件还带着 {@code rentedAt} 的充电宝。 */
+    /**
+     * 超时（{@code > 24h}）拒收：红字提示，充电宝<b>不</b>被拿走。
+     *
+     * <p>{@value PowerBankItem#OVERDUE_FEE} 元只扣一次，账本记在物品自己的 NBT
+     * （{@code expiredFine=true}）上，所以丢掉再捡回来、跨存档、换机器都不会重复扣。
+     */
+    private static void rejectOverdue(final World world, final PlayerEntity player,
+                                      final ItemStack held, final long now) {
+        final long hours = PowerBankItem.heldHours(held, now);
+        if (PowerBankItem.isOverdueSettled(held)) {
+            // 罚款已结算过：只重复提示，一分不扣、物品不动。
+            player.sendMessage(Text.translatable("message.mtrlte.charger.overdue_again",
+                    hours, PowerBankItem.OVERDUE_FEE).formatted(Formatting.RED), false);
+            return;
+        }
+        // 第一次超时：扣买断价 → 扣成功才盖 NBT 章（盖了就不会再扣），物品留着。
+        final int before = MtrBalance.get(world, player);
+        final int after = MtrBalance.add(world, player, -PowerBankItem.OVERDUE_FEE);
+        if (after != before - PowerBankItem.OVERDUE_FEE) {
+            // 写不进去（MTR 记分板缺失等）：不盖章，下次右键再试，避免「没收钱却记成已结算」。
+            player.sendMessage(Text.translatable("message.mtrlte.charger.overdue_failed",
+                    hours, PowerBankItem.OVERDUE_FEE).formatted(Formatting.RED), false);
+            return;
+        }
+        PowerBankItem.markOverdueSettled(held);
+        player.sendMessage(Text.translatable("message.mtrlte.charger.overdue",
+                hours, PowerBankItem.OVERDUE_FEE, after).formatted(Formatting.RED), false);
+    }
+
+    /**
+     * 「叮」一声（售货机 / 归还机通用）：{@code BLOCK_NOTE_BLOCK_BELL} + {@code ENTITY_EXPERIENCE_ORB_PICKUP}。
+     *
+     * <p>音量 / 音高与 {@code DrinksMachineBlock} 的售货提示逐字一致（0.9/1.4 与 0.7/1.2），
+     * 声音类别 {@link SoundCategory#BLOCKS}，只在服务端调用 —— 客户端由原版声音包同步播放。
+     */
+    private static void ding(final World world, final BlockPos pos) {
+        world.playSound(null, pos, SoundEvents.BLOCK_NOTE_BLOCK_BELL,
+                SoundCategory.BLOCKS, 0.9F, 1.4F);
+        world.playSound(null, pos, SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP,
+                SoundCategory.BLOCKS, 0.7F, 1.2F);
+    }
+
+    /**
+     * 背包里有没有一件「还欠着」的充电宝。
+     *
+     * <p>已经买断的（{@code expiredFine}）不算：那是玩家的东西，机器永远拒收，
+     * 再拿它去挡新租借等于永久封号 —— 所以跳过。
+     */
     private static ItemStack findRented(final PlayerEntity player) {
         for (int slot = 0; slot < player.getInventory().size(); slot++) {
             final ItemStack stack = player.getInventory().getStack(slot);
-            if (stack.getItem() instanceof PowerBankItem && PowerBankItem.isRented(stack)) {
+            if (stack.getItem() instanceof PowerBankItem && PowerBankItem.isRented(stack)
+                    && !PowerBankItem.isOverdueSettled(stack)) {
                 return stack;
             }
         }

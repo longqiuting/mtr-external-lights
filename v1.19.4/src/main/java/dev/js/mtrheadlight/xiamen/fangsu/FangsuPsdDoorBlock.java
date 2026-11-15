@@ -19,6 +19,9 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemPlacementContext;
 import net.minecraft.item.Items;
+import net.minecraft.nbt.NbtCompound;
+import net.minecraft.sound.SoundCategory;
+import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
@@ -66,9 +69,16 @@ import net.minecraft.world.WorldAccess;
  *       按四向 + 上下段预烘成 8 个 {@link VoxelShape}。关门时挡人、开门时变空集
  *       （父类也是这个思路，只是它用的是 MTR 自己的固定几何）。</li>
  *   <li><b>外观</b>：blockstate 是「只有粒子」的空模型，几何全交给 {@link FangsuPsdRenderer} 画 OBJ。</li>
- *   <li><b>右键</b>：刷子 = 手动开 / 关（搭建和测试用），潜行 + 刷子 = 锁定（父类的原语义）。
- *       自动逻辑优先：列车在站时它自己每 tick 会写 {@code setOpen}，手动结果会被立刻覆盖。</li>
+ *   <li><b>右键</b>：刷子 = 切换<b>这块门的开关门音效</b>（动作栏提示「门音响：开/关」），
+ *       潜行 + 刷子 = 锁定（父类的原语义）。开门 / 关门仍然由列车自动驱动（{@code setOpen}），
+ *       音效跟着它走（见 {@link FangsuPsdDoorEntity#tickDoorSound}）。</li>
  * </ol>
+ *
+ * <h2>开关门音效（{@code mtrlte:brt_door}）</h2>
+ * <p>开 / 关各播一次，判定用 {@code isOpen()} 的边沿（3.2.2 没有 {@code getOpenValue()}，
+ * 见 {@link FangsuPsdDoorEntity#tickDoorSound}）。只在<b>客户端</b>播（渲染器里、每扇门的下段一次），
+ * 所以服务端不会替每个玩家各播一遍。两级开关是「与」关系：配置界面「其他 → 门音响」
+ * （{@code HeadlightConfig#fangsuDoorSound}，全局）与方块实体 NBT 里的单块开关（刷子切）。
  */
 public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
 
@@ -309,10 +319,16 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
     // ------------------------------------------------------------------ 右键
 
     /**
-     * 刷子右键 = 手动开 / 关；<b>潜行</b> + 刷子 = 锁定 / 解锁（父类的原语义，锁定后列车不开）。
+     * 刷子右键 = 切换<b>这一列（上下两段）的开关门音效</b>；<b>潜行</b> + 刷子 = 锁定 / 解锁
+     * （父类的原语义，锁定后列车不开这扇门）。
      *
-     * <p>手动开关把上下两段一起写（两段各有自己的方块实体，不一起写会出现「下半扇开了上半扇没开」）。
-     * 列车在站时 MTR 每个 tick 都会自己 {@code setOpen(doorValue*64)}，所以<b>自动逻辑优先</b>。
+     * <p>为什么换掉了「刷子 = 手动开关门」：那个动作只在搭建时为了看几何用的，而
+     * 「这扇门要不要响」是玩家在站台上会真的去调的东西 —— 同一个工具、同一个键位只能留一个，
+     * 音效更需要它。门仍然由列车自动开关（{@code setOpen} 是 MTR 的公开 API）。
+     *
+     * <p>开关结果写在方块实体的 NBT 里，并 {@code syncData()} 同步给附近的客户端 ——
+     * 音效是客户端播的，客户端读不到这个值就等于开关无效。上下两段一起切，避免出现
+     * 「下半扇不响、上半扇响」的错觉（真播的只有下段，见 {@link FangsuPsdDoorEntity#tickDoorSound}）。
      */
     @Override
     public ActionResult onUse(final BlockState state, final World world, final BlockPos pos,
@@ -326,37 +342,35 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
         if (world.isClient) {
             return ActionResult.SUCCESS;
         }
-        final int target = isOpen(world, pos) ? 0 : MAX_OPEN_VALUE;
-        setColumnOpen(world, pos, state, target);
+        final Boolean on = toggleColumnDoorSound(world, pos, state);
+        if (on != null) {
+            // 动作栏（第二个参数 true = overlay，聊天栏不刷屏）；只在服务端发，这一遍不会重复。
+            player.sendMessage(Text.translatable(on.booleanValue()
+                    ? "opt.doorSound.on" : "opt.doorSound.off"), true);
+        }
         return ActionResult.CONSUME;
     }
 
-    /** 这一列（上下两段）一起设开合值。 */
-    private static void setColumnOpen(final World world, final BlockPos pos, final BlockState state,
-                                      final int value) {
-        setOpenAt(world, pos, value);
-        final BlockPos other = IBlock.getStatePropertySafe(state, HALF) == DoubleBlockHalf.LOWER
-                ? pos.up() : pos.down();
-        setOpenAt(world, other, value);
-    }
-
     /**
-     * 我们这一边正在写 {@code setOpen}（刷子手动开关）。
+     * 切换这一列（上下两段）的音效开关。
      *
-     * <p>只给诊断行用：列车驱动同样走 {@code setOpen}，两者唯一的区别是调用者，
-     * 所以拿一个开关把「手动」标出来，日志里 {@code train=manual|driver} 才不会骗人。
+     * @return 切换后的值；两块都没有方块实体（门正在被拆 / 区块没加载）时 {@code null}
      */
-    private static boolean manualSet;
-
-    private static void setOpenAt(final World world, final BlockPos pos, final int value) {
-        if (world.getBlockEntity(pos) instanceof TileEntityPSDAPGDoorBase door) {
-            manualSet = true;
-            try {
-                door.setOpen(value);
-            } finally {
-                manualSet = false;
+    private static Boolean toggleColumnDoorSound(final World world, final BlockPos pos,
+                                                 final BlockState state) {
+        final BlockPos lower = IBlock.getStatePropertySafe(state, HALF) == DoubleBlockHalf.LOWER
+                ? pos : pos.down();
+        Boolean now = null;
+        for (int i = 0; i < HALVES; i++) {
+            final BlockPos at = i == 0 ? lower : lower.up();
+            if (world.getBlockEntity(at) instanceof FangsuPsdDoorEntity door) {
+                if (now == null) {
+                    now = Boolean.valueOf(!door.doorSoundEnabled());
+                }
+                door.setDoorSoundEnabled(now.booleanValue());
             }
         }
+        return now;
     }
 
     // ------------------------------------------------------------------ 方块实体
@@ -390,6 +404,131 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
         /** 上一次看过（或打过）的 open 值，用来只在「值变了」的那一下打一行。 */
         private int lastLogValue = Integer.MIN_VALUE;
 
+
+        // -------------------------------------------------------------- 开关门音效
+
+        /** NBT 里的单块音效开关（{@code true} = 会响）。缺这个键 = 旧存档 / 刚放下 → 开。 */
+        private static final String DOOR_SOUND_TAG = "lte_door_sound";
+
+        /**
+         * 单块开关：这扇门的开关门音效。默认开，刷子右键切，存 NBT。
+         *
+         * <p>它和全局开关（{@code HeadlightConfig#fangsuDoorSound}）是<b>与</b>关系：
+         * 两个都开才响。这里存「这块门自己的意见」，全局开关关掉时不需要遍历所有门去改。
+         */
+        private boolean doorSound = true;
+
+        /** 上一次看到的 {@code isOpen()}（客户端边沿检测）。 */
+        private boolean lastOpen;
+
+        /** 已经有过一次基线（{@code false} = 第一次看见这块门，只记基线不判边沿）。 */
+        private boolean sawOnce;
+
+        /** 上一次看到 open 状态的时刻（{@code world.getTime()}），用来丢掉「隔了很久」的假边沿。 */
+        private long lastOpenTick;
+
+        /**
+         * 离开视线超过这么多 tick 就不认上一次的读数：渲染器只对视野内的方块实体调用，
+         * 门在背后开完又关上的话，回来时会被当成一次「关门」而多响一声。
+         * 2 秒足够盖住一次开关门（{@link FangsuPsdProgress#MOVE_TICKS}），也不会漏掉正常的一次开合。
+         */
+        private static final long STALE_TICKS = 40L;
+
+        /** 会话内只打一行「真的播了」的日志，不每 tick / 每扇门刷屏。 */
+        private static boolean playLogged;
+
+        /** 这块门自己的音效开关（不含全局开关）。 */
+        public boolean doorSoundEnabled() {
+            return this.doorSound;
+        }
+
+        /**
+         * 写这块门的音效开关。
+         *
+         * <p>除了字段还有两件事：{@code markDirty()} 让 NBT 落盘，{@code syncData()} 把
+         * {@code writeCompoundTag} 的内容推给附近客户端 —— <b>音效是客户端播的</b>，
+         * 不同步的话「服务端关了、客户端照响」。{@code syncData()} 在客户端是空操作
+         * （MTR 的实现只在 {@code ServerWorld} 里 markForUpdate），所以两边都能安全调。
+         */
+        public void setDoorSoundEnabled(final boolean on) {
+            if (this.doorSound == on) {
+                return;
+            }
+            this.doorSound = on;
+            this.markDirty();
+            this.syncData();
+        }
+
+        /**
+         * 客户端每帧的边沿检测 + 播放。由 {@link FangsuPsdRenderer} 调（<b>只画下段</b>，
+         * 所以每扇门每一列只会走到这里一次）。
+         *
+         * <h2>判据：{@code isOpen()} 的边沿</h2>
+         * <p>MTR 3.2.2（1.19.4 线）没有 {@code getOpenValue()}，而 {@code getOpen(float)} 是
+         * <b>有状态</b>的（每调一次把 {@code openClient} 往目标推 {@code 0.95}），渲染那边每帧
+         * 已经在调它（{@link #progress}）—— 这里再调一次等于把动画速度翻倍。所以改用
+         * {@code isOpen()}（{@code open > 0}，只读字段）：
+         * <ul>
+         *   <li>{@code false → true}：门开始开 → 播一次；</li>
+         *   <li>{@code true → false}：门合上 → 播一次；</li>
+         *   <li>状态没变 / 首帧 / 隔了 {@link #STALE_TICKS} 以上再看到这块门 → 不播。</li>
+         * </ul>
+         * 1.20.1 线用 {@code getOpenValue()} 的 0 / &gt;0 边沿，判据与这里等价。
+         *
+         * <p>为什么不放在 {@code tick()} 里：MTR 的方块实体类型建的时候 ticker 传的是 {@code null}
+         * （{@code RegistryUtilities#getBlockEntityType} → {@code new BlockEntityType(factory, blocks, null)}），
+         * 所以 {@code tick()} 两端都不会被调用。渲染器是唯一保证「客户端、每帧、且只对看得见的门」的挂点。
+         *
+         * @param world 方块所在世界（客户端）
+         * @param pos   门的位置
+         * @param globalEnabled 配置界面「其他 → 门音响」的全局开关值（由调用方从
+         *                      {@code MtrHeadlightClient} 读好再传进来 —— 方块实体在专用服务端上
+         *                      也会被创建，不该把引用 {@code MinecraftClient} 的类拖进服务端）
+         */
+        public void tickDoorSound(final World world, final BlockPos pos, final boolean globalEnabled) {
+            if (world == null || pos == null) {
+                return;
+            }
+            final long ticks = world.getTime();
+            final boolean now = this.isOpen();
+            final boolean before = this.lastOpen;
+            final boolean fresh = !this.sawOnce || ticks - this.lastOpenTick > STALE_TICKS;
+            this.lastOpen = now;
+            this.sawOnce = true;
+            this.lastOpenTick = ticks;
+            if (fresh || now == before) {
+                return;
+            }
+            final boolean opening = now;
+            // 两级开关「与」：单块 NBT 开关 + 配置界面「其他 → 门音响」。
+            if (!this.doorSound || !globalEnabled) {
+                return;
+            }
+            if (FangsuPsdSounds.BRT_DOOR == null) {
+                return;   // 音效没注册上（MTR / 资源异常），静音而不是 NPE
+            }
+            // 客户端调 playSound = 只在本机播；服务端从不走这条路径，不会「每人一遍」。
+            world.playSound(null, pos, FangsuPsdSounds.BRT_DOOR, SoundCategory.BLOCKS, 1.0F, 1.0F);
+            if (!playLogged) {
+                playLogged = true;
+                LteLog.LOGGER.debug("[lte] fangsu psd door sound: first play (opening={}) at {}",
+                        Boolean.valueOf(opening), pos);
+            }
+        }
+
+        @Override
+        public void readCompoundTag(final NbtCompound nbt) {
+            super.readCompoundTag(nbt);
+            // 老存档 / 第一次放下的门没有这个键 → 默认开（不要读成 false 让门默默不响）。
+            this.doorSound = !nbt.contains(DOOR_SOUND_TAG) || nbt.getBoolean(DOOR_SOUND_TAG);
+        }
+
+        @Override
+        public void writeCompoundTag(final NbtCompound nbt) {
+            super.writeCompoundTag(nbt);
+            nbt.putBoolean(DOOR_SOUND_TAG, this.doorSound);
+        }
+
         public FangsuPsdDoorEntity(final BlockPos pos, final BlockState state) {
             super(FangsuPsdBlocks.entityType(), pos, state);
         }
@@ -408,8 +547,7 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
         }
 
         /**
-         * 服务端：<b>列车</b>（{@code TrainServer#openDoors}）或刷子（我们自己的
-         * {@code setOpenAt}）写进来的目标值。
+         * 服务端：<b>列车</b>（{@code TrainServer#openDoors}）写进来的目标值。
          *
          * <p>这里只额外做一件事：值一变就打一行诊断
          * <pre>[lte] fangsu door: openValue=32 state=facing=north,half=lower,unlocked=true,temp=false train=driver</pre>
@@ -420,7 +558,8 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
         @Override
         public void setOpen(final int value) {
             super.setOpen(value);
-            logServer(value, manualSet ? "manual" : "driver");
+            // 刷子不再手动开关门，{@code setOpen} 只剩列车这一条路（第三条：别的模组调它，也算 driver）。
+            logServer(value, "driver");
         }
 
         /** 诊断行最小间隔（tick）。 */

@@ -154,6 +154,14 @@ public final class FangsuPsdBlocks {
         }
         registered = true;
 
+        // 开关门音效（mtrlte:brt_door）：和方块一起注册 —— 方块注册段两端都会跑，
+        // 音效是 registry 条目、服务端也必须有，所以挂在这里而不是客户端入口。见 FangsuPsdSounds。
+        try {
+            FangsuPsdSounds.register();
+        } catch (Throwable t) {
+            LteLog.LOGGER.error("[lte] could not register the fangsu psd door sound - doors stay silent", t);
+        }
+
         DEFS.clear();
         DEFS.addAll(FangsuPsdDef.load());
 

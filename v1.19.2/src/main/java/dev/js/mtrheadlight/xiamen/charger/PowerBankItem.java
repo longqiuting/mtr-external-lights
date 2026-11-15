@@ -26,6 +26,20 @@ import org.jetbrains.annotations.Nullable;
  * 换手都不会丢时间，归还时机器只读这一个数。写这个键的只有租借机的服务端逻辑，
  * 客户端读到的只是同步下来的 NBT —— 客户端改不了自己的计费。
  *
+ * <h2 id="fee">计费（新规则）</h2>
+ * <ol>
+ *   <li><b>前 {@value #GRACE_MINUTES} 分钟免费</b>：{@code held ≤ 5min} → 0 元；</li>
+ *   <li>超过之后<b>每 {@value #PERIOD_MINUTES} 分钟 2 元</b>，<b>向上取整</b>
+ *       （不足一档也算一档）：{@code periods = ceil((held − 5min) / 30min)}；</li>
+ *   <li><b>24 小时封顶</b>：档数不超过 {@value #MAX_PERIODS} 档 = {@value #MAX_FEE} 元；</li>
+ *   <li><b>超过 {@value #OVERDUE_HOURS} 小时不可归还</b>：机器拒收，扣
+ *       {@value #OVERDUE_FEE} 元「买断」罚款 —— <b>只扣一次</b>，扣完在物品 NBT 上写
+ *       {@value #NBT_OVERDUE_SETTLED} 标记，<b>充电宝留在玩家手里</b>（见
+ *       {@code ChargerBlock#returnPowerBank}）。</li>
+ * </ol>
+ * <p>计费只读物品 NBT 里的 {@code rentedAt}，所以与客户端时钟无关；
+ * 扣费允许把余额扣成负数（欠费是「余额为负不能租借」的前提，见 {@code MtrBalance}）。
+ *
  * <h2>右键空气 = 投掷</h2>
  * <p>照原版雪球：服务端生成 {@link PowerBankProjectileEntity}，发射速度 1.5、散布 1.0
  * （与 {@code Items.SNOWBALL} 逐字一致），重力由实体自己取 {@code ThrownEntity#getGravity()} = 0.03。
@@ -39,11 +53,41 @@ public class PowerBankItem extends Item {
     /** NBT 键：租借开始时间（epoch 毫秒，服务端写的）。 */
     public static final String NBT_RENTED_AT = "rentedAt";
 
-    /** 计费周期：每满 10 分钟。 */
-    public static final long PERIOD_MILLIS = 10L * 60L * 1000L;
+    /**
+     * NBT 键：超时「买断」罚款已结算（布尔）。写一次就不再扣钱 —— 玩家相当于花
+     * {@value #OVERDUE_FEE} 元把这块充电宝买下来了，物品<b>不会</b>被机器收走。
+     */
+    public static final String NBT_OVERDUE_SETTLED = "expiredFine";
 
-    /** 每个周期的租金（MTR 余额单位）。 */
+    /** 免费时长：前 5 分钟一分不扣。 */
+    public static final int GRACE_MINUTES = 5;
+
+    /** 免费时长（毫秒）。 */
+    public static final long GRACE_MILLIS = GRACE_MINUTES * 60_000L;
+
+    /** 计费周期：免费时长之后每满 30 分钟一档（不足一档向上取整）。 */
+    public static final int PERIOD_MINUTES = 30;
+
+    /** 计费周期（毫秒）。 */
+    public static final long PERIOD_MILLIS = PERIOD_MINUTES * 60_000L;
+
+    /** 每档租金（MTR 余额单位）。 */
     public static final int FEE_PER_PERIOD = 2;
+
+    /** 封顶档数：(24h − 5min) / 30min 向上取整 = 48 档。 */
+    public static final int MAX_PERIODS = 48;
+
+    /** 封顶金额：48 档 × 2 = 96 元。 */
+    public static final int MAX_FEE = MAX_PERIODS * FEE_PER_PERIOD;
+
+    /** 超时门槛：超过 24 小时不能再归还。 */
+    public static final int OVERDUE_HOURS = 24;
+
+    /** 超时门槛（毫秒）。 */
+    public static final long OVERDUE_MILLIS = OVERDUE_HOURS * 60L * 60_000L;
+
+    /** 超时惩罚：拒收并没收时扣的金额（允许扣成负数）。 */
+    public static final int OVERDUE_FEE = 100;
 
     public PowerBankItem(final Settings settings) {
         super(settings);
@@ -85,10 +129,45 @@ public class PowerBankItem extends Item {
         return heldMillis(stack, nowMillis) / 60000L;
     }
 
-    /** 该扣多少：每满一个 {@link #PERIOD_MILLIS} 收 {@link #FEE_PER_PERIOD}，不满一期不扣。 */
+    /** 已持有多少整小时（超时提示用）。 */
+    public static long heldHours(final ItemStack stack, final long nowMillis) {
+        return heldMillis(stack, nowMillis) / 3_600_000L;
+    }
+
+    /**
+     * 已计费多少档：免费时长之内的部分不计，之后每 {@link #PERIOD_MILLIS} 一档、
+     * <b>向上取整</b>，且不超过 {@link #MAX_PERIODS}。
+     *
+     * <p>这就是「不足 30 分钟按 1 个计费档」和「24 小时封顶」两句话的合并实现。
+     */
+    public static long billedPeriods(final ItemStack stack, final long nowMillis) {
+        final long billable = heldMillis(stack, nowMillis) - GRACE_MILLIS;
+        if (billable <= 0L) {
+            return 0L;
+        }
+        final long periods = (billable + PERIOD_MILLIS - 1L) / PERIOD_MILLIS;
+        return Math.min(periods, MAX_PERIODS);
+    }
+
+    /** 该扣多少：档数 × {@link #FEE_PER_PERIOD}（已含封顶）。 */
     public static int fee(final ItemStack stack, final long nowMillis) {
-        final long periods = heldMillis(stack, nowMillis) / PERIOD_MILLIS;
-        return (int) Math.min(Integer.MAX_VALUE, periods * FEE_PER_PERIOD);
+        return (int) Math.min(Integer.MAX_VALUE, billedPeriods(stack, nowMillis) * FEE_PER_PERIOD);
+    }
+
+    /** 是否已经超时到「不可归还」（严格大于 24 小时；正好 24:00 仍可归还，收费已封顶）。 */
+    public static boolean isOverdue(final ItemStack stack, final long nowMillis) {
+        return isRented(stack) && heldMillis(stack, nowMillis) > OVERDUE_MILLIS;
+    }
+
+    /** 超时罚款是否已经收过（{@value #NBT_OVERDUE_SETTLED}）。收过就只提示、不再扣钱。 */
+    public static boolean isOverdueSettled(final ItemStack stack) {
+        return stack != null && !stack.isEmpty() && stack.hasNbt()
+                && stack.getNbt().getBoolean(NBT_OVERDUE_SETTLED);
+    }
+
+    /** 记下「超时罚款已收」：之后这块充电宝永远不再被收费，也不会被机器收走。 */
+    public static void markOverdueSettled(final ItemStack stack) {
+        stack.getOrCreateNbt().putBoolean(NBT_OVERDUE_SETTLED, true);
     }
 
     // ------------------------------------------------------------------ 投掷
