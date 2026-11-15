@@ -424,6 +424,9 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
          */
         private static final long STALE_TICKS = 40L;
 
+        /** 已经为这一轮关门发过信号（避免 open 值每降一格都触发）。 */
+        private boolean closingFired;
+
         /** 会话内只打一行「真的播了」的日志，不每 tick / 每扇门刷屏。 */
         private static boolean playLogged;
 
@@ -491,9 +494,15 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
          *                      在专用服务端上也会被创建 —— 直接在这里引用它会把客户端类
          *                      拖进服务端的类解析路径。
          */
-        public void tickDoorSound(final World world, final BlockPos pos, final boolean globalEnabled) {
+                /**
+         * 只做判定，不播放（这个类在专用服务端也会被加载，不能引用客户端类）。
+         * 返回值交给渲染器里的 {@code FangsuPsdSoundsClient} 真正发声。
+         *
+         * @return 0 = 无动作；1 = 开门；2 = 关门
+         */
+        public int tickDoorSound(final World world, final BlockPos pos, final boolean globalEnabled) {
             if (world == null || pos == null) {
-                return;
+                return 0;
             }
             final long ticks = world.getTime();
             final int now = this.getOpenValue();
@@ -502,27 +511,30 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
             this.lastOpen = now;
             this.lastOpenTick = ticks;
             if (fresh || now == before) {
-                return;
+                return 0;
             }
+
             final boolean opening = before == 0 && now > 0;
-            final boolean closing = before > 0 && now == 0;
+            // 关门取「第一次变小」而不是「归零」：MTR 的 open 值是一格一格降下去的，
+            // 等它变成 0 时门已经合上了（用户实测：关门声比门晚一拍）。
+            final boolean closing = before > 0 && now < before && !this.closingFired;
+            if (closing) {
+                this.closingFired = true;
+            }
+            if (now == 0) {
+                this.closingFired = false;   // 门已合上，下一次关门重新计
+            }
             if (!opening && !closing) {
-                return;
+                return 0;
             }
             // 两级开关「与」：单块 NBT 开关 + 配置界面「其他 → 门音响」。
             if (!this.doorSound || !globalEnabled) {
-                return;
+                return 0;
             }
             if (FangsuPsdSounds.BRT_DOOR == null) {
-                return;   // 音效没注册上（MTR / 资源异常），静音而不是 NPE
+                return 0;   // 音效没注册上（MTR / 资源异常），静音而不是 NPE
             }
-            // 客户端调 playSound = 只在本机播；服务端从不走这条路径，不会「每人一遍」。
-            world.playSound(null, pos, FangsuPsdSounds.BRT_DOOR, SoundCategory.BLOCKS, 1.0F, 1.0F);
-            if (!playLogged) {
-                playLogged = true;
-                LteLog.LOGGER.debug("[lte] fangsu psd door sound: first play (opening={}) at {}",
-                        Boolean.valueOf(opening), pos);
-            }
+            return opening ? 1 : 2;
         }
 
         @Override

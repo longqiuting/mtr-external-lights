@@ -75,7 +75,7 @@ public class EyecandyBlockEntity extends BlockEntity {
      * 布尔状态的端门拿不到 open 中间态，只能等它翻成关的那一 tick，间隔越小越贴近「立刻」。
      * 一次扫描 26 个方块的 {@code getBlockState} + 方块实体读，2 tick 的代价可以忽略。
      */
-    static final int SCAN_INTERVAL_TICKS = 2;
+    static final int SCAN_INTERVAL_TICKS = 1;
 
     /** 最后一次看到门的开 / 关（闪完之后停在这个状态）。 */
     private boolean doorOpen;

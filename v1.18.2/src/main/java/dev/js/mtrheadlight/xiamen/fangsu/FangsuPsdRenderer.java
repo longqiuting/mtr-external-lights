@@ -44,7 +44,8 @@ public class FangsuPsdRenderer implements BlockEntityRenderer<FangsuPsdDoorBlock
         // 开关门音效：用 open 状态的边沿判定，只在客户端、只在画下段的那一次调用里做
         // （每扇门每一列一次）。全局开关在这里读好再传进去 —— 方块实体本身不引用客户端类
         // （它在专用服务端上也会被创建），见 FangsuPsdDoorEntity#tickDoorSound。
-        entity.tickDoorSound(world, entity.getPos(), MtrHeadlightClient.config().fangsuDoorSound);
+        FangsuPsdSoundsClient.play(entity.getPos(),
+                entity.tickDoorSound(world, entity.getPos(), MtrHeadlightClient.config().fangsuDoorSound));
         final float progress = entity.progress(world == null ? 0L : world.getTime(), tickDelta);
         FangsuPsdDraw.draw(block.def(), progress, FangsuPsdDraw.facingOf(state),
                 matrices, vertexConsumers, light, overlay);

@@ -4,7 +4,7 @@
     "sounds": [
       {
         "name": "mtrlte:crt_ticket",
-        "pitch": 1.0
+        "pitch": 1
       }
     ]
   },
@@ -30,7 +30,7 @@
     "sounds": [
       {
         "name": "mtrlte:brt_door",
-        "pitch": 1.0
+        "pitch": 1
       }
     ]
   }

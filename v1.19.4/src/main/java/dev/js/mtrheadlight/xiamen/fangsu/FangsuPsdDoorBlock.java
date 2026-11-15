@@ -485,9 +485,18 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
          *                      {@code MtrHeadlightClient} 读好再传进来 —— 方块实体在专用服务端上
          *                      也会被创建，不该把引用 {@code MinecraftClient} 的类拖进服务端）
          */
-        public void tickDoorSound(final World world, final BlockPos pos, final boolean globalEnabled) {
+        /**
+         * 只做判定，不播放（这个类在专用服务端也会被加载，不能引用客户端类）。
+         * 返回值交给渲染器里的 {@code FangsuPsdSoundsClient} 真正发声。
+         *
+         * <p>MTR 3.2.2 没有 {@code getOpenValue()}，而 {@code getOpen(float)} 是有状态的
+         * （每调一次就推进一帧动画，渲染器已经在调），所以这里用 {@code isOpen()} 的布尔边沿。</p>
+         *
+         * @return 0 = 无动作；1 = 开门；2 = 关门
+         */
+        public int tickDoorSound(final World world, final BlockPos pos, final boolean globalEnabled) {
             if (world == null || pos == null) {
-                return;
+                return 0;
             }
             final long ticks = world.getTime();
             final boolean now = this.isOpen();
@@ -497,23 +506,16 @@ public class FangsuPsdDoorBlock extends BlockPSDAPGDoorBase {
             this.sawOnce = true;
             this.lastOpenTick = ticks;
             if (fresh || now == before) {
-                return;
+                return 0;
             }
-            final boolean opening = now;
             // 两级开关「与」：单块 NBT 开关 + 配置界面「其他 → 门音响」。
             if (!this.doorSound || !globalEnabled) {
-                return;
+                return 0;
             }
             if (FangsuPsdSounds.BRT_DOOR == null) {
-                return;   // 音效没注册上（MTR / 资源异常），静音而不是 NPE
+                return 0;   // 音效没注册上（MTR / 资源异常），静音而不是 NPE
             }
-            // 客户端调 playSound = 只在本机播；服务端从不走这条路径，不会「每人一遍」。
-            world.playSound(null, pos, FangsuPsdSounds.BRT_DOOR, SoundCategory.BLOCKS, 1.0F, 1.0F);
-            if (!playLogged) {
-                playLogged = true;
-                LteLog.LOGGER.debug("[lte] fangsu psd door sound: first play (opening={}) at {}",
-                        Boolean.valueOf(opening), pos);
-            }
+            return now ? 1 : 2;
         }
 
         @Override
