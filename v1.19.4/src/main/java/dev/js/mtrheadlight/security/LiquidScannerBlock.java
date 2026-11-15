@@ -12,6 +12,7 @@ import net.minecraft.entity.effect.StatusEffectCategory;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemPlacementContext;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.potion.PotionUtil;
@@ -284,6 +285,35 @@ public final class LiquidScannerBlock extends HorizontalFacingBlock implements B
         return new LiquidScannerBlockEntity(pos, state);
     }
 
+
+    /**
+     * 这一叠物品算不算「液体」—— 会拿去给机器验一遍的那些。
+     *
+     * <p>除了三款药水（普通 / 喷溅 / 滞留），还有原版那些装液体的桶与瓶子：
+     * 牛奶、水、蜂蜜，以及五种生物桶（1.19 起再加蝌蚪桶）。
+     * 生物桶里装的是水 + 生物，没有药水效果，所以默认判定下一定放行；
+     * 想让某台机器没收它们，就在配置名单里勾「空药水」（{@code minecraft:empty}）——
+     * 非药水液体的 id 都归到那一档。</p>
+     */
+    public static boolean isLiquid(final ItemStack stack) {
+        if (stack == null || stack.isEmpty()) {
+            return false;
+        }
+        final Item item = stack.getItem();
+        return item == Items.POTION
+                || item == Items.SPLASH_POTION
+                || item == Items.LINGERING_POTION
+                || item == Items.MILK_BUCKET
+                || item == Items.WATER_BUCKET
+                || item == Items.HONEY_BOTTLE
+                || item == Items.COD_BUCKET
+                || item == Items.SALMON_BUCKET
+                || item == Items.PUFFERFISH_BUCKET
+                || item == Items.TROPICAL_FISH_BUCKET
+                || item == Items.AXOLOTL_BUCKET
+                || item == Items.TADPOLE_BUCKET;
+    }
+
     /** 「有负面效果就算有害」—— 机器没配过名单时的默认判定（也是界面「恢复默认」预选的那份）。 */
     public static boolean isHarmful(final ItemStack stack) {
         return PotionUtil.getPotionEffects(stack).stream()
@@ -332,7 +362,7 @@ public final class LiquidScannerBlock extends HorizontalFacingBlock implements B
             return ActionResult.SUCCESS;
         }
 
-        if (!held.isOf(Items.POTION)) {
+        if (!isLiquid(held)) {
             return ActionResult.PASS;
         }
         // 客户端只做挥手；扣瓶 / 回瓶 / 音效 / 亮灯全部服务端权威（单人时的服务端就是同一个进程）。
