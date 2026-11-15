@@ -350,13 +350,18 @@ public class DepOnRoofBlock extends HorizontalFacingBlock implements BlockEntity
     @Override
     public BlockState getPlacementState(final ItemPlacementContext ctx) {
         final Direction facing = facingForNormal(ctx.getPlayerFacing().getOpposite());
-        final BlockState state = getDefaultState().with(FACING, facing);
-        return hasSupport(ctx.getWorld(), ctx.getBlockPos()) ? state : null;
+        // 任意位置可放：不再要求上方有天花板。
+        return getDefaultState().with(FACING, facing);
     }
 
+    /**
+     * 任意位置可放：不再要求背后 / 上方有支撑（{@link #getStateForNeighborUpdate} 里那句
+     * 「支撑没了变空气」也因此永远不会触发 —— 它问的就是这个方法）。
+     */
+    // 任意位置可放
     @Override
     public boolean canPlaceAt(final BlockState state, final WorldView world, final BlockPos pos) {
-        return hasSupport(world, pos);
+        return true;
     }
 
     /** 上面的天花板没了 → 自己变空气（走邻居更新；玩家直接挖本体照常掉物品）。 */

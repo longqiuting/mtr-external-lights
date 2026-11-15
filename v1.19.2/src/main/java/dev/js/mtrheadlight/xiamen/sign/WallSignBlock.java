@@ -58,6 +58,17 @@ import net.minecraft.util.math.BlockPos;
 public class WallSignBlock extends BlockStationNameEntrance {
 
     /**
+     * 任意位置可放：父类 {@code BlockStationNameEntrance#canPlaceAt} 要求背后是实心方块，
+     * 这里恒真。父类的 {@code getStateForNeighborUpdate} 问的也是这个方法，
+     * 所以「支撑没了自己变空气」那条也一并失效 —— 牌子拆墙后仍然留着。
+     */
+    @Override
+    public boolean canPlaceAt(final BlockState state, final net.minecraft.world.WorldView world,
+                              final BlockPos pos) {
+        return true;
+    }
+
+    /**
      * 品牌 logo 的贴图名（{@code block/xiamen_logo} 这种，不含命名空间、不含扩展名）。
      * 只在模型 / 日志里用到 —— 方块本身不认识它。
      */

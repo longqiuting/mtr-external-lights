@@ -203,13 +203,18 @@ public class DepOnWallBlock extends HorizontalFacingBlock implements BlockEntity
         final Direction facing = side.getAxis().isHorizontal()
                 ? side
                 : ctx.getPlayerFacing().getOpposite();
-        final BlockState state = getDefaultState().with(FACING, facing);
-        return hasSupport(state, ctx.getWorld(), ctx.getBlockPos()) ? state : null;
+        // 任意位置可放：不再要求背后有实心方块。
+        return getDefaultState().with(FACING, facing);
     }
 
+    /**
+     * 任意位置可放：不再要求背后 / 上方有支撑（{@link #getStateForNeighborUpdate} 里那句
+     * 「支撑没了变空气」也因此永远不会触发 —— 它问的就是这个方法）。
+     */
+    // 任意位置可放
     @Override
     public boolean canPlaceAt(final BlockState state, final WorldView world, final BlockPos pos) {
-        return hasSupport(state, world, pos);
+        return true;
     }
 
     /** 背后那格没了 → 自己变空气（走邻居更新，和原版火把一样；玩家直接挖本体照常掉物品）。 */
