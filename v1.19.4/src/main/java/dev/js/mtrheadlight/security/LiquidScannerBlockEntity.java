@@ -73,7 +73,7 @@ public class LiquidScannerBlockEntity extends BlockEntity {
      */
     public boolean shouldConfiscate(final ItemStack stack) {
         if (!this.configured) {
-            return LiquidScannerBlock.isHarmful(stack);
+            return LiquidScannerBlock.isHarmful(stack) || LiquidScannerBlock.isConfiscatedByDefault(stack);
         }
         final Identifier id = LiquidScannerBlock.liquidId(stack);
         return id != null && this.confiscate.contains(id);

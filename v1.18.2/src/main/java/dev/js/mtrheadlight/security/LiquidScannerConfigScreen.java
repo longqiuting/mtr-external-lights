@@ -119,6 +119,7 @@ public final class LiquidScannerConfigScreen extends Screen {
                 }
             }
         }
+        out.add(LiquidScannerBlock.LIQUID_LAVA);
         return out;
     }
 
@@ -139,6 +140,9 @@ public final class LiquidScannerConfigScreen extends Screen {
 
     /** 非药水液体在图例里用的颜色（药水返回 0，走药水本身的颜色）。 */
     private static int liquidColor(final Identifier id) {
+        if (id.equals(LiquidScannerBlock.LIQUID_LAVA)) {
+            return 0xFF6A00;
+        }
         if (id.equals(LiquidScannerBlock.LIQUID_WATER)) {
             return 0x3F76E4;
         }

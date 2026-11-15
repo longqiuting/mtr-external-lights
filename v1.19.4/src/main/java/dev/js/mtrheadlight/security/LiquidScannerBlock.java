@@ -292,6 +292,7 @@ public final class LiquidScannerBlock extends HorizontalFacingBlock implements B
 
 
     /** 非药水液体的名单 id —— 与药水类型 id 并列在同一份「没收名单」里。 */
+    public static final Identifier LIQUID_LAVA = new Identifier("mtrlte", "liquid/lava");
     public static final Identifier LIQUID_WATER = new Identifier("mtrlte", "liquid/water");
     public static final Identifier LIQUID_MILK = new Identifier("mtrlte", "liquid/milk");
     public static final Identifier LIQUID_HONEY = new Identifier("mtrlte", "liquid/honey");
@@ -305,10 +306,10 @@ public final class LiquidScannerBlock extends HorizontalFacingBlock implements B
     /**
      * 配置界面里额外列出的非药水液体。
      *
-     * <p><b>岩浆桶故意不在这个表里</b>：它不管名单怎么配都直接没收
-     * （见 {@link #isAlwaysConfiscated}），列出来反而会让人以为取消勾选就能带进去。</p>
+     * <p>岩浆桶也在表里，界面首次打开时默认勾上（见 {@link #isConfiscatedByDefault}）。</p>
      */
     public static final List<Identifier> EXTRA_LIQUIDS = List.of(
+            LIQUID_LAVA,
             LIQUID_WATER,
             LIQUID_MILK,
             LIQUID_HONEY,
@@ -334,6 +335,9 @@ public final class LiquidScannerBlock extends HorizontalFacingBlock implements B
         if (item == Items.POTION || item == Items.SPLASH_POTION || item == Items.LINGERING_POTION) {
             final Potion potion = PotionUtil.getPotion(stack);
             return potion == null ? null : Registries.POTION.getId(potion);
+        }
+        if (item == Items.LAVA_BUCKET) {
+            return LIQUID_LAVA;
         }
         if (item == Items.WATER_BUCKET) {
             return LIQUID_WATER;
@@ -367,11 +371,11 @@ public final class LiquidScannerBlock extends HorizontalFacingBlock implements B
 
     /** 这一叠物品算不算「液体」—— 会拿去给机器验一遍的那些。 */
     public static boolean isLiquid(final ItemStack stack) {
-        return liquidId(stack) != null || isAlwaysConfiscated(stack);
+        return liquidId(stack) != null;
     }
 
-    /** 岩浆桶：不看名单，一律没收。 */
-    public static boolean isAlwaysConfiscated(final ItemStack stack) {
+    /** 默认就该没收的液体：岩浆桶。界面首次打开时预选它，但可以取消勾选。 */
+    public static boolean isConfiscatedByDefault(final ItemStack stack) {
         return stack != null && !stack.isEmpty() && stack.getItem() == Items.LAVA_BUCKET;
     }
 
@@ -434,8 +438,9 @@ public final class LiquidScannerBlock extends HorizontalFacingBlock implements B
         // ② 检测：配过名单就只看名单，没配过退回「有负面效果就没收」。
         final LiquidScannerBlockEntity entity =
                 world.getBlockEntity(pos) instanceof LiquidScannerBlockEntity be ? be : null;
-        final boolean confiscate = isAlwaysConfiscated(held)
-                || (entity == null ? isHarmful(held) : entity.shouldConfiscate(held));
+        final boolean confiscate = entity == null
+                ? isHarmful(held) || isConfiscatedByDefault(held)
+                : entity.shouldConfiscate(held);
 
         if (confiscate) {
             // 没收：手里那一瓶减 1，罐子一起收走（与素材一致）。
