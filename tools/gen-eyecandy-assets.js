@@ -145,7 +145,8 @@ function main() {
             return ['facing=' + f, { model: 'mtrlte:block/empty' }];
           }
           // 和 BER 里 NEGATIVE_Y.rotationDegrees(blockRotation) 同一个角度
-          const y = { north: 0, east: 90, south: 180, west: 270 }[f];
+          const yaw = (first[key].yaw || 0) % 360;
+          const y = ({ north: 0, east: 90, south: 180, west: 270 }[f] + yaw) % 360;
           return ['facing=' + f, y === 0 ? { model: baked } : { model: baked, y }];
         }));
       if (writeIfChanged(path.join(BLOCKSTATES, id + '.json'), JSON.stringify({ variants }, null, 2) + '\n')) written++;

@@ -124,7 +124,9 @@ public final class EyecandyBlocks {
      * <p>两件的几何都是「两条互相垂直的栏杆」，套整格 AABB 会把拐角里的空地挡住。
      */
     private static final Set<String> CORNER_KEYS =
-            new LinkedHashSet<>(List.of("msd_corner_railing", "xiamen_brt_railing_corner"));
+            new LinkedHashSet<>(List.of("msd_corner_railing", "msd_corner_railing_mirror",
+                    "msd_corner_railing_2", "msd_corner_railing_2_mirror",
+                    "xiamen_brt_railing_corner"));
 
     /**
      * 只要轮廓、不要碰撞的 key：{@code bridge_pier_20}（20 格高的桥墩）。

@@ -11,6 +11,7 @@ const fs = require('fs');
 
 const src = process.argv[2];
 const out = process.argv[3];
+const NO_FLIP_Z = process.argv.includes('--no-flip-z');
 const model = JSON.parse(fs.readFileSync(src, 'utf8'));
 
 const lines = ['# converted from ' + src.replace(/^.*[\\/]/, ''), ''];
@@ -29,7 +30,7 @@ const NORMALS = {
 };
 
 function P(bx, by, bz) {
-    return [bx / 16 - 0.5, by / 16, -(bz / 16 - 0.5)];
+    return [bx / 16 - 0.5, by / 16, NO_FLIP_Z ? (bz / 16 - 0.5) : -(bz / 16 - 0.5)];
 }
 
 model.elements.forEach((el, index) => {

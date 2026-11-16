@@ -1,19 +1,19 @@
 {
   "variants": {
     "facing=north": {
-      "model": "mtrlte:block/msd_railing_corner_2"
-    },
-    "facing=east": {
-      "model": "mtrlte:block/msd_railing_corner_2",
-      "y": 90
-    },
-    "facing=south": {
       "model": "mtrlte:block/msd_railing_corner_2",
       "y": 180
     },
-    "facing=west": {
+    "facing=east": {
       "model": "mtrlte:block/msd_railing_corner_2",
       "y": 270
+    },
+    "facing=south": {
+      "model": "mtrlte:block/msd_railing_corner_2"
+    },
+    "facing=west": {
+      "model": "mtrlte:block/msd_railing_corner_2",
+      "y": 90
     }
   }
 }

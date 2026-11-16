@@ -51,7 +51,10 @@ const DESCRIPTORS = [
   { file: 'first.json', expect: 28, label: '厦门风格物件包' },
   { file: 'nanputuo.json', expect: 34, label: '南普陀' },
 ];
-const CORNER_KEYS = ['msd_corner_railing', 'xiamen_brt_railing_corner'];
+const CORNER_KEYS = ['msd_corner_railing', 'msd_corner_railing_mirror',
+  'msd_corner_railing_2', 'msd_corner_railing_2_mirror', 'xiamen_brt_railing_corner'];
+// 弯头件：只有一小段拐角（2 个元素），不必有贯通的臂。
+const ELBOW_KEYS = ['msd_corner_railing_2', 'msd_corner_railing_2_mirror'];
 const NO_COLLISION_KEYS = ['bridge_pier_20'];
 // 带警示灯的屏蔽门收纳机（BRT psd 左 / 右）：obj 里有两段位置重合、只差 uv 的 `o light`
 // （深色 = 熄 / 浅色 = 亮），渲染器只画其中一段，亮的那段自发光。
@@ -595,7 +598,7 @@ function checkEntry(key, entry, seenIds, seenFiles) {
     const ratio = filled / 256;
     if (ratio >= 0.85) fail(`${tag} corner footprint fills ${(ratio * 100).toFixed(0)}% of the block (= an AABB)`);
     else ok(`${tag} corner footprint ${(ratio * 100).toFixed(0)}%`);
-    if (ratio < 0.08) fail(`${tag} corner footprint is nearly empty (${(ratio * 100).toFixed(0)}%)`);
+    if (ratio < 0.08 && !ELBOW_KEYS.includes(key)) fail(`${tag} corner footprint is nearly empty (${(ratio * 100).toFixed(0)}%)`);
     // 两条臂：贴 x 边的那条（某一行横跨 ≥ 12 格）和贴 z 边的那条（某一列纵跨 ≥ 12 格）
     let widestRow = 0;
     for (let z = 0; z < 16; z++) {
@@ -607,9 +610,9 @@ function checkEntry(key, entry, seenIds, seenFiles) {
       let run = 0;
       for (let z = 0; z < 16; z++) { run = grid[z * 16 + x] ? run + 1 : 0; tallestCol = Math.max(tallestCol, run); }
     }
-    if (widestRow < 8) fail(`${tag} corner has no arm along x (widest row ${widestRow}/16)`);
+    if (widestRow < 8 && !ELBOW_KEYS.includes(key)) fail(`${tag} corner has no arm along x (widest row ${widestRow}/16)`);
     else ok(`${tag} corner x-arm ${widestRow}/16`);
-    if (tallestCol < 8) fail(`${tag} corner has no arm along z (tallest column ${tallestCol}/16)`);
+    if (tallestCol < 8 && !ELBOW_KEYS.includes(key)) fail(`${tag} corner has no arm along z (tallest column ${tallestCol}/16)`);
     else ok(`${tag} corner z-arm ${tallestCol}/16`);
     if (box[1] < -1e-6) fail(`${tag} corner dips below the floor: minY = ${box[1].toFixed(4)}`);
 

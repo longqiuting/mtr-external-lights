@@ -79,7 +79,7 @@ import net.minecraft.util.Identifier;
  */
 public record EyecandyEntry(Pack pack, String key, String displayName, Identifier modelId, Identifier texture,
                             boolean flipV, float[] scale, float[] rotation, float[] translation,
-                            boolean[] mirror, int glow, Identifier blockId, Identifier bakedModel) {
+                            boolean[] mirror, int glow, Identifier blockId, Identifier bakedModel, int yaw) {
 
     /** 两套素材：一份描述文件 = 一个页签。 */
     public enum Pack {
@@ -132,7 +132,8 @@ public record EyecandyEntry(Pack pack, String key, String displayName, Identifie
                         glow(json),
                         new Identifier(EyecandyBlocks.NAMESPACE,
                                 "eyecandy_" + item.getKey().toLowerCase(Locale.ROOT)),
-                        bakedModel(json)));
+                        bakedModel(json),
+                        intValue(json, "yaw", 0)));
             }
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] eyecandy: could not parse {} ({})", pack.descriptor(), t.toString());
@@ -146,6 +147,12 @@ public record EyecandyEntry(Pack pack, String key, String displayName, Identifie
      * 不再走 BER。值是模型在 {@code assets/mtrlte/models/block/} 下的名字（不带扩展名）。
      * 缺省 {@code null} = 老路径（OBJ + BER，远处会被裁掉）。
      */
+    /** 取一个整数字段（缺省 ${fallback}）。 */
+    private static int intValue(final JsonObject json, final String key, final int fallback) {
+        final JsonElement element = json.get(key);
+        return element == null || element.isJsonNull() ? fallback : element.getAsInt();
+    }
+
     private static Identifier bakedModel(final JsonObject json) {
         final String raw = string(json, "baked", "");
         if (raw == null || raw.isEmpty()) {

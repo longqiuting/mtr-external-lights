@@ -363,7 +363,8 @@
       false,
       false
     ],
-    "baked": "msd_railing_corner_2"
+    "baked": "msd_railing_corner_2",
+    "yaw": 180
   },
   "msd_corner_railing_mirror": {
     "name": "适配MSD的转角栏杆（镜像）",
