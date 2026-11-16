@@ -338,11 +338,11 @@
   },
   "msd_corner_railing": {
     "name": "适配MSD的转角栏杆",
-    "model": "mtrsteamloco:eyecandies/railing_stair_flat.obj",
+    "model": "mtrsteamloco:eyecandies/railing_stair_corner_2.obj",
     "textureId": "mtrsteamloco:eyecandies/railing.png",
     "flipV": true,
-    "shape": "0,0,0,3,22,16/0,0,0,16,22,3",
-    "collisionShape": "0,0,0,3,24,16/0,0,0,16,24,3",
+    "shape": "1,0,1,16,21,3/1,0,1,3,21,16",
+    "collisionShape": "1,0,1,16,21,3/1,0,1,3,21,16",
     "translation": [
       0,
       0,
@@ -350,7 +350,7 @@
     ],
     "rotation": [
       0,
-      90,
+      0,
       0
     ],
     "scale": [

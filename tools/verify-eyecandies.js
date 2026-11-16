@@ -863,8 +863,11 @@ function main() {
   } else ok('renderer rotates the mesh by blockRotation');
 
   const serverSrc = fs.readFileSync(path.join(src, 'server', 'LteServer.java'), 'utf8');
-  if (!serverSrc.includes('EyecandyBlocks.register()')) fail('LteServer does not call EyecandyBlocks.register()');
-  else ok('LteServer calls EyecandyBlocks.register()');
+  // 注册入口从 2.0.x 起改成 LteServer 里统一包一层 try/catch 的 blockModule(...)，
+  // 调用点形如 '…xiamen.eyecandy.EyecandyBlocks::register'。
+  if (!/EyecandyBlocks::register|EyecandyBlocks.register()/.test(serverSrc)) {
+    fail('LteServer does not call EyecandyBlocks.register()');
+  } else ok('LteServer registers eyecandy blocks');
   const clientSrc = fs.readFileSync(path.join(src, 'xiamen', 'XiamenClient.java'), 'utf8');
   if (!clientSrc.includes('EyecandyClient.register()')) fail('XiamenClient does not call EyecandyClient.register()');
   else ok('XiamenClient calls EyecandyClient.register()');
