@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "mtrlte:block/msd_railing_corner_2_mirror"
+    },
+    "facing=east": {
+      "model": "mtrlte:block/msd_railing_corner_2_mirror",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "mtrlte:block/msd_railing_corner_2_mirror",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "mtrlte:block/msd_railing_corner_2_mirror",
+      "y": 270
+    }
+  }
+}

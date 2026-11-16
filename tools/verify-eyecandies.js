@@ -48,7 +48,7 @@ const LOOT = path.join(RES, 'data', 'mtrlte', 'loot_tables', 'blocks');
 const LANG = path.join(RES, 'assets', 'mtrlte', 'lang');
 
 const DESCRIPTORS = [
-  { file: 'first.json', expect: 25, label: '厦门风格物件包' },
+  { file: 'first.json', expect: 28, label: '厦门风格物件包' },
   { file: 'nanputuo.json', expect: 34, label: '南普陀' },
 ];
 const CORNER_KEYS = ['msd_corner_railing', 'xiamen_brt_railing_corner'];
@@ -669,11 +669,20 @@ function checkEntry(key, entry, seenIds, seenFiles) {
     const keys = Object.keys(variants);
     const wanted = FACINGS.map((f) => 'facing=' + f);
     const missing = wanted.filter((k) => !variants[k]);
-    const allEmpty = keys.every((k) => variants[k] && variants[k].model === 'mtrlte:block/empty');
-    if (missing.length || keys.length !== 4 || !allEmpty) {
-      fail(`${tag} blockstate should have exactly the four facing= variants → mtrlte:block/empty `
-        + `(missing ${missing.join(',') || 'none'}, has ${keys.join(',')})`);
-    } else ok(`${tag} blockstate → block/empty ×4 (facing)`);
+    // baked 条目：四个变体指同一份原版模型，靠 y 旋转区分朝向；其余仍是 block/empty（BER 画几何）。
+    const baked = entry.baked ? 'mtrlte:block/' + entry.baked : null;
+    const wantModel = baked || 'mtrlte:block/empty';
+    const sameModel = keys.every((k) => variants[k] && variants[k].model === wantModel);
+    const rot = keys.map((k) => (variants[k] && variants[k].y) || 0).sort((a, b) => a - b);
+    const wantRot = baked ? '0,90,180,270' : '0,0,0,0';
+    if (missing.length || keys.length !== 4 || !sameModel || rot.join(',') !== wantRot) {
+      fail(`${tag} blockstate should have the four facing= variants → ${wantModel} `
+        + `(missing ${missing.join(',') || 'none'}, has ${keys.join(',')}, model ok=${sameModel}, rot=${rot.join(',')})`);
+    } else if (baked) {
+      ok(`${tag} blockstate → ${baked} ×4 (facing, y 0/90/180/270)`);
+    } else {
+      ok(`${tag} blockstate → block/empty ×4 (facing)`);
+    }
   }
 
   const itemFile = path.join(ITEM_MODELS, id + '.json');
@@ -738,7 +747,7 @@ function main() {
       if (row) rows.push(row);
     }
   }
-  if (total !== 25 + 34) fail(`descriptors hold ${total} entries, expected 59`);
+  if (total !== 28 + 34) fail(`descriptors hold ${total} entries, expected 59`);
   else ok('60 entries in total');
 
   // 7) lang
@@ -880,11 +889,11 @@ function main() {
     bsFiles++;
     variantCount += Object.keys(JSON.parse(fs.readFileSync(path.join(BLOCKSTATES, name), 'utf8')).variants || {}).length;
   }
-  if (bsFiles !== 59) fail(`${bsFiles} eyecandy blockstate file(s), expected 59`);
-  else ok('59 eyecandy blockstates');
-  if (variantCount !== 59 * 4) {
-    fail(`eyecandy blockstates hold ${variantCount} variants, expected ${59 * 4} (59 × facing=north/east/south/west)`);
-  } else ok(`${variantCount} blockstate variants (59 × 4 facings)`);
+  if (bsFiles !== 62) fail(`${bsFiles} eyecandy blockstate file(s), expected 62`);
+  else ok('62 eyecandy blockstates');
+  if (variantCount !== 62 * 4) {
+    fail(`eyecandy blockstates hold ${variantCount} variants, expected ${62 * 4} (62 × facing=north/east/south/west)`);
+  } else ok(`${variantCount} blockstate variants (62 × 4 facings)`);
 
   // 汇总表
   console.log('\nkey                                   id                                               size (blocks)          min corner            name');

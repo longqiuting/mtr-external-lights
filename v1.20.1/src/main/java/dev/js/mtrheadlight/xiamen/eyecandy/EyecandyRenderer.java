@@ -70,6 +70,11 @@ public class EyecandyRenderer implements BlockEntityRenderer<EyecandyBlockEntity
             return;
         }
         final EyecandyEntry entry = block.entry();
+        // baked：几何已经写成原版方块模型（blockstate 指向它），由区块渲染器画 ——
+        // 视距和普通方块一样远；BER 再画一遍就会重影，所以这里直接退出。
+        if (entry.bakedModel() != null) {
+            return;
+        }
         // 警示灯那两件：底座 + 一盏灯分开画；其余 57 件就是整份网格。
         final boolean warningLight = block.hasWarningLight();
         final RawMesh base = warningLight ? EyecandyBlocks.baseMesh(entry) : EyecandyBlocks.mesh(entry);

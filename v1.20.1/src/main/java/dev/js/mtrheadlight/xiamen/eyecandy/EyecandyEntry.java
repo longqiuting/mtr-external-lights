@@ -79,7 +79,7 @@ import net.minecraft.util.Identifier;
  */
 public record EyecandyEntry(Pack pack, String key, String displayName, Identifier modelId, Identifier texture,
                             boolean flipV, float[] scale, float[] rotation, float[] translation,
-                            boolean[] mirror, int glow, Identifier blockId) {
+                            boolean[] mirror, int glow, Identifier blockId, Identifier bakedModel) {
 
     /** 两套素材：一份描述文件 = 一个页签。 */
     public enum Pack {
@@ -131,13 +131,27 @@ public record EyecandyEntry(Pack pack, String key, String displayName, Identifie
                         bools(json, "mirror"),
                         glow(json),
                         new Identifier(EyecandyBlocks.NAMESPACE,
-                                "eyecandy_" + item.getKey().toLowerCase(Locale.ROOT))));
+                                "eyecandy_" + item.getKey().toLowerCase(Locale.ROOT)),
+                        bakedModel(json)));
             }
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] eyecandy: could not parse {} ({})", pack.descriptor(), t.toString());
             out.clear();
         }
         return out;
+    }
+
+    /**
+     * 可选的 {@code "baked"} 字段：这一件用**原版方块模型**画（进区块渲染，视距和其它方块一样），
+     * 不再走 BER。值是模型在 {@code assets/mtrlte/models/block/} 下的名字（不带扩展名）。
+     * 缺省 {@code null} = 老路径（OBJ + BER，远处会被裁掉）。
+     */
+    private static Identifier bakedModel(final JsonObject json) {
+        final String raw = string(json, "baked", "");
+        if (raw == null || raw.isEmpty()) {
+            return null;
+        }
+        return new Identifier(EyecandyBlocks.NAMESPACE, raw);
     }
 
     /** {@code mtrsteamloco:eyecandies/sign.obj} → {@code mtrlte:eyecandies/sign.obj}（路径原样，**命名空间强制换成我们的**）。 */

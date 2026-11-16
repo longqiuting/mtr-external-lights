@@ -138,8 +138,16 @@ function main() {
       // 1) blockstate：几何由 BER 画，方块模型是空的（和闸机 / 售票机同一套做法）；
       //    每件都有 facing 属性（放置时按玩家朝向定、之后不能转），所以要写满四个变体，
       //    少一个变体原版会把状态判成「未知」直接报错。
+      const baked = first[key].baked ? 'mtrlte:block/' + first[key].baked : null;
       const variants = Object.fromEntries(FACINGS
-        .map((f) => ['facing=' + f, { model: 'mtrlte:block/empty' }]));
+        .map((f) => {
+          if (!baked) {
+            return ['facing=' + f, { model: 'mtrlte:block/empty' }];
+          }
+          // 和 BER 里 NEGATIVE_Y.rotationDegrees(blockRotation) 同一个角度
+          const y = { north: 0, east: 90, south: 180, west: 270 }[f];
+          return ['facing=' + f, y === 0 ? { model: baked } : { model: baked, y }];
+        }));
       if (writeIfChanged(path.join(BLOCKSTATES, id + '.json'), JSON.stringify({ variants }, null, 2) + '\n')) written++;
 
       // 2) 物品模型：item/generated + layer0 = 离线渲染出来的 128×128 等轴测图标。

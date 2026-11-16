@@ -1,0 +1,1024 @@
+{
+  "credit": "Converted from railing_stair_corner_2.json (MSD addon, MIT)",
+  "textures": {
+    "particle": "mtrlte:block/railing",
+    "railing": "mtrlte:block/railing"
+  },
+  "elements": [
+    {
+      "from": [
+        1,
+        0,
+        15
+      ],
+      "to": [
+        3,
+        21,
+        16
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            1,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            1,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "up": {
+          "uv": [
+            0,
+            0,
+            2,
+            1
+          ],
+          "texture": "#railing"
+        }
+      }
+    },
+    {
+      "from": [
+        1.25,
+        19,
+        3
+      ],
+      "to": [
+        2.75,
+        20,
+        15
+      ],
+      "faces": {
+        "east": {
+          "uv": [
+            0,
+            0,
+            14,
+            1
+          ],
+          "texture": "#railing"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            14,
+            1
+          ],
+          "texture": "#railing"
+        },
+        "up": {
+          "uv": [
+            0,
+            0,
+            1.5,
+            14
+          ],
+          "texture": "#railing"
+        },
+        "down": {
+          "uv": [
+            0,
+            0,
+            1.5,
+            14
+          ],
+          "texture": "#railing"
+        }
+      }
+    },
+    {
+      "from": [
+        1.25,
+        2,
+        3
+      ],
+      "to": [
+        2.75,
+        3,
+        15
+      ],
+      "faces": {
+        "east": {
+          "uv": [
+            0,
+            0,
+            14,
+            1
+          ],
+          "texture": "#railing"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            14,
+            1
+          ],
+          "texture": "#railing"
+        },
+        "up": {
+          "uv": [
+            0,
+            0,
+            1.5,
+            14
+          ],
+          "texture": "#railing"
+        },
+        "down": {
+          "uv": [
+            0,
+            0,
+            1.5,
+            14
+          ],
+          "texture": "#railing"
+        }
+      }
+    },
+    {
+      "from": [
+        1.25,
+        14,
+        3
+      ],
+      "to": [
+        2.75,
+        15,
+        15
+      ],
+      "faces": {
+        "east": {
+          "uv": [
+            0,
+            0,
+            14,
+            1
+          ],
+          "texture": "#railing"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            14,
+            1
+          ],
+          "texture": "#railing"
+        },
+        "up": {
+          "uv": [
+            0,
+            0,
+            1.5,
+            14
+          ],
+          "texture": "#railing"
+        },
+        "down": {
+          "uv": [
+            0,
+            0,
+            1.5,
+            14
+          ],
+          "texture": "#railing"
+        }
+      }
+    },
+    {
+      "from": [
+        1.5,
+        3,
+        13
+      ],
+      "to": [
+        2.5,
+        14,
+        14
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        }
+      },
+      "rotation": {
+        "origin": [
+          0,
+          0,
+          1
+        ],
+        "axis": "y",
+        "angle": 0,
+        "rescale": false
+      }
+    },
+    {
+      "from": [
+        1.5,
+        3,
+        10
+      ],
+      "to": [
+        2.5,
+        14,
+        11
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        }
+      },
+      "rotation": {
+        "origin": [
+          0,
+          0,
+          1
+        ],
+        "axis": "y",
+        "angle": 0,
+        "rescale": false
+      }
+    },
+    {
+      "from": [
+        1.5,
+        3,
+        7
+      ],
+      "to": [
+        2.5,
+        14,
+        8
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        }
+      },
+      "rotation": {
+        "origin": [
+          0,
+          0,
+          1
+        ],
+        "axis": "y",
+        "angle": 0,
+        "rescale": false
+      }
+    },
+    {
+      "from": [
+        1.5,
+        3,
+        4
+      ],
+      "to": [
+        2.5,
+        14,
+        5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        }
+      },
+      "rotation": {
+        "origin": [
+          0,
+          0,
+          1
+        ],
+        "axis": "y",
+        "angle": 0,
+        "rescale": false
+      }
+    },
+    {
+      "from": [
+        1,
+        0,
+        1
+      ],
+      "to": [
+        3,
+        21,
+        3
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            1,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            1,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "up": {
+          "uv": [
+            0,
+            0,
+            2,
+            1
+          ],
+          "texture": "#railing",
+          "rotation": 270
+        }
+      },
+      "rotation": {
+        "origin": [
+          2,
+          0,
+          4
+        ],
+        "axis": "y",
+        "angle": 0,
+        "rescale": false
+      }
+    },
+    {
+      "from": [
+        15,
+        0,
+        1
+      ],
+      "to": [
+        16,
+        21,
+        3
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            1,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            1,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "up": {
+          "uv": [
+            0,
+            0,
+            2,
+            1
+          ],
+          "texture": "#railing",
+          "rotation": 270
+        }
+      },
+      "rotation": {
+        "origin": [
+          0,
+          0,
+          4
+        ],
+        "axis": "y",
+        "angle": 0,
+        "rescale": false
+      }
+    },
+    {
+      "from": [
+        3,
+        19,
+        1.25
+      ],
+      "to": [
+        15,
+        20,
+        2.75
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            14,
+            1
+          ],
+          "texture": "#railing"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            14,
+            1
+          ],
+          "texture": "#railing"
+        },
+        "up": {
+          "uv": [
+            0,
+            0,
+            1.5,
+            14
+          ],
+          "texture": "#railing",
+          "rotation": 270
+        },
+        "down": {
+          "uv": [
+            0,
+            0,
+            1.5,
+            14
+          ],
+          "texture": "#railing",
+          "rotation": 90
+        }
+      },
+      "rotation": {
+        "origin": [
+          0,
+          0,
+          4
+        ],
+        "axis": "y",
+        "angle": 0,
+        "rescale": false
+      }
+    },
+    {
+      "from": [
+        3,
+        2,
+        1.25
+      ],
+      "to": [
+        15,
+        3,
+        2.75
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            14,
+            1
+          ],
+          "texture": "#railing"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            14,
+            1
+          ],
+          "texture": "#railing"
+        },
+        "up": {
+          "uv": [
+            0,
+            0,
+            1.5,
+            14
+          ],
+          "texture": "#railing",
+          "rotation": 270
+        },
+        "down": {
+          "uv": [
+            0,
+            0,
+            1.5,
+            14
+          ],
+          "texture": "#railing",
+          "rotation": 90
+        }
+      },
+      "rotation": {
+        "origin": [
+          0,
+          0,
+          4
+        ],
+        "axis": "y",
+        "angle": 0,
+        "rescale": false
+      }
+    },
+    {
+      "from": [
+        3,
+        14,
+        1.25
+      ],
+      "to": [
+        15,
+        15,
+        2.75
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            14,
+            1
+          ],
+          "texture": "#railing"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            14,
+            1
+          ],
+          "texture": "#railing"
+        },
+        "up": {
+          "uv": [
+            0,
+            0,
+            1.5,
+            14
+          ],
+          "texture": "#railing",
+          "rotation": 270
+        },
+        "down": {
+          "uv": [
+            0,
+            0,
+            1.5,
+            14
+          ],
+          "texture": "#railing",
+          "rotation": 90
+        }
+      },
+      "rotation": {
+        "origin": [
+          0,
+          0,
+          4
+        ],
+        "axis": "y",
+        "angle": 0,
+        "rescale": false
+      }
+    },
+    {
+      "from": [
+        13,
+        3,
+        1.5
+      ],
+      "to": [
+        14,
+        14,
+        2.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        }
+      },
+      "rotation": {
+        "origin": [
+          1,
+          0,
+          4
+        ],
+        "axis": "y",
+        "angle": 0,
+        "rescale": false
+      }
+    },
+    {
+      "from": [
+        10,
+        3,
+        1.5
+      ],
+      "to": [
+        11,
+        14,
+        2.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        }
+      },
+      "rotation": {
+        "origin": [
+          1,
+          0,
+          4
+        ],
+        "axis": "y",
+        "angle": 0,
+        "rescale": false
+      }
+    },
+    {
+      "from": [
+        7,
+        3,
+        1.5
+      ],
+      "to": [
+        8,
+        14,
+        2.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        }
+      },
+      "rotation": {
+        "origin": [
+          1,
+          0,
+          4
+        ],
+        "axis": "y",
+        "angle": 0,
+        "rescale": false
+      }
+    },
+    {
+      "from": [
+        4,
+        3,
+        1.5
+      ],
+      "to": [
+        5,
+        14,
+        2.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            1,
+            7
+          ],
+          "texture": "#railing"
+        }
+      },
+      "rotation": {
+        "origin": [
+          1,
+          0,
+          4
+        ],
+        "axis": "y",
+        "angle": 0,
+        "rescale": false
+      }
+    }
+  ]
+}

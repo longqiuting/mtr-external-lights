@@ -1,0 +1,138 @@
+{
+  "credit": "Converted from railing_stair_corner.json (MSD addon, MIT)",
+  "textures": {
+    "particle": "mtrlte:block/railing",
+    "railing": "mtrlte:block/railing"
+  },
+  "elements": [
+    {
+      "from": [
+        1,
+        0,
+        13
+      ],
+      "to": [
+        3,
+        21,
+        16
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            3,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            3,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "up": {
+          "uv": [
+            0,
+            0,
+            2,
+            3
+          ],
+          "texture": "#railing"
+        }
+      },
+      "rotation": {
+        "origin": [
+          1,
+          0,
+          14
+        ],
+        "axis": "y",
+        "angle": 0,
+        "rescale": false
+      }
+    },
+    {
+      "from": [
+        0,
+        0,
+        13
+      ],
+      "to": [
+        1,
+        21,
+        15
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            1,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            1,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#railing"
+        },
+        "up": {
+          "uv": [
+            0,
+            0,
+            1,
+            2
+          ],
+          "texture": "#railing"
+        }
+      },
+      "rotation": {
+        "origin": [
+          -1,
+          0,
+          14
+        ],
+        "axis": "y",
+        "angle": 0,
+        "rescale": false
+      }
+    }
+  ]
+}
