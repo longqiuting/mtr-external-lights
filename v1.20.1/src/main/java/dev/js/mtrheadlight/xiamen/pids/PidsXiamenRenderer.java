@@ -1,6 +1,7 @@
 // 厦门 PIDS 的屏幕渲染器：底图 + 只往里写文字（框/标志/徽章条都在底图里）。
 package dev.js.mtrheadlight.xiamen.pids;
 
+import dev.js.mtrheadlight.client.RenderDistance;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -95,6 +96,11 @@ import net.minecraft.world.World;
  * </ul>
  */
 public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBlockEntity> {
+
+    @Override
+    public boolean isInRenderDistance(final PidsXiamenBlockEntity entity, final net.minecraft.util.math.Vec3d cameraPos) {
+        return RenderDistance.inRange(entity, cameraPos);
+    }
 
     /** 日期 / 时间的世界起点：MC 第 0 天 = 2024-01-01（星期一），于是「星期」可以从天数直接算。 */
     private static final LocalDate EPOCH = LocalDate.of(2024, 1, 1);

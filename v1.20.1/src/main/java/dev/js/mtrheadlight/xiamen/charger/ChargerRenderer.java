@@ -1,6 +1,7 @@
 // 充电宝租借机的渲染器：按方块实例选 top / bottom 原始模型，绕格心按 facing 旋转。
 package dev.js.mtrheadlight.xiamen.charger;
 
+import dev.js.mtrheadlight.client.RenderDistance;
 import dev.js.mtrheadlight.rawmodel.RawMesh;
 import dev.js.mtrheadlight.rawmodel.RawModelJson;
 import dev.js.mtrheadlight.rawmodel.RawModelRenderer;
@@ -35,6 +36,21 @@ import net.minecraft.world.World;
  * 解成 {@code textures/block/charger.png}）。
  */
 public class ChargerRenderer implements BlockEntityRenderer<ChargerBlockEntity> {
+
+    @Override
+    public boolean rendersOutsideBoundingBox(final ChargerBlockEntity entity) {
+        return true;
+    }
+
+    @Override
+    public int getRenderDistance() {
+        return RenderDistance.blocks();
+    }
+
+    @Override
+    public boolean isInRenderDistance(final ChargerBlockEntity entity, final net.minecraft.util.math.Vec3d cameraPos) {
+        return RenderDistance.inRange(entity, cameraPos);
+    }
 
     public ChargerRenderer(final BlockEntityRendererFactory.Context context) {
     }

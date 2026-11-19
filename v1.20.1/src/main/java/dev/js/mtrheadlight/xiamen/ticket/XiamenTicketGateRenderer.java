@@ -1,6 +1,7 @@
 // 闸机的渲染器：本体按 OPEN 挑 rawmodels 里的 *_open / *_closed，侧壳画 *_side，都直接画。
 package dev.js.mtrheadlight.xiamen.ticket;
 
+import dev.js.mtrheadlight.client.RenderDistance;
 import dev.js.mtrheadlight.rawmodel.RawMesh;
 import dev.js.mtrheadlight.rawmodel.RawModelJson;
 import dev.js.mtrheadlight.rawmodel.RawModelRenderer;
@@ -60,6 +61,21 @@ import net.minecraft.world.World;
  * 开着背面剔除时从哪边看就只画哪一面，与 Blockbench / 原版模型渲染这份 JSON 的效果一致。
  */
 public class XiamenTicketGateRenderer implements BlockEntityRenderer<XiamenTicketGateBlockEntity> {
+
+    @Override
+    public boolean rendersOutsideBoundingBox(final XiamenTicketGateBlockEntity entity) {
+        return true;
+    }
+
+    @Override
+    public int getRenderDistance() {
+        return RenderDistance.blocks();
+    }
+
+    @Override
+    public boolean isInRenderDistance(final XiamenTicketGateBlockEntity entity, final net.minecraft.util.math.Vec3d cameraPos) {
+        return RenderDistance.inRange(entity, cameraPos);
+    }
 
     public XiamenTicketGateRenderer(final BlockEntityRendererFactory.Context context) {
     }

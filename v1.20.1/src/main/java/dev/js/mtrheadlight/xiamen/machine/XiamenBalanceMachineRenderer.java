@@ -1,6 +1,7 @@
 // 余额查询机的渲染器：按 HALF 选 bottom / top 两份原始模型，各画自己那一格。
 package dev.js.mtrheadlight.xiamen.machine;
 
+import dev.js.mtrheadlight.client.RenderDistance;
 import dev.js.mtrheadlight.rawmodel.RawMesh;
 import dev.js.mtrheadlight.rawmodel.RawModelJson;
 import dev.js.mtrheadlight.rawmodel.RawModelRenderer;
@@ -35,6 +36,21 @@ import net.minecraft.world.World;
  * （闸机那边同理，见 {@code XiamenTicketGateRenderer} 里关于零厚度卡片的说明）。
  */
 public class XiamenBalanceMachineRenderer implements BlockEntityRenderer<XiamenBalanceMachineBlockEntity> {
+
+    @Override
+    public boolean rendersOutsideBoundingBox(final XiamenBalanceMachineBlockEntity entity) {
+        return true;
+    }
+
+    @Override
+    public int getRenderDistance() {
+        return RenderDistance.blocks();
+    }
+
+    @Override
+    public boolean isInRenderDistance(final XiamenBalanceMachineBlockEntity entity, final net.minecraft.util.math.Vec3d cameraPos) {
+        return RenderDistance.inRange(entity, cameraPos);
+    }
 
     private static final String MODEL_BASE = "balance_machine_";
 

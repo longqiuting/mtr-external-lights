@@ -1,0 +1,16 @@
+{
+    "variants": {
+        "facing=north,powered=false": { "model": "mtrlte:block/empty" },
+        "facing=north,powered=true":  { "model": "mtrlte:block/empty" },
+        "facing=east,powered=false":  { "model": "mtrlte:block/empty" },
+        "facing=east,powered=true":   { "model": "mtrlte:block/empty" },
+        "facing=south,powered=false": { "model": "mtrlte:block/empty" },
+        "facing=south,powered=true":  { "model": "mtrlte:block/empty" },
+        "facing=west,powered=false":  { "model": "mtrlte:block/empty" },
+        "facing=west,powered=true":   { "model": "mtrlte:block/empty" },
+        "facing=up,powered=false":    { "model": "mtrlte:block/empty" },
+        "facing=up,powered=true":     { "model": "mtrlte:block/empty" },
+        "facing=down,powered=false":  { "model": "mtrlte:block/empty" },
+        "facing=down,powered=true":   { "model": "mtrlte:block/empty" }
+    }
+}

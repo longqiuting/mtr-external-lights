@@ -82,8 +82,13 @@ public final class ColorPickerScreen extends Screen {
     /** Set when the last Enter / 完成 saw something that is not {@code #RRGGBB}. */
     private boolean hexInvalid;
 
-    ColorPickerScreen(final Screen parentScreen, final String label, final int initialRgb,
-                      final IntConsumer onDone) {
+    /**
+     * Public so other screens (e.g. the clock's config screen in another package) can open it.
+     * 1.20.1 里原本是包私有 —— 时钟界面 {@code dev.js.mtrheadlight.clock.ClockConfigScreen}
+     * 在别的包里，必须 public 才拿得到。
+     */
+    public ColorPickerScreen(final Screen parentScreen, final String label, final int initialRgb,
+                             final IntConsumer onDone) {
         super(ParameterScreen.tr("color.title", label));
         this.parentScreen = parentScreen;
         this.onDone = onDone;

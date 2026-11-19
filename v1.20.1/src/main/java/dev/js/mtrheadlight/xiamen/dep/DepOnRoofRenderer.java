@@ -1,6 +1,7 @@
 // 挂顶发车倒数器的屏幕渲染器：把同一行七段数码管画到那块斜着吊的牌子上。
 package dev.js.mtrheadlight.xiamen.dep;
 
+import dev.js.mtrheadlight.client.RenderDistance;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 
@@ -75,6 +76,16 @@ import net.minecraft.world.World;
  * 正在依赖的状态按默认值覆盖掉，厦门 PIDS 踩过这个坑）。
  */
 public class DepOnRoofRenderer extends BlockEntityRendererMapper<DepOnRoofBlockEntity> {
+
+    @Override
+    public int getRenderDistance() {
+        return RenderDistance.blocks();
+    }
+
+    @Override
+    public boolean isInRenderDistance(final DepOnRoofBlockEntity entity, final net.minecraft.util.math.Vec3d cameraPos) {
+        return RenderDistance.inRange(entity, cameraPos);
+    }
 
     /**
      * 屏幕正中（模型空间 1/16 格，<b>偏转前</b>的牌面坐标）。

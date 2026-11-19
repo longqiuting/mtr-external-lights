@@ -1,6 +1,7 @@
 // APG (half-height) door renderer — MTR's RenderPSDAPGDoor with door type 2.
 package dev.js.mtrheadlight.xiamen;
 
+import dev.js.mtrheadlight.client.RenderDistance;
 import mtr.block.BlockPSDAPGDoorBase;
 import mtr.render.RenderPSDAPGDoor;
 import net.minecraft.client.render.VertexConsumerProvider;
@@ -32,6 +33,21 @@ import net.minecraft.client.util.math.MatrixStack;
  */
 public class RenderPsdApgDoor extends RenderPSDAPGDoor<BlockPSDAPGDoorBase.TileEntityPSDAPGDoorBase>
         implements IXiamenTextureNamespace {
+
+    @Override
+    public boolean rendersOutsideBoundingBox(final BlockPSDAPGDoorBase.TileEntityPSDAPGDoorBase entity) {
+        return true;
+    }
+
+    @Override
+    public int getRenderDistance() {
+        return RenderDistance.blocks();
+    }
+
+    @Override
+    public boolean isInRenderDistance(final BlockPSDAPGDoorBase.TileEntityPSDAPGDoorBase entity, final net.minecraft.util.math.Vec3d cameraPos) {
+        return RenderDistance.inRange(entity, cameraPos);
+    }
 
     /** MTR 的 door type：2 = APG（{@code apg_door_<half>_<side>.png}，无吊板、2 格高）。 */
     private static final int TYPE = 2;

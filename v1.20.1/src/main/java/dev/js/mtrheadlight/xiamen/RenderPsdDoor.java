@@ -1,6 +1,7 @@
 // Xiamen door renderer — 直接复用 MTR 的 RenderPSDAPGDoor（几何 / 盒子 UV / 贴图 id / 门灯 / 动画全部同一份代码）。
 package dev.js.mtrheadlight.xiamen;
 
+import dev.js.mtrheadlight.client.RenderDistance;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -64,6 +65,21 @@ import net.minecraft.world.World;
  */
 public class RenderPsdDoor extends RenderPSDAPGDoor<BlockPSDAPGDoorBase.TileEntityPSDAPGDoorBase>
         implements IXiamenTextureNamespace {
+
+    @Override
+    public boolean rendersOutsideBoundingBox(final BlockPSDAPGDoorBase.TileEntityPSDAPGDoorBase entity) {
+        return true;
+    }
+
+    @Override
+    public int getRenderDistance() {
+        return RenderDistance.blocks();
+    }
+
+    @Override
+    public boolean isInRenderDistance(final BlockPSDAPGDoorBase.TileEntityPSDAPGDoorBase entity, final net.minecraft.util.math.Vec3d cameraPos) {
+        return RenderDistance.inRange(entity, cameraPos);
+    }
 
     /** MTR 的 door type：0 = PSD（{@code psd_door_*_1.png}），1 = PSD 二代（{@code _2}），2 = APG，3/4 = 电梯门。 */
     private static final int TYPE = 0;

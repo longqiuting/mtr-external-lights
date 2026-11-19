@@ -1,6 +1,7 @@
 // eyecandy 的渲染器：按方块实例上的描述取 OBJ 网格，按 facing 绕方块中心转 −blockRotation 度后画出。
 package dev.js.mtrheadlight.xiamen.eyecandy;
 
+import dev.js.mtrheadlight.client.RenderDistance;
 import dev.js.mtrheadlight.rawmodel.RawMesh;
 import dev.js.mtrheadlight.rawmodel.RawModelRenderer;
 import net.minecraft.block.BlockState;
@@ -57,6 +58,21 @@ import net.minecraft.world.World;
  * 网格按 obj id 缓存，只解析一次；警示灯的拆分（底座 / 亮 / 灭）也只在第一次画到时算一次。
  */
 public class EyecandyRenderer implements BlockEntityRenderer<EyecandyBlockEntity> {
+
+    @Override
+    public boolean rendersOutsideBoundingBox(final EyecandyBlockEntity entity) {
+        return true;
+    }
+
+    @Override
+    public int getRenderDistance() {
+        return RenderDistance.blocks();
+    }
+
+    @Override
+    public boolean isInRenderDistance(final EyecandyBlockEntity entity, final net.minecraft.util.math.Vec3d cameraPos) {
+        return RenderDistance.inRange(entity, cameraPos);
+    }
 
     public EyecandyRenderer(final BlockEntityRendererFactory.Context context) {
     }

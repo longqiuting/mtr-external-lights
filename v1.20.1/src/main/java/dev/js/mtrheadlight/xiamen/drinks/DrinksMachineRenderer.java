@@ -1,6 +1,7 @@
 // 饮料售卖机的渲染器：按方块状态选 top / bottom_closed / bottom_opened 三份原始模型。
 package dev.js.mtrheadlight.xiamen.drinks;
 
+import dev.js.mtrheadlight.client.RenderDistance;
 import dev.js.mtrheadlight.rawmodel.RawMesh;
 import dev.js.mtrheadlight.rawmodel.RawModelJson;
 import dev.js.mtrheadlight.rawmodel.RawModelRenderer;
@@ -46,6 +47,21 @@ import net.minecraft.world.World;
  * 想把它塞进一格就把它改成 {@code 0.5F}：绕格心把 X 压一半，代价是所有面板被横向拉扁一半。
  */
 public class DrinksMachineRenderer implements BlockEntityRenderer<DrinksMachineBlockEntity> {
+
+    @Override
+    public boolean rendersOutsideBoundingBox(final DrinksMachineBlockEntity entity) {
+        return true;
+    }
+
+    @Override
+    public int getRenderDistance() {
+        return RenderDistance.blocks();
+    }
+
+    @Override
+    public boolean isInRenderDistance(final DrinksMachineBlockEntity entity, final net.minecraft.util.math.Vec3d cameraPos) {
+        return RenderDistance.inRange(entity, cameraPos);
+    }
 
     /**
      * 模型 X 方向的缩放（1.0 = 原样，见<a href="#width">类注释</a>）。

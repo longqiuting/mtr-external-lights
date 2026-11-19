@@ -123,6 +123,9 @@ public final class XiamenClient implements ClientModInitializer {
         // 8) 厦门风格物件包的 26 个 eyecandy：几何由 BER 运行时画（.obj），这里只注册渲染器。
         //    方块本身是 empty 模型，所以也不挂 putBlock。
         dev.js.mtrheadlight.xiamen.eyecandy.EyecandyClient.register();
+
+        // 9) 时钟：几何全是代码画的，这里只注册 BER。
+        dev.js.mtrheadlight.clock.ClockClient.register();
     }
 
     private static void put(net.minecraft.block.Block block, String what) {

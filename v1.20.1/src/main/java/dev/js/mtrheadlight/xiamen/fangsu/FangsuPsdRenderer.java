@@ -1,6 +1,7 @@
 // 方速滑动屏蔽门的方块实体渲染器：进度来自 MTR 方块实体的 open 值，绘制交给 FangsuPsdDraw。
 package dev.js.mtrheadlight.xiamen.fangsu;
 
+import dev.js.mtrheadlight.client.RenderDistance;
 import dev.js.mtrheadlight.MtrHeadlightClient;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.render.VertexConsumerProvider;
@@ -25,6 +26,21 @@ import net.minecraft.world.World;
  * {@link FangsuPsdDraw#isUpperHalf}。
  */
 public class FangsuPsdRenderer implements BlockEntityRenderer<FangsuPsdDoorBlock.FangsuPsdDoorEntity> {
+
+    @Override
+    public boolean rendersOutsideBoundingBox(final FangsuPsdDoorBlock.FangsuPsdDoorEntity entity) {
+        return true;
+    }
+
+    @Override
+    public int getRenderDistance() {
+        return RenderDistance.blocks();
+    }
+
+    @Override
+    public boolean isInRenderDistance(final FangsuPsdDoorBlock.FangsuPsdDoorEntity entity, final net.minecraft.util.math.Vec3d cameraPos) {
+        return RenderDistance.inRange(entity, cameraPos);
+    }
 
     public FangsuPsdRenderer(final BlockEntityRendererFactory.Context context) {
     }

@@ -1,6 +1,7 @@
 // 挂墙发车倒数器的屏幕渲染器：自发光底图 + 一行七段数码管倒计时。
 package dev.js.mtrheadlight.xiamen.dep;
 
+import dev.js.mtrheadlight.client.RenderDistance;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 
@@ -167,6 +168,16 @@ import net.minecraft.world.World;
  * 正在依赖的状态按默认值覆盖掉，厦门 PIDS 踩过这个坑）。
  */
 public class DepOnWallRenderer extends BlockEntityRendererMapper<DepOnWallBlockEntity> {
+
+    @Override
+    public int getRenderDistance() {
+        return RenderDistance.blocks();
+    }
+
+    @Override
+    public boolean isInRenderDistance(final DepOnWallBlockEntity entity, final net.minecraft.util.math.Vec3d cameraPos) {
+        return RenderDistance.inRange(entity, cameraPos);
+    }
 
     /** 屏幕底图（整张 {@code dep_on_wall.png}，只取 uv 3..6 × 0..2 那一块）。 */
     public static final Identifier TEXTURE =

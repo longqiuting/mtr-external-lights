@@ -1,6 +1,7 @@
 // 方速端门的方块实体渲染器：进度来自 blockstate 的 OPEN（客户端插值），绘制交给 FangsuPsdDraw。
 package dev.js.mtrheadlight.xiamen.fangsu;
 
+import dev.js.mtrheadlight.client.RenderDistance;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.render.block.entity.BlockEntityRenderer;
@@ -20,6 +21,21 @@ import net.minecraft.world.World;
  * {@link FangsuPsdDraw#isUpperHalf}。
  */
 public class FangsuPsdEndDoorRenderer implements BlockEntityRenderer<FangsuPsdEndDoorBlock.FangsuPsdEndDoorEntity> {
+
+    @Override
+    public boolean rendersOutsideBoundingBox(final FangsuPsdEndDoorBlock.FangsuPsdEndDoorEntity entity) {
+        return true;
+    }
+
+    @Override
+    public int getRenderDistance() {
+        return RenderDistance.blocks();
+    }
+
+    @Override
+    public boolean isInRenderDistance(final FangsuPsdEndDoorBlock.FangsuPsdEndDoorEntity entity, final net.minecraft.util.math.Vec3d cameraPos) {
+        return RenderDistance.inRange(entity, cameraPos);
+    }
 
     public FangsuPsdEndDoorRenderer(final BlockEntityRendererFactory.Context context) {
     }

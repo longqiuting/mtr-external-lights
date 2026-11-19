@@ -133,6 +133,9 @@ public final class LteServer implements ModInitializer {
         // 安检类方块（液体安检机）：方块 + 物品 + 创造页签条目，排在厦门那一组之后注册。
         blockModule("security blocks", dev.js.mtrheadlight.security.SecurityObjects::register);
 
+        // 时钟（代码画钟面 + 刷子配置 + 整点报时 + 红石控制）：同样进「厦门风格物件」页签。
+        blockModule("clock blocks", dev.js.mtrheadlight.clock.ClockObjects::register);
+
         // 闸机（厦门地铁 / BRT × 进站 / 出站，共 4 个方块）：继承 MTR 的 BlockTicketBarrier，
         // 音效换成南滨的 crt_ticket / crt_ticket_error（这次一并注册这两个 SoundEvent）。
         blockModule("xiamen ticket gates", dev.js.mtrheadlight.xiamen.ticket.XiamenTicketGates::register);

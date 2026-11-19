@@ -1,6 +1,7 @@
 // 方速厦门屏蔽门的玻璃板渲染器：一块方块画「左半 + 右半」两组几何，按 facing 绕 Y 转一次。
 package dev.js.mtrheadlight.xiamen.fangsu;
 
+import dev.js.mtrheadlight.client.RenderDistance;
 import java.util.List;
 import java.util.Map;
 
@@ -44,6 +45,21 @@ import net.minecraft.world.World;
  * 见 {@link FangsuPsdGlassBlock}）。
  */
 public class FangsuPsdGlassRenderer implements BlockEntityRenderer<FangsuPsdGlassBlock.FangsuPsdGlassEntity> {
+
+    @Override
+    public boolean rendersOutsideBoundingBox(final FangsuPsdGlassBlock.FangsuPsdGlassEntity entity) {
+        return true;
+    }
+
+    @Override
+    public int getRenderDistance() {
+        return RenderDistance.blocks();
+    }
+
+    @Override
+    public boolean isInRenderDistance(final FangsuPsdGlassBlock.FangsuPsdGlassEntity entity, final net.minecraft.util.math.Vec3d cameraPos) {
+        return RenderDistance.inRange(entity, cameraPos);
+    }
 
     public FangsuPsdGlassRenderer(final BlockEntityRendererFactory.Context context) {
     }
