@@ -78,7 +78,7 @@ public class DrinksMachineRenderer implements BlockEntityRenderer<DrinksMachineB
                        final int light, final int overlay) {
         final World world = entity.getWorld();
         final BlockState state = world != null ? world.getBlockState(entity.getPos()) : entity.getCachedState();
-        if (!(state.getBlock() instanceof DrinksMachineBlock)) {
+        if (!(state.getBlock() instanceof DrinksMachineBlock block)) {
             return;
         }
 
@@ -93,6 +93,13 @@ public class DrinksMachineRenderer implements BlockEntityRenderer<DrinksMachineB
         matrices.translate(0.5D, 0.0D, 0.5D);
         matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(-state.get(HorizontalFacingBlock.FACING).asRotation()));
         matrices.translate(-0.5D, 0.0D, -0.5D);
+        // 双数：几何整体往玩家左手侧（facing 的顺时针方向）偏 0.5 格 = 模型空间 X −8 单位。
+        // 必须写在「按 facing 转完」之后 —— 那时坐标轴还是模型自己的，和碰撞箱
+        //  {@code DrinksMachineBlock#shapes} 里先平移再转是同一件事。
+        final float dx = block.modelDx();
+        if (dx != 0.0F) {
+            matrices.translate(dx / 16.0D, 0.0D, 0.0D);
+        }
         if (MODEL_X_SCALE != 1.0F) {
             // 绕格心（x = 0.5 格）压 X：只有「塞进一格」时才需要。
             matrices.translate(0.5D, 0.0D, 0.0D);

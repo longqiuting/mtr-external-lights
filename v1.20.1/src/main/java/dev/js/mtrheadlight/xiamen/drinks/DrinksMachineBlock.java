@@ -46,6 +46,20 @@ import net.minecraft.world.WorldView;
  * 饮料售卖机：{@code mtrlte:drinks_machine_top}（上半，货道）与
  * {@code mtrlte:drinks_machine_bottom}（下半，取货口 + 投币）。
  *
+ * <h2>两台机器：单数 / 双数（{@link Variant}）</h2>
+ * <p>同一个方块类出四块方块：
+ * <table border="1">
+ *   <caption>单数 / 双数</caption>
+ *   <tr><th>机型</th><th>上半（无物品）</th><th>下半（物品挂在这里）</th><th>几何</th></tr>
+ *   <tr><td>单数（原名）</td><td>{@code drinks_machine_top}</td><td>{@code drinks_machine_bottom}</td>
+ *       <td>模型原样（{@code x −8..24}）</td></tr>
+ *   <tr><td>双数</td><td>{@code drinks_machine_double_top}</td><td>{@code drinks_machine_double_bottom}</td>
+ *       <td>同一套模型 / 贴图，整体沿模型空间 X 平移 {@code −8} 单位
+ *           （<b>往玩家左手侧</b> = {@code facing} 的顺时针方向 = 半格）</td></tr>
+ * </table>
+ * 两台共用<b>一个方块实体类型</b>与<b>同一份 item 贴图</b>，交互逻辑一行都不分叉；
+ * 单数的上半不会和双数的下半拼成一台（{@code isMyTop} / {@code isMyBottom} 比 {@code variant}）。
+ *
  * <h2>两个 id、但<b>联动</b>（和充电宝机正好相反）</h2>
  * <p>充电宝机是「两块完全独立」：各自放置、各自掉落、拆一半不带走另一半。饮料机要的是反过来：
  * <b>放一块就等于放一整台，拆哪一块都拆掉整台</b>。做法写在下面三个方法里：
@@ -53,13 +67,12 @@ import net.minecraft.world.WorldView;
  *   <caption>联动在哪实现</caption>
  *   <tr><th>方法</th><th>干什么</th></tr>
  *   <tr><td>{@link #getPlacementState}</td>
- *       <td><b>挡住放不下的位置</b>：上半要求「下面或上面至少有一格空着」，下半要求「上面那一格空着」。
- *           返回 {@code null} → 原版直接判定放置失败，<b>物品不会被消耗</b>（不会有「放了但没机器」）。</td></tr>
+ *       <td><b>挡住放不下的位置</b>：上半要求「下面那一格空着」，下半要求「上面那一格空着」。
+ *           返回 {@code null} → 原版直接判定放置失败，<b>物品不会被消耗</b>（不会有「放了但没机器」）。
+ *           位置永远是 {@code ctx.getBlockPos()}（你点的那面方块的相邻格），<b>不搜附近空格</b>。</td></tr>
  *   <tr><td>{@link #onPlaced}</td>
  *       <td><b>自动补上另一半</b>（服务端，{@code setBlockState} 客户端自动同步）：
- *           放下半 → 上面补上半；放上半 → 下面补下半；<b>下面已经有方块放不进下半时，整台机器往上挪一格</b>
- *           （下半落在玩家点到的这一格、上半抬到它上面）—— 所以拿着上半对着地面点也能放成一台，
- *           不会出现「点了没反应」。</td></tr>
+ *           放下半 → 上面补上半；放上半 → 下面补下半。</td></tr>
  *   <tr><td>{@link #getStateForNeighborUpdate}</td>
  *       <td><b>另一半没了自己也走</b>：上段只盯下面、下段只盯上面，不是那一半就返回空气。
  *           拆任一半 → 原版 {@code setBlockState(空气, NOTIFY_NEIGHBORS)} → 另一半收到更新 →
@@ -130,6 +143,46 @@ import net.minecraft.world.WorldView;
  */
 public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEntityProvider {
 
+    /**
+     * 两种机型：<b>单数</b>（原来那台，id {@code drinks_machine_*}）与<b>双数</b>
+     * （{@code drinks_machine_double_*}）。
+     *
+     * <p>两台用的是<b>同一套模型、同一张贴图、同一套交互</b>，唯一的差别是几何整体沿模型空间的 X
+     * 平移 {@link #modelDx}（1/16 格）：单数是 0（模型原样，向左右各探半格），
+     * 双数是 {@code -8}（往<b>玩家左手侧</b>挪半格 —— 也就是 {@code facing} 的顺时针方向，
+     * 于是 32 单位宽的柜体正好<b>以本格为中心</b>左右各一格，摆成一排时严丝合缝）。
+     * 碰撞箱用同一个偏移（见 {@link #shapes}），模型用同一个偏移（见
+     * {@link DrinksMachineRenderer}），两者不会错位。
+     */
+    public enum Variant {
+
+        /** 单数：{@code mtrlte:drinks_machine_top} / {@code _bottom}（默认名「饮料售卖机（单数）」）。 */
+        SINGLE("drinks_machine", 0.0F),
+
+        /** 双数：{@code mtrlte:drinks_machine_double_top} / {@code _double_bottom}，整体往玩家左手侧偏 0.5 格。 */
+        DOUBLE("drinks_machine_double", -8.0F);
+
+        private final String idBase;
+
+        /** 模型空间（1/16 格）的 X 偏移：{@code -8} = 往玩家左手侧（facing 顺时针）半格。 */
+        private final float modelDx;
+
+        Variant(final String idBase, final float modelDx) {
+            this.idBase = idBase;
+            this.modelDx = modelDx;
+        }
+
+        /** id 前缀（不带命名空间、不带 {@code _top} / {@code _bottom}）。 */
+        public String idBase() {
+            return this.idBase;
+        }
+
+        /** 模型空间的 X 偏移（1/16 格；0 = 原样，-8 = 左手侧半格）。 */
+        public float modelDx() {
+            return this.modelDx;
+        }
+    }
+
     /** 四向（与 {@code HorizontalFacingBlock.FACING} 同一个属性实例）。 */
     public static final DirectionProperty FACING = HorizontalFacingBlock.FACING;
 
@@ -169,20 +222,42 @@ public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEn
     /** 是不是上半（只有它没有 {@code open}）。 */
     private final boolean top;
 
+    /** 单数 / 双数（决定 id、模型与碰撞箱的 X 偏移）。 */
+    private final Variant variant;
+
     public DrinksMachineBlock(final AbstractBlock.Settings settings, final boolean top, final String tooltipKey) {
+        this(settings, top, tooltipKey, Variant.SINGLE);
+    }
+
+    public DrinksMachineBlock(final AbstractBlock.Settings settings, final boolean top, final String tooltipKey,
+                              final Variant variant) {
         super(settings);
         this.top = top;
         this.tooltipKey = tooltipKey;
+        this.variant = variant == null ? Variant.SINGLE : variant;
         // 有 FACING 就必须给默认状态，否则 registry 冻结时崩。
         final BlockState defaults = this.stateManager.getDefaultState().with(FACING, Direction.NORTH);
         this.setDefaultState(this.top ? defaults : defaults.with(OPEN, false));
 
         // 轮廓 / 碰撞：从这一块自己的原始模型推包围盒（顶点级 min/max，元素旋转已烘进去），
         // 再按 4 个朝向各算一份 —— 与 ChargerBlock / XiamenMachineBlock 同一套做法。
-        final float[] box = this.top ? boxOrFallback(TOP_MODEL) : boxOrFallback(BOTTOM_CLOSED_MODEL);
+        // 双数额外把整个盒子沿模型空间 X 挪 {@link Variant#modelDx} 单位（往玩家左手侧半格）。
+        final float[] raw = this.top ? boxOrFallback(TOP_MODEL) : boxOrFallback(BOTTOM_CLOSED_MODEL);
+        final float dx = this.variant.modelDx();
+        final float[] box = {raw[0] + dx, raw[1], raw[2], raw[3] + dx, raw[4], raw[5]};
         for (int i = 0; i < 4; i++) {
             this.shapes[i] = rotatedBox(box, i);
         }
+    }
+
+    /** 这一块是单数还是双数。 */
+    public Variant variant() {
+        return this.variant;
+    }
+
+    /** 模型空间的 X 偏移（1/16 格）—— 渲染器按它平移几何，和 {@link #shapes} 用同一个数。 */
+    public float modelDx() {
+        return this.variant.modelDx();
     }
 
     /** 是不是上半。 */
@@ -290,13 +365,23 @@ public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEn
     }
 
     /** 造一份下半的（干净）状态：朝向跟着来，取货口默认关着。 */
-    private static BlockState bottomState(final Direction facing) {
-        return DrinksMachineObjects.bottom().getDefaultState().with(FACING, facing).with(OPEN, false);
+    private BlockState bottomState(final Direction facing) {
+        return DrinksMachineObjects.bottom(this.variant).getDefaultState().with(FACING, facing).with(OPEN, false);
     }
 
     /** 造一份上半的（干净）状态。 */
-    private static BlockState topState(final Direction facing) {
-        return DrinksMachineObjects.top().getDefaultState().with(FACING, facing);
+    private BlockState topState(final Direction facing) {
+        return DrinksMachineObjects.top(this.variant).getDefaultState().with(FACING, facing);
+    }
+
+    /** 这个状态是不是<b>本机型</b>的上半（单数不会和双数拼成一台）。 */
+    private boolean isMyTop(final BlockState state) {
+        return state.getBlock() instanceof DrinksMachineBlock block && block.top && block.variant == this.variant;
+    }
+
+    /** 这个状态是不是<b>本机型</b>的下半。 */
+    private boolean isMyBottom(final BlockState state) {
+        return state.getBlock() instanceof DrinksMachineBlock block && !block.top && block.variant == this.variant;
     }
 
     /**
@@ -310,16 +395,15 @@ public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEn
         final World world = ctx.getWorld();
         final BlockPos pos = ctx.getBlockPos();
         if (pos.getY() >= world.getTopY() - 1) {
-            // 上半要占 pos 上面那一格（或者下半上面那格），太高的地方一律不给放。
+            // 上半要占上面那一格，太高的地方一律不给放。
             return null;
         }
         final Direction facing = ctx.getHorizontalPlayerFacing().getOpposite();
+        // 位置就是你点的那一格（原版 ctx.getBlockPos() 已经等于 pos.offset(side)）——
+        // 不再「下面被占了就整台往上挪一格」：放的永远是点击位置，不搜附近空格。
         if (this.top) {
-            // 下半放下面（常规）；下面被占了就整台往上挪一格，那时上半要落在 pos.up()。
-            if (!free(world.getBlockState(pos.down())) && !free(world.getBlockState(pos.up()))) {
-                return null;
-            }
-            return this.getDefaultState().with(FACING, facing);
+            // 上半：下面那格要放得下半台。
+            return free(world.getBlockState(pos.down())) ? this.getDefaultState().with(FACING, facing) : null;
         }
         // 下半：上面那一格要空着（上半要占它）。
         if (!free(world.getBlockState(pos.up()))) {
@@ -329,15 +413,11 @@ public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEn
     }
 
     /**
-     * 放下任何一半，都把另一半补上（服务端执行；{@code setBlockState} 会同步给客户端）。
+     * 放下任何一半，都把<b>同一机型</b>的另一半补上（服务端执行；{@code setBlockState} 会同步给客户端）。
      *
-     * <p>上半的两种情形：
-     * <ul>
-     *   <li>下面空着 → 下半放下面（「放置上半自动放下半」的标准路径）；</li>
-     *   <li>下面被占（对着地面点、或贴着别人放）→ <b>整台往上挪一格</b>：下半落在玩家点到的这一格，
-     *       上半抬到它上面。{@link #getPlacementState} 已经保证上面那一格是空着的。</li>
-     * </ul>
-     * <p>下半的 onPlaced 只做一件事：上面补上半（已经在了就不动）。
+     * <p>上半：下面那格空着就在下面补下半（「放置上半自动放下半」）；下面被占就什么也不做
+     * （{@link #getPlacementState} 已经把这种点击拒掉了，这里只是兜底）。
+     * <p>下半：上面补上半（已经在了就不动）。
      */
     @Override
     public void onPlaced(final World world, final BlockPos pos, final BlockState state,
@@ -350,17 +430,11 @@ public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEn
             final BlockPos below = pos.down();
             if (free(world.getBlockState(below))) {
                 world.setBlockState(below, bottomState(facing), Block.NOTIFY_ALL);
-                return;
-            }
-            final BlockPos above = pos.up();
-            if (free(world.getBlockState(above))) {
-                world.setBlockState(pos, bottomState(facing), Block.NOTIFY_ALL);
-                world.setBlockState(above, topState(facing), Block.NOTIFY_ALL);
             }
             return;
         }
         final BlockPos above = pos.up();
-        if (!isTopState(world.getBlockState(above)) && free(world.getBlockState(above))) {
+        if (!isMyTop(world.getBlockState(above)) && free(world.getBlockState(above))) {
             world.setBlockState(above, topState(facing), Block.NOTIFY_ALL);
         }
     }
@@ -379,16 +453,18 @@ public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEn
      *
      * <p>只看「朝另一半」那一个方向：上段看 DOWN、下段看 UP。别的方向（例如在头顶再放一块方块，
      * 更新方向是 UP）与这里无关，机器不会被邻居连带拆掉。
+     * <p>而且只认<b>同一机型</b>的另一半（{@link #isMyTop} / {@link #isMyBottom}）—— 单数的上半
+     * 不会给双数的下半续命。
      */
     @Override
     public BlockState getStateForNeighborUpdate(final BlockState state, final Direction direction,
                                                 final BlockState neighborState, final WorldAccess world,
                                                 final BlockPos pos, final BlockPos neighborPos) {
         if (this.top) {
-            if (direction == Direction.DOWN && !isBottomState(neighborState)) {
+            if (direction == Direction.DOWN && !isMyBottom(neighborState)) {
                 return Blocks.AIR.getDefaultState();
             }
-        } else if (direction == Direction.UP && !isTopState(neighborState)) {
+        } else if (direction == Direction.UP && !isMyTop(neighborState)) {
             return Blocks.AIR.getDefaultState();
         }
         return super.getStateForNeighborUpdate(state, direction, neighborState, world, pos, neighborPos);
@@ -472,7 +548,7 @@ public class DrinksMachineBlock extends HorizontalFacingBlock implements BlockEn
         world.playSound(null, base, SoundEvents.BLOCK_NOTE_BLOCK_BELL.value(), SoundCategory.BLOCKS, 0.9F, 1.4F);
         world.playSound(null, base, SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, SoundCategory.BLOCKS, 0.7F, 1.2F);
         world.setBlockState(base, baseState.with(OPEN, true), Block.NOTIFY_ALL);
-        world.scheduleBlockTick(base, DrinksMachineObjects.bottom(), OPEN_TICKS);
+        world.scheduleBlockTick(base, DrinksMachineObjects.bottom(this.variant), OPEN_TICKS);
 
         player.sendMessage(Text.translatable("message.mtrlte.drinks_machine.bought", potionName, after), true);
         return ActionResult.SUCCESS;

@@ -6,7 +6,9 @@ import mtr.block.BlockStationNameEntrance;
 import mtr.mappings.BlockEntityMapper;
 import net.minecraft.block.AbstractBlock;
 import net.minecraft.block.BlockState;
+import net.minecraft.item.ItemPlacementContext;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 
 /**
  * 贴墙标识方块 {@code mtrlte:wall_sign_xiamen} / {@code wall_sign_jiaomei} / {@code wall_sign_lte}。
@@ -66,6 +68,27 @@ public class WallSignBlock extends BlockStationNameEntrance {
     public boolean canPlaceAt(final BlockState state, final net.minecraft.world.WorldView world,
                               final BlockPos pos) {
         return true;
+    }
+
+    /**
+     * 放置：位置 = 你点的那面方块的相邻格（原版 {@code ctx.getBlockPos()}，等价 {@code pos.offset(side)}），
+     * 不再因为「背后没墙」或「点的是顶面 / 底面」而返回 {@code null}。
+     *
+     * <h2>朝向为什么不是一律 {@code getHorizontalPlayerFacing().getOpposite()}</h2>
+     * <p>MTR 这块牌子是<b>单面字牌</b>：{@code facing} 指向<b>墙</b>（板子贴在那面墙上、字朝墙外），
+     * 渲染器（{@code RenderStationNameTiled}）按 {@code facing} 决定字画在哪一侧。如果按「玩家反方向」
+     * 反转 180°，字就会朝着墙、牌面悬在离墙一格的地方 —— 所以水平面这一支保留父类的
+     * {@code side.getOpposite()}（它本来就等于「面朝玩家」：你点墙的北面、站在北边，
+     * 牌面就朝北对着你）。只有点顶面 / 底面（以前直接放不出来）时，才退回
+     * {@code getHorizontalPlayerFacing().getOpposite()}。
+     */
+    @Override
+    public BlockState getPlacementState(final ItemPlacementContext ctx) {
+        final Direction side = ctx.getSide();
+        final Direction facing = side.getAxis().isHorizontal()
+                ? side.getOpposite()
+                : ctx.getHorizontalPlayerFacing().getOpposite();
+        return getDefaultState().with(FACING, facing);
     }
 
     /**

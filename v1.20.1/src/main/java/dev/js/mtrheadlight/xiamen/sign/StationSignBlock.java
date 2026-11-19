@@ -4,7 +4,6 @@ package dev.js.mtrheadlight.xiamen.sign;
 import net.minecraft.block.AbstractBlock;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
 import net.minecraft.block.HorizontalFacingBlock;
 import net.minecraft.block.ShapeContext;
 import net.minecraft.item.ItemPlacementContext;
@@ -13,7 +12,6 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.shape.VoxelShape;
 import net.minecraft.world.BlockView;
-import net.minecraft.world.WorldAccess;
 import net.minecraft.world.WorldView;
 
 /**
@@ -171,18 +169,20 @@ public class StationSignBlock extends HorizontalFacingBlock {
 
     // ------------------------------------------------------------------ 放置 / 支撑
 
-    /** 挂墙款：{@code facing} 那一格就是墙。 */
-    private static BlockPos supportPos(final BlockPos pos, final Direction facing) {
-        return pos.offset(facing);
-    }
-
-    private static boolean hasSupport(final BlockState state, final WorldView world, final BlockPos pos) {
-        final Direction facing = state.get(FACING);
-        final BlockPos support = supportPos(pos, facing);
-        // 墙朝向我们的那一面：墙在 NORTH 侧时，贴着我们的是它朝南的那一面。
-        return world.getBlockState(support).isSideSolidFullSquare(world, support, facing.getOpposite());
-    }
-
+    /**
+     * 放置：<b>贴着你点的那一面、面朝玩家</b>，位置就是 {@code ctx.getBlockPos()}
+     * （原版已经算成「被点方块的相邻格」，不在这里搜附近空格）。
+     *
+     * <ul>
+     *   <li><b>杆上款</b>：{@code facing} = 牌面朝向 = {@code getHorizontalPlayerFacing().getOpposite()}
+     *       （面朝玩家）；</li>
+     *   <li><b>挂墙款</b>：点墙的水平侧面 → {@code facing} = 墙在哪一侧（{@code side.getOpposite()}，
+     *       模型里支架就在 {@code -Z}，所以贴墙时牌面自然朝外对着玩家）；点顶面 / 底面（悬空放）→
+     *       退回 {@code getHorizontalPlayerFacing().getOpposite()}，牌面照样朝玩家。</li>
+     * </ul>
+     *
+     * <p>两款都<b>任意位置可放</b>：不再要求背后 / 下方有支撑，所以不会返回 {@code null}。
+     */
     @Override
     public BlockState getPlacementState(final ItemPlacementContext ctx) {
         if (!this.wallMounted) {
@@ -193,24 +193,16 @@ public class StationSignBlock extends HorizontalFacingBlock {
         // 点墙的某一侧 → 新方块在墙的外面，墙就在新方块的 side.getOpposite() 那一侧。
         final Direction wall = side.getAxis().isHorizontal()
                 ? side.getOpposite()
-                : ctx.getHorizontalPlayerFacing();
-        final BlockState state = getDefaultState().with(FACING, wall);
-        return hasSupport(state, ctx.getWorld(), ctx.getBlockPos()) ? state : null;
+                : ctx.getHorizontalPlayerFacing().getOpposite();
+        return getDefaultState().with(FACING, wall);
     }
 
+    /**
+     * 任意位置可放：四个站外标志（厦门 / 角美 × 挂墙 / 杆上）都不再要求支撑，
+     * 拆掉背后的墙也不会自己掉（{@link #getStateForNeighborUpdate} 已经删了）。
+     */
     @Override
     public boolean canPlaceAt(final BlockState state, final WorldView world, final BlockPos pos) {
-        return !this.wallMounted || hasSupport(state, world, pos);
-    }
-
-    /** 墙没了 → 自己变空气（走邻居更新，和原版告示牌一样；玩家直接挖本体照常掉物品）。 */
-    @Override
-    public BlockState getStateForNeighborUpdate(final BlockState state, final Direction direction,
-                                                final BlockState neighborState, final WorldAccess world,
-                                                final BlockPos pos, final BlockPos neighborPos) {
-        if (this.wallMounted && direction == state.get(FACING) && !canPlaceAt(state, world, pos)) {
-            return Blocks.AIR.getDefaultState();
-        }
-        return super.getStateForNeighborUpdate(state, direction, neighborState, world, pos, neighborPos);
+        return true;
     }
 }

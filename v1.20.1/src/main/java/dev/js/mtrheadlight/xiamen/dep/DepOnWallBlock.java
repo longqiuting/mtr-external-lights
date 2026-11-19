@@ -189,12 +189,12 @@ public class DepOnWallBlock extends HorizontalFacingBlock implements BlockEntity
      *   <li>点的是墙的水平侧面（绝大多数情况）：{@code facing = ctx.getSide()} ——
      *       点北面就朝北，和原版拉杆 / 按钮「贴在点的那一面上」完全一致；</li>
      *   <li>点的是顶面 / 底面（地上 / 天花板上）：退回
-     *       {@code getHorizontalPlayerFacing().getOpposite()}（正面朝玩家）。
-     *       这种放法背后多半没有墙，{@link #hasSupport} 会把这次放置拒掉。</li>
+     *       {@code getHorizontalPlayerFacing().getOpposite()}（正面朝玩家）。</li>
      * </ul>
      *
      * <p>两种来源都只会是水平方向（{@code FACING} 就是 {@code HORIZONTAL_FACING}），
-     * 四个 blockstate 变体都能落到。
+     * 四个 blockstate 变体都能落到。朝向<b>不会</b>因为「背后是不是墙」而变 —— 这块牌子任意位置可放
+     * （见 {@link #canPlaceAt}），{@code facing} 只决定模型贴在哪条边上。
      */
     @Override
     public BlockState getPlacementState(final ItemPlacementContext ctx) {

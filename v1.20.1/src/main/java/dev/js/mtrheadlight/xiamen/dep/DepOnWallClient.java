@@ -42,6 +42,14 @@ public final class DepOnWallClient implements ClientModInitializer {
         }
 
         try {
+            BlockEntityRendererRegistry.register(DepPoleObjects.entityType(), DepPoleRenderer::new);
+            LteLog.LOGGER.info("[lte] dep pole renderer registered: {}",
+                    DepPoleRenderer.class.getName());
+        } catch (Throwable t) {
+            LteLog.LOGGER.error("[lte] could not register the dep pole renderer", t);
+        }
+
+        try {
             BlockRenderLayerMap.INSTANCE.putBlock(DepOnWallObjects.block(), RenderLayer.getCutout());
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] could not set the cutout layer for the dep on wall block", t);

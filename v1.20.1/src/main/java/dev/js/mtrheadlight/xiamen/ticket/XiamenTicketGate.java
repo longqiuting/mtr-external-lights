@@ -117,6 +117,27 @@ public class XiamenTicketGate extends BlockTicketBarrier implements BlockEntityP
         return this.rawModel;
     }
 
+    // ------------------------------------------------------------------ 放置
+
+    /**
+     * 放置：{@code facing} = <b>玩家水平朝向</b>（<b>不取反</b>，与 MTR 的 {@code BlockTicketBarrier} 一致），
+     * {@code open = closed}。位置就是 {@code ctx.getBlockPos()}（你点的那面方块的相邻格），不搜附近空格。
+     *
+     * <h2>为什么这一块<b>不</b>用 {@code getHorizontalPlayerFacing().getOpposite()}</h2>
+     * <p>闸机的 {@code facing} 根本不是「牌面法线」，而是<b>通行方向</b>：
+     * {@link #onEntityCollision} 里那句 {@code if (local.z >= 0) return} 只认从<b>local −Z 侧</b>
+     * （= {@code facing.getOpposite()} 那侧）走进来的人，而 MTR 的约定就是「放置者站在入口侧」。
+     * {@code facing = 玩家朝向} 时，放下那一刻你正好站在 local −Z，抬脚就能刷卡过去；
+     * 取 180° 会把入口侧翻到背后（闸机对放置者不响应），侧壳 {@code sideOf(facing)} 的摆法也会跟着翻。
+     * 所以这里保留 MTR 的写法 —— 它和其它「贴面 + 面朝玩家」的方块不是同一个语义，是<b>有意的例外</b>。
+     */
+    @Override
+    public BlockState getPlacementState(final net.minecraft.item.ItemPlacementContext ctx) {
+        return getDefaultState()
+                .with(FACING, ctx.getHorizontalPlayerFacing())
+                .with(OPEN, TicketSystem.EnumTicketBarrierOpen.CLOSED);
+    }
+
     // ------------------------------------------------------------------ 碰撞 / 框选
 
     /** 碰撞盒的高度：**1.5 格**，照 MTR {@code BlockTicketBarrier} / JCM {@code TicketBarrier1} 的 {@code 24}

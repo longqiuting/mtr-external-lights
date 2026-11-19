@@ -113,6 +113,9 @@ public final class LteServer implements ModInitializer {
         // 挂顶发车倒数器：吊在站台上方的天花板上，读数和挂墙版同一套（排在它后面）。
         blockModule("dep on roof block", dev.js.mtrheadlight.xiamen.dep.DepOnRoofObjects::register);
 
+        // 挂顶 DEP 挂杆：任意位置可放的细杆（几何是任意角旋转，走运行时 rawmodel），排在 DEP 那一组里。
+        blockModule("dep pole block", dev.js.mtrheadlight.xiamen.dep.DepPoleObjects::register);
+
         // 站外标志（厦门 / 角美 × 挂墙 / 杆上）：灯箱牌，同样进「厦门风格物件」页签。
         blockModule("station sign blocks", dev.js.mtrheadlight.xiamen.sign.StationSignObjects::register);
 

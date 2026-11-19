@@ -101,7 +101,8 @@ public class XiamenTicketGateSide extends Block implements BlockEntityProvider {
     @Override
     public BlockState getPlacementState(final ItemPlacementContext context) {
         // 正常不会走这里（侧壳跟着本体一起放，FACING 抄本体的），但 /setblock 之类的场合兜一个合理值。
-        return this.getDefaultState().with(FACING, context.getHorizontalPlayerFacing());
+        // 朝向统一成「面朝玩家」：getHorizontalPlayerFacing().getOpposite()。
+        return this.getDefaultState().with(FACING, context.getHorizontalPlayerFacing().getOpposite());
     }
 
     /** 与本体同一个方块实体类型（渲染器按方块类型分辨「本体 / 侧壳」）。 */

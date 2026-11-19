@@ -1,48 +1,44 @@
-// 厦门 PIDS 的挂杆：只能放在 PIDS（或另一根挂杆）上面，facing 自动跟下面那格一致。
+// 厦门 PIDS 的挂杆：任意位置可放（不要求下面有方块），facing 面朝玩家。
 package dev.js.mtrheadlight.xiamen.pids;
 
 import mtr.block.BlockPoleCheckBase;
 import net.minecraft.block.AbstractBlock;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
 import net.minecraft.block.HorizontalFacingBlock;
 import net.minecraft.block.ShapeContext;
+import net.minecraft.item.ItemPlacementContext;
 import net.minecraft.state.StateManager;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
 import net.minecraft.util.shape.VoxelShape;
 import net.minecraft.world.BlockView;
-import net.minecraft.world.WorldAccess;
 import net.minecraft.world.WorldView;
 
 /**
  * 厦门 PIDS 的挂杆方块 {@code mtrlte:pids_xiamen_pole}（模型
  * {@code mtrlte:block/pids_xiamen_pole}：一根 x/z 都居中的 1×1 竖杆，通到方块顶面）。
  *
- * <h2>为什么直接继承 MTR 的 {@code BlockPoleCheckBase}</h2>
- * <p>它已经把「只能放在某个方块上面」这件事做完了 —— 字节码证据
- * （{@code mtr/block/BlockPoleCheckBase}）：
+ * <h2>为什么继承了 MTR 的 {@code BlockPoleCheckBase}，又把它的两条规则都改掉</h2>
+ * <p>父类原本只做「上面那格必须是本模组的 PIDS 或另一根挂杆」：
  * <pre>
  *   getPlacementState(ctx):
  *       stateBelow = world.getBlockState(pos.down());
  *       return isBlock(stateBelow.getBlock()) ? placeWithState(stateBelow) : null;   // null = 放不下
  *   placeWithState(stateBelow):
  *       defaultState.with(FACING, getStatePropertySafe(stateBelow, FACING));          // facing 跟着下面
- *   appendTooltip: tooltip.mtr.pole_placement + getTooltipBlockText()
  * </pre>
- * MTR 自己的 {@code pids_pole} 就是这么写的（{@code isBlock} 允许
- * {@code BlockPIDSBaseHorizontal} 和它自己，所以能一段段往上叠）。
- *
- * <h2>这里额外加的两条</h2>
+ * 需求变了：挂杆要<b>任意位置可放</b>（吊在半空、贴天花板、站在地上都行），朝向不再跟下面那格，
+ * 而是<b>面朝玩家</b>。所以这里覆写：
  * <ul>
- *   <li>{@link #canPlaceAt}：{@code getPlacementState} 只挡住「物品右键」这条路，
- *       {@code /setblock} 之类还会绕过，所以再补一个（原来的 {@code BlockPIDSBaseHorizontal}
- *       靠 {@code isReplaceable} 挡，也是同样的道理）；</li>
- *   <li>{@link #getStateForNeighborUpdate}：下面那格 PIDS 被拆掉时挂杆一起掉，
- *       不然会浮在空中。</li>
+ *   <li>{@link #getPlacementState} —— {@code facing = getHorizontalPlayerFacing().getOpposite()}
+ *       （朝北放 → {@code facing=SOUTH}，杆的正面朝玩家），位置就是 {@code ctx.getBlockPos()}
+ *       那一格（原版按 {@code pos.offset(side)} 算好的、你点的那面方块的相邻格）；</li>
+ *   <li>{@link #canPlaceAt} —— <b>恒真</b>：不需要支撑，{@code /setblock} 之类也放得下；</li>
+ *   <li>父类的 {@code getStateForNeighborUpdate}（下面没了就掉）不再需要 —— 这里<b>没有重写它</b>，
+ *       杆不会因为邻居被拆而消失（{@code canPlaceAt} 恒真也会让它失效）。</li>
  * </ul>
+ * 留下继承只是为了「物品 tooltip 那套」还能用（{@link #getTooltipBlockText}）。
  */
 public class PidsXiamenPoleBlock extends BlockPoleCheckBase {
 
@@ -85,25 +81,39 @@ public class PidsXiamenPoleBlock extends BlockPoleCheckBase {
         return Text.translatable("block.mtrlte.pids_xiamen_pole");
     }
 
+    /**
+     * 物品 tooltip：父类那条 {@code tooltip.mtr.pole_placement}（「只能放在 X 上面」）<b>已经不成立</b>
+     * —— 这块现在任意位置可放，所以换成本模组的一句实话，不让人以为还得找 PIDS 顶着。
+     */
+    @Override
+    public void appendTooltip(final net.minecraft.item.ItemStack stack,
+                              final net.minecraft.world.BlockView world,
+                              final java.util.List<Text> tooltip,
+                              final net.minecraft.client.item.TooltipContext context) {
+        tooltip.add(Text.translatable("tooltip.mtrlte.pids_xiamen_pole")
+                .formatted(net.minecraft.util.Formatting.GRAY));
+    }
+
     @Override
     protected void appendProperties(final StateManager.Builder<Block, BlockState> builder) {
         builder.add(HorizontalFacingBlock.FACING);
     }
 
-    /** 下面不是 PIDS / 挂杆 → 不许放（{@code /setblock} 也会被挡）。 */
+    /**
+     * 放置：位置 = 你点的那面方块的相邻格（原版 {@code ctx.getBlockPos()}，等价 {@code pos.offset(side)}），
+     * 朝向 = <b>面朝玩家</b>（{@code getHorizontalPlayerFacing().getOpposite()}）。
+     *
+     * <p>父类的实现要求「下面那格是 PIDS / 挂杆」并抄它的 {@code facing} —— 这里整条换掉。
+     */
     @Override
-    public boolean canPlaceAt(final BlockState state, final WorldView world, final BlockPos pos) {
-        return isBlock(world.getBlockState(pos.down()).getBlock());
+    public BlockState getPlacementState(final ItemPlacementContext ctx) {
+        return getDefaultState().with(HorizontalFacingBlock.FACING,
+                ctx.getHorizontalPlayerFacing().getOpposite());
     }
 
-    /** 下面的 PIDS 被拆掉 → 挂杆跟着掉（不然浮空）。 */
+    /** 任意位置可放：不要求下面有 PIDS / 挂杆，半空里也放得下。 */
     @Override
-    public BlockState getStateForNeighborUpdate(final BlockState state, final Direction direction,
-                                                final BlockState neighborState, final WorldAccess world,
-                                                final BlockPos pos, final BlockPos neighborPos) {
-        if (direction == Direction.DOWN && !isBlock(neighborState.getBlock())) {
-            return Blocks.AIR.getDefaultState();
-        }
-        return super.getStateForNeighborUpdate(state, direction, neighborState, world, pos, neighborPos);
+    public boolean canPlaceAt(final BlockState state, final WorldView world, final BlockPos pos) {
+        return true;
     }
 }
