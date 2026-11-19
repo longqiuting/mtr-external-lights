@@ -546,6 +546,9 @@ public final class ParameterScreen extends Screen {
                     // 厦门 PIDS 的三个全局显示开关（本地时间 / 即将进站 / 广告）。
                     // 从主界面搬到这里：主界面只留「进哪个流程」这一层，具体开关归「全局 → 其他」。
                     this.rows.add(Row.action(tr("screen.mtrlte.pids_xiamen"), this::openXiamenPids));
+                    // 全局广告集：一整套图片（0~N 张、有序），开着就盖掉所有厦门屏的单张覆盖。
+                    // 值存在服务端 PersistentState，改一次广播给所有人（见 PidsAdSetNet）。
+                    this.rows.add(Row.action(tr("screen.mtrlte.pids_ad_set"), this::openXiamenAdSet));
                     // 时钟全局配置：界面和单块钟一模一样（ClockConfigScreen 的「全局模式」），
                     // 但改的是所有时钟 —— 存在服务端 PersistentState 里，改一次广播给所有人。
                     // 只有权限等级 ≥ 2 能改（服务端校验），普通玩家点开只是只读看看。
@@ -753,6 +756,19 @@ public final class ParameterScreen extends Screen {
             return;
         }
         this.client.setScreen(new dev.js.mtrheadlight.xiamen.pids.PidsXiamenSettingsScreen(this));
+    }
+
+    /**
+     * 「全局广告集」：所有厦门 PIDS / PSD-LCD 共用的一整套广告（有序，0~N 张）。
+     *
+     * <p>和上面那一页一样，改一下立刻生效（值在服务端，本机只是先乐观写一份镜像），
+     * 不进主界面的完成 / 取消快照 —— 它改的是「屏上播什么」，不是世界数据。
+     */
+    private void openXiamenAdSet() {
+        if (this.client == null) {
+            return;
+        }
+        this.client.setScreen(new dev.js.mtrheadlight.xiamen.pids.PidsXiamenAdSetScreen(this));
     }
 
     /**

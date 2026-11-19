@@ -107,6 +107,10 @@ public final class LteServer implements ModInitializer {
         // 厦门 PIDS 界面通道：客户端改广告序号 / 服务端叫开界面（刷子右键）。
         module("xiamen pids channel", dev.js.mtrheadlight.xiamen.pids.PidsXiamenNet::registerServer);
 
+        // 全局广告集通道（仪表板「其他 → 全局广告集」）：服务端存档 + 快照/保存，
+        // 做法与全局时钟配置的 clock_global 通道一致。
+        module("xiamen pids ad set channel", dev.js.mtrheadlight.xiamen.pids.PidsAdSetNet::register);
+
         // 挂墙发车倒数器：贴在站台附近的墙上，显示下一班车的发车倒计时（纯客户端读数据）。
         blockModule("dep on wall block", dev.js.mtrheadlight.xiamen.dep.DepOnWallObjects::register);
 

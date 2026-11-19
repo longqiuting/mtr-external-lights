@@ -76,6 +76,32 @@ public final class PidsXiamenClient implements ClientModInitializer {
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] xiamen pids: could not register the client receiver", t);
         }
+
+        // 全局广告集的快照（S2C）：进服 / 有人在仪表板里改过一次。渲染器每帧读的是
+        // PidsAdSetCache，所以这里只负责把包里的那份镜像换掉。
+        try {
+            ClientPlayNetworking.registerGlobalReceiver(PidsAdSetNet.ID, (client, handler, buf, sender) -> {
+                try {
+                    if (buf.readByte() != PidsAdSetNet.KIND_SNAPSHOT) {
+                        return; // 客户端只收快照。
+                    }
+                    final PidsAdSet set = PidsAdSet.readBuf(buf);
+                    client.execute(() -> PidsAdSetCache.set(set));
+                } catch (Throwable t) {
+                    LteLog.LOGGER.warn("[lte] xiamen pids ad set: bad snapshot packet", t);
+                }
+            });
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] xiamen pids ad set: could not register the client receiver", t);
+        }
+
+        // 断线清空：别把上一台服务器的广告集带到下一台。
+        try {
+            net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT
+                    .register((handler, client) -> PidsAdSetCache.clear());
+        } catch (Throwable ignored) {
+            // 清不掉最多是「上一台的那套还在」，下次收到快照就覆盖。
+        }
     }
 
     /** 资源重载 → 丢掉广告表缓存。 */
@@ -111,6 +137,12 @@ public final class PidsXiamenClient implements ClientModInitializer {
                 PsdLcdAssets.invalidateAds();
             } catch (Throwable t) {
                 LteLog.LOGGER.warn("[lte] psd lcd: could not invalidate the ad image cache", t);
+            }
+            try {
+                // 全局广告集的图片 id 解析结果也跟着广告表 / 资源包变，清掉重新解析
+                PidsAdSetCache.invalidate();
+            } catch (Throwable t) {
+                LteLog.LOGGER.warn("[lte] xiamen pids ad set: could not invalidate the resolved cache", t);
             }
             return CompletableFuture.completedFuture(null);
         }

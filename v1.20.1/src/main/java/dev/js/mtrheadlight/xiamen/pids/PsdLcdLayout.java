@@ -11,6 +11,11 @@
 //   顶板       y 15.5 … 16（0.5px 薄片，贴天花板）
 //   屏幕窗口  前面（z=0）y 1.5 … 8.5 的整格宽口子，凹进去 1.6px → 屏幕面在 z = 1.6
 //
+// 剪刀（PsdLcdBlock#onUse + HALF 属性）可以把**一格**剪成半格：模型换成
+// psd_lcd_xiamen_half_left.json（model x 8…16）/ _half_right.json（0…8），
+// 世界几何改用 windowQuad(Face, startPx, endPx) 的「区间」版本 ——
+// 高度、凹槽、板厚都不变，只沿铺开轴切一半，所以位图宽高比仍然等于窗口宽高比。
+//
 // 屏幕画面由 BER 画在凹槽底那张面上（比模型面再往前 0.016px，只为了不 z-fighting）。
 // 位图 / 四边形的宽高比严格等于窗口的 16:7，所以窗内内容不会被拉伸（见 tools/psd-lcd-fit-check.js）。
 //
@@ -175,6 +180,17 @@ public final class PsdLcdLayout {
         return Math.max(1, Math.round(widthPx(segments) * BITMAP_SCALE));
     }
 
+    /**
+     * 位图宽度（px），按面板在阅读轴上实际占的像素数算（半格 = 8px、整格 = 16px，
+     * 一条链可以是 8+16+16 这种和）。
+     *
+     * <p>和 {@link #windowQuad(Face, float, float)} 用的是同一个 {@code spanPx}，
+     * 所以「位图多宽」和「四边形多宽」永远是同一个数 → 画面不会被拉伸。
+     */
+    public static int bitmapWidthFor(final float spanPx) {
+        return Math.max(1, Math.round(Math.max(1.0F, spanPx) / 16.0F * PX_PER_BLOCK * BITMAP_SCALE));
+    }
+
     /** 位图高度（px）。**不随段数变化**。 */
     public static int bitmapHeight() {
         return Math.max(1, Math.round(HEIGHT_PX * BITMAP_SCALE));
@@ -197,9 +213,22 @@ public final class PsdLcdLayout {
      * @return {@code float[4][3]}：{{x,y,z} × 4}
      */
     public static float[][] windowQuad(final Face facing, final int segments) {
+        return windowQuad(facing, 0.0F, Math.max(1, segments) * 16.0F);
+    }
+
+    /**
+     * 只画链条里的<b>一段</b>：{@code [startPx, endPx]} 是这段面板在阅读轴上的位置
+     * （单位 = 16 分之格，从 anchor 那一格<b>观察者左边缘</b>量起，可以超过 16 = 伸进下一格）。
+     *
+     * <p>半格剪裁就靠这个重载：整格传 {@code (0,16)}，左半 {@code (0,8)}，右半 {@code (8,16)}；
+     * 相邻的「本格右半 + 下一格左半」是 {@code (8,16)} 与 {@code (16,24)}，首尾相接、不重叠。
+     * 老的四参数版本 {@code (0, segments*16)} 与旧行为逐顶点相同。
+     */
+    public static float[][] windowQuad(final Face facing, final float startPx, final float endPx) {
         final Face f = facing == null ? Face.NORTH : facing;
         final Face right = f.right();
-        final int n = Math.max(1, segments);
+        final float from = Math.min(startPx, endPx) / 16.0F;
+        final float to = Math.max(startPx, endPx) / 16.0F;
         final float y0 = WINDOW_Y0_BLOCKS;
         final float y1 = WINDOW_Y1_BLOCKS;
         // 屏幕面在法线方向上的坐标：north/west 从 0 往内量，south/east 从 1 往内量。
@@ -210,8 +239,8 @@ public final class PsdLcdLayout {
 
         if (right.dx != 0) {
             // facing 是 north / south：x 是铺开的方向，z 固定在屏幕面上
-            final float x0 = startX;
-            final float x1 = startX + right.dx * n;
+            final float x0 = startX + right.dx * from;
+            final float x1 = startX + right.dx * to;
             return new float[][]{
                     {x0, y1, plane},
                     {x0, y0, plane},
@@ -220,8 +249,8 @@ public final class PsdLcdLayout {
             };
         }
         // facing 是 east / west：z 是铺开的方向，x 固定在屏幕面上
-        final float z0 = startZ;
-        final float z1 = startZ + right.dz * n;
+        final float z0 = startZ + right.dz * from;
+        final float z1 = startZ + right.dz * to;
         return new float[][]{
                 {plane, y1, z0},
                 {plane, y0, z0},

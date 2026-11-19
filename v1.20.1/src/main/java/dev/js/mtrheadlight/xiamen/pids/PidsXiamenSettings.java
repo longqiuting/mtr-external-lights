@@ -28,6 +28,12 @@ import net.fabricmc.loader.api.FabricLoader;
  *   <li>{@link #adOverrideImage()} —— <b>全局广告覆盖</b>：选了一张就所有 PIDS（地铁 + BRT）都只播它，
  *       不轮播；空 = 不覆盖，各屏按自己勾的分类播。</li>
  * </ul>
+ *
+ * <h2>「全局广告集」不在这里</h2>
+ * <p>仪表板「其他 → 全局广告集」那一套（0~N 张有序图片）是<b>服务端</b>的世界级配置
+ * （{@link PidsAdSetState}），客户端只拿 {@link PidsAdSetCache} 的只读镜像；它比本文件的单张
+ * 覆盖<b>优先</b>，两者在 {@link #applyAdOverride(java.util.List)} 里合并。
+ * 这里保留单张覆盖是为了向后兼容（存档外的老配置继续有效）。
  * 站台 / 页码 / 广告序号是<b>每块屏</b>的（在方块实体里，跟着世界存档走），
  * 由刷子打开的 {@link PidsXiamenConfigScreen} 改。
  *
@@ -146,13 +152,25 @@ public final class PidsXiamenSettings {
     }
 
     /**
-     * 一块屏这一帧实际要播的广告表。
+     * 一块屏这一帧实际要播的广告表。三层，前面的盖后面的：
      *
-     * <p>选了全局覆盖 → 只返回那一张（单张 = 轮播周期等于它自己的标语长度，等于不轮播）；
-     * 没选 / 选中的图已经没了 → 原样返回这块屏自己的（{@code PidsXiamenBlockEntity#getAds()}）。
+     * <ol>
+     *   <li><b>全局广告集</b>（{@link PidsAdSetCache#activeAds()}）：仪表板里「其他 → 全局广告集」
+     *       配的那一组有序图片。开着且有至少一张图能解析 → <b>就它</b>，按顺序轮播，
+     *       每块屏自己的分类和下面那个单张覆盖全部忽略；</li>
+     *   <li><b>全局单张覆盖</b>（{@link #adOverride()}）：老功能，只返回那一张；</li>
+     *   <li>这块屏自己的（{@code PidsXiamenBlockEntity#getAds()}）。</li>
+     * </ol>
+     *
+     * <p>广告集关着 / 空 / 图全都不在资源包里时自动往下一层退，所以「关掉就回到原行为」
+     * 不需要额外的开关判断 —— 关掉就是 {@code resolve()} 返回 {@code null}。
      */
     public static java.util.List<PidsXiamenAds.Ad> applyAdOverride(
             final java.util.List<PidsXiamenAds.Ad> own) {
+        final java.util.List<PidsXiamenAds.Ad> set = PidsAdSetCache.activeAds();
+        if (set != null && !set.isEmpty()) {
+            return set;
+        }
         final PidsXiamenAds.Ad ad = adOverride();
         return ad == null ? own : java.util.Collections.singletonList(ad);
     }

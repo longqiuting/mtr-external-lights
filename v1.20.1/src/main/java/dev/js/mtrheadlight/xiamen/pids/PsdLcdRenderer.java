@@ -10,6 +10,11 @@
 //   · 窗口矩形 x 0…16、y 1.5…8.5、z = 1.6（屏幕面）——不多一个像素；
 //   · 位图宽高比 = 窗口宽高比（16:7 / 段），内容不会被拉伸（见 tools/psd-lcd-fit-check.js）。
 //
+// 剪刀把某一格剪成半格（PsdLcdBlock.HALF = left / right）以后，这一格只剩 8px：
+// 整条链按「每格占 16 分之几」拼成区间，相邻区间接得上就并成一段（本格 right + 下一格 left
+// 正好拼回一整段），每一段发一个四边形、贴图 u 按段的位置裁 —— 所以半格既不会被拉伸，
+// 也不会和邻居重叠；被剪掉的那半格是真的没有几何（有洞就是洞）。
+//
 // 旧版错在把「屏幕面中线 y = 5px」当成了四边形原点，再 rotZ(180) 让画面往下长，
 // 于是 7px 高的画面从 y=5px 一直挂到 y=-2px（吊板下面），看起来像「多画了一遍」。
 package dev.js.mtrheadlight.xiamen.pids;
@@ -49,6 +54,12 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
 
     /** 编组卡片的张数（没有实时编组数据时的示意）。 */
     private static final int DEFAULT_CARS = 4;
+
+    /**
+     * 「全局广告集」生效时，PSD-LCD 的广告区每隔多少 tick 换下一张（200 = 10 秒）。
+     * 厦门 PIDS 是按「标语滚动完」换，这条屏没有滚动字幕，所以用固定节拍。
+     */
+    private static final int AD_ROTATE_TICKS = 200;
 
     private boolean warned;
     /** 「拿不到实时编组、退回 4 节」这条 warning 只打一次（consistOf 每帧都在跑）。 */
@@ -110,12 +121,19 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         }
         final Direction facing = state.get(PsdLcdBlock.FACING);
         final PsdLcdLayout.Face face = faceOf(facing);
-        final int segments = PsdLcdBlock.lengthOf(world, anchor);
+        // 每格的面板在阅读轴上占多少（剪刀剪过就是 8px，没剪就是 16px），整条链现算。
+        final java.util.List<BlockPos> chain = PsdLcdBlock.run(world, anchor);
+        final float[] spans = spansOf(world, chain, state);
+        final float extentStart = minStart(spans);
+        final float extentEnd = maxEnd(spans);
+        final float extent = Math.max(1.0F, extentEnd - extentStart);
+        final java.util.List<float[]> pieces = piecesOf(spans);
 
-        final Content content = contentOf(entity, world, anchor, segments);
-        final int bitmapW = PsdLcdLayout.bitmapWidth(segments);
+        final Content content = contentOf(entity, world, anchor, extent);
+        final int bitmapW = PsdLcdLayout.bitmapWidthFor(extent);
         final int bitmapH = PsdLcdLayout.bitmapHeight();
-        final String key = world.getRegistryKey().getValue() + "|" + anchor.asLong() + "|" + segments;
+        final String shapeKey = shapeKey(spans);
+        final String key = world.getRegistryKey().getValue() + "|" + anchor.asLong() + "|" + shapeKey;
         final PsdLcdTextures.Entry texture = PsdLcdTextures.acquire(key, bitmapW, bitmapH);
         if (texture == null) {
             return;
@@ -128,8 +146,6 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
             PsdLcdTextures.upload(texture, image);
         }
 
-        // 四边形顶点 = 模型里 ScreenPlane 的四个角（世界坐标，相对 anchor 那一格的最小角）。
-        final float[][] quad = PsdLcdLayout.windowQuad(face, segments);
         final float[] normal = PsdLcdLayout.screenNormal(face);
         final Matrix4f matrix = matrices.peek().getPositionMatrix();
         final Matrix3f normalMatrix = matrices.peek().getNormalMatrix();
@@ -151,10 +167,19 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         com.mojang.blaze3d.systems.RenderSystem.disableCull();
         try {
             final VertexConsumer vc = immediate.getBuffer(MoreRenderLayers.getLight(texture.id, false));
-            vertex(vc, matrix, normalMatrix, quad[0][0], quad[0][1], quad[0][2], 0.0F, 0.0F, normal);
-            vertex(vc, matrix, normalMatrix, quad[1][0], quad[1][1], quad[1][2], 0.0F, 1.0F, normal);
-            vertex(vc, matrix, normalMatrix, quad[2][0], quad[2][1], quad[2][2], 1.0F, 1.0F, normal);
-            vertex(vc, matrix, normalMatrix, quad[3][0], quad[3][1], quad[3][2], 1.0F, 0.0F, normal);
+            // 一段（连续面板）发一个四边形。整格链 = 只有一个 (0, extent)；剪过以后
+            // 被剪掉的那半格既没有几何、也不发顶点 —— 内容在 u 上按同一段裁剪，不会重叠。
+            // 注意：四边形的<b>位置</b>用绝对区间（相对 anchor 那一格的左边缘），
+            // 只有贴图的 u 才按 extentStart/extent 归一化 —— 否则「右半」会被画到左半去。
+            for (final float[] piece : pieces) {
+                final float[][] quad = PsdLcdLayout.windowQuad(face, piece[0], piece[1]);
+                final float u0 = (piece[0] - extentStart) / extent;
+                final float u1 = (piece[1] - extentStart) / extent;
+                vertex(vc, matrix, normalMatrix, quad[0][0], quad[0][1], quad[0][2], u0, 0.0F, normal);
+                vertex(vc, matrix, normalMatrix, quad[1][0], quad[1][1], quad[1][2], u0, 1.0F, normal);
+                vertex(vc, matrix, normalMatrix, quad[2][0], quad[2][1], quad[2][2], u1, 1.0F, normal);
+                vertex(vc, matrix, normalMatrix, quad[3][0], quad[3][1], quad[3][2], u1, 0.0F, normal);
+            }
         } finally {
             com.mojang.blaze3d.systems.RenderSystem.enableCull();
             matrices.pop();
@@ -162,6 +187,77 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                 immediate.draw();
             }
         }
+    }
+
+    // ------------------------------------------------------------------ 半格拼条
+
+    /**
+     * 整条链每格面板在阅读轴上的 {@code {start, end}}（16 分之格，第 i 格从 16i 起）。
+     *
+     * <p>第 i 格的 {@code FACING} 理论上和 anchor 一致（{@link PsdLcdBlock#run} 只认同类方块），
+     * 剪过的那一格取它的 {@link PsdLcdBlock#HALF}：整格 [0,16]、左半 [0,8]、右半 [8,16]。
+     */
+    private static float[] spansOf(final World world, final java.util.List<BlockPos> chain,
+                                   final BlockState anchorState) {
+        final float[] spans = new float[chain.size() * 2];
+        for (int i = 0; i < chain.size(); i++) {
+            final BlockState each = i == 0 ? anchorState : world.getBlockState(chain.get(i));
+            final PsdLcdBlock.Half half = each.getBlock() instanceof PsdLcdBlock && each.contains(PsdLcdBlock.HALF)
+                    ? each.get(PsdLcdBlock.HALF) : PsdLcdBlock.Half.NONE;
+            final float[] span = PsdLcdBlock.panelSpan(half);
+            spans[i * 2] = i * 16.0F + span[0];
+            spans[i * 2 + 1] = i * 16.0F + span[1];
+        }
+        return spans;
+    }
+
+    private static float minStart(final float[] spans) {
+        float out = Float.MAX_VALUE;
+        for (int i = 0; i < spans.length; i += 2) {
+            out = Math.min(out, spans[i]);
+        }
+        return out == Float.MAX_VALUE ? 0.0F : out;
+    }
+
+    private static float maxEnd(final float[] spans) {
+        float out = -Float.MAX_VALUE;
+        for (int i = 1; i < spans.length; i += 2) {
+            out = Math.max(out, spans[i]);
+        }
+        return out == -Float.MAX_VALUE ? 16.0F : out;
+    }
+
+    /**
+     * 把各格的区间并成「连续段」：前一段的终点和后一段的起点相等（浮点容差 1e-4）就接上。
+     *
+     * <p>这是「两半拼回一整段」的实现：本格 {@code half=right} 的 [8,16] 与下一格
+     * {@code half=left} 的 [16,24] 相接 → 合并成 [8,24]，一个四边形、一次贴图、零缝。
+     * 被剪掉的那半格（相邻区间不相接）就是真的没有几何 —— 有洞就是洞，不会补一块拉伸的画面。
+     */
+    private static java.util.List<float[]> piecesOf(final float[] spans) {
+        final java.util.List<float[]> out = new java.util.ArrayList<>();
+        float start = spans[0];
+        float end = spans[1];
+        for (int i = 2; i < spans.length; i += 2) {
+            if (Math.abs(spans[i] - end) <= 1.0E-4F) {
+                end = spans[i + 1];
+                continue;
+            }
+            out.add(new float[]{start, end});
+            start = spans[i];
+            end = spans[i + 1];
+        }
+        out.add(new float[]{start, end});
+        return out;
+    }
+
+    /** 形状签名（贴图缓存 / 内容哈希都用它）：剪过哪一格、剪成哪半变了就得重建。 */
+    private static String shapeKey(final float[] spans) {
+        final StringBuilder out = new StringBuilder(spans.length * 4);
+        for (final float value : spans) {
+            out.append(Math.round(value)).append(',');
+        }
+        return out.toString();
     }
 
     /** 方块状态的 {@code FACING} → 面板几何用的 {@link PsdLcdLayout.Face}。 */
@@ -206,7 +302,7 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
     }
 
     private static Content contentOf(final PsdLcdBlockEntity entity, final World world, final BlockPos pos,
-                                     final int segments) {
+                                     final float spanPx) {
         final List<ScheduleEntry> schedules = PidsXiamenRenderer.schedulesFor(entity, pos);
         final int page = Math.max(0, entity.getDisplayPage());
 
@@ -291,7 +387,7 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
 
         // ---- 标语条的文字：**画进位图**（静态），不再走 MC 文字层。
         // 广告区画的是同一张广告（有图就铺图，没图就洋红占位块 + 「广告位」）。
-        final PidsXiamenAds.Ad ad = adOf(entity);
+        final PidsXiamenAds.Ad ad = adOf(entity, world);
         final BufferedImage adImage = ad == null ? null : PsdLcdAssets.ad(ad.image());
         final String ticker = ad == null || ad.text() == null ? "" : ad.text().getString();
 
@@ -311,16 +407,24 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                 ticker,
                 Text.translatable("gui.mtrlte.psd_lcd.place_ad").getString());
 
-        // 哈希：只有这些变了才需要重画位图（广告图换了也要重画，所以把图片 id 也带上）
+        // 哈希：只有这些变了才需要重画位图（广告图换了也要重画，所以把图片 id 也带上；
+        // 剪成半格以后宽度变了也重画 —— 位图宽度跟着 spanPx 走，不能拿旧宽度的位图拉伸）
         final String adKey = ad == null || ad.image() == null ? "-" : ad.image().toString();
-        return new Content(content, adImage, content + "|" + segments + "|" + adKey);
+        return new Content(content, adImage,
+                content + "|" + Math.round(spanPx) + "|" + adKey);
     }
 
     /**
-     * 这块屏当前要显示的广告（和厦门 PIDS 同一套：全局覆盖优先，其次这块屏自己勾的分类，
-     * 再按 {@code advertisementIndex} 轮播）。广告关掉 / 表是空的 → {@code null}。
+     * 这块屏当前要显示的广告（和厦门 PIDS 同一套：全局广告集 → 全局单张覆盖 → 这块屏自己勾的分类，
+     * 见 {@link PidsXiamenSettings#applyAdOverride(List)}）。广告关掉 / 表是空的 → {@code null}。
+     *
+     * <h2>轮播</h2>
+     * <p>PSD-LCD 没有厦门 PIDS 那条「标语滚完」的时间线（这一格只有广告区，没有滚动字幕），
+     * 所以「全局广告集」生效时按世界 tick 每 {@value #AD_ROTATE_TICKS} tick 换一张：
+     * {@code (advertisementIndex + time / AD_ROTATE_TICKS) mod n}。这样多块屏各自错开、
+     * 又都严格按集合里的顺序走。没开广告集时保持老行为 —— 只按 {@code advertisementIndex} 取一张，不随时间变。
      */
-    private static PidsXiamenAds.Ad adOf(final PsdLcdBlockEntity entity) {
+    private static PidsXiamenAds.Ad adOf(final PsdLcdBlockEntity entity, final World world) {
         try {
             if (!PidsXiamenSettings.advertisements()) {
                 return null;
@@ -329,7 +433,11 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
             if (ads == null || ads.isEmpty()) {
                 return null;
             }
-            return ads.get(Math.floorMod(entity.getAdvertisementIndex(), ads.size()));
+            int slot = entity.getAdvertisementIndex();
+            if (PidsAdSetCache.activeAds() != null) {
+                slot += (int) ((world == null ? 0L : world.getTime()) / AD_ROTATE_TICKS);
+            }
+            return ads.get(Math.floorMod(slot, ads.size()));
         } catch (final Throwable ignored) {
             return null;
         }

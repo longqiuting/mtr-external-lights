@@ -78,9 +78,20 @@ const YAW_TO_FACING = { 0: 'SOUTH', 90: 'WEST', 180: 'NORTH', 270: 'EAST' };
 
 const blockstate = JSON.parse(fs.readFileSync(BLOCKSTATE, 'utf8'));
 const bsY = {};
+// 每个变体的 key 现在是 "facing=<dir>,half=<none|left|right>"（剪刀剪半格以后加的），
+// 朝向那一张表只认整格（half=none），半格另有一轮检查（见下面「半格变体」）。
+const bsHalf = {};
 for (const [key, variant] of Object.entries(blockstate.variants || {})) {
-  const facing = key.replace('facing=', '').toUpperCase();
-  bsY[facing] = variant.y || 0;
+  const props = Object.fromEntries(key.split(',').map((kv) => kv.trim().split('=')));
+  const facing = (props.facing || '').toUpperCase();
+  const half = props.half || 'none';
+  if (!facing) {
+    continue;
+  }
+  bsHalf[`${facing}/${half}`] = variant;
+  if (half === 'none') {
+    bsY[facing] = variant.y || 0;
+  }
 }
 
 // Java 里的 Face#blockstateY() 表
@@ -104,23 +115,30 @@ function rotateY(vec, deg) {
   return [vec[0] * cos - vec[2] * sin, 0, vec[0] * sin + vec[2] * cos];
 }
 
-/** PsdLcdLayout#windowQuad 的同一份算法（左上 → 左下 → 右下 → 右上，世界格）。 */
-function windowQuad(facing, segments) {
+/**
+ * PsdLcdLayout#windowQuad 的同一份算法（左上 → 左下 → 右下 → 右上，世界格）。
+ *
+ * 参数是阅读轴上的绝对区间（16 分之格，从 anchor 那一格的观察者左边缘量起）——
+ * 和 Java 里的 `windowQuad(Face, float startPx, float endPx)` 完全对应；
+ * 整条链 = `(0, segments*16)`，半格 = `(0,8)` / `(8,16)`。
+ */
+function windowQuad(facing, startPx = 0, endPx = 16) {
   const f = VEC[facing];
   const right = VEC[RIGHT[facing]];
-  const n = Math.max(1, segments);
+  const from = startPx / 16;
+  const to = endPx / 16;
   const y0 = WIN_Y0 / 16;
   const y1 = WIN_Y1 / 16;
   const plane = (f[0] < 0 || f[2] < 0) ? (THICK - GAP) / 16 : 1 - (THICK - GAP) / 16;
   const startX = 0.5 - right[0] * 0.5;
   const startZ = 0.5 - right[2] * 0.5;
   if (right[0] !== 0) {
-    const x0 = startX;
-    const x1 = startX + right[0] * n;
+    const x0 = startX + right[0] * from;
+    const x1 = startX + right[0] * to;
     return [[x0, y1, plane], [x0, y0, plane], [x1, y0, plane], [x1, y1, plane]];
   }
-  const z0 = startZ;
-  const z1 = startZ + right[2] * n;
+  const z0 = startZ + right[2] * from;
+  const z1 = startZ + right[2] * to;
   return [[plane, y1, z0], [plane, y0, z0], [plane, y0, z1], [plane, y1, z1]];
 }
 
@@ -151,7 +169,7 @@ for (const face of FACES) {
   ok(placed === face, `玩家 yaw=${yaw}（朝向 ${playerFacing}）放出来的 facing = ${face}`, `实际 ${placed}`);
 
   // 4) BER 四边形：法线 = facing，y 范围 = 1.5…8.5px，世界高度 7/16 格
-  const q = windowQuad(face, 3);
+  const q = windowQuad(face, 0, 48);
   const ys = q.map((p) => p[1]);
   const yMin = Math.min(...ys) * 16;
   const yMax = Math.max(...ys) * 16;
@@ -176,11 +194,91 @@ for (const face of FACES) {
     + `  四边形 ${ys.length} 顶点 · y ${WIN_Y0}…${WIN_Y1}px · 观察者 (${fmt(viewer[0])}, ${fmt(viewer[2])}) → 正面可见`);
 }
 
+// ---------------------------------------------------------------- 半格变体（剪刀）
+
+// 半格的几何约定（和 PsdLcdBlock#panelSpan / modelXSpan 一致）：
+//   half=left  → model x 8…16（观察者左半）   文件 psd_lcd_xiamen_half_left.json
+//   half=right → model x 0…8 （观察者右半）   文件 psd_lcd_xiamen_half_right.json
+// 每个 facing 的 y 必须和整格那份一样（半格不改变朝向），模型名必须指到对应的半格文件，
+// 而且那个文件里的 ScreenPlane 只能占这 8px —— 三者任一不对，屏幕上就会出现「框 8px、画 16px」。
+console.log('\n== 半格变体（half=left / half=right）==');
+const HALVES = {
+  // mx = model 空间 x 区间（模型文件），s = 阅读轴区间（panelSpan，16 分之格，从本格左边缘量起）
+  left: { model: 'mtrlte:block/psd_lcd_xiamen_half_left', mx0: 8, mx1: 16, s0: 0, s1: 8 },
+  right: { model: 'mtrlte:block/psd_lcd_xiamen_half_right', mx0: 0, mx1: 8, s0: 8, s1: 16 },
+};
+const halfModels = {};
+for (const [name, spec] of Object.entries(HALVES)) {
+  const file = path.join(path.dirname(MODEL), `${spec.model.split('/').pop()}.json`);
+  if (fs.existsSync(file)) {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const plane = (parsed.elements || []).find((e) => e.name === 'ScreenPlane');
+    halfModels[name] = plane ? { x0: plane.from[0], x1: plane.to[0] } : null;
+  } else {
+    halfModels[name] = null;
+  }
+  ok(halfModels[name] !== null,
+    `半格模型 ${spec.model.split('/').pop()}.json 存在`, halfModels[name] === null ? '缺文件' : '');
+  if (halfModels[name]) {
+    ok(Math.abs(halfModels[name].x0 - spec.mx0) < 1e-6
+      && Math.abs(halfModels[name].x1 - spec.mx1) < 1e-6,
+      `half=${name} 模型的 ScreenPlane 只占 model x ${spec.mx0}…${spec.mx1}`,
+      `实际 ${halfModels[name].x0}…${halfModels[name].x1}`);
+  }
+}
+for (const face of FACES) {
+  for (const [name, spec] of Object.entries(HALVES)) {
+    const variant = bsHalf[`${face}/${name}`];
+    ok(variant !== undefined, `blockstate 有 facing=${face.toLowerCase()},half=${name}`);
+    if (!variant) {
+      continue;
+    }
+    ok((variant.y || 0) === EXPECTED_Y[face],
+      `facing=${face.toLowerCase()},half=${name} 的 y = ${EXPECTED_Y[face]}`,
+      `实际 ${variant.y || 0}`);
+    ok(variant.model === spec.model,
+      `facing=${face.toLowerCase()},half=${name} 用 ${spec.model.split('/').pop()}`,
+      `实际 ${variant.model}`);
+  }
+}
+// 两半拼回一整段：本格 right 的终点（16i+16）必须正好等于下一格 left 的起点（16(i+1)+0）。
+ok(HALVES.right.s1 === 16 && HALVES.left.s0 === 0 && HALVES.left.s1 === HALVES.right.s1 - 8,
+  '本格 half=right 的右边缘与下一格 half=left 的左边缘相接（拼回一整段，缝 = 0）',
+  `right=[${HALVES.right.s0},${HALVES.right.s1}] left=[${HALVES.left.s0},${HALVES.left.s1}]`);
+// 半格必须正好是整格的一半（8px）。
+ok(HALVES.left.s1 - HALVES.left.s0 === 8 && HALVES.right.s1 - HALVES.right.s0 === 8,
+  '左右半格各占 8px（整格的 1/2）');
+
+// BER 四边形 vs 模型：每个 facing × half，四边形在阅读轴上的区间必须和
+// 「模型 ScreenPlane 的 x 区间按 blockstate y 旋转过去」逐格重合（误差 < 0.01px）。
+// 这就是「画面只画留下的那 8px」的离线证据 —— 模型、blockstate、BER 三者只要有一个算错就红。
+const rot2 = (x, z, deg) => {
+  const rad = (deg * Math.PI) / 180;
+  const cos = Math.round(Math.cos(rad));
+  const sin = Math.round(Math.sin(rad));
+  const t = x - 8;
+  const u = z - 8;
+  return [8 + t * cos - u * sin, 8 + t * sin + u * cos];
+};
+for (const face of FACES) {
+  for (const [name, spec] of Object.entries(HALVES)) {
+    const q = windowQuad(face, spec.s0, spec.s1);
+    const axis = (face === 'NORTH' || face === 'SOUTH') ? 0 : 2;
+    const vals = q.map((p) => p[axis] * 16);
+    const run = [Math.min(...vals), Math.max(...vals)];
+    const corners = [rot2(spec.mx0, 0.5, bsY[face]), rot2(spec.mx1, 0.5, bsY[face])];
+    const m = corners.map((p) => p[axis === 0 ? 0 : 1]).sort((a, b) => a - b);
+    ok(Math.abs(run[0] - m[0]) < 0.01 && Math.abs(run[1] - m[1]) < 0.01,
+      `facing=${face.toLowerCase()},half=${name} 的四边形与模型窗口逐格重合`,
+      `quad ${run.map((v) => v.toFixed(2))} / model ${m.map((v) => v.toFixed(2))}`);
+  }
+}
+
 // ---------------------------------------------------------------- 三个朝向的四边形顶点
 
 console.log('\n== 四边形顶点（3 段，anchor 那一格的最小角为原点）==');
 for (const face of FACES) {
-  const q = windowQuad(face, 3);
+  const q = windowQuad(face, 0, 48);
   const text = q.map((p) => `(${p.map((v) => v.toFixed(3)).join(', ')})`).join('  ');
   console.log(`  ${label(face)}  ${text}`);
 }
