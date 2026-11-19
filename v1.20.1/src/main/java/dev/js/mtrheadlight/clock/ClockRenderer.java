@@ -38,8 +38,19 @@ import org.joml.Matrix4f;
  *   faceUp= n × right                         // = 投影到钟面里的 up
  * </pre>
  * 钟面上任意一点 = 钟心 + right·a + faceUp·b + n·depth，其中 {@code a = r·sinθ, b = r·cosθ}，
- * θ 从 12 点方向<b>顺时针</b>量。三个 depth 常量把「盘面 / 刻度 / 指针 / 中心轴」分层，
+ * θ 从 12 点方向<b>顺时针</b>量。depth 常量把「盘面 / 刻度 / 指针 / 中心轴」分层，
  * 避免同一平面上打架。
+ *
+ * <h2>盘面贴底，法线仍朝 +FACING</h2>
+ * <p>{@code FACING} 的语义不变：它仍然是<b>钟面朝向</b>的那一面（放置时玩家点的那一面，朝玩家 / 朝外）。
+ * 但几何<b>不贴在那一面上</b>：整个钟面都画在 {@code -FACING} 那一侧，也就是<b>远离玩家、紧贴着
+ * 钟背后那格方块</b>的表层（局部坐标 0.016 起，见 {@link #BACK_PLANE}）—— 之前贴在 0.970，
+ * 看起来像从方块里朝玩家浮出来一块，而不是「贴墙的钟」。
+ *
+ * <p>只有沿法线的偏移翻了，面内的基（{@code right} / {@code faceUp}）和法线本身都没动，所以：
+ * 12 点照旧朝上、三根针照旧顺时针、数字照旧正着念 —— 从玩家那一侧看，画面和以前一模一样，
+ * 只是离得远了 0.95 格。分层顺序要跟着翻：在 {@code -FACING} 侧，「离玩家更近」= depth 更小，
+ * 所以盘面最深、轴点最靠玩家（{@link #DISC_DEPTH} … {@link #HUB_DEPTH}），否则盘面会挡在针前面。
  *
  * <h2>远处的钟不许消失</h2>
  * <p>{@link #getRenderDistance()} 返回 {@value #RENDER_DISTANCE}（1.20.1 的
@@ -57,15 +68,26 @@ public final class ClockRenderer implements BlockEntityRenderer<ClockBlockEntity
     /** 远处不消失：384 格（比默认的 64 格远得多，站台两头都看得到）。 */
     public static final int RENDER_DISTANCE = 384;
 
-    /** 钟面盘心离方块中心多远（沿法线，格）。方块面在 0.5，这里退进 0.03 免得和邻格的面对穿。 */
-    private static final double DISC_DEPTH = 0.470D;
-    /** 刻度的深度。 */
-    private static final double TICK_DEPTH = 0.472D;
-    /** 时针 / 分针 / 秒针 / 中心轴的深度（越靠前越不会被压住）。 */
-    private static final double HOUR_DEPTH = 0.478D;
-    private static final double MINUTE_DEPTH = 0.481D;
-    private static final double SECOND_DEPTH = 0.484D;
-    private static final double HUB_DEPTH = 0.490D;
+    /**
+     * 最里面那一层的深度：盘面就贴在这里 —— 沿 {@code -FACING} 走 0.484 格，即局部坐标 0.016，
+     * 紧贴钟背后那格方块的表层（负号就是「朝 -FACING」，见类注释「盘面贴底」）。
+     */
+    private static final double BACK_PLANE = -0.484D;
+    /** 钟面盘心的深度（最深的一层）。 */
+    private static final double DISC_DEPTH = BACK_PLANE;
+    /** 刻度的深度：压在盘面上，比盘面更靠玩家一点点。 */
+    private static final double TICK_DEPTH = BACK_PLANE + 0.002D;
+    /**
+     * 时针 / 分针 / 秒针 / 中心轴的深度。
+     *
+     * <p>注意方向：在 {@code -FACING} 侧，「离玩家更近」= depth <b>更大</b>（更靠近 0），
+     * 所以三针必须<b>比盘面深</b>（{@code BACK_PLANE + 正值}），否则会被盘面挡住。
+     * 越靠前越不会被压住：时针 → 分针 → 秒针 → 轴点。
+     */
+    private static final double HOUR_DEPTH = BACK_PLANE + 0.008D;
+    private static final double MINUTE_DEPTH = BACK_PLANE + 0.011D;
+    private static final double SECOND_DEPTH = BACK_PLANE + 0.014D;
+    private static final double HUB_DEPTH = BACK_PLANE + 0.020D;
 
     private static final double TWO_PI = Math.PI * 2.0D;
 
@@ -93,7 +115,8 @@ public final class ClockRenderer implements BlockEntityRenderer<ClockBlockEntity
         if (!(state.getBlock() instanceof ClockBlock)) {
             return;
         }
-        final ClockConfig cfg = entity.config();
+        // 全局配置开着时拿到的是全局那份（客户端镜像，见 ClockGlobalCache），否则是这块钟自己的。
+        final ClockConfig cfg = entity.effectiveConfig();
         final Direction facing = state.get(ClockBlock.FACING);
 
         final double seconds = entity.displaySeconds(tickDelta);

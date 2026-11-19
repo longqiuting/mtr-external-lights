@@ -1,4 +1,4 @@
-// 时钟配置界面：开关在上、滑块在下；颜色走 ColorPickerScreen；音效 id 可搜索。
+// 时钟配置界面：开关在上、滑块在下；颜色走 ColorPickerScreen；音效 id 可搜索；每行一个 ↺。
 package dev.js.mtrheadlight.clock;
 
 import dev.js.mtrheadlight.ColorPickerScreen;
@@ -22,6 +22,15 @@ import java.util.function.IntSupplier;
 /**
  * 时钟（{@code mtrlte:clock}）的配置界面，刷子右键打开。
  *
+ * <h2>两种模式</h2>
+ * <ul>
+ *   <li><b>单块模式</b>（{@code pos != null}）：改这一块钟自己的配置，底部「完成」走
+ *       {@link ClockNet#savePacket}；</li>
+ *   <li><b>全局模式</b>（{@code pos == null}，由仪表板「其他 → 时钟全局设置」进来）：<b>界面完全一样</b>，
+ *       只是多一行「全局启用」，并且「完成」直接把整份配置写成<b>全局配置</b>（盖住所有时钟，
+ *       见 {@link ClockGlobalNet}）。取消什么都不发。</li>
+ * </ul>
+ *
  * <h2>布局（用户点名：开关在上、滑块在下）</h2>
  * <pre>
  *   第 0–2 行：时间源 / 发光 / 刻度样式 / 整点报时 / 报时模式 / 红石控制   ← 开关与选项
@@ -30,10 +39,17 @@ import java.util.function.IntSupplier;
  *   第 7–9 行：六个颜色（钟面 / 时针 / 分针 / 秒针 / 中心轴 / 刻度）
  *   第 10 行 ：音效搜索 + 试听
  *   第 11–12 行：音效列表（可滚动、点一下就是选中）
- *   底部    ：完成 / 取消
+ *   底部    ：全部复原 / 完成 / 取消
  * </pre>
- * 「完成」才把配置发回服务端（{@link ClockNet#savePacket}）；取消 / ESC 什么都不发，
- * 钟保持原来的样子。
+ * 全局模式下所有行整体下移一行，第 0 行是「全局启用：开 / 关」。
+ *
+ * <h2>每行一个 ↺（复原）</h2>
+ * <p>每一行最右边都有一个方形 ↺（{@code 18px}，与 {@code ParameterScreen} 的复位列同一个做法）：
+ * 点一下只把这<b>一行</b>的字段写回 {@link #defaults 出厂值}（{@code new ClockConfig()} 的字段初值）。
+ * 一行放两个参数时（例如「时间源 | 发光」）两个一起恢复 —— 和 {@code ParameterScreen} 对
+ * 「一行两个参数」的定义一致。
+ * 底部「全部复原」把整份配置一次写回出厂值（全局模式下连「启用」也回到关）。
+ * 复原只改界面里的副本，和普通修改一样要按「完成」才发给服务端。
  *
  * <h2>音效列表</h2>
  * <p>来源是 {@code Registries.SOUND_EVENT}（原版 + 所有模组的音效，客户端已同步），
@@ -53,12 +69,24 @@ public final class ClockConfigScreen extends Screen {
     private static final int MAX_PANEL_W = 380;
     private static final int MAX_ROW_H = 22;
     private static final int MIN_ROW_H = 16;
-    /** 行数（见类注释的布局表）。 */
+    /** 单块模式的固定行数（见类注释的布局表）。 */
     private static final int ROWS = 13;
     private static final int PAD = 8;
+    /** 每行末尾 ↺ 的宽度（和行高一个量级的方形按钮）。 */
+    private static final int RESET_W = 18;
+    /** ↺ 和内容之间的缝。 */
+    private static final int GAP = 4;
 
+    /** 这一块钟的坐标；{@code null} = 全局模式（改所有钟）。 */
     private final BlockPos pos;
+    /** 全局模式：改的是全局配置，完成时发 {@link ClockGlobalNet}。 */
+    private final boolean global;
+    /** 配置副本（界面里改的就是它）。 */
     private final ClockConfig cfg;
+    /** 全局模式的「全局启用」开关（单块模式不用）。 */
+    private boolean enabled;
+    /** 出厂值：每一行 ↺ / 全部复原 取的默认值。 */
+    private final ClockConfig defaults = new ClockConfig();
     /** 全部音效 id（排一次序，之后只过滤）。 */
     private final List<Identifier> allSounds = new ArrayList<>();
     /** 过滤后的可见音效。 */
@@ -74,8 +102,14 @@ public final class ClockConfigScreen extends Screen {
     private int panelY;
     private int panelW;
     private int panelH;
+    /** 两个参数格各自的宽度（↺ 列已经从总宽里扣掉）。 */
     private int colW;
+    /** 一行内容（不含 ↺ 列）的宽度。 */
+    private int contentW;
     private int rowH;
+    /** 全局模式比单块模式多一行（「全局启用」），其余行的 y 整体下移。 */
+    private int rowOffset;
+    private int rowCount;
     /** 音效列表滚动量（像素）。 */
     private int soundScroll;
 
@@ -85,12 +119,31 @@ public final class ClockConfigScreen extends Screen {
     private ButtonWidget chimeButton;
     private ButtonWidget chimeModeButton;
     private ButtonWidget redstoneButton;
+    private ButtonWidget enabledButton;
 
+    /** 单块模式：改这一块钟自己的配置。 */
     public ClockConfigScreen(final BlockPos pos, final ClockConfig config) {
         super(Text.translatable("screen.mtrlte.clock"));
         this.pos = pos;
+        this.global = pos == null;
         this.cfg = config == null ? new ClockConfig() : config.copy();
         this.cfg.clamp();
+        this.enabled = false;
+        this.allSounds.addAll(Registries.SOUND_EVENT.getIds());
+        this.allSounds.sort(Comparator.comparing(Identifier::toString));
+        this.refreshSounds();
+    }
+
+    /** 全局模式：改所有时钟的那一份（{@code pos == null}）。 */
+    public ClockConfigScreen(final BlockPos pos, final ClockGlobalConfig config) {
+        super(Text.translatable(pos == null
+                ? "screen.mtrlte.clock.globalTitle" : "screen.mtrlte.clock"));
+        this.pos = pos;
+        this.global = pos == null;
+        final ClockGlobalConfig source = config == null ? new ClockGlobalConfig() : config;
+        this.cfg = source.config == null ? new ClockConfig() : source.config.copy();
+        this.cfg.clamp();
+        this.enabled = source.enabled;
         this.allSounds.addAll(Registries.SOUND_EVENT.getIds());
         this.allSounds.sort(Comparator.comparing(Identifier::toString));
         this.refreshSounds();
@@ -100,17 +153,31 @@ public final class ClockConfigScreen extends Screen {
 
     @Override
     protected void init() {
+        this.rowOffset = this.global ? 1 : 0;
+        this.rowCount = ROWS + this.rowOffset;
+
         this.panelW = Math.min(MAX_PANEL_W, this.width - 16);
-        this.rowH = clamp((this.height - 78) / ROWS, MIN_ROW_H, MAX_ROW_H);
-        this.panelH = 26 + ROWS * this.rowH + 30;
+        this.rowH = clamp((this.height - 78) / this.rowCount, MIN_ROW_H, MAX_ROW_H);
+        this.panelH = 26 + this.rowCount * this.rowH + 30;
         this.panelY = Math.max(2, (this.height - this.panelH) / 2);
         this.panelX = (this.width - this.panelW) / 2;
-        this.colW = (this.panelW - 2 * PAD - PAD / 2) / 2;
+        // ↺ 列从总宽里扣：内容永远不会压在 ↺ 上（rightX() + colW + GAP == resetX()）。
+        this.contentW = this.panelW - 2 * PAD - RESET_W - GAP;
+        this.colW = (this.contentW - GAP) / 2;
 
         this.swatches.clear();
         final int left = this.panelX + PAD;
-        final int right = left + this.colW + PAD / 2;
+        final int right = left + this.colW + GAP;
         final int wh = this.rowH - 4;
+
+        // ---- 全局模式最上面一行：全局启用（整行一个开关，带自己的 ↺） ----
+        // row(-1) 就是「第 0 个视觉行」（row(i) 会把 i 加上 rowOffset），不和「时间源 / 发光」撞。
+        if (this.global) {
+            this.enabledButton = cycle(left, row(-1), this.contentW, wh,
+                    () -> Text.translatable("screen.mtrlte.clock.global.enabled", onOff(this.enabled)),
+                    () -> this.enabled = !this.enabled);
+            this.resetButton(row(-1), wh, () -> this.enabled = false);
+        }
 
         // ---- 第 0 行：时间源 / 发光 -------------------------------------
         this.sourceButton = cycle(left, row(0), this.colW, wh,
@@ -121,6 +188,10 @@ public final class ClockConfigScreen extends Screen {
                 () -> Text.translatable("screen.mtrlte.clock.row.glow",
                         Text.translatable(this.cfg.glow.labelKey())),
                 () -> this.cfg.glow = next(ClockConfig.GlowMode.values(), this.cfg.glow));
+        this.resetButton(row(0), wh, () -> {
+            this.cfg.timeSource = this.defaults.timeSource;
+            this.cfg.glow = this.defaults.glow;
+        });
 
         // ---- 第 1 行：刻度样式 / 整点报时 -------------------------------
         this.tickButton = cycle(left, row(1), this.colW, wh,
@@ -130,6 +201,10 @@ public final class ClockConfigScreen extends Screen {
         this.chimeButton = cycle(right, row(1), this.colW, wh,
                 () -> Text.translatable("screen.mtrlte.clock.row.chime", onOff(this.cfg.chime)),
                 () -> this.cfg.chime = !this.cfg.chime);
+        this.resetButton(row(1), wh, () -> {
+            this.cfg.tickStyle = this.defaults.tickStyle;
+            this.cfg.chime = this.defaults.chime;
+        });
 
         // ---- 第 2 行：报时模式 / 红石控制 -------------------------------
         this.chimeModeButton = cycle(left, row(2), this.colW, wh,
@@ -139,21 +214,23 @@ public final class ClockConfigScreen extends Screen {
         this.redstoneButton = cycle(right, row(2), this.colW, wh,
                 () -> Text.translatable("screen.mtrlte.clock.row.redstone", onOff(this.cfg.redstone)),
                 () -> this.cfg.redstone = !this.cfg.redstone);
+        this.resetButton(row(2), wh, () -> {
+            this.cfg.chimeMode = this.defaults.chimeMode;
+            this.cfg.redstone = this.defaults.redstone;
+        });
 
-        // ---- 第 3–5 行：三根指针的长度（滑块） --------------------------
-        this.addDrawableChild(new LengthSlider(left, row(3), this.panelW - 2 * PAD, wh,
-                "screen.mtrlte.clock.row.hourLen", this.cfg.hourLength,
-                v -> this.cfg.hourLength = v));
-        this.addDrawableChild(new LengthSlider(left, row(4), this.panelW - 2 * PAD, wh,
-                "screen.mtrlte.clock.row.minuteLen", this.cfg.minuteLength,
-                v -> this.cfg.minuteLength = v));
-        this.addDrawableChild(new LengthSlider(left, row(5), this.panelW - 2 * PAD, wh,
-                "screen.mtrlte.clock.row.secondLen", this.cfg.secondLength,
-                v -> this.cfg.secondLength = v));
+        // ---- 第 3–5 行：三根指针的长度（滑块，右边各一个 ↺） ------------
+        this.lengthSlider(row(3), wh, "screen.mtrlte.clock.row.hourLen", this.cfg.hourLength,
+                v -> this.cfg.hourLength = v, () -> this.cfg.hourLength = this.defaults.hourLength);
+        this.lengthSlider(row(4), wh, "screen.mtrlte.clock.row.minuteLen", this.cfg.minuteLength,
+                v -> this.cfg.minuteLength = v, () -> this.cfg.minuteLength = this.defaults.minuteLength);
+        this.lengthSlider(row(5), wh, "screen.mtrlte.clock.row.secondLen", this.cfg.secondLength,
+                v -> this.cfg.secondLength = v, () -> this.cfg.secondLength = this.defaults.secondLength);
 
         // ---- 第 6 行：偏移（分钟） + 应用 / 当前显示 HH:MM ---------------
         final int applyW = 44;
-        final int offsetW = this.colW - applyW - 4;
+        final int clockW = Math.max(60, this.contentW / 3);
+        final int offsetW = this.contentW - clockW - applyW - 2 * GAP;
         this.offsetField = new TextFieldWidget(this.textRenderer, left, row(6), offsetW, wh,
                 Text.translatable("screen.mtrlte.clock.offset"));
         this.offsetField.setMaxLength(10);
@@ -169,34 +246,52 @@ public final class ClockConfigScreen extends Screen {
 
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("screen.mtrlte.clock.apply"),
                         b -> this.applyClockText())
-                .dimensions(left + this.colW - applyW, row(6), applyW, wh)
+                .dimensions(left + offsetW + GAP, row(6), applyW, wh)
                 .build());
 
-        this.clockField = new TextFieldWidget(this.textRenderer, right, row(6), this.colW, wh,
-                Text.translatable("screen.mtrlte.clock.clockField"));
+        this.clockField = new TextFieldWidget(this.textRenderer, left + offsetW + applyW + 2 * GAP,
+                row(6), clockW, wh, Text.translatable("screen.mtrlte.clock.clockField"));
         this.clockField.setMaxLength(5);
         this.clockField.setTextPredicate(t -> t.matches("[0-9]{0,2}:?[0-9]{0,2}"));
         this.clockField.setPlaceholder(Text.translatable("screen.mtrlte.clock.clockHint"));
         this.addDrawableChild(this.clockField);
+        this.resetButton(row(6), wh, () -> {
+            this.cfg.offsetMinutes = this.defaults.offsetMinutes;
+            if (this.offsetField != null) {
+                this.offsetField.setText(formatOffset(this.defaults.offsetMinutes));
+            }
+        });
 
         // ---- 第 7–9 行：六个颜色（左半栏 / 右半栏各一个） ----------------
         colorCell(left, row(7), wh, "screen.mtrlte.clock.color.face",
                 () -> this.cfg.faceColor, v -> this.cfg.faceColor = v);
         colorCell(right, row(7), wh, "screen.mtrlte.clock.color.hour",
                 () -> this.cfg.hourColor, v -> this.cfg.hourColor = v);
+        this.resetButton(row(7), wh, () -> {
+            this.cfg.faceColor = this.defaults.faceColor;
+            this.cfg.hourColor = this.defaults.hourColor;
+        });
         colorCell(left, row(8), wh, "screen.mtrlte.clock.color.minute",
                 () -> this.cfg.minuteColor, v -> this.cfg.minuteColor = v);
         colorCell(right, row(8), wh, "screen.mtrlte.clock.color.second",
                 () -> this.cfg.secondColor, v -> this.cfg.secondColor = v);
+        this.resetButton(row(8), wh, () -> {
+            this.cfg.minuteColor = this.defaults.minuteColor;
+            this.cfg.secondColor = this.defaults.secondColor;
+        });
         colorCell(left, row(9), wh, "screen.mtrlte.clock.color.hub",
                 () -> this.cfg.hubColor, v -> this.cfg.hubColor = v);
         colorCell(right, row(9), wh, "screen.mtrlte.clock.color.tick",
                 () -> this.cfg.tickColor, v -> this.cfg.tickColor = v);
+        this.resetButton(row(9), wh, () -> {
+            this.cfg.hubColor = this.defaults.hubColor;
+            this.cfg.tickColor = this.defaults.tickColor;
+        });
 
         // ---- 第 10 行：音效搜索 + 试听 ---------------------------------
         final int previewW = 44;
         this.soundField = new TextFieldWidget(this.textRenderer, left, row(10),
-                this.panelW - 2 * PAD - previewW - 4, wh,
+                this.contentW - previewW - GAP, wh,
                 Text.translatable("screen.mtrlte.clock.sound.search"));
         this.soundField.setMaxLength(64);
         this.soundField.setText(this.cfg.chimeSound);
@@ -207,27 +302,69 @@ public final class ClockConfigScreen extends Screen {
         this.addDrawableChild(this.soundField);
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("screen.mtrlte.clock.preview"),
                         b -> this.preview())
-                .dimensions(this.panelX + this.panelW - PAD - previewW, row(10), previewW, wh)
+                .dimensions(left + this.contentW - previewW, row(10), previewW, wh)
                 .build());
+        this.resetButton(row(10), wh, () -> {
+            this.cfg.chimeSound = this.defaults.chimeSound;
+            if (this.soundField != null) {
+                this.soundField.setText(this.defaults.chimeSound);
+                this.refreshSounds();
+            }
+        });
 
-        // ---- 底部：完成 / 取消 -----------------------------------------
-        final int bw = Math.max(64, Math.min(96, (this.panelW - 3 * PAD) / 2));
+        // ---- 底部：全部复原 / 完成 / 取消 -------------------------------
         final int by = this.panelY + this.panelH - 24;
+        final int right0 = this.panelX + this.panelW - PAD;
+        final int bw = Math.max(56, Math.min(80, (this.contentW - 100) / 2));
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("btn.done"), b -> this.saveAndClose())
-                .dimensions(this.width / 2 - bw - 4, by, bw, 20).build());
+                .dimensions(right0 - bw, by, bw, 20).build());
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("btn.cancel"), b -> this.close())
-                .dimensions(this.width / 2 + 4, by, bw, 20).build());
+                .dimensions(right0 - 2 * bw - GAP, by, bw, 20).build());
+        this.addDrawableChild(ButtonWidget.builder(Text.translatable("btn.resetAll"), b -> this.resetAll())
+                .dimensions(this.panelX + PAD, by, Math.max(70, this.contentW - 2 * bw - 3 * GAP), 20)
+                .build());
 
         this.refreshSounds();
     }
 
-    /** 第 {@code index} 行的 y。 */
+    /** 第 {@code index} 行的 y（全局模式下整体下移一行，「全局启用」是第 0 行）。 */
     private int row(final int index) {
-        return this.panelY + 26 + index * this.rowH;
+        return this.panelY + 26 + (index + this.rowOffset) * this.rowH;
+    }
+
+    /** 每行末尾 ↺ 的 x：贴着面板右边缘。 */
+    private int resetX() {
+        return this.panelX + this.panelW - PAD - RESET_W;
     }
 
     private static int clamp(final int v, final int min, final int max) {
         return Math.max(min, Math.min(max, v));
+    }
+
+    /** 一行的 ↺：点一下把这行的字段写回出厂值，然后重建控件（滑块位置 / 按钮文字都要跟着变）。 */
+    private void resetButton(final int y, final int h, final Runnable reset) {
+        this.addDrawableChild(ButtonWidget.builder(Text.translatable("btn.resetOne"), b -> {
+            reset.run();
+            this.requestRebuild();
+        }).dimensions(resetX(), y, RESET_W, h).build());
+    }
+
+    /**
+     * 重建控件（滑块位置、按钮上的当前值都要跟着配置走）。
+     *
+     * <p><b>不在点击回调里直接 {@code clearAndInit()} </b>：这个按钮是在
+     * {@code Screen#mouseClicked} 遍历 {@code children()} 的过程中被调到的，原地 clear 会动到正在遍历
+     * 的那个列表。丢给任务队列，这一帧画完再重建 —— 玩家看到的差别只有「一帧之后滑块才到位」。
+     */
+    private void requestRebuild() {
+        if (this.client == null) {
+            return;
+        }
+        this.client.send(() -> {
+            if (this.client != null && this.client.currentScreen == this) {
+                this.clearAndInit();
+            }
+        });
     }
 
     /**
@@ -248,6 +385,14 @@ public final class ClockConfigScreen extends Screen {
         return button;
     }
 
+    /** 长度滑块 + 它自己的 ↺（滑块占满内容宽，↺ 在复位列）。 */
+    private void lengthSlider(final int y, final int h, final String labelKey, final float initial,
+                              final FloatSetter setter, final Runnable reset) {
+        this.addDrawableChild(new LengthSlider(this.panelX + PAD, y, this.contentW, h, labelKey,
+                initial, setter));
+        this.resetButton(y, h, reset);
+    }
+
     /** 一个颜色格子：左边 10px 色块 + 右边按钮，点按钮开取色界面。 */
     private void colorCell(final int x, final int y, final int h, final String key,
                            final IntSupplier current, final IntConsumer setter) {
@@ -266,6 +411,29 @@ public final class ClockConfigScreen extends Screen {
         }
         this.client.setScreen(new ColorPickerScreen(this, Text.translatable(key).getString(), rgb,
                 setter::accept));
+    }
+
+    /** 全部复原：整份配置写回出厂值（全局模式连「启用」一起回到关）。 */
+    private void resetAll() {
+        this.cfg.timeSource = this.defaults.timeSource;
+        this.cfg.glow = this.defaults.glow;
+        this.cfg.hourLength = this.defaults.hourLength;
+        this.cfg.minuteLength = this.defaults.minuteLength;
+        this.cfg.secondLength = this.defaults.secondLength;
+        this.cfg.faceColor = this.defaults.faceColor;
+        this.cfg.hourColor = this.defaults.hourColor;
+        this.cfg.minuteColor = this.defaults.minuteColor;
+        this.cfg.secondColor = this.defaults.secondColor;
+        this.cfg.hubColor = this.defaults.hubColor;
+        this.cfg.tickColor = this.defaults.tickColor;
+        this.cfg.chime = this.defaults.chime;
+        this.cfg.chimeSound = this.defaults.chimeSound;
+        this.cfg.chimeMode = this.defaults.chimeMode;
+        this.cfg.tickStyle = this.defaults.tickStyle;
+        this.cfg.redstone = this.defaults.redstone;
+        this.cfg.offsetMinutes = this.defaults.offsetMinutes;
+        this.enabled = false;
+        this.requestRebuild();
     }
 
     // ------------------------------------------------------------------ 校准
@@ -360,7 +528,12 @@ public final class ClockConfigScreen extends Screen {
     private void saveAndClose() {
         this.acceptTypedSound();
         this.cfg.clamp();
-        ClockClient.sendSave(this.pos, this.cfg);
+        if (this.global) {
+            // 全局：整份 + 启用开关一起发（服务端校验权限 ≥ 2）。
+            ClockClient.sendGlobalSave(new ClockGlobalConfig(this.cfg, this.enabled));
+        } else if (this.pos != null) {
+            ClockClient.sendSave(this.pos, this.cfg);
+        }
         this.close();
     }
 
@@ -368,8 +541,14 @@ public final class ClockConfigScreen extends Screen {
     private void preview() {
         this.acceptTypedSound();
         this.cfg.clamp();
-        ClockClient.sendSave(this.pos, this.cfg);
-        ClockClient.sendPreview(this.pos);
+        if (this.global) {
+            // 全局没有方块可站：服务端在玩家自己的位置播。
+            ClockClient.sendGlobalSave(new ClockGlobalConfig(this.cfg, this.enabled));
+            ClockClient.sendGlobalPreview();
+        } else {
+            ClockClient.sendSave(this.pos, this.cfg);
+            ClockClient.sendPreview(this.pos);
+        }
     }
 
     // ------------------------------------------------------------------ 绘制
@@ -404,7 +583,7 @@ public final class ClockConfigScreen extends Screen {
     private void drawSoundList(final DrawContext context, final int mouseX, final int mouseY) {
         final int x = this.panelX + PAD;
         final int y = row(11);
-        final int w = this.panelW - 2 * PAD;
+        final int w = this.contentW;
         final int h = this.soundListH();
         final int rh = this.soundRowH();
 
@@ -450,7 +629,7 @@ public final class ClockConfigScreen extends Screen {
         }
         final int x = this.panelX + PAD;
         final int y = row(11);
-        final int w = this.panelW - 2 * PAD;
+        final int w = this.contentW;
         final int h = this.soundListH();
         if (mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h) {
             final int index = (int) ((mouseY - y + this.soundScroll) / this.soundRowH());
@@ -470,7 +649,7 @@ public final class ClockConfigScreen extends Screen {
         final int max = this.maxSoundScroll();
         final int x = this.panelX + PAD;
         final int y = row(11);
-        if (max > 0 && mouseX >= x && mouseX < x + this.panelW - PAD
+        if (max > 0 && mouseX >= x && mouseX < x + this.contentW
                 && mouseY >= y && mouseY < y + this.soundListH()) {
             this.soundScroll = (int) Math.max(0, Math.min(max,
                     this.soundScroll - amount * this.soundRowH() * 3));

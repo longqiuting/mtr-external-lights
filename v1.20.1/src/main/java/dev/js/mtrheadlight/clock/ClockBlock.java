@@ -34,13 +34,18 @@ import net.minecraft.world.World;
  *
  * <h2>放置</h2>
  * <p>{@code FACING} 用 {@link Properties#FACING}（<b>6 向</b>，含上下），放置时取
- * {@link ItemPlacementContext#getSide()} —— 就是玩家点的那一面，所以钟面正对玩家、贴在背后那格
- * 的表面上。与贴墙标识 / 挂墙倒数器一样，{@link #canPlaceAt} <b>恒真</b>：
- * 不需要支撑、邻居被拆也不消失（{@code getStateForNeighborUpdate} 沿用父类的「状态不变」）。
+ * {@link ItemPlacementContext#getSide()} —— 就是玩家点的那一面。
+ * {@code FACING} 的语义是<b>钟面朝向</b>（朝玩家 / 朝外），与贴墙标识 / 挂墙倒数器一致，
+ * 但钟面<b>几何不贴在这一面上</b>：盘面、刻度、数字、三针、轴点（{@link ClockRenderer}）和下面的
+ * 轮廓薄板都贴在 <b>{@code -FACING} 那一侧</b>，也就是远离玩家、紧贴钟背后那格方块的表层 ——
+ * 看起来像「挂在墙上的一块钟」，而不是从方块里朝玩家浮出来。
+ * {@link #canPlaceAt} <b>恒真</b>：不需要支撑、邻居被拆也不消失
+ * （{@code getStateForNeighborUpdate} 沿用父类的「状态不变」）。
  *
  * <h2>碰撞箱 / 轮廓</h2>
- * <p>碰撞箱是空的（人可以直接走过去），只留一块 <b>10×10 px、1 px 厚</b> 的轮廓薄板贴在
- * {@code FACING} 那一面上 —— 不然玩家没有东西可以瞄准，右键也点不到。
+ * <p>碰撞箱是空的（人可以直接走过去），只留一块 <b>10×10 px、1 px 厚</b> 的轮廓薄板 ——
+ * 和钟面一起贴在 <b>{@code -FACING}</b> 那一侧（{@link #shapeFor}），不然玩家没有东西可以瞄准，
+ * 右键也点不到。轮廓是纯客户端可视的选框，不参与碰撞。
  *
  * <h2>红石</h2>
  * <p>{@code POWERED} 由 {@link #neighborUpdate} 跟着周围红石更新；打开
@@ -58,13 +63,17 @@ public final class ClockBlock extends Block implements BlockEntityProvider {
     /** 被红石充能（只在 {@code redstone} 配置打开时有意义）。 */
     public static final BooleanProperty POWERED = Properties.POWERED;
 
-    /** 轮廓薄板：10 px 见方（3..13），厚 1 px，贴在 {@code FACING} 那一面。 */
-    private static final VoxelShape SHAPE_NORTH = Block.createCuboidShape(3.0D, 3.0D, 0.0D, 13.0D, 13.0D, 1.0D);
-    private static final VoxelShape SHAPE_SOUTH = Block.createCuboidShape(3.0D, 3.0D, 15.0D, 13.0D, 13.0D, 16.0D);
-    private static final VoxelShape SHAPE_WEST = Block.createCuboidShape(0.0D, 3.0D, 3.0D, 1.0D, 13.0D, 13.0D);
-    private static final VoxelShape SHAPE_EAST = Block.createCuboidShape(15.0D, 3.0D, 3.0D, 16.0D, 13.0D, 13.0D);
-    private static final VoxelShape SHAPE_DOWN = Block.createCuboidShape(3.0D, 0.0D, 3.0D, 13.0D, 1.0D, 13.0D);
-    private static final VoxelShape SHAPE_UP = Block.createCuboidShape(3.0D, 15.0D, 3.0D, 13.0D, 16.0D, 13.0D);
+    /**
+     * 轮廓薄板：10 px 见方（3..13）、厚 1 px，贴在 <b>{@code -FACING}</b> 那一侧 ——
+     * 和钟面（{@link ClockRenderer#BACK_PLANE} 那段）在同一面上，只是比钟面更靠外 1 px，
+     * 免得恰好和盘面共面闪烁。{@code FACING} 仍然是「钟面朝向」，所以 NORTH 的板在 z=15..16。
+     */
+    private static final VoxelShape SHAPE_NORTH = Block.createCuboidShape(3.0D, 3.0D, 15.0D, 13.0D, 13.0D, 16.0D);
+    private static final VoxelShape SHAPE_SOUTH = Block.createCuboidShape(3.0D, 3.0D, 0.0D, 13.0D, 13.0D, 1.0D);
+    private static final VoxelShape SHAPE_WEST = Block.createCuboidShape(15.0D, 3.0D, 3.0D, 16.0D, 13.0D, 13.0D);
+    private static final VoxelShape SHAPE_EAST = Block.createCuboidShape(0.0D, 3.0D, 3.0D, 1.0D, 13.0D, 13.0D);
+    private static final VoxelShape SHAPE_DOWN = Block.createCuboidShape(3.0D, 15.0D, 3.0D, 13.0D, 16.0D, 13.0D);
+    private static final VoxelShape SHAPE_UP = Block.createCuboidShape(3.0D, 0.0D, 3.0D, 13.0D, 1.0D, 13.0D);
 
     public ClockBlock() {
         super(AbstractBlock.Settings.create()
@@ -84,7 +93,7 @@ public final class ClockBlock extends Block implements BlockEntityProvider {
         builder.add(FACING, POWERED);
     }
 
-    /** 轮廓：贴在 {@code FACING} 那一面的薄板。 */
+    /** 轮廓：贴在 {@code -FACING} 那一侧（钟面背后那面）的薄板。 */
     public static VoxelShape shapeFor(final Direction facing) {
         switch (facing) {
             case SOUTH:

@@ -546,6 +546,11 @@ public final class ParameterScreen extends Screen {
                     // 厦门 PIDS 的三个全局显示开关（本地时间 / 即将进站 / 广告）。
                     // 从主界面搬到这里：主界面只留「进哪个流程」这一层，具体开关归「全局 → 其他」。
                     this.rows.add(Row.action(tr("screen.mtrlte.pids_xiamen"), this::openXiamenPids));
+                    // 时钟全局配置：界面和单块钟一模一样（ClockConfigScreen 的「全局模式」），
+                    // 但改的是所有时钟 —— 存在服务端 PersistentState 里，改一次广播给所有人。
+                    // 只有权限等级 ≥ 2 能改（服务端校验），普通玩家点开只是只读看看。
+                    this.rows.add(Row.action(tr("screen.mtrlte.clock.global"),
+                            this::openClockGlobal));
                 }
                 break;
         }
@@ -748,6 +753,19 @@ public final class ParameterScreen extends Screen {
             return;
         }
         this.client.setScreen(new dev.js.mtrheadlight.xiamen.pids.PidsXiamenSettingsScreen(this));
+    }
+
+    /**
+     * 「时钟全局设置…」：开 {@code ClockConfigScreen} 的全局模式（无 pos）。
+     *
+     * <p>配置从 {@code ClockGlobalCache} 取 —— 就是服务端在进服 / 上一个人保存后推下来的那一份
+     * 镜像，所以界面里看到的是服务端真正在用的全局值，不是客户端瞎猜的。
+     */
+    private void openClockGlobal() {
+        if (this.client == null) {
+            return;
+        }
+        dev.js.mtrheadlight.clock.ClockClient.openGlobalScreen(this.client);
     }
 
     /**

@@ -77,6 +77,9 @@ public final class ClockObjects {
         // 配置通道（刷子开界面 / 保存 / 试听）。两端都注册：客户端只收，服务端只收发。
         ClockNet.register();
 
+        // 全局配置通道（仪表板「其他 → 时钟全局设置」）：快照 / 保存 / 试听 + 进服同步。
+        ClockGlobalNet.register();
+
         try {
             ItemGroupEvents.modifyEntriesEvent(RegistryKey.of(RegistryKeys.ITEM_GROUP,
                             XiamenObjects.CORE_TAB_ID))

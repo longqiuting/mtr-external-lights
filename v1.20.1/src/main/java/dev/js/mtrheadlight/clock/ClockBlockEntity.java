@@ -2,9 +2,13 @@
 package dev.js.mtrheadlight.clock;
 
 import dev.js.mtrheadlight.LteLog;
+import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.nbt.NbtCompound;
+import net.minecraft.network.listener.ClientPlayPacketListener;
+import net.minecraft.network.packet.Packet;
+import net.minecraft.network.packet.s2c.play.BlockEntityUpdateS2CPacket;
 import net.minecraft.registry.Registries;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvent;
@@ -36,6 +40,22 @@ import net.minecraft.world.World;
  * <h2>为什么 tick 里先算显示值再判客户端</h2>
  * <p>指针位置两端都要（客户端画、服务端只管报时），报时是服务端权威。所以前半段两端都跑，
  * 后半段 {@code world.isClient} 直接返回。
+ *
+ * <h2>配置怎么到客户端（这是渲染能不能立刻变的关键）</h2>
+ * <p>存档 NBT 只在<b>区块加载</b>时随区块数据下发；改配置时如果只 {@code markDirty()}，服务端那份
+ * 变了、客户端那份（{@link ClockRenderer} 读的就是它）还是旧的 —— 玩家点「完成」后外观一点不变，
+ * 要重进世界才生效（这就是之前的 bug）。三条一起用：
+ * <ol>
+ *   <li>{@link #toInitialChunkDataNbt()}：客户端认「这块钟长什么样」靠它（默认实现是空 compound）；</li>
+ *   <li>{@link #toUpdatePacket()}：默认返回 {@code null}，而 {@code ChunkHolder} 看到 null 就当
+ *       「没有方块实体数据要同步」，一个包都不发；</li>
+ *   <li>{@link #setConfig} 里调 {@code world.updateListeners(...)} 把这一格排进下一次 flush，
+ *       并额外走 {@link ClockNet#sendConfig} 直接推一份（不依赖 flush 时机）。</li>
+ * </ol>
+ *
+ * <h2>全局配置优先</h2>
+ * <p>{@link #effectiveConfig()} 是渲染 / 停摆 / 报时真正用的那一份：全局开关打开时用全局配置
+ * （服务端读 {@link ClockGlobalState}，客户端读 {@link ClockGlobalCache}），否则用本方块自己的。
  */
 public class ClockBlockEntity extends BlockEntity {
 
@@ -91,7 +111,12 @@ public class ClockBlockEntity extends BlockEntity {
         return this.config.copy();
     }
 
-    /** 覆盖整份配置（服务端收到保存包时用；这里再 clamp 一次）。 */
+    /**
+     * 覆盖整份配置（服务端收到保存包时用；这里再 clamp 一次）。
+     *
+     * <p>写完必须让客户端也能看到：{@code markDirty()} 只负责落盘，<b>不发包</b>。所以这里接着
+     * {@link #syncToClients()} —— 少了它就是「界面点完完成、钟一点没变」。
+     */
     public void setConfig(final ClockConfig cfg) {
         if (cfg == null) {
             return;
@@ -100,6 +125,74 @@ public class ClockBlockEntity extends BlockEntity {
         copy.clamp();
         this.config = copy;
         this.markDirty();
+        this.syncToClients();
+    }
+
+    /**
+     * 客户端专用：把服务端推来的配置写进客户端这份方块实体。
+     *
+     * <p>不 {@code markDirty()}（客户端不落盘）、不回推（否则两端互相刷包）。{@code world} 是
+     * 客户端的，{@link #syncToClients()} 自己也会因为 {@code isClient} 直接返回。
+     */
+    public void applyClientConfig(final ClockConfig cfg) {
+        if (cfg == null) {
+            return;
+        }
+        final ClockConfig copy = cfg.copy();
+        copy.clamp();
+        this.config = copy;
+    }
+
+    /**
+     * 把「这一格钟的数据变了」通知给看得见它的客户端。
+     *
+     * <p>两条路都走：
+     * <ol>
+     *   <li>{@code world.updateListeners} —— 原版路径：ServerWorld → {@code ServerChunkManager
+     *       .markForUpdate} → {@code ChunkHolder.markForBlockUpdate}，下一次 flush 时对这一格发
+     *       {@code BlockEntityUpdateS2CPacket}（内容 = {@link #toUpdatePacket()}），客户端
+     *       {@code ClientPlayNetworkHandler#onBlockEntityUpdate} 拿到后调 {@code readNbt}；</li>
+     *   <li>{@link ClockNet#sendConfig} —— 直接推一份，不用等 flush、也不受「这一格有没有排进
+     *       block update 队列」影响。</li>
+     * </ol>
+     * 只发一次、只发服务端（客户端调这个方法什么也不做）。
+     */
+    private void syncToClients() {
+        final World world = this.world;
+        if (world == null || world.isClient) {
+            return;
+        }
+        try {
+            final BlockState state = world.getBlockState(this.pos);
+            world.updateListeners(this.pos, state, state, Block.NOTIFY_LISTENERS);
+        } catch (Throwable t) {
+            LteLog.LOGGER.debug("[lte] clock at {} could not refresh listeners", this.pos, t);
+        }
+        try {
+            ClockNet.sendConfig(world, this.pos, this.config);
+        } catch (Throwable t) {
+            LteLog.LOGGER.debug("[lte] clock at {} could not push its config", this.pos, t);
+        }
+    }
+
+    /**
+     * 这一 tick / 这一帧真正该用的配置：<b>全局配置优先</b>（全局开关打开时），否则用方块自己的。
+     *
+     * <p>为什么服务端也读全局：报时与红石停摆是服务端行为，必须服务端权威；客户端读的是
+     * {@link ClockGlobalCache} 里那一份镜像（进服 / 全局配置变更时由服务端推下来），所以两边的
+     * 指针位置仍然一致。
+     *
+     * @return 全局关闭时<b>可能就是本实体内部那一份</b>（省一次拷贝）—— 调用方只许读，别改。
+     */
+    public ClockConfig effectiveConfig() {
+        final World world = this.world;
+        if (world == null) {
+            return this.config;
+        }
+        if (world.isClient) {
+            return ClockGlobalCache.effectiveOr(this.config);
+        }
+        return ClockGlobalState.effectiveOr(world.getServer(), this.config);
     }
 
     // ------------------------------------------------------------------ 时间
@@ -113,7 +206,7 @@ public class ClockBlockEntity extends BlockEntity {
     public double displaySeconds(final float tickDelta) {
         if (!this.initialized) {
             // 渲染可能比第一次 tick 早一帧：直接按时间源算，别让钟面先在 12:00 闪一下。
-            return ClockTime.displayTarget(this.world, this.config, tickDelta);
+            return ClockTime.displayTarget(this.world, this.effectiveConfig(), tickDelta);
         }
         double delta = this.dispNow - this.dispPrev;
         // 跨零点：差值是「绕回来」的那一段，取最短的一侧，免得指针倒转一整圈。
@@ -146,8 +239,10 @@ public class ClockBlockEntity extends BlockEntity {
     }
 
     private void tickOnce(final World world, final BlockPos pos, final BlockState state) {
-        final double actual = ClockTime.displayTarget(world, this.config, 0.0D);
-        final boolean stop = this.config.redstone && !state.get(ClockBlock.POWERED);
+        // 全局配置打开时这里拿到的是全局那份（服务端权威），否则是方块自己的。
+        final ClockConfig cfg = this.effectiveConfig();
+        final double actual = ClockTime.displayTarget(world, cfg, 0.0D);
+        final boolean stop = cfg.redstone && !state.get(ClockBlock.POWERED);
 
         if (!this.initialized) {
             this.initialized = true;
@@ -180,7 +275,7 @@ public class ClockBlockEntity extends BlockEntity {
         if (world.isClient) {
             return;
         }
-        this.tickChime(world, pos, stop);
+        this.tickChime(world, pos, stop, cfg);
     }
 
     // ------------------------------------------------------------------ 报时
@@ -197,7 +292,8 @@ public class ClockBlockEntity extends BlockEntity {
      * <p>断电（红石模式未充能）时：正在敲的那一串<b>立刻取消</b>，也不起新的 ——
      * 需求里的「断电时不报时」。
      */
-    private void tickChime(final World world, final BlockPos pos, final boolean stop) {
+    private void tickChime(final World world, final BlockPos pos, final boolean stop,
+                           final ClockConfig cfg) {
         if (stop) {
             this.pendingStrikes = 0;
             this.nextStrikeTick = 0L;
@@ -205,7 +301,7 @@ public class ClockBlockEntity extends BlockEntity {
 
         if (this.pendingStrikes > 0) {
             if (world.getTime() >= this.nextStrikeTick) {
-                world.playSound(null, pos, this.soundEvent(), SoundCategory.BLOCKS, 1.0F, 1.0F);
+                world.playSound(null, pos, soundOf(cfg), SoundCategory.BLOCKS, 1.0F, 1.0F);
                 this.pendingStrikes--;
                 this.nextStrikeTick = world.getTime() + STRIKE_GAP;
             }
@@ -216,7 +312,7 @@ public class ClockBlockEntity extends BlockEntity {
             return;
         }
 
-        final double display = ClockTime.displayTarget(world, this.config, 0.0D);
+        final double display = ClockTime.displayTarget(world, cfg, 0.0D);
         final int minute = ClockTime.minute(display);
         final int hour12 = ClockTime.hour12(display);
 
@@ -230,11 +326,11 @@ public class ClockBlockEntity extends BlockEntity {
             this.lastChimeHour = -1;
             return;
         }
-        if (!this.config.chime || stop || hour12 == this.lastChimeHour) {
+        if (!cfg.chime || stop || hour12 == this.lastChimeHour) {
             return;
         }
         this.lastChimeHour = hour12;
-        this.pendingStrikes = this.config.chimeMode == ClockConfig.ChimeMode.HOURLY ? hour12 : 1;
+        this.pendingStrikes = cfg.chimeMode == ClockConfig.ChimeMode.HOURLY ? hour12 : 1;
         this.nextStrikeTick = world.getTime() + STRIKE_GAP;
         LteLog.LOGGER.debug("[lte] clock at {} chiming {}x at {}:00", pos,
                 Integer.valueOf(this.pendingStrikes), Integer.valueOf(ClockTime.hour(display)));
@@ -242,7 +338,13 @@ public class ClockBlockEntity extends BlockEntity {
 
     /** 配置里的音效 id → {@link SoundEvent}；找不到就退回原版钟声。 */
     public SoundEvent soundEvent() {
-        final Identifier id = Identifier.tryParse(this.config.chimeSound);
+        return soundOf(this.effectiveConfig());
+    }
+
+    /** 同上，但按给定的一份配置取（全局配置的「试听」直接用它，不用造方块实体）。 */
+    public static SoundEvent soundOf(final ClockConfig cfg) {
+        final String raw = cfg == null ? ClockConfig.DEFAULT_SOUND : cfg.chimeSound;
+        final Identifier id = Identifier.tryParse(raw == null ? ClockConfig.DEFAULT_SOUND : raw);
         if (id != null) {
             final SoundEvent event = Registries.SOUND_EVENT.getOrEmpty(id).orElse(null);
             if (event != null) {
@@ -278,5 +380,29 @@ public class ClockBlockEntity extends BlockEntity {
             cfg.readNbt(nbt.getCompound(TAG_CONFIG));
             this.config = cfg;
         }
+    }
+
+    /**
+     * 客户端「这块钟长什么样」的那一份数据。
+     *
+     * <p>1.20.1 的默认实现是<b>空 compound</b>，{@link BlockEntityUpdateS2CPacket#create} 也拿它当
+     * 内容 —— 不覆写的话，客户端收到的永远是一份空 NBT，配置只能靠区块 NBT 那一次。
+     */
+    @Override
+    public NbtCompound toInitialChunkDataNbt() {
+        return this.createNbt();
+    }
+
+    /**
+     * 配置变了要发给客户端的那一份。
+     *
+     * <p><b>这就是之前「保存不生效」的根因</b>：{@code BlockEntity#toUpdatePacket()} 的默认实现
+     * {@code return null;}，而 {@code ChunkHolder.sendBlockEntityUpdatePacket} 的写法是
+     * 「拿 {@code toUpdatePacket()}，是 null 就什么都不发」。所以 {@code world.updateListeners}
+     * 再怎么调，客户端也收不到新配置 —— 渲染器读的客户端那份永远是区块加载时的那一份。
+     */
+    @Override
+    public Packet<ClientPlayPacketListener> toUpdatePacket() {
+        return BlockEntityUpdateS2CPacket.create(this);
     }
 }
