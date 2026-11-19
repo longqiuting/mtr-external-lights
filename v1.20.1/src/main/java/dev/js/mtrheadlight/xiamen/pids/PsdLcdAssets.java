@@ -52,15 +52,69 @@ final class PsdLcdAssets {
                 return null;
             }
             final Identifier id = new Identifier(PsdLcdObjects.NAMESPACE, DIR + name);
+            return load(id);
+        } catch (final Throwable t) {
+            LteLog.LOGGER.warn("[lte] psd lcd: cannot load texture {}", name, t);
+            return null;
+        }
+    }
+
+    // ------------------------------------------------------------------ 广告图（PIDS 那套）
+
+    /**
+     * 广告图缓存：键 = 图片 Identifier，最多留 8 张。
+     *
+     * <p>广告区要画的是**同一套**厦门 PIDS 广告（{@link PidsXiamenAds}），但这里是 Java2D 离屏绘制，
+     * 拿不到 MC 的 {@code ResourceTexture}，所以按 id 把 PNG 读成 {@link BufferedImage}。
+     * 读不到（资源包缺图 / 不是 PNG）返回 {@code null}，画家那边退回洋红占位块。
+     */
+    private static final java.util.Map<String, BufferedImage> AD_CACHE_MAP =
+            new java.util.LinkedHashMap<String, BufferedImage>(8, 0.75F, true) {
+                @Override
+                protected boolean removeEldestEntry(final java.util.Map.Entry<String, BufferedImage> eldest) {
+                    return size() > 8;
+                }
+            };
+
+    /** 读一张广告图（按 id 缓存）；{@code id} 为 null 或读不到返回 null。 */
+    static BufferedImage ad(final Identifier id) {
+        if (id == null) {
+            return null;
+        }
+        final String key = id.toString();
+        synchronized (AD_CACHE_MAP) {
+            if (AD_CACHE_MAP.containsKey(key)) {
+                return AD_CACHE_MAP.get(key);
+            }
+            final BufferedImage loaded = load(id);
+            AD_CACHE_MAP.put(key, loaded);
+            return loaded;
+        }
+    }
+
+    /** 资源重载时清空广告图缓存（换资源包立刻生效）。 */
+    static void invalidateAds() {
+        synchronized (AD_CACHE_MAP) {
+            AD_CACHE_MAP.clear();
+        }
+    }
+
+    private static BufferedImage load(final Identifier id) {
+        try {
+            final MinecraftClient client = MinecraftClient.getInstance();
+            if (client == null) {
+                return null;
+            }
             final var resource = client.getResourceManager().getResource(id);
             if (resource.isEmpty()) {
+                LteLog.LOGGER.debug("[lte] psd lcd: ad image missing {}", id);
                 return null;
             }
             try (InputStream in = resource.get().getInputStream()) {
                 return ImageIO.read(in);
             }
         } catch (final Throwable t) {
-            LteLog.LOGGER.warn("[lte] psd lcd: cannot load texture {}", name, t);
+            LteLog.LOGGER.warn("[lte] psd lcd: cannot load ad image {}", id, t);
             return null;
         }
     }

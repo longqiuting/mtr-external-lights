@@ -35,10 +35,11 @@ import net.minecraft.world.World;
  *   <li><b>吊板</b>：外形和 MTR 的普通吊板（{@code mtr:block/psd_top_left_base}）是同一套——
  *       6px 厚、整块高（y 0..16，从天花板吊下来）、底面一圈 1px 台阶 + 22.5° 倒角；我们把它拉满整格宽，
  *       并在前面挖一个 <b>1.6px 深的插屏凹槽</b>（y 1.5..8.5，见 {@code models/block/psd_lcd_xiamen.json}）；</li>
- *   <li><b>屏幕</b>：LCD 画面由 BER 画在凹槽底那张面上（离方块外面 1.6px，
- *       {@link PsdLcdLayout#ANCHOR_OUT}），碰撞箱是空的，框选就是那块板
+ *   <li><b>屏幕</b>：LCD 画面由 BER 画在凹槽底那张面上（离方块外面 1.584px，
+ *       {@link PsdLcdLayout#WINDOW_DEPTH_BLOCKS}），碰撞箱是空的，框选就是那块板
  *       （{@link #OUTLINE_NORTH} 等四个方向各一份）;</li>
- *   <li><b>四向</b>：{@code FACING} = 屏幕朝外的一面（贴墙放时点哪面就朝哪面）；</li>
+ *   <li><b>四向</b>：{@code FACING} = 屏幕的<b>法线</b>，放置时固定取「玩家朝向的反方向」，
+ *       也就是<b>永远面朝放置的玩家</b>（见 {@link #getPlacementState}）；</li>
  *   <li><b>任意位置可放</b>：{@link #canPlaceAt} 恒真，拆掉支撑方块也不会自己掉；</li>
  *   <li><b>横向连接</b>：相邻同类方块沿 {@code FACING.rotateYClockwise()} 连成一整条宽屏，
  *       长度<b>每帧现算</b>（{@link #anchorOf} / {@link #lengthOf}），方块状态里没有任何
@@ -126,12 +127,21 @@ public class PsdLcdBlock extends HorizontalFacingBlock implements BlockEntityPro
         return true;
     }
 
-    /** 放置：点墙面 → 朝那一面；点在顶上 / 地上 → 朝玩家。 */
+    /**
+     * 放置朝向：<b>永远面朝放置的玩家</b>。
+     *
+     * <p>{@code FACING} 是屏幕的<b>法线</b>（= 屏幕朝外那一面）。玩家看向北放置时，
+     * 他的朝向是 NORTH，方块的 facing 就要是 SOUTH —— 屏幕才朝着他。所以取反：
+     * {@code ctx.getHorizontalPlayerFacing().getOpposite()}。
+     *
+     * <p>以前这里按「点哪一面就朝哪一面」（{@code ctx.getSide()}）算，点在顶上 / 地上时又退回
+     * 玩家朝向的反方向 —— 结果是「站在屏幕正面放置，屏幕却背对着你」。吊板是挂在天花板下面看的，
+     * 不需要贴墙，所以统一按「面朝玩家」处理，四个朝向都由 {@link PsdLcdLayout.Face} 保证
+     * 模型、blockstate 的 {@code y} 旋转、BER 四边形三者一致（见 {@code tools/psd-lcd-facing-check.js}）。
+     */
     @Override
     public BlockState getPlacementState(final ItemPlacementContext ctx) {
-        final Direction side = ctx.getSide();
-        final Direction facing = side.getAxis().isHorizontal()
-                ? side : ctx.getHorizontalPlayerFacing().getOpposite();
+        final Direction facing = ctx.getHorizontalPlayerFacing().getOpposite();
         return this.getDefaultState().with(FACING, facing);
     }
 

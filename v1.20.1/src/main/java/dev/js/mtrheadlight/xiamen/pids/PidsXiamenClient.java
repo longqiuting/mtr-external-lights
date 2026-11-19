@@ -106,6 +106,12 @@ public final class PidsXiamenClient implements ClientModInitializer {
             } catch (Throwable t) {
                 LteLog.LOGGER.warn("[lte] xiamen pids ticker: could not invalidate the cache", t);
             }
+            try {
+                // PSD-LCD 广告区是 Java2D 画的，广告图按 id 缓存在这里，换包后要跟着清
+                PsdLcdAssets.invalidateAds();
+            } catch (Throwable t) {
+                LteLog.LOGGER.warn("[lte] psd lcd: could not invalidate the ad image cache", t);
+            }
             return CompletableFuture.completedFuture(null);
         }
     }

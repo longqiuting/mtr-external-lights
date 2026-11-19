@@ -80,8 +80,8 @@ public final class PsdLcdPreview {
                 "6号线", "Line 6", 0xFFA004F8,
                 "董任", "Dongren",
                 numbers,
-                "此处放置广告",
+                "注：编组按线路实际运营车辆读取",
                 "草坪，让月光替你唱。  XM6—厦门电视台移动电视  【树洞投稿方式】搜索“厦门树洞”小程序，点击加号参与树",
-                false);
+                "广告位");
     }
 }

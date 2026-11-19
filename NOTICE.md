@@ -127,15 +127,20 @@
 - 作者：**Zzztick365**
 - 版本：**1.2.8**（`mtr_psd_lcd+fabric1.19.2-MTR3.2.2 1.2.8`）
 - 许可：**MIT**（其 `fabric.mod.json` 明确 `"license": "MIT"`）
-- 我们用了什么（**只参考几何与做法，未复制代码 / 贴图**）：
-  - **面板几何**：`models/block/psd_top_lcd14_groove_left_base.json` 的插屏凹槽 ——
-    箱体 `x 0…6`（6px 厚）、屏幕面在 `x 4.4`（离箱体外面 **1.6px**）、上下唇 `y 1.6 / 15.1`。
-    本模组 `mtrlte:psd_lcd_xiamen` 的模型与 `PsdLcdLayout` 的常量按这组数对齐
-    （见 `docs/psd-lcd-geometry.md`）；
-  - **外形思路**：它的 LCD 面板就是 MTR 普通吊板 `psd_top` 的外形 + 一个凹槽，
-    本模组的模型因此直接沿用 MTR `psd_top_left_base` 的轮廓（箱体 / 1px 台阶 / 22.5° 倒角）；
-  - **做法**：屏幕画面不在模型里，由方块实体在凹槽底那块平面上绘制（我们用自己的 Java2D 离屏位图实现）。
-  - 未使用其任何 `.class`、`.json` 模型文件或 `.png` 贴图（模型是本仓库按数值重写的，贴图全部自制 / 取自 MTR）。
+- 我们用了什么（**2026-11-19 起：模型与贴图直接沿用，不再是「按数值重写」**）：
+  - **模型（沿用并改写轴）**：`models/block/psd_top_lcd14_groove_left_base.json` /
+    `..._right_base.json`。本模组 `models/block/psd_lcd_xiamen.json` 的元素分解与它逐条对应
+    （箱体 6px 厚 / 1.6px 插屏凹槽 / 槽底那块屏幕面 / 顶部 0.5px 薄片 / 底部 0.5px 带 /
+    1px 内缩台阶 / 两段 22.5° 倒角），面集合与贴图引用也一致；
+    差异只有两处：**轴换了**（参考模型是竖版屏蔽门面板，朝 +X、沿门线 8px；本模组是横向吊板，
+    朝 −Z、沿墙 16px），**窗口带**改成 MTR 顶板面板的 7px 带（y 1.5…8.5，见
+    `docs/psd-lcd-geometry.md`）。原文件与改写后的对照见 `docs/psd-lcd-geometry.md` §「模型来历」。
+  - **贴图**：`textures/block/black.png`（16×16）→ 本模组 `textures/block/psd_lcd_screen.png`
+    （屏幕槽底那一面；与 MTR 的 `black.png` 字节相同，MD5 `7a604fe87afe01bed7b94c15e04d8237`）。
+    面板面用的 `mtr:block/psd_top` 在参考 jar 里没有自带（它引用 MTR 的），本模组使用的是
+    自己的 `mtrlte:block/psd_top`（NOTICE §1，取自 MTR）。
+  - **做法（未复制代码）**：屏幕画面由本模组的方块实体用 Java2D 离屏位图绘制，
+    参考模组的 `.class` 一行未用。
 
 ## 复核方法（可重跑）
 

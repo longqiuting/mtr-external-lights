@@ -1,86 +1,107 @@
 {
 	"format_version": "1.9.0",
-	"credit": "LTE - Xiamen PSD-LCD panel. Silhouette taken from MTR's block/psd_top_left_base (hanging board: 6px thick, full block height 0..16, 1px bottom step + 22.5 deg bevel at the bottom-front edge), widened to the full 16px block width. The LCD itself is a 1.6px deep recessed window at y 1.5..8.5 and is drawn by PsdLcdRenderer.",
+	"credit": "LTE - Xiamen PSD-LCD hanging board. Geometry is a landscape port of MTR PSD LCD 1.2.8 (Zzztick365, MIT) models/block/psd_top_lcd14_groove_left_base.json - same element decomposition (6px body / 1.6px recessed groove / screen plane at the groove floor / 0.5px top slab + 0.5px bottom band / 1px inset bottom step + two 22.5 deg chamfers), same single-panel texture, only the axis frame is transposed (that model is a portrait PSD-face panel facing +X and 8px along the run; ours is a landscape hanging board facing -Z and 16px along the run) and the window band is the 7px band y 1.5..8.5 fixed by PsdLcdLayout. The LCD itself is drawn by PsdLcdRenderer on the ScreenPlane face.",
 	"textures": {
 		"panel": "mtrlte:block/psd_top",
-		"edge": "mtrlte:block/psd_top_edge",
-		"screen": "mtrlte:block/black",
+		"screen": "mtrlte:block/psd_lcd_screen",
 		"particle": "mtrlte:block/psd_top"
 	},
 	"elements": [
 		{
-			"name": "Body",
-			"_comment": "箱体：厚 6px（z 0..6，前面 = 朝向那一面 z=0，背面贴天花板方向 z=6）、整块高度 y 1..16；z 0..1.6 那层是插屏凹槽（见 FrontSkin* / 屏幕面）",
-			"from": [0, 1, 1.6],
+			"name": "TopSlab",
+			"_comment": "参考模型第 1 块：顶板 y 15.5..16（0.5px 薄片）。前面 north = 朝玩家那一面，后面 south 贴着天花板方向。",
+			"from": [0, 15.5, 0],
 			"to": [16, 16, 6],
 			"faces": {
-				"up": { "uv": [2, 2, 3, 3], "texture": "#panel", "cullface": "up" },
-				"down": { "uv": [2, 2, 3, 3], "texture": "#panel" },
-				"west": { "uv": [0, 0, 6, 15], "texture": "#edge" },
-				"east": { "uv": [0, 0, 6, 15], "texture": "#edge" },
-				"south": { "uv": [0, 0, 16, 15], "texture": "#panel", "cullface": "south" },
-				"north": { "uv": [0, 0, 16, 15], "texture": "#screen" }
+				"up": { "uv": [0, 0, 16, 6], "texture": "#panel", "cullface": "up" },
+				"north": { "uv": [0, 0, 16, 0.5], "texture": "#panel", "cullface": "north" },
+				"south": { "uv": [0, 0, 16, 0.5], "texture": "#panel", "cullface": "south" },
+				"east": { "uv": [0, 0, 6, 0.5], "texture": "#panel" },
+				"west": { "uv": [0, 0, 6, 0.5], "texture": "#panel" }
+			}
+		},
+		{
+			"name": "BottomBand",
+			"_comment": "参考模型第 2 块：屏幕带下沿的面板 y 1..1.5。它的 up 面就是屏幕窗口的下唇（只有 z 0..1.6 那 1.6px 露在外面，后面被 Body 挡住）。",
+			"from": [0, 1, 0],
+			"to": [16, 1.5, 6],
+			"faces": {
+				"up": { "uv": [0, 0, 16, 6], "texture": "#panel" },
+				"down": { "uv": [0, 0, 16, 6], "texture": "#panel" },
+				"north": { "uv": [0, 0, 16, 0.5], "texture": "#panel" },
+				"south": { "uv": [0, 0, 16, 0.5], "texture": "#panel", "cullface": "south" },
+				"east": { "uv": [0, 0, 6, 0.5], "texture": "#panel" },
+				"west": { "uv": [0, 0, 6, 0.5], "texture": "#panel" }
+			}
+		},
+		{
+			"name": "Body",
+			"_comment": "参考模型第 3 块：箱体本体 z 1.6..6（6px 厚），**没有 north 面** —— 露出来的那一面由 FrontSkinUpper 和 ScreenPlane 分别占住，和参考模型「只画外表面」的做法一致。",
+			"from": [0, 1.5, 1.6],
+			"to": [16, 15.5, 6],
+			"faces": {
+				"up": { "uv": [0, 0, 16, 4.4], "texture": "#panel" },
+				"south": { "uv": [0, 0, 16, 14], "texture": "#panel", "cullface": "south" },
+				"east": { "uv": [1.6, 0.5, 6, 14.5], "texture": "#panel" },
+				"west": { "uv": [1.6, 0.5, 6, 14.5], "texture": "#panel" }
+			}
+		},
+		{
+			"name": "ScreenPlane",
+			"_comment": "参考模型第 4 块：插屏凹槽底那块面（它 x=4.4，离箱体外面 1.6px）。这里 = 屏幕窗口矩形：x 0..16、y 1.5..8.5、z 1.6（零厚度面，和参考模型一样）。BER 的动态贴图就贴在这块面上（离它 0.016px）。",
+			"from": [0, 1.5, 1.6],
+			"to": [16, 8.5, 1.6],
+			"faces": {
+				"north": { "uv": [0, 0, 16, 7], "texture": "#screen" }
 			}
 		},
 		{
 			"name": "FrontSkinUpper",
-			"_comment": "屏幕上沿以上的面板蒙皮（z 0..1.6），它的 down 面就是凹槽的上内壁",
+			"_comment": "参考模型第 5 块（本侧没有，是它上下唇的镜像）：屏幕窗口上沿以上的面板蒙皮 z 0..1.6，它的 down 面就是窗口的上唇。",
 			"from": [0, 8.5, 0],
-			"to": [16, 16, 1.6],
+			"to": [16, 15.5, 1.6],
 			"faces": {
-				"north": { "uv": [0, 0, 16, 7.5], "texture": "#panel" },
+				"north": { "uv": [0, 0.5, 16, 7.5], "texture": "#panel" },
 				"down": { "uv": [0, 0, 16, 1.6], "texture": "#panel" },
-				"west": { "uv": [0, 0, 1.6, 7.5], "texture": "#edge" },
-				"east": { "uv": [0, 0, 1.6, 7.5], "texture": "#edge" }
-			}
-		},
-		{
-			"name": "FrontSkinLower",
-			"_comment": "屏幕下沿以下的面板蒙皮（z 0..1.6），它的 up 面就是凹槽的下内壁",
-			"from": [0, 1, 0],
-			"to": [16, 1.5, 1.6],
-			"faces": {
-				"north": { "uv": [0, 0, 16, 0.5], "texture": "#panel" },
-				"up": { "uv": [0, 0, 16, 1.6], "texture": "#panel" },
-				"down": { "uv": [0, 0, 16, 1.6], "texture": "#panel" },
-				"west": { "uv": [0, 0, 1.6, 0.5], "texture": "#edge" },
-				"east": { "uv": [0, 0, 1.6, 0.5], "texture": "#edge" }
+				"east": { "uv": [0, 0, 1.6, 7], "texture": "#panel" },
+				"west": { "uv": [0, 0, 1.6, 7], "texture": "#panel" }
 			}
 		},
 		{
 			"name": "BottomStep",
-			"_comment": "MTR psd_top 的 Bottom part：最下面 1px 往回缩 1px（z 1..6）",
+			"_comment": "参考模型第 7 块：最下面 1px 往回缩 1px（参考模型 x 0..5 / 本模型 z 1..6）",
 			"from": [0, 0, 1],
 			"to": [16, 1, 6],
 			"faces": {
-				"down": { "uv": [2, 2, 3, 3], "texture": "#panel" },
+				"down": { "uv": [0, 0, 16, 5], "texture": "#panel" },
 				"north": { "uv": [0, 0, 16, 1], "texture": "#panel" },
-				"west": { "uv": [0, 0, 5, 1], "texture": "#edge" },
-				"east": { "uv": [0, 0, 5, 1], "texture": "#edge" }
+				"east": { "uv": [1, 0, 6, 1], "texture": "#panel" },
+				"west": { "uv": [1, 0, 6, 1], "texture": "#panel" }
 			}
 		},
 		{
-			"name": "BottomBevelBack",
-			"_comment": "MTR psd_top 的 Bottom curve lower：下沿前角的一段 22.5 度斜面（贴住 z=1 / y=0 那条棱）",
+			"name": "BevelLower",
+			"_comment": "参考模型第 8 块：下沿前角 22.5 度斜面（贴住 z=1 / y=0 那条棱）；数值 0.2346 / 0.7654 与参考模型 x 5..5.7654 完全一致",
 			"from": [0, 0, 0.2346],
 			"to": [16, 1, 1],
 			"rotation": { "origin": [0, 0, 1], "axis": "x", "angle": 22.5 },
 			"faces": {
-				"down": { "uv": [2, 2, 3, 3], "texture": "#panel" },
-				"west": { "uv": [0, 0, 1, 1], "texture": "#edge" },
-				"east": { "uv": [0, 0, 1, 1], "texture": "#edge" }
+				"down": { "uv": [0, 0, 16, 1], "texture": "#panel" },
+				"north": { "uv": [0, 0, 16, 1], "texture": "#panel" },
+				"east": { "uv": [0, 0, 1, 1], "texture": "#panel" },
+				"west": { "uv": [0, 0, 1, 1], "texture": "#panel" }
 			}
 		},
 		{
-			"name": "BottomBevelFront",
-			"_comment": "MTR psd_top 的 Bottom curve upper：下沿前角的另一段 22.5 度斜面（贴住 z=0 / y=1 那条棱）",
+			"name": "BevelUpper",
+			"_comment": "参考模型第 9 块：下沿前角另一段 22.5 度斜面（贴住 z=0 / y=1 那条棱）",
 			"from": [0, 0.2346, 0],
 			"to": [16, 1, 1],
 			"rotation": { "origin": [0, 1, 0], "axis": "x", "angle": -22.5 },
 			"faces": {
 				"north": { "uv": [0, 0, 16, 1], "texture": "#panel" },
-				"west": { "uv": [0, 0, 1, 1], "texture": "#edge" },
-				"east": { "uv": [0, 0, 1, 1], "texture": "#edge" }
+				"east": { "uv": [0, 0, 1, 1], "texture": "#panel" },
+				"west": { "uv": [0, 0, 1, 1], "texture": "#panel" }
 			}
 		}
 	]

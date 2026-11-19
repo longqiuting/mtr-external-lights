@@ -389,6 +389,7 @@
   "gui.mtrlte.psd_lcd.min_en": "min",
   "gui.mtrlte.psd_lcd.sec_en": "s",
   "gui.mtrlte.psd_lcd.next_train_label": "Next",
+  "gui.mtrlte.psd_lcd.consist_note": "Note: consist follows the trains actually in service",
   "gui.mtrlte.psd_lcd.this_station_en": "This station",
   "gui.mtrlte.psd_lcd.this_station_zh": "Current station",
   "gui.mtrlte.pids_xiamen.ad_category_tip": "%1$s - %2$s image(s)",
