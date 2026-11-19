@@ -828,5 +828,6 @@
   "tooltip.mtrlte.signal_link.selected": "已选节点：%s",
   "tooltip.mtrlte.signal_link.selected_lamp": "已选信号灯：%s",
   "tooltip.mtrlte.texture_source": "贴图：厦门地铁一号线",
-  "tooltip.mtrlte.ticket_machine_xiamen": "右键购票；用 MTR 刷子右键循环切换：方速界面 → 原版界面 → 节能关机"
+  "tooltip.mtrlte.ticket_machine_xiamen": "右键购票；用 MTR 刷子右键循环切换：方速界面 → 原版界面 → 节能关机",
+  "screen.mtrlte.clock.row.showTicks": "刻度数字：%s"
 }

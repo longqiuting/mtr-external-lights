@@ -827,5 +827,6 @@
   "tooltip.mtrlte.signal_link.selected": "Node selected: %s",
   "tooltip.mtrlte.signal_link.selected_lamp": "Signal light selected: %s",
   "tooltip.mtrlte.texture_source": "Textures: Xiamen Line 1",
-  "tooltip.mtrlte.ticket_machine_xiamen": "Right-click to buy tickets; right-click with MTR's brush to cycle: fangsu UI → vanilla UI → eco power-off"
+  "tooltip.mtrlte.ticket_machine_xiamen": "Right-click to buy tickets; right-click with MTR's brush to cycle: fangsu UI → vanilla UI → eco power-off",
+  "screen.mtrlte.clock.row.showTicks": "Ticks: %s"
 }

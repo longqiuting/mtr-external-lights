@@ -155,8 +155,10 @@ public final class ClockRenderer implements BlockEntityRenderer<ClockBlockEntity
             if (cfg.showFace) {
                 frame.depth = DISC_DEPTH;
                 this.disc(vc, matrix, frame, faceRadius, face, segments);
+            }
 
-                // ② 刻度 / 数字（在钟面之上、指针之下）
+            // ② 刻度 / 数字（在钟面之上、指针之下）—— 有自己的开关，可以只留圆底板
+            if (cfg.showTicks) {
                 frame.depth = TICK_DEPTH;
                 this.ticks(vc, matrix, frame, cfg, tick, faceRadius, tickRadius, matrices, vertexConsumers);
             }

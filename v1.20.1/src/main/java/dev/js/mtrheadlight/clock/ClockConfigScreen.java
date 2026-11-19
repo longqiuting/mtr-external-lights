@@ -279,10 +279,16 @@ public final class ClockConfigScreen extends Screen {
             this.cfg.showMinute = this.defaults.showMinute;
             this.cfg.showSecond = this.defaults.showSecond;
         });
-        this.cycle(left, row(5), this.contentW, wh,
+        this.cycle(left, row(5), this.colW, wh,
                 () -> Text.translatable("screen.mtrlte.clock.row.showHub", onOff(this.cfg.showHub)),
                 () -> this.cfg.showHub = !this.cfg.showHub);
-        this.resetButton(row(5), wh, () -> this.cfg.showHub = this.defaults.showHub);
+        this.cycle(right, row(5), this.colW, wh,
+                () -> Text.translatable("screen.mtrlte.clock.row.showTicks", onOff(this.cfg.showTicks)),
+                () -> this.cfg.showTicks = !this.cfg.showTicks);
+        this.resetButton(row(5), wh, () -> {
+            this.cfg.showHub = this.defaults.showHub;
+            this.cfg.showTicks = this.defaults.showTicks;
+        });
 
         // ---- 第 6–10 行：三根指针的长度 + 钟面半径 + 刻度半径（滑块，右边各一个 ↺） ----
         this.lengthSlider(row(6), wh, "screen.mtrlte.clock.row.hourLen", this.cfg.hourLength,

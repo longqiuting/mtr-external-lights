@@ -220,6 +220,9 @@ public final class ClockConfig {
 
     /** 画不画钟面圆盘（刻度 / 数字跟着它一起显隐）。 */
     public boolean showFace = true;
+
+    /** 刻度 / 数字的显隐（和钟面盘分开控制）。 */
+    public boolean showTicks = true;
     /** 画不画时针。 */
     public boolean showHour = true;
     /** 画不画分针。 */
@@ -273,6 +276,7 @@ public final class ClockConfig {
         out.faceRadius = this.faceRadius;
         out.tickRadius = this.tickRadius;
         out.showFace = this.showFace;
+        out.showTicks = this.showTicks;
         out.showHour = this.showHour;
         out.showMinute = this.showMinute;
         out.showSecond = this.showSecond;
@@ -357,6 +361,7 @@ public final class ClockConfig {
         nbt.putFloat("faceRadius", this.faceRadius);
         nbt.putFloat("tickRadius", this.tickRadius);
         nbt.putBoolean("showFace", this.showFace);
+        nbt.putBoolean("showTicks", this.showTicks);
         nbt.putBoolean("showHour", this.showHour);
         nbt.putBoolean("showMinute", this.showMinute);
         nbt.putBoolean("showSecond", this.showSecond);
@@ -390,6 +395,7 @@ public final class ClockConfig {
         this.faceRadius = nbt.contains("faceRadius") ? nbt.getFloat("faceRadius") : legacyFace;
         this.tickRadius = nbt.contains("tickRadius") ? nbt.getFloat("tickRadius") : legacyFace * 0.92F;
         this.showFace = !nbt.contains("showFace") || nbt.getBoolean("showFace");
+        this.showTicks = !nbt.contains("showTicks") || nbt.getBoolean("showTicks");
         this.showHour = !nbt.contains("showHour") || nbt.getBoolean("showHour");
         this.showMinute = !nbt.contains("showMinute") || nbt.getBoolean("showMinute");
         this.showSecond = !nbt.contains("showSecond") || nbt.getBoolean("showSecond");
@@ -427,6 +433,7 @@ public final class ClockConfig {
         buf.writeBoolean(this.showMinute);
         buf.writeBoolean(this.showSecond);
         buf.writeBoolean(this.showHub);
+        buf.writeBoolean(this.showTicks);
         buf.writeInt(this.faceColor);
         buf.writeInt(this.hourColor);
         buf.writeInt(this.minuteColor);
@@ -455,6 +462,7 @@ public final class ClockConfig {
         cfg.showMinute = buf.readBoolean();
         cfg.showSecond = buf.readBoolean();
         cfg.showHub = buf.readBoolean();
+        cfg.showTicks = buf.readBoolean();
         cfg.faceColor = buf.readInt();
         cfg.hourColor = buf.readInt();
         cfg.minuteColor = buf.readInt();
