@@ -127,11 +127,12 @@ public final class PsdLcdLayout {
     /** 屏幕面离凹槽口（方块外面）的余量（16 分之格）：0.016px，只为了不和模型面 z-fighting。 */
     public static final float FACE_GAP_PX = 0.016F;
 
-    /** 吊板厚度（16 分之格）：和参考模组 / MTR {@code psd_top} 的箱体一样 6px。 */
-    public static final float BOARD_THICKNESS_PX = 6.0F;
+    /** 吊板厚度（16 分之格）：前面板到方块背面的深度 16px —— 板体一路顶到玩家对面那块方块，
+     *  背面封住（旧版只到 6px，背面是空的，看着「没贴住 + 背面贴图不完整」）。 */
+    public static final float BOARD_THICKNESS_PX = 16.0F;
 
-    /** 屏幕凹进去多深（16 分之格）：参考模组插屏凹槽的深度 1.6px。 */
-    public static final float THICKNESS_PX = 1.6F;
+    /** 屏幕凹进去多深（16 分之格）：浅槽 1px = 1/16 格，够用且不显深。 */
+    public static final float THICKNESS_PX = 1.0F;
 
     /** 屏幕窗口在世界里的高度（格）= 7/16。 */
     public static final float HEIGHT_BLOCKS = (WINDOW_Y1_PX - WINDOW_Y0_PX) / 16.0F;
