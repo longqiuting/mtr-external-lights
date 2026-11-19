@@ -1,10 +1,9 @@
-// PSD-LCD 的素材与字体：从资源管理器读（模组自己的贴图 + 厦门资源包里的字体）。
+// PSD-LCD 的素材与字体：贴图从模组自己的资源里读，字体走 PsdLcdTypeface（= 厦门 PIDS 那一套）。
 //
-// 字体优先级：资源包 mtr:xmlcd/fonts/{misans.otf,roboto.ttf} → 系统黑体 / 无衬线。
-// 大数字固定用系统细字重（实拍里 7 / 17 的笔画只有字高的 6~7%，常规字重太粗）。
+// **不再读资源包里的字体**（旧的 mtr:xmlcd/fonts/{misans.otf,roboto.ttf} 已删除）：
+// 这块屏和普通 PIDS 挂在同一个站台上，字体必须一致，见 PsdLcdTypeface 的类注释。
 package dev.js.mtrheadlight.xiamen.pids;
 
-import java.awt.Font;
 import java.awt.image.BufferedImage;
 import java.io.InputStream;
 
@@ -18,8 +17,6 @@ import net.minecraft.util.Identifier;
 final class PsdLcdAssets {
 
     private static final String DIR = "textures/gui/psd_lcd/";
-    /** 资源包里的三支字（厦门 LCD 那个包；不在就退回系统字体）。 */
-    private static final String[] FONT_CANDIDATES = {"fonts/misans.otf", "fonts/roboto.ttf"};
 
     private static PsdLcdPainter.Assets cached;
 
@@ -36,15 +33,10 @@ final class PsdLcdAssets {
         loaded.nose = image("train_nose.png");
         loaded.carEnd = image("car_end.png");
         loaded.carMiddle = image("car_middle.png");
-        loaded.cjk = packFont(0);
-        loaded.latin = packFont(1);
-        if (loaded.cjk == null) {
-            loaded.cjk = PsdLcdTypeface.systemCjk();
-        }
-        if (loaded.latin == null) {
-            loaded.latin = PsdLcdTypeface.systemLatin();
-        }
-        loaded.digits = PsdLcdTypeface.systemLight();
+        // 字体：和厦门普通 PIDS 完全同一套（系统黑体，中文 BOLD / 英文 PLAIN）
+        loaded.cjk = PsdLcdTypeface.cjk();
+        loaded.latin = PsdLcdTypeface.latin();
+        loaded.digits = PsdLcdTypeface.digits();
         cached = loaded;
         LteLog.LOGGER.info("[lte] psd lcd: cjk={} latin={} digits={} logo={}x{}", PsdLcdTypeface.name(loaded.cjk),
                 PsdLcdTypeface.name(loaded.latin), PsdLcdTypeface.name(loaded.digits),
@@ -69,29 +61,6 @@ final class PsdLcdAssets {
             }
         } catch (final Throwable t) {
             LteLog.LOGGER.warn("[lte] psd lcd: cannot load texture {}", name, t);
-            return null;
-        }
-    }
-
-    /** 资源包里的字体（mtr:xmlcd/fonts/…）。没有就 null。 */
-    private static Font packFont(final int index) {
-        if (index < 0 || index >= FONT_CANDIDATES.length) {
-            return null;
-        }
-        try {
-            final MinecraftClient client = MinecraftClient.getInstance();
-            if (client == null) {
-                return null;
-            }
-            final Identifier id = new Identifier("mtr", "xmlcd/" + FONT_CANDIDATES[index]);
-            final var resource = client.getResourceManager().getResource(id);
-            if (resource.isEmpty()) {
-                return null;
-            }
-            try (InputStream in = resource.get().getInputStream()) {
-                return PsdLcdTypeface.fromBytes(in.readAllBytes());
-            }
-        } catch (final Throwable ignored) {
             return null;
         }
     }

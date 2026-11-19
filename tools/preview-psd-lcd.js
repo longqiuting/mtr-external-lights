@@ -21,10 +21,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const repoRoot = path.resolve(__dirname, '..');
-const pkg = path.join(repoRoot, 'v1.20.1/src/main/java/dev/js/mtrheadlight/xiamen/pids');
+const pkg = path.join(repoRoot, 'v1.20.1/src/main/java/dev/js/mtrheadlight/xiamen');
 const sources = [
-    path.join(pkg, 'PsdLcdPainter.java'),
-    path.join(pkg, 'PsdLcdTypeface.java'),
+    path.join(pkg, 'pids/PsdLcdPainter.java'),
+    path.join(pkg, 'pids/PsdLcdTypeface.java'),
+    // 字体解析委托给它（PsdLcdTypeface → XiamenStripPainter#font()）：同一套系统黑体
+    path.join(pkg, 'XiamenStripPainter.java'),
     path.join(repoRoot, 'tools/psd-lcd/PsdLcdPreview.java'),
 ];
 const classesDir = path.join(repoRoot, 'temp/psd-lcd-preview-classes');

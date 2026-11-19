@@ -31,8 +31,8 @@ import net.minecraft.world.World;
  *
  * <h2>形态</h2>
  * <ul>
- *   <li><b>薄板</b>：模型只占方块中间那一条（y 5.5~10.5 / 16），厚度 1px，贴在
- *       {@code FACING} 那一面上；碰撞箱是空的，轮廓就是那块板
+ *   <li><b>薄板</b>：模型只占方块下部那一条（y 1.5~8.5 / 16，即 MTR 顶板面板的 7px 高度带），
+ *       厚度 1.6px（对齐参考模组 {@code mtr_psd_lcd} 的插屏凹槽），贴在 {@code FACING} 那一面上；碰撞箱是空的，轮廓就是那块板
  *       （{@link #OUTLINE_NORTH} 等四个方向各一份）；</li>
  *   <li><b>四向</b>：{@code FACING} = 屏幕朝外的一面（贴墙放时点哪面就朝哪面）；</li>
  *   <li><b>任意位置可放</b>：{@link #canPlaceAt} 恒真，拆掉支撑方块也不会自己掉；</li>
@@ -62,19 +62,20 @@ public class PsdLcdBlock extends HorizontalFacingBlock implements BlockEntityPro
     /** 屏幕朝向。与 MTR / 本模组其它方块同一个属性。 */
     public static final DirectionProperty FACING = HorizontalFacingBlock.FACING;
 
-    /** 板子的上下沿（16 分之几），和 {@link PsdLcdLayout#HEIGHT_BLOCKS} 对得上。 */
-    private static final float PANEL_Y0 = 8.0F - PsdLcdLayout.HEIGHT_BLOCKS * 16.0F * 0.5F;
-    private static final float PANEL_Y1 = 8.0F + PsdLcdLayout.HEIGHT_BLOCKS * 16.0F * 0.5F;
+    /** 板子的上下沿（16 分之几）与厚度，全部来自 {@link PsdLcdLayout}（对齐 MTR 顶板面板）。 */
+    private static final float PANEL_Y0 = PsdLcdLayout.PANEL_Y0_PX;
+    private static final float PANEL_Y1 = PsdLcdLayout.PANEL_Y1_PX;
+    private static final float PANEL_Z1 = PsdLcdLayout.THICKNESS_PX;
 
-    /** 四个方向的轮廓：一块 1px 厚的板，贴着朝外那一面。 */
+    /** 四个方向的轮廓：一块 1.6px 厚的板，贴着朝外那一面（前面与那一面平齐）。 */
     private static final VoxelShape OUTLINE_NORTH =
-            Block.createCuboidShape(0.0D, PANEL_Y0, 0.0D, 16.0D, PANEL_Y1, 1.0D);
+            Block.createCuboidShape(0.0D, PANEL_Y0, 0.0D, 16.0D, PANEL_Y1, PANEL_Z1);
     private static final VoxelShape OUTLINE_SOUTH =
-            Block.createCuboidShape(0.0D, PANEL_Y0, 15.0D, 16.0D, PANEL_Y1, 16.0D);
+            Block.createCuboidShape(0.0D, PANEL_Y0, 16.0D - PANEL_Z1, 16.0D, PANEL_Y1, 16.0D);
     private static final VoxelShape OUTLINE_WEST =
-            Block.createCuboidShape(0.0D, PANEL_Y0, 0.0D, 1.0D, PANEL_Y1, 16.0D);
+            Block.createCuboidShape(0.0D, PANEL_Y0, 0.0D, PANEL_Z1, PANEL_Y1, 16.0D);
     private static final VoxelShape OUTLINE_EAST =
-            Block.createCuboidShape(15.0D, PANEL_Y0, 0.0D, 16.0D, PANEL_Y1, 16.0D);
+            Block.createCuboidShape(16.0D - PANEL_Z1, PANEL_Y0, 0.0D, 16.0D, PANEL_Y1, 16.0D);
 
     public PsdLcdBlock(final Settings settings) {
         super(settings);

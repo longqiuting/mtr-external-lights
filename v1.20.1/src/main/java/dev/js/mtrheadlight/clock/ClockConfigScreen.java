@@ -48,8 +48,14 @@ import java.util.function.IntSupplier;
  * <p>行高先按窗口高度自动算（{@value #MIN_ROW_H}–{@value #MAX_ROW_H}px），算到下限仍放不下时
  * <b>整行滚动</b>：滚轮在面板内滚动、一次一行，右侧画一条细滚动条，底部三个按钮固定在面板
  * 底部不跟着滚。滚动只改 {@link #row(int)} 里的行偏移，重建控件时把输入框里没提交的字留住
- * （{@link #offsetText} / {@link #soundText}），所以滚一下不会把正在敲的音效 id 弄丢。
+ * （{@link #offsetText} / {@code soundText}），所以滚一下不会把正在敲的音效 id 弄丢。
  * 视口外的行不加控件 —— 看不见的东西点不到，也不会画出面板。
+ *
+ * <p><b>底部栏必须永远看得见</b>（2026-11-19 修）：内容区 = 屏幕高 − 顶部标题 − 底部栏，
+ * 滚动范围按内容实际高度算；底部三颗按钮是 {@link #footerButtons}，在
+ * {@link #drawFooter} 里<b>于滚动裁剪之外</b>再画一遍。以前它们只出现在
+ * {@code super.render()} 那一遍里，而那一遍被 {@code bodyTop…bodyBottom} 的 scissor 包着 ——
+ * 按钮整颗落在裁剪区外，于是「加了一堆行之后底部按钮消失、存不了」。
  *
  * <h2>每行一个 ↺（复原）</h2>
  * <p>每一行最右边都有一个方形 ↺（{@code 18px}，与 {@code ParameterScreen} 的复位列同一个做法）：
@@ -105,6 +111,14 @@ public final class ClockConfigScreen extends Screen {
     private final List<Identifier> viewSounds = new ArrayList<>();
     /** 颜色按钮左边的色块（render 里按 {@link IntSupplier} 取当前值）。 */
     private final List<Swatch> swatches = new ArrayList<>();
+    /**
+     * 底部那条<b>固定</b>的按钮栏（全部复原 / 完成 / 取消）。
+     *
+     * <p>它们和其余控件一样是 {@code children}（这样点击 / 键盘焦点照旧），但
+     * {@link #render} 里要<b>在滚动裁剪之外再画一遍</b> —— 见那里的注释：{@code bodyBottom}
+     * 之下就是裁剪边界，底部栏落在裁剪区域外，被 scissor 整块切掉，于是「看不见也点不到」。
+     */
+    private final List<ButtonWidget> footerButtons = new ArrayList<>();
 
     private TextFieldWidget offsetField;
     private TextFieldWidget clockField;
@@ -192,8 +206,14 @@ public final class ClockConfigScreen extends Screen {
         this.rowCount = ROWS + this.rowOffset;
 
         this.panelW = Math.min(MAX_PANEL_W, this.width - 16);
-        this.rowH = clamp((this.height - 78) / this.rowCount, MIN_ROW_H, MAX_ROW_H);
-        this.panelH = Math.min(this.height - 4, HEADER_H + this.rowCount * this.rowH + FOOTER_H);
+        // 内容区高度 = 屏幕高 − 顶部标题 − 底部固定栏（行高按这个可用高度反算，
+        // 算到 MIN_ROW_H 仍放不下就整行滚动；面板本身最多占满屏幕）。
+        final int available = Math.max(0, this.height - 4 - HEADER_H - FOOTER_H);
+        this.rowH = clamp(available / Math.max(1, this.rowCount), MIN_ROW_H, MAX_ROW_H);
+        // 面板至少放得下「一行 + 标题 + 底部栏」；内容再多就靠滚动，绝不让底部栏被顶出去。
+        final int minPanelH = HEADER_H + FOOTER_H + this.rowH;
+        this.panelH = Math.min(this.height - 4,
+                Math.max(minPanelH, HEADER_H + this.rowCount * this.rowH + FOOTER_H));
         this.panelY = Math.max(2, (this.height - this.panelH) / 2);
         this.panelX = (this.width - this.panelW) / 2;
         this.bodyTop = this.panelY + HEADER_H;
@@ -402,16 +422,25 @@ public final class ClockConfigScreen extends Screen {
         });
 
         // ---- 底部：全部复原 / 完成 / 取消 -------------------------------
+        // 这三颗钉在面板底部（bodyBottom 之下），是**固定栏**：不随内容滚动。
+        // 注意 render() 会在滚动裁剪之外把它们再画一遍 —— 少了那一步就是「按钮被裁掉、点不到」。
+        this.footerButtons.clear();
         final int by = this.panelY + this.panelH - 24;
         final int right0 = this.panelX + this.panelW - PAD;
         final int bw = Math.max(56, Math.min(80, (this.contentW - 100) / 2));
-        this.addDrawableChild(ButtonWidget.builder(Text.translatable("btn.done"), b -> this.saveAndClose())
-                .dimensions(right0 - bw, by, bw, 20).build());
-        this.addDrawableChild(ButtonWidget.builder(Text.translatable("btn.cancel"), b -> this.close())
-                .dimensions(right0 - 2 * bw - GAP, by, bw, 20).build());
-        this.addDrawableChild(ButtonWidget.builder(Text.translatable("btn.resetAll"), b -> this.resetAll())
+        final ButtonWidget done = ButtonWidget.builder(Text.translatable("btn.done"), b -> this.saveAndClose())
+                .dimensions(right0 - bw, by, bw, 20).build();
+        final ButtonWidget cancel = ButtonWidget.builder(Text.translatable("btn.cancel"), b -> this.close())
+                .dimensions(right0 - 2 * bw - GAP, by, bw, 20).build();
+        final ButtonWidget resetAll = ButtonWidget.builder(Text.translatable("btn.resetAll"), b -> this.resetAll())
                 .dimensions(this.panelX + PAD, by, Math.max(70, this.contentW - 2 * bw - 3 * GAP), 20)
-                .build());
+                .build();
+        this.addDrawableChild(done);
+        this.addDrawableChild(cancel);
+        this.addDrawableChild(resetAll);
+        this.footerButtons.add(resetAll);
+        this.footerButtons.add(cancel);
+        this.footerButtons.add(done);
 
         this.refreshSounds();
     }
@@ -723,11 +752,30 @@ public final class ClockConfigScreen extends Screen {
         context.disableScissor();
 
         this.drawScrollBar(context);
+        this.drawFooter(context, mouseX, mouseY, delta);
+    }
 
+    /**
+     * 底部固定栏：先铺一条不透明的底（把可能漏出来的行内容盖住），再画「报时音效」提示行，
+     * 最后把三颗按钮<b>在裁剪区域之外重画一遍</b>。
+     *
+     * <p>为什么必须重画：{@code super.render()} 那一遍是在 {@code bodyTop…bodyBottom} 的
+     * scissor 里跑的，而底部栏整颗都在 {@code bodyBottom} 之下 —— 于是「完成 / 取消」被
+     * 整块裁掉，屏幕上只剩一条空面板，按不到也就存不了。这一遍没有 scissor，按钮才真的可见。
+     * （两遍不会叠色：被裁掉的那一遍一点像素都没落。）
+     */
+    private void drawFooter(final DrawContext context, final int mouseX, final int mouseY,
+                            final float delta) {
+        final int top = this.panelY + this.panelH - FOOTER_H;
+        final int bottom = this.panelY + this.panelH;
+        context.fill(this.panelX + 1, top, this.panelX + this.panelW - 1, bottom - 1, 0xF0141414);
         // 底部提示：当前选中的报时音效
         context.drawCenteredTextWithShadow(this.textRenderer,
                 Text.translatable("screen.mtrlte.clock.sound.current", this.cfg.chimeSound),
-                this.width / 2, this.panelY + this.panelH - 34, 0xB0B0B0);
+                this.width / 2, top + 4, 0xB0B0B0);
+        for (final ButtonWidget button : this.footerButtons) {
+            button.render(context, mouseX, mouseY, delta);
+        }
     }
 
     /** 右上角那条细滚动条（只有放不下时才画）：长度 = 视口占比，位置 = 滚到哪儿了。 */

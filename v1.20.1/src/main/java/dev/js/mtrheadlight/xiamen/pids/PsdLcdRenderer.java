@@ -34,6 +34,7 @@ import mtr.data.RailwayData;
 import mtr.data.Route;
 import mtr.data.ScheduleEntry;
 import mtr.data.Station;
+import mtr.data.TrainClient;
 import mtr.mappings.BlockEntityRendererMapper;
 import mtr.render.MoreRenderLayers;
 import net.minecraft.block.BlockState;
@@ -62,6 +63,8 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
     private static final long CHECK_MS = 200L;
 
     private boolean warned;
+    /** 「拿不到实时编组、退回 4 节」这条 warning 只打一次（consistOf 每帧都在跑）。 */
+    private static boolean carsWarned;
     private long lastSweep;
 
     public PsdLcdRenderer(final BlockEntityRendererFactory.Context context) {
@@ -215,7 +218,9 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         final Direction readDir = facing.rotateYCounterclockwise();
         final float x = 0.5F - readDir.getOffsetX() * 0.5F + facing.getOffsetX() * PsdLcdLayout.ANCHOR_OUT;
         final float z = 0.5F - readDir.getOffsetZ() * 0.5F + facing.getOffsetZ() * PsdLcdLayout.ANCHOR_OUT;
-        final float y = 0.5F + PsdLcdLayout.HEIGHT_BLOCKS * 0.5F;
+        // 面板中线在方块底面以上 5px（1.5 … 8.5 的中点），不再是「方块正中」——
+        // 见 PsdLcdLayout 里从参考模组 / MTR 顶板面板量到的数。
+        final float y = PsdLcdLayout.CENTER_Y_BLOCKS;
         matrices.translate(x, y, z);
         matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(90.0F - readDir.asRotation()));
         matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(180.0F));
@@ -319,8 +324,9 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         // ---- 当前站
         String stationZh = "";
         String stationEn = "";
+        Station station = null;
         try {
-            final Station station = RailwayData.getStation(ClientData.STATIONS, ClientData.DATA_CACHE, pos);
+            station = RailwayData.getStation(ClientData.STATIONS, ClientData.DATA_CACHE, pos);
             if (station != null) {
                 final String[] parts = station.name.split("\\|", -1);
                 stationZh = parts.length > 0 ? parts[0].trim() : "";
@@ -329,10 +335,19 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         } catch (final Throwable ignored) {
             // 车站表还没同步：站名留空，其余照画。
         }
+        // 没有站名数据时退回示意里的占位字「当前站 / This station」——
+        // 这样空站也不会在那一格留一片空白（有数据时显示真实站名，和实拍一致）。
+        if (stationZh.isEmpty()) {
+            stationZh = Text.translatable("gui.mtrlte.psd_lcd.this_station_zh").getString();
+        }
+        if (stationEn.isEmpty()) {
+            stationEn = Text.translatable("gui.mtrlte.psd_lcd.this_station_en").getString();
+        }
 
-        // ---- 编组（没有实时数据时的固定示意；卡片素材自己画好「车 ❄ / 车 ❄❄」）
-        final List<String> carNumbers = new java.util.ArrayList<>(DEFAULT_CARS);
-        for (int i = 1; i <= DEFAULT_CARS; i++) {
+        // ---- 编组：按 MTR 里「这一站 / 这条线」正在跑的那列车读实际节数（拿不到才退回 4 节）
+        final int cars = consistOf(station, first == null ? 0L : first.routeId);
+        final List<String> carNumbers = new java.util.ArrayList<>(cars);
+        for (int i = 1; i <= cars; i++) {
             carNumbers.add(String.valueOf(i));
         }
 
@@ -355,7 +370,7 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                 Text.translatable("gui.mtrlte.pids.bound_for_label").getString(),
                 Text.translatable("gui.mtrlte.pids.bound_for_sub").getString(),
                 dest1[0], dest1[1], count1.number(),
-                Text.translatable("gui.mtrlte.pids.next_train_label").getString(),
+                Text.translatable("gui.mtrlte.psd_lcd.next_train_label").getString(),
                 Text.translatable("gui.mtrlte.pids.next_train_sub").getString(),
                 dest2[0], dest2[1], count2.number(),
                 unitZh, unitEn,
@@ -370,6 +385,61 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         // 哈希：只有这些变了才需要重画位图
         final String hash = content + "|" + segments + "|" + (hasAd ? ad.image() : "noad");
         return new Content(content, ad, caption, tickerTick, tickerRatio, hash);
+    }
+
+    /**
+     * 这一站 / 这条线上正在跑的那列车的<b>实际编组节数</b>（MTR 的 {@code Train#trainCars}）。
+     *
+     * <p>找法（越靠前越优先）：
+     * <ol>
+     *   <li>司机室里正停在这个站、并且跑的是第一班那条线路的车 → 用它；</li>
+     *   <li>停在这个站的任意一列车（跨线车 / 折返车）；</li>
+     *   <li>这条线路上任意一列在跑的车。</li>
+     * </ol>
+     * 三条都落空（单机存档还没发车、或者客户端还没同步列车）时退回
+     * {@link #DEFAULT_CARS} 节，并且<b>只 warning 一次</b>（这条路径每 200ms 走一次，不能刷屏）。
+     */
+    private static int consistOf(final Station station, final long routeId) {
+        try {
+            int atStationAny = 0;
+            int onRouteAny = 0;
+            for (final TrainClient train : ClientData.TRAINS) {
+                if (train == null || train.trainCars <= 0) {
+                    continue;
+                }
+                final Route route = train.getThisRoute();
+                final boolean onRoute = routeId > 0L && route != null && route.id == routeId;
+                if (onRoute && train.trainCars > onRouteAny) {
+                    onRouteAny = train.trainCars;
+                }
+                if (!sameStation(train.getThisStation(), station)) {
+                    continue;
+                }
+                if (onRoute) {
+                    return train.trainCars;
+                }
+                atStationAny = Math.max(atStationAny, train.trainCars);
+            }
+            if (atStationAny > 0) {
+                return atStationAny;
+            }
+            if (onRouteAny > 0) {
+                return onRouteAny;
+            }
+        } catch (final Throwable t) {
+            // 列车表正在被服务端包改写：这一帧按「拿不到」处理，下一帧再试。
+        }
+        if (!carsWarned) {
+            carsWarned = true;
+            LteLog.LOGGER.warn("[lte] psd lcd: no live train at this platform, "
+                    + "falling back to {} cars for the consist strip", DEFAULT_CARS);
+        }
+        return DEFAULT_CARS;
+    }
+
+    /** 两个 Station 是不是同一个（按 id；任一为 null 就是 false）。 */
+    private static boolean sameStation(final Station a, final Station b) {
+        return a != null && b != null && a.id == b.id;
     }
 
     /** 倒计时单位：中文写「分钟 / 秒」，英文写「min / s」。 */

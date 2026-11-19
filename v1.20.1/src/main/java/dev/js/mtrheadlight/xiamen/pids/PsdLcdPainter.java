@@ -11,8 +11,16 @@
 //   · M 标志 = textures/gui/psd_lcd/xiamen_logo.png（600×600，白 M + 红 ∧，来自资源包）
 //   · 编组行的车头 / 单雪花卡片 / 双雪花卡片 = train_nose.png / car_end.png / car_middle.png
 //     （用户提供的高清原图，逐级减半后再缩到目标尺寸，不压缩、不重绘）
-//   · 线路徽标是纯色圆角块；徽标里的三角梅是**唯一**没有素材的元素 —— 画成三瓣线框
-//     （宁可简单，也不要画歪）。
+//   · 线路徽标是纯色圆角块 + 两行字（「X号线」/「Line X」）—— 和用户给的示意图一致，
+//     **里面没有任何图标**（那张图里只有色块、两行字和一行「注：线路色」的设计批注）。
+//     这里不再画花形图案：示意图上没有的东西，屏幕上也不该有。
+//
+// 字体：和厦门普通 PIDS / 线路条带**同一套**（XiamenStripPainter#font()：SimHei →
+// 微软雅黑 → Noto Sans SC 的 BOLD；拉丁行同族 PLAIN），不再从资源包 mtr:xmlcd/fonts/*
+// 读字体（见 PsdLcdTypeface）。
+//
+// 面板几何（高度带 / 厚度 / 前后位置）见 PsdLcdLayout：对齐 MTR 顶板面板的 7px 带 +
+// 参考模组 mtr_psd_lcd 的 1.6px 插屏厚度。所以 h（屏幕高）对应的世界高度是 7/16 格。
 package dev.js.mtrheadlight.xiamen.pids;
 
 import java.awt.BasicStroke;
@@ -23,8 +31,6 @@ import java.awt.RenderingHints;
 import java.awt.Shape;
 import java.awt.font.FontRenderContext;
 import java.awt.font.GlyphVector;
-import java.awt.geom.AffineTransform;
-import java.awt.geom.Ellipse2D;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.util.List;
@@ -116,17 +122,19 @@ public final class PsdLcdPainter {
     private static final float BADGE_DX = 1.9360F;   // 徽标左缘 = 内容区右边界 - 这个值
     private static final float BADGE_W = 0.6700F;
     private static final float BADGE_Y0 = 0.0580F;
-    private static final float BADGE_H = 0.2720F;
+    private static final float BADGE_H = 0.2630F;
     private static final float BADGE_R = 0.0350F;
-    private static final float FLOWER_DX = 0.0644F;  // 花形图标左缘（相对徽标左缘）
-    private static final float FLOWER_DY = 0.0280F;
-    private static final float FLOWER_SIZE = 0.2080F;
-    private static final float LINE_ZH_DX = 0.3366F;
-    private static final float LINE_ZH_TOP = 0.1040F;
-    private static final float LINE_ZH_INK = 0.1014F;
-    private static final float LINE_EN_DX = 0.3841F;
-    private static final float LINE_EN_TOP = 0.2349F;
-    private static final float LINE_EN_INK = 0.0514F;
+    /**
+     * 徽标里两行字的墨迹上沿 / 墨迹高（屏幕坐标，不是相对徽标 —— 不要再加 y0）。
+     *
+     * <p>数值是照用户那张示意图量的（5383×779）：色块 x 2363…2890、y 45…250；
+     * 「X号线」墨迹 y 90…160（高 70），「Line X」y 180…215（高 35），两行都<b>水平居中</b>。
+     * <b>没有图标</b>：原来那块三角梅是照实拍补的，示意图上不存在，已删除。</p>
+     */
+    private static final float LINE_ZH_TOP = 0.1155F;
+    private static final float LINE_ZH_INK = 0.0900F;
+    private static final float LINE_EN_TOP = 0.2311F;
+    private static final float LINE_EN_INK = 0.0450F;
 
     private static final float STA_DX = 0.7750F;     // 站名中线 = 内容区右边界 - 这个值
     private static final float STA_ZH_TOP = 0.0693F;
@@ -168,7 +176,6 @@ public final class PsdLcdPainter {
     public static final int COLOR_WHITE = 0xFFFFFFFF;
     public static final int COLOR_CARD_STROKE = 0xFFF4F6FF;
     public static final int COLOR_TICK_STROKE = 0xFFE6EAFF;
-    public static final int COLOR_CAR_FLOWER = 0xFF1746C8;
     public static final int COLOR_AD_BG = 0xFFD81BB0;
     public static final int COLOR_AD_TEXT = 0xFFFFFFFF;
 
@@ -267,67 +274,90 @@ public final class PsdLcdPainter {
         if (g == null || c == null) {
             return;
         }
-        final float h = height;
+        // h = 排版高。面板比设计稿更窄（只有 1~2 段）时按 6.91:1 收窄，内容上下居中留边，
+        // 而不是让左卡片和右侧一组叠在一起 —— 「滑到底也看不到」这种挤爆的排版比留边难看得多。
+        final float h = layoutHeight(width, height);
         final float contentRight = width - AD_W * h;
+        final float offY = (height - h) * 0.5F;
 
-        // ---- 底 + 广告区
+        // ---- 底 + 广告区（广告永远是满高的那一条，不参与布局收窄）
         g.setColor(argb(COLOR_BG));
         g.fill(new java.awt.geom.Rectangle2D.Float(0.0F, 0.0F, width, height));
         paintAd(g, c, assets, contentRight, width, height, h);
 
-        // ---- 左卡片
-        card(g, h);
-        logo(g, assets, h);
-        cardTexts(g, c, assets, h);
-
-        // ---- 两行到站
-        row(g, c, assets, h, ROW1_CY, c.boundLabel(), c.boundSub(), c.dest1(), c.dest1En(),
-                c.count1(), c.unitZh(), c.unitEn(), contentRight);
-        row(g, c, assets, h, ROW2_CY, c.nextLabel(), c.nextSub(), c.dest2(), c.dest2En(),
-                c.count2(), c.unitZh(), c.unitEn(), contentRight);
-
-        // ---- 右侧一组
-        badge(g, c, assets, h, contentRight);
-        station(g, c, assets, h, contentRight);
-        cars(g, c, assets, h, contentRight);
-
-        // ---- 标语条外框（文字由渲染器叠在上面）
-        final float tx0 = TICK_X0 * h;
-        final float tx1 = Math.max(tx0 + 0.4F * h, contentRight - TICK_DX1 * h);
-        final float ty0 = TICK_Y0 * h;
-        final float ty1 = TICK_Y1 * h;
-        final float radius = (ty1 - ty0) * 0.5F;
-        g.setColor(argb(COLOR_TICK_STROKE));
-        g.setStroke(new BasicStroke(Math.max(1.0F, TICK_SW * h), BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND));
-        g.draw(new RoundRectangle2D.Float(tx0 + TICK_SW * h * 0.5F, ty0 + TICK_SW * h * 0.5F,
-                (tx1 - tx0) - TICK_SW * h, (ty1 - ty0) - TICK_SW * h, radius * 2.0F, radius * 2.0F));
-        g.setStroke(new BasicStroke(1.0F));
-
-        // 标语文字：只在离线预览里画（游戏里由渲染器用 MC 文字层滚动，见 PsdLcdRenderer）。
-        if (c.tickerText() != null && !c.tickerText().isEmpty()) {
-            final Shape old = g.getClip();
-            g.clip(new RoundRectangle2D.Float(tx0 + TICK_SW * h, ty0 + TICK_SW * h,
-                    (tx1 - tx0) - TICK_SW * h * 2.0F, (ty1 - ty0) - TICK_SW * h * 2.0F,
-                    radius * 2.0F, radius * 2.0F));
-            line(g, c.tickerText(), assets == null ? null : assets.cjk(), c.tickerText(),
-                    (ty0 + ty1) * 0.5F - (ty1 - ty0) * TICK_SIZE_RATIO * 0.5F,
-                    (ty1 - ty0) * TICK_SIZE_RATIO,
-                    tx0 + 0.035F * h, Align.LEFT, 0.0F, COLOR_WHITE);
-            g.setClip(old);
+        final java.awt.geom.AffineTransform savedTransform = g.getTransform();
+        if (offY > 0.01F) {
+            g.translate(0.0D, offY);
         }
+        try {
+            // ---- 左卡片
+            card(g, h);
+            logo(g, assets, h);
+            cardTexts(g, c, assets, h);
+
+            // ---- 两行到站
+            row(g, c, assets, h, ROW1_CY, c.boundLabel(), c.boundSub(), c.dest1(), c.dest1En(),
+                    c.count1(), c.unitZh(), c.unitEn(), contentRight);
+            row(g, c, assets, h, ROW2_CY, c.nextLabel(), c.nextSub(), c.dest2(), c.dest2En(),
+                    c.count2(), c.unitZh(), c.unitEn(), contentRight);
+
+            // ---- 右侧一组
+            badge(g, c, assets, h, contentRight);
+            station(g, c, assets, h, contentRight);
+            cars(g, c, assets, h, contentRight);
+
+            // ---- 标语条外框（文字由渲染器叠在上面）
+            final float tx0 = TICK_X0 * h;
+            final float tx1 = Math.max(tx0 + 0.4F * h, contentRight - TICK_DX1 * h);
+            final float ty0 = TICK_Y0 * h;
+            final float ty1 = TICK_Y1 * h;
+            final float radius = (ty1 - ty0) * 0.5F;
+            g.setColor(argb(COLOR_TICK_STROKE));
+            g.setStroke(new BasicStroke(Math.max(1.0F, TICK_SW * h), BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND));
+            g.draw(new RoundRectangle2D.Float(tx0 + TICK_SW * h * 0.5F, ty0 + TICK_SW * h * 0.5F,
+                    (tx1 - tx0) - TICK_SW * h, (ty1 - ty0) - TICK_SW * h, radius * 2.0F, radius * 2.0F));
+            g.setStroke(new BasicStroke(1.0F));
+
+            // 标语文字：只在离线预览里画（游戏里由渲染器用 MC 文字层滚动，见 PsdLcdRenderer）。
+            if (c.tickerText() != null && !c.tickerText().isEmpty()) {
+                final Shape old = g.getClip();
+                g.clip(new RoundRectangle2D.Float(tx0 + TICK_SW * h, ty0 + TICK_SW * h,
+                        (tx1 - tx0) - TICK_SW * h * 2.0F, (ty1 - ty0) - TICK_SW * h * 2.0F,
+                        radius * 2.0F, radius * 2.0F));
+                line(g, c.tickerText(), assets == null ? null : assets.cjk(), c.tickerText(),
+                        (ty0 + ty1) * 0.5F - (ty1 - ty0) * TICK_SIZE_RATIO * 0.5F,
+                        (ty1 - ty0) * TICK_SIZE_RATIO,
+                        tx0 + 0.035F * h, Align.LEFT, 0.0F, COLOR_WHITE);
+                g.setClip(old);
+            }
+        } finally {
+            g.setTransform(savedTransform);
+        }
+    }
+
+    /**
+     * 排版高：正常情况下就是面板高（面板本身已经是 7/16 格 = 2.29:1 一段）；
+     * 面板比设计稿 {@link #DESIGN_W}:1 还窄时（1~2 段），按设计比例把它当成「高一点」来排，
+     * 内容上下居中 —— 左卡片 / 到站行 / 右侧一组不会互相压。
+     */
+    public static float layoutHeight(final float width, final float height) {
+        return Math.min(height, Math.max(1.0F, width / DESIGN_W));
     }
 
     /** 标语条的矩形（渲染器算「这条滚完要多久」要用，和上面画框用的是同一组数）。 */
     public static float[] tickerBox(final float width, final float height) {
-        final float contentRight = width - AD_W * height;
-        return new float[]{TICK_X0 * height, TICK_Y0 * height,
-                Math.max(TICK_X0 * height + 0.4F * height, contentRight - TICK_DX1 * height),
-                TICK_Y1 * height};
+        final float h = layoutHeight(width, height);
+        final float offY = (height - h) * 0.5F;
+        final float contentRight = width - AD_W * h;
+        return new float[]{TICK_X0 * h, offY + TICK_Y0 * h,
+                Math.max(TICK_X0 * h + 0.4F * h, contentRight - TICK_DX1 * h),
+                offY + TICK_Y1 * h};
     }
 
     /** 广告位的矩形（渲染器把广告图叠在这块上）。 */
     public static float[] adBox(final float width, final float height) {
-        final float x0 = width - AD_W * height;
+        final float h = layoutHeight(width, height);
+        final float x0 = width - AD_W * h;
         return new float[]{x0, 0.0F, width, height};
     }
 
@@ -464,60 +494,14 @@ public final class PsdLcdPainter {
         g.setColor(new Color(c.lineColor(), true));
         g.fill(new RoundRectangle2D.Float(x0, y0, x1 - x0, y1 - y0, BADGE_R * h * 2.0F, BADGE_R * h * 2.0F));
 
-        flower(g, x0 + FLOWER_DX * h, y0 + FLOWER_DY * h, FLOWER_SIZE * h);
-
         final Font cjk = assets == null ? null : assets.cjk();
         final Font latin = assets == null ? null : assets.latin();
         final int white = COLOR_WHITE;
-        // ⚠ 这两个 TOP 量的是「屏幕坐标」，不是相对徽标 —— 不要再加 y0。
-        line(g, c.lineZh(), cjk, "6号线", LINE_ZH_TOP * h, LINE_ZH_INK * h,
-                x0 + LINE_ZH_DX * h, Align.LEFT, (BADGE_W - LINE_ZH_DX - 0.02F) * h, white);
-        line(g, c.lineEn(), latin, "Line 6", LINE_EN_TOP * h, LINE_EN_INK * h,
-                x0 + LINE_EN_DX * h, Align.LEFT, (BADGE_W - LINE_EN_DX - 0.02F) * h, white);
-    }
-
-    /**
-     * 三角梅（厦门市花）三瓣花：三片白色水滴形花瓣 + 花心 + 每片花瓣上一道深色折痕。
-     * <b>没有现成素材</b>，按实拍的形状画成极简线框。
-     */
-    private static void flower(final Graphics2D g, final float x0, final float y0, final float size) {
-        final float cx = x0 + size * 0.5F;
-        final float cy = y0 + size * 0.5F;
-        g.setColor(argb(COLOR_WHITE));
-        for (int i = 0; i < 3; i++) {
-            final AffineTransform t = AffineTransform.getRotateInstance(
-                    Math.toRadians(-90.0D + i * 120.0D), cx, cy);
-            g.fill(t.createTransformedShape(petal(cx, cy, size)));
-        }
-        g.fill(new Ellipse2D.Float(cx - size * 0.075F, cy - size * 0.075F,
-                size * 0.150F, size * 0.150F));
-        // 每片花瓣上一道折痕（从花心指向瓣尖）
-        g.setColor(argb(COLOR_CAR_FLOWER));
-        g.setStroke(new BasicStroke(Math.max(1.0F, size * 0.020F), BasicStroke.CAP_ROUND,
-                BasicStroke.JOIN_ROUND));
-        for (int i = 0; i < 3; i++) {
-            final double a = Math.toRadians(-90.0D + i * 120.0D);
-            final float r0 = size * 0.09F;
-            final float r1 = size * 0.34F;
-            g.draw(new java.awt.geom.Line2D.Float(
-                    cx + (float) Math.cos(a) * r0, cy + (float) Math.sin(a) * r0,
-                    cx + (float) Math.cos(a) * r1, cy + (float) Math.sin(a) * r1));
-        }
-        g.setStroke(new BasicStroke(1.0F));
-    }
-
-    /** 一片花瓣（朝上、根部在花心）：上宽下尖的水滴形。 */
-    private static java.awt.Shape petal(final float cx, final float cy, final float size) {
-        final java.awt.geom.Path2D.Float p = new java.awt.geom.Path2D.Float();
-        p.moveTo(cx, cy - size * 0.08F);
-        p.curveTo(cx - size * 0.20F, cy - size * 0.20F, cx - size * 0.34F, cy - size * 0.34F,
-                cx - size * 0.24F, cy - size * 0.46F);
-        p.curveTo(cx - size * 0.16F, cy - size * 0.55F, cx + size * 0.16F, cy - size * 0.55F,
-                cx + size * 0.24F, cy - size * 0.46F);
-        p.curveTo(cx + size * 0.34F, cy - size * 0.34F, cx + size * 0.20F, cy - size * 0.20F,
-                cx, cy - size * 0.08F);
-        p.closePath();
-        return p;
+        // 只有色块 + 两行字，两行都居中（示意图就是这样；没有图标）。
+        final float cx = (x0 + x1) * 0.5F;
+        final float maxW = (BADGE_W - 0.05F) * h;
+        line(g, c.lineZh(), cjk, "6号线", LINE_ZH_TOP * h, LINE_ZH_INK * h, cx, Align.CENTER, maxW, white);
+        line(g, c.lineEn(), latin, "Line 6", LINE_EN_TOP * h, LINE_EN_INK * h, cx, Align.CENTER, maxW, white);
     }
 
     private static void station(final Graphics2D g, final Content c, final Assets assets,
@@ -538,7 +522,9 @@ public final class PsdLcdPainter {
         if (numbers == null || numbers.isEmpty() || assets == null) {
             return;
         }
-        final int n = Math.min(12, numbers.size());
+        // 编组节数由渲染器按 MTR 里那列车的实际编组给（拿不到才退回 4 节）；
+        // 上限 16 只是防呆（真出现 20 节的编组，卡片会窄到看不清，不如截断）。
+        final int n = Math.min(16, numbers.size());
 
         // ---- 宽度规则（长编组逐节压缩，绝不溢出、绝不盖广告位）
         //   naturalW = 0.469h（实拍卡片宽）
@@ -546,7 +532,7 @@ public final class PsdLcdPainter {
         //   cardW    = min(naturalW, availW / (n × (1 + gapRatio) + noseRatio))
         //              └ gapRatio 0.0693（卡片间隙 ÷ 卡片宽）、noseRatio 0.203（车头宽 ÷ 卡片宽）
         //   节数少（4 节）时算出来 ≥ naturalW，取 naturalW → 与实拍一像素不差；
-        //   6 / 8 节时按同一比例缩窄（等比缩，不裁切），高度和字号跟着一起缩。
+        //   6 / 8 / 13 节时按同一比例缩窄（等比缩，不裁切），高度和字号跟着一起缩。
         final float naturalW = CAR_W * h;
         final float naturalCh = naturalW * (CARD_PX_H / CARD_PX_W);
         final float right = contentRight - CARS_DX * h;

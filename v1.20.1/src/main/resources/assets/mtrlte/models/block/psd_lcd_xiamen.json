@@ -1,6 +1,6 @@
 {
 	"format_version": "1.9.0",
-	"credit": "LTE - Xiamen PSD-LCD panel (thin plate; the screen itself is drawn by PsdLcdRenderer)",
+	"credit": "LTE - Xiamen PSD-LCD panel (1.6px thick plate, y 1.5-8.5 of the block; the screen itself is drawn by PsdLcdRenderer)",
 	"textures": {
 		"0": "mtrlte:block/black",
 		"1": "mtrlte:block/metal",
@@ -9,15 +9,16 @@
 	"elements": [
 		{
 			"name": "Panel",
-			"from": [0, 5.54, 0],
-			"to": [16, 10.46, 1],
+			"_comment": "高度带 / 厚度 / 前后位置对齐 MTR 顶板面板与参考模组 mtr_psd_lcd 的插屏凹槽：y 1.5-8.5（7px 高）、厚 1.6px、前面与朝外那一面平齐",
+			"from": [0, 1.5, 0],
+			"to": [16, 8.5, 1.6],
 			"faces": {
-				"north": {"uv": [0, 0, 16, 4.92], "texture": "#0"},
-				"east": { "uv": [0, 0, 1, 4.92], "texture": "#1"},
-				"south": {"uv": [0, 0, 16, 4.92], "texture": "#1"},
-				"west": { "uv": [0, 0, 1, 4.92], "texture": "#1"},
-				"up": {   "uv": [0, 0, 16, 1], "texture": "#1"},
-				"down": { "uv": [0, 0, 16, 1], "texture": "#1"}
+				"north": {"uv": [0, 0, 16, 7], "texture": "#0"},
+				"east": { "uv": [0, 0, 1.6, 7], "texture": "#1"},
+				"south": {"uv": [0, 0, 16, 7], "texture": "#1"},
+				"west": { "uv": [0, 0, 1.6, 7], "texture": "#1"},
+				"up": {   "uv": [0, 0, 16, 1.6], "texture": "#1"},
+				"down": { "uv": [0, 0, 16, 1.6], "texture": "#1"}
 			}
 		}
 	]
