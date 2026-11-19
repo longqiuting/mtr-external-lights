@@ -33,8 +33,11 @@ import java.util.function.IntSupplier;
  *
  * <h2>布局（用户点名：开关在上、滑块在下）</h2>
  * <pre>
- *   第 0–2 行：时间源 / 发光 / 刻度样式 / 整点报时 / 报时模式 / 红石控制   ← 开关与选项
- *   第 3–5 行：钟面 / 时针 / 分针 / 秒针 / 中心轴 的显隐                  ← 开关
+ *   固定条  ：刻度 / 数字样式（整行一颗按钮，**不随内容滚动**，点一下循环 7 种）
+ *   第 0 行：时间源 / 发光
+ *   第 1 行：整点报时 / 报时模式
+ *   第 2 行：红石控制
+ *   第 3–5 行：钟面 / 时针 / 分针 / 秒针 / 中心轴 / 刻度数字 的显隐       ← 开关
  *   第 6–10 行：时针 / 分针 / 秒针长度、钟面半径、刻度半径                ← 滑块
  *   第 11 行 ：时间偏移（分钟） + 「应用」 + 当前显示 HH:MM
  *   第 12–14 行：六个颜色（钟面 / 时针 / 分针 / 秒针 / 中心轴 / 刻度）
@@ -43,6 +46,13 @@ import java.util.function.IntSupplier;
  *   底部    ：全部复原 / 完成 / 取消
  * </pre>
  * 全局模式下所有行整体下移一行，第 0 行是「全局启用：开 / 关」。
+ *
+ * <h2>刻度 / 数字的入口（2026-11-19 晚）</h2>
+ * <p>用户反馈「找不到改刻度 / 数字的地方」：原来它在第 1 行左半格（按钮文字只有「刻度：xxx」），
+ * 和「整点报时」并排，小窗口下还要滚才看得到。现在它被提成<b>内容区最上面那条固定栏</b>
+ * （{@link #TICK_ROW_SLOTS}）——首次打开、任何窗口高度下都在标题下面第一行，整行一颗按钮，
+ * 点一下就在 无 → 短横线 → 圆点 → 小方块 → 三角形 → 阿拉伯数字 → 罗马数字 之间循环。
+ * 断言见 {@code tools/clock-config-layout-check.js}（含 480p）。
  *
  * <h2>滚动（18 行 + 一行全局 = 19 行，小窗口放不下）</h2>
  * <p>行高先按窗口高度自动算（{@value #MIN_ROW_H}–{@value #MAX_ROW_H}px），算到下限仍放不下时
@@ -85,6 +95,15 @@ public final class ClockConfigScreen extends Screen {
     private static final int MIN_ROW_H = 16;
     /** 单块模式的固定行数（见类注释的布局表）。 */
     private static final int ROWS = 18;
+    /**
+     * 内容区顶部那条**固定不滚**的「刻度 / 数字」条占几个行高。
+     *
+     * <p>用户的反馈是「找不到改刻度 / 数字的地方」——原来它在第 1 行左半格，跟着整页一起滚，
+     * 小窗口下要滚才看得见（而且和「整点报时」挤在一块，很容易当成同一个开关）。
+     * 现在它单独占内容区最上面一整行、<b>不参与滚动</b>：首次打开就在标题下面一行，
+     * 一眼能看到，点一下循环 7 种样式（无 / 短横线 / 圆点 / 小方块 / 三角形 / 阿拉伯数字 / 罗马数字）。
+     */
+    private static final int TICK_ROW_SLOTS = 1;
     /** 面板顶部标题条高度（标题 + 一点留白）。 */
     private static final int HEADER_H = 26;
     /** 面板底部固定区：一行「报时音效：xxx」提示 + 三个按钮。 */
@@ -131,6 +150,8 @@ public final class ClockConfigScreen extends Screen {
     /** 滚动的可见区域（行在里面才建控件 / 才画）；底部三个按钮在 {@link #bodyBottom} 之下，固定。 */
     private int bodyTop;
     private int bodyBottom;
+    /** 滚动行的起点（{@link #bodyTop} 之下再让出顶部那条固定的「刻度 / 数字」条）。 */
+    private int rowsTop;
     /** 已滚过的行数（整行滚动，0 = 最上面）。 */
     private int scrollRows;
     /** 两个输入框里「还没提交」的文字：滚动重建控件时留住它们。 */
@@ -208,16 +229,20 @@ public final class ClockConfigScreen extends Screen {
         this.panelW = Math.min(MAX_PANEL_W, this.width - 16);
         // 内容区高度 = 屏幕高 − 顶部标题 − 底部固定栏（行高按这个可用高度反算，
         // 算到 MIN_ROW_H 仍放不下就整行滚动；面板本身最多占满屏幕）。
+        // 行高按「滚动行 + 固定刻度行」一起均分，否则固定那一行会把最后一行顶出视口。
+        final int slotCount = this.rowCount + TICK_ROW_SLOTS;
         final int available = Math.max(0, this.height - 4 - HEADER_H - FOOTER_H);
-        this.rowH = clamp(available / Math.max(1, this.rowCount), MIN_ROW_H, MAX_ROW_H);
-        // 面板至少放得下「一行 + 标题 + 底部栏」；内容再多就靠滚动，绝不让底部栏被顶出去。
-        final int minPanelH = HEADER_H + FOOTER_H + this.rowH;
+        this.rowH = clamp(available / Math.max(1, slotCount), MIN_ROW_H, MAX_ROW_H);
+        // 面板至少放得下「固定刻度行 + 一行 + 标题 + 底部栏」；内容再多就靠滚动，绝不让底部栏被顶出去。
+        final int minPanelH = HEADER_H + FOOTER_H + this.rowH * 2;
         this.panelH = Math.min(this.height - 4,
-                Math.max(minPanelH, HEADER_H + this.rowCount * this.rowH + FOOTER_H));
+                Math.max(minPanelH, HEADER_H + slotCount * this.rowH + FOOTER_H));
         this.panelY = Math.max(2, (this.height - this.panelH) / 2);
         this.panelX = (this.width - this.panelW) / 2;
         this.bodyTop = this.panelY + HEADER_H;
         this.bodyBottom = this.panelY + this.panelH - FOOTER_H;
+        // 固定刻度条贴在内容区最上面，滚动行从它下面开始 —— 两条界线别混。
+        this.rowsTop = this.bodyTop + TICK_ROW_SLOTS * this.rowH;
         this.scrollRows = clamp(this.scrollRows, 0, this.maxScrollRows());
         // ↺ 列从总宽里扣：内容永远不会压在 ↺ 上（rightX() + colW + GAP == resetX()）。
         this.contentW = this.panelW - 2 * PAD - RESET_W - GAP;
@@ -227,6 +252,15 @@ public final class ClockConfigScreen extends Screen {
         final int left = this.panelX + PAD;
         final int right = left + this.colW + GAP;
         final int wh = this.rowH - 4;
+
+        // ---- 固定条（不滚）：刻度 / 数字样式 -------------------------------
+        // 整行一个按钮：一眼能看出「这里是改刻度 / 数字的地方」，点一下循环 7 种。
+        this.tickButton = this.pinnedCycle(left, this.panelX + PAD + this.contentW,
+                this.bodyTop, wh,
+                () -> Text.translatable("screen.mtrlte.clock.row.tick",
+                        Text.translatable(this.cfg.tickStyle.labelKey())),
+                () -> this.cfg.tickStyle = next(ClockConfig.TickStyle.values(), this.cfg.tickStyle));
+        this.resetButtonAt(this.bodyTop, wh, () -> this.cfg.tickStyle = this.defaults.tickStyle);
 
         // ---- 全局模式最上面一行：全局启用（整行一个开关，带自己的 ↺） ----
         // row(-1) 就是「第 0 个视觉行」（row(i) 会把 i 加上 rowOffset），不和「时间源 / 发光」撞。
@@ -251,31 +285,25 @@ public final class ClockConfigScreen extends Screen {
             this.cfg.glow = this.defaults.glow;
         });
 
-        // ---- 第 1 行：刻度样式 / 整点报时 -------------------------------
-        this.tickButton = cycle(left, row(1), this.colW, wh,
-                () -> Text.translatable("screen.mtrlte.clock.row.tick",
-                        Text.translatable(this.cfg.tickStyle.labelKey())),
-                () -> this.cfg.tickStyle = next(ClockConfig.TickStyle.values(), this.cfg.tickStyle));
-        this.chimeButton = cycle(right, row(1), this.colW, wh,
+        // ---- 第 1 行：整点报时 / 报时模式 -------------------------------
+        // 刻度样式已经搬到顶部固定条了，这一行空出来的位置给「整点报时」和「报时模式」。
+        this.chimeButton = cycle(left, row(1), this.colW, wh,
                 () -> Text.translatable("screen.mtrlte.clock.row.chime", onOff(this.cfg.chime)),
                 () -> this.cfg.chime = !this.cfg.chime);
-        this.resetButton(row(1), wh, () -> {
-            this.cfg.tickStyle = this.defaults.tickStyle;
-            this.cfg.chime = this.defaults.chime;
-        });
-
-        // ---- 第 2 行：报时模式 / 红石控制 -------------------------------
-        this.chimeModeButton = cycle(left, row(2), this.colW, wh,
+        this.chimeModeButton = cycle(right, row(1), this.colW, wh,
                 () -> Text.translatable("screen.mtrlte.clock.row.chimeMode",
                         Text.translatable(this.cfg.chimeMode.labelKey())),
                 () -> this.cfg.chimeMode = next(ClockConfig.ChimeMode.values(), this.cfg.chimeMode));
-        this.redstoneButton = cycle(right, row(2), this.colW, wh,
+        this.resetButton(row(1), wh, () -> {
+            this.cfg.chime = this.defaults.chime;
+            this.cfg.chimeMode = this.defaults.chimeMode;
+        });
+
+        // ---- 第 2 行：红石控制（右半格留给下面成对的显隐开关） --------------
+        this.redstoneButton = cycle(left, row(2), this.colW, wh,
                 () -> Text.translatable("screen.mtrlte.clock.row.redstone", onOff(this.cfg.redstone)),
                 () -> this.cfg.redstone = !this.cfg.redstone);
-        this.resetButton(row(2), wh, () -> {
-            this.cfg.chimeMode = this.defaults.chimeMode;
-            this.cfg.redstone = this.defaults.redstone;
-        });
+        this.resetButton(row(2), wh, () -> this.cfg.redstone = this.defaults.redstone);
 
         // ---- 第 3–5 行：五个显隐开关（开关行，全部在滑块之前） -------------
         // 钟面 / 时针、分针 / 秒针、中心轴（中心轴独占一行，右半栏留空）。
@@ -447,12 +475,12 @@ public final class ClockConfigScreen extends Screen {
 
     /** 第 {@code index} 行的 y（全局模式下整体下移一行，「全局启用」是第 0 行；再减去滚过的行）。 */
     private int row(final int index) {
-        return this.bodyTop + (index + this.rowOffset - this.scrollRows) * this.rowH;
+        return this.rowsTop + (index + this.rowOffset - this.scrollRows) * this.rowH;
     }
 
     /** 面板里一次能放下几整行（滚动时用来夹 {@link #scrollRows}）。 */
     private int visibleRows() {
-        return Math.max(1, (this.bodyBottom - this.bodyTop) / Math.max(1, this.rowH));
+        return Math.max(1, (this.bodyBottom - this.rowsTop) / Math.max(1, this.rowH));
     }
 
     /** 最多能滚几行；0 = 这一屏放得下，不滚。 */
@@ -465,7 +493,7 @@ public final class ClockConfigScreen extends Screen {
      * （滚动是整行的，所以「在不在」只有两种答案，不会出现半行。）
      */
     private boolean rowVisible(final int y, final int h) {
-        return y >= this.bodyTop && y + h <= this.bodyBottom;
+        return y >= this.rowsTop && y + h <= this.bodyBottom;
     }
 
     /** 每行末尾 ↺ 的 x：贴着面板右边缘。 */
@@ -480,6 +508,17 @@ public final class ClockConfigScreen extends Screen {
     /** 一行的 ↺：点一下把这行的字段写回出厂值，然后重建控件（滑块位置 / 按钮文字都要跟着变）。 */
     private void resetButton(final int y, final int h, final Runnable reset) {
         if (!this.rowVisible(y, h)) {
+            return;
+        }
+        this.resetButtonAt(y, h, reset);
+    }
+
+    /**
+     * 固定条（不滚）上的 ↺：只要求落在内容区里，不受 {@link #rowVisible} 的
+     * {@code rowsTop} 限制 —— 固定刻度条就在 {@code bodyTop} 那一行。
+     */
+    private void resetButtonAt(final int y, final int h, final Runnable reset) {
+        if (y < this.bodyTop || y + h > this.bodyBottom) {
             return;
         }
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("btn.resetOne"), b -> {
@@ -524,6 +563,27 @@ public final class ClockConfigScreen extends Screen {
             advance.run();
             self[0].setMessage(label.get());
         }).dimensions(x, y, w, h).build();
+        self[0] = button;
+        this.addDrawableChild(button);
+        return button;
+    }
+
+    /**
+     * 固定条上的循环按钮（不滚）：和 {@link #cycle} 一样是「点一下换下一个值 + 刷文字」，
+     * 只是不做 {@code rowsTop} 的可见性判断 —— 它本来就钉在内容区第一行。
+     *
+     * @param x1 按钮右边界（不含 ↺ 列），宽度 = x1 − x
+     */
+    private ButtonWidget pinnedCycle(final int x, final int x1, final int y, final int h,
+                                     final java.util.function.Supplier<Text> label, final Runnable advance) {
+        if (y < this.bodyTop || y + h > this.bodyBottom) {
+            return null;
+        }
+        final ButtonWidget[] self = new ButtonWidget[1];
+        final ButtonWidget button = ButtonWidget.builder(label.get(), b -> {
+            advance.run();
+            self[0].setMessage(label.get());
+        }).dimensions(x, y, Math.max(40, x1 - x), h).build();
         self[0] = button;
         this.addDrawableChild(button);
         return button;
@@ -785,8 +845,8 @@ public final class ClockConfigScreen extends Screen {
             return;
         }
         final int x = this.panelX + this.panelW - PAD + 3;
-        final int top = this.bodyTop;
-        final int h = this.bodyBottom - this.bodyTop;
+        final int top = this.rowsTop;
+        final int h = this.bodyBottom - this.rowsTop;
         if (h <= 0) {
             return;
         }

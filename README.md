@@ -142,4 +142,5 @@ tools/      构建、发布、校验脚本
 - 南滨创意（Nanbin Create Mod，MIT）：Nanbin-Studio、LIEH-SAD —— 闸机音效（`nanbin:crt_ticket`）
 - 真实城市建设（RCC / Reality City Construction，LGPL-3.0）：CodeCat、yaoxiansen —— 站台方块的模型与贴图
 - 厦门地铁实拍与素材：本项目作者
+- MTR PSD LCD（`mtr_psd_lcd`，MIT）：**Zzztick365 (MTR PSD LCD)** —— PSD-LCD 面板的插屏几何与做法（6px 吊板 + 1.6px 深的屏幕凹槽），未复制其代码与贴图
 - 贡献者：天童アリス、596wjr、Coconut_

@@ -11,10 +11,13 @@
 //   3. 把动态贴图贴成一个四边形，再叠广告层和滚动标语层。
 //
 // 坐标系（和方块模型一致）：
-//   translate(anchor 最左一格的左边缘, 面板上沿, 朝外 0.504 格)
+//   translate(anchor 最左一格的左边缘, 屏幕带中线 y=5px, 凹槽里的屏幕面)
 //   rotY(90 - readDir.asRotation())   readDir = facing.rotateYCounterclockwise()
 //   rotZ(180)                         ← 必须是 Z 轴 180°（写成 Y 轴会让字上下颠倒）
 //   scale(1 / 520)                    之后 1 单位 = 1 屏幕像素，+x 向右、+y 向下
+//
+// 屏幕面离方块外面多远由 PsdLcdLayout.ANCHOR_OUT 决定：吊板 6px 厚、屏幕凹槽 1.6px 深，
+// 所以是 0.5 − 1.584/16 = 0.401 格（**在方块里面**，不再是贴着外面的薄板）。
 package dev.js.mtrheadlight.xiamen.pids;
 
 import java.awt.image.BufferedImage;
@@ -53,10 +56,16 @@ import net.minecraft.world.World;
 /** 厦门地铁 PSD-LCD 挂板（{@code mtrlte:psd_lcd_xiamen}）的方块实体渲染器。 */
 public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity> {
 
-    /** 广告层深度（px，负 = 更靠近观察者）。 */
-    private static final float AD_Z = -1.40F;
-    /** 滚动标语层深度（px）。 */
-    private static final float TEXT_Z = -2.00F;
+    /**
+     * 广告层深度（px，负 = 更靠近观察者）。
+     *
+     * <p>屏幕面现在退在吊板的插屏凹槽里（离方块外面 1.6px，见 {@link PsdLcdLayout#ANCHOR_OUT}），
+     * 所以往前叠的层次必须留在凹槽里：整屏 0 → 广告 1.10px → 标语 1.45px，都还不到 1.584px 的槽口，
+     * 不会戳出面板外面。
+     */
+    private static final float AD_Z = -1.10F;
+    /** 滚动标语层深度（px）。同上：1.45 < 1.584，留在凹槽内。 */
+    private static final float TEXT_Z = -1.45F;
     /** 编组卡片的张数（没有实时编组数据时的示意）。 */
     private static final int DEFAULT_CARS = 4;
     /** 内容检查的最小间隔（ms）—— 没必要每帧都拼一遍字符串。 */

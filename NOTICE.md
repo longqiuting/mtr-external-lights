@@ -121,6 +121,22 @@
 
 ---
 
+## 9. MTR PSD LCD（`mtr_psd_lcd`）
+
+- 项目：**MTR PSD LCD**（`mtr_psd_lcd`，MTR 的 LCD 版屏蔽门模组）
+- 作者：**Zzztick365**
+- 版本：**1.2.8**（`mtr_psd_lcd+fabric1.19.2-MTR3.2.2 1.2.8`）
+- 许可：**MIT**（其 `fabric.mod.json` 明确 `"license": "MIT"`）
+- 我们用了什么（**只参考几何与做法，未复制代码 / 贴图**）：
+  - **面板几何**：`models/block/psd_top_lcd14_groove_left_base.json` 的插屏凹槽 ——
+    箱体 `x 0…6`（6px 厚）、屏幕面在 `x 4.4`（离箱体外面 **1.6px**）、上下唇 `y 1.6 / 15.1`。
+    本模组 `mtrlte:psd_lcd_xiamen` 的模型与 `PsdLcdLayout` 的常量按这组数对齐
+    （见 `docs/psd-lcd-geometry.md`）；
+  - **外形思路**：它的 LCD 面板就是 MTR 普通吊板 `psd_top` 的外形 + 一个凹槽，
+    本模组的模型因此直接沿用 MTR `psd_top_left_base` 的轮廓（箱体 / 1px 台阶 / 22.5° 倒角）；
+  - **做法**：屏幕画面不在模型里，由方块实体在凹槽底那块平面上绘制（我们用自己的 Java2D 离屏位图实现）。
+  - 未使用其任何 `.class`、`.json` 模型文件或 `.png` 贴图（模型是本仓库按数值重写的，贴图全部自制 / 取自 MTR）。
+
 ## 复核方法（可重跑）
 
 ```bash

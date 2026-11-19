@@ -1,4 +1,5 @@
-// PSD-LCD 挂板方块：薄板、四向、任意位置可放；横向连接靠「相邻同类方块」现算，不存状态。
+// PSD-LCD 吊板方块：6px 厚、整块高的吊板（外形同 MTR psd_top），四向、任意位置可放；
+// 横向连接靠「相邻同类方块」现算，不存状态。
 package dev.js.mtrheadlight.xiamen.pids;
 
 import java.util.List;
@@ -31,9 +32,12 @@ import net.minecraft.world.World;
  *
  * <h2>形态</h2>
  * <ul>
- *   <li><b>薄板</b>：模型只占方块下部那一条（y 1.5~8.5 / 16，即 MTR 顶板面板的 7px 高度带），
- *       厚度 1.6px（对齐参考模组 {@code mtr_psd_lcd} 的插屏凹槽），贴在 {@code FACING} 那一面上；碰撞箱是空的，轮廓就是那块板
- *       （{@link #OUTLINE_NORTH} 等四个方向各一份）；</li>
+ *   <li><b>吊板</b>：外形和 MTR 的普通吊板（{@code mtr:block/psd_top_left_base}）是同一套——
+ *       6px 厚、整块高（y 0..16，从天花板吊下来）、底面一圈 1px 台阶 + 22.5° 倒角；我们把它拉满整格宽，
+ *       并在前面挖一个 <b>1.6px 深的插屏凹槽</b>（y 1.5..8.5，见 {@code models/block/psd_lcd_xiamen.json}）；</li>
+ *   <li><b>屏幕</b>：LCD 画面由 BER 画在凹槽底那张面上（离方块外面 1.6px，
+ *       {@link PsdLcdLayout#ANCHOR_OUT}），碰撞箱是空的，框选就是那块板
+ *       （{@link #OUTLINE_NORTH} 等四个方向各一份）;</li>
  *   <li><b>四向</b>：{@code FACING} = 屏幕朝外的一面（贴墙放时点哪面就朝哪面）；</li>
  *   <li><b>任意位置可放</b>：{@link #canPlaceAt} 恒真，拆掉支撑方块也不会自己掉；</li>
  *   <li><b>横向连接</b>：相邻同类方块沿 {@code FACING.rotateYClockwise()} 连成一整条宽屏，
@@ -62,20 +66,18 @@ public class PsdLcdBlock extends HorizontalFacingBlock implements BlockEntityPro
     /** 屏幕朝向。与 MTR / 本模组其它方块同一个属性。 */
     public static final DirectionProperty FACING = HorizontalFacingBlock.FACING;
 
-    /** 板子的上下沿（16 分之几）与厚度，全部来自 {@link PsdLcdLayout}（对齐 MTR 顶板面板）。 */
-    private static final float PANEL_Y0 = PsdLcdLayout.PANEL_Y0_PX;
-    private static final float PANEL_Y1 = PsdLcdLayout.PANEL_Y1_PX;
-    private static final float PANEL_Z1 = PsdLcdLayout.THICKNESS_PX;
+    /** 吊板的外形尺寸（16 分之几），全部来自 {@link PsdLcdLayout}（对齐 MTR 的 {@code psd_top}）。 */
+    private static final float PANEL_Z1 = PsdLcdLayout.BOARD_THICKNESS_PX;
 
-    /** 四个方向的轮廓：一块 1.6px 厚的板，贴着朝外那一面（前面与那一面平齐）。 */
+    /** 四个方向的轮廓：一块 6px 厚、整块高（y 0..16）的吊板，贴着朝外那一面。 */
     private static final VoxelShape OUTLINE_NORTH =
-            Block.createCuboidShape(0.0D, PANEL_Y0, 0.0D, 16.0D, PANEL_Y1, PANEL_Z1);
+            Block.createCuboidShape(0.0D, 0.0D, 0.0D, 16.0D, 16.0D, PANEL_Z1);
     private static final VoxelShape OUTLINE_SOUTH =
-            Block.createCuboidShape(0.0D, PANEL_Y0, 16.0D - PANEL_Z1, 16.0D, PANEL_Y1, 16.0D);
+            Block.createCuboidShape(0.0D, 0.0D, 16.0D - PANEL_Z1, 16.0D, 16.0D, 16.0D);
     private static final VoxelShape OUTLINE_WEST =
-            Block.createCuboidShape(0.0D, PANEL_Y0, 0.0D, PANEL_Z1, PANEL_Y1, 16.0D);
+            Block.createCuboidShape(0.0D, 0.0D, 0.0D, PANEL_Z1, 16.0D, 16.0D);
     private static final VoxelShape OUTLINE_EAST =
-            Block.createCuboidShape(16.0D - PANEL_Z1, PANEL_Y0, 0.0D, 16.0D, PANEL_Y1, 16.0D);
+            Block.createCuboidShape(16.0D - PANEL_Z1, 0.0D, 0.0D, 16.0D, 16.0D, 16.0D);
 
     public PsdLcdBlock(final Settings settings) {
         super(settings);
@@ -96,7 +98,7 @@ public class PsdLcdBlock extends HorizontalFacingBlock implements BlockEntityPro
         return VoxelShapes.empty();
     }
 
-    /** 轮廓：那块薄板。 */
+    /** 轮廓：那块吊板（整块高、6px 厚）。 */
     @Override
     public VoxelShape getOutlineShape(final BlockState state, final BlockView world,
                                       final BlockPos pos, final ShapeContext context) {
@@ -109,7 +111,7 @@ public class PsdLcdBlock extends HorizontalFacingBlock implements BlockEntityPro
     }
 
     /**
-     * 不遮挡邻居：模型只是一块薄板，如果把剔除形状设成满格，邻居朝着我们的那一面会被剔除，
+     * 不遮挡邻居：模型只是一块 6px 厚的吊板，如果把剔除形状设成满格，邻居朝着我们的那一面会被剔除，
      * 缝隙里就能看穿邻居（和 {@link PidsXiamenBlock#getCullingShape} 同一个原因）。
      */
     @Override

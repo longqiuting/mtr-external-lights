@@ -738,7 +738,7 @@
   "screen.mtrlte.clock.row.showMinute": "显示分针：%s",
   "screen.mtrlte.clock.row.showSecond": "显示秒针：%s",
   "screen.mtrlte.clock.row.source": "时间源：%s",
-  "screen.mtrlte.clock.row.tick": "刻度：%s",
+  "screen.mtrlte.clock.row.tick": "刻度 / 数字：%s（点击切换）",
   "screen.mtrlte.clock.row.tickRadius": "刻度半径 %s 格",
   "screen.mtrlte.clock.sound.current": "报时音效：%s",
   "screen.mtrlte.clock.sound.empty": "没有匹配的音效",

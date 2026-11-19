@@ -737,7 +737,7 @@
   "screen.mtrlte.clock.row.showMinute": "Show minute hand: %s",
   "screen.mtrlte.clock.row.showSecond": "Show second hand: %s",
   "screen.mtrlte.clock.row.source": "Time source: %s",
-  "screen.mtrlte.clock.row.tick": "Marks: %s",
+  "screen.mtrlte.clock.row.tick": "Marks / numerals: %s (click)",
   "screen.mtrlte.clock.row.tickRadius": "Marks radius %s blocks",
   "screen.mtrlte.clock.sound.current": "Chime sound: %s",
   "screen.mtrlte.clock.sound.empty": "No matching sound",

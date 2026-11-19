@@ -64,7 +64,7 @@ public final class PsdLcdObjects {
         }
         registered = true;
 
-        // 一块薄板：挖得动、要工具、不挡光、不遮挡邻居（culling shape 在方块里返回空集）。
+        // 一块吊板：挖得动、要工具、不挡光、不遮挡邻居（culling shape 在方块里返回空集）。
         block = Registry.register(Registries.BLOCK, ID, new PsdLcdBlock(AbstractBlock.Settings.create()
                 .requiresTool()
                 .strength(1.5F)
