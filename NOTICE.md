@@ -93,6 +93,21 @@
 
 - 截至 2026-11-12 **未使用**。若后续接入，须在此处补充条目与许可。
 
+### PSD-LCD 贴图（用户自有资源包，已授权）
+
+`v1.20.1/src/main/resources/assets/mtrlte/textures/gui/psd_lcd/` 下的四张贴图**原尺寸直接复制**，
+未重绘、未压缩：
+
+| 文件 | 来源 | 原始尺寸 |
+| --- | --- | --- |
+| `xiamen_logo.png` | 用户资源包 `厦门地铁一号线车辆` 的 `assets/mtr/textures/block/sign/station.png` | 600×600 |
+| `train_nose.png` | 用户提供的《车头（线路前进方向）.png》 | 74×180 |
+| `car_end.png` | 用户提供的《单雪花（头尾车）.png》 | 381×182 |
+| `car_middle.png` | 用户提供的《双雪花（中间车）.png》 | 381×182 |
+
+以上素材**由用户本人提供并授权**在本模组内使用（用户即资源包作者）。字体（MiSans / Roboto）
+不进仓库：运行时从资源包 `mtr:xmlcd/fonts/` 读取，读不到退回系统字体。
+
 ---
 
 ## 8. Rollingcats Transit Expansion（RTE）

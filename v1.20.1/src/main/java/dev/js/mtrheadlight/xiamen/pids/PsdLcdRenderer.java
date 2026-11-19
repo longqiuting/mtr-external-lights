@@ -1,9 +1,25 @@
-// PSD-LCD 挂板的渲染器：排版全部来自 PsdLcdLayout，这里只负责「把指令画进世界」。
+// PSD-LCD 挂板的渲染器：整屏交给 Java2D 画成位图（PsdLcdPainter），再贴到面板上。
+//
+// 为什么改成「离屏位图 + 动态贴图」而不是逐图元往上堆四边形：这块屏的元素有一半是**素材**
+// （M 标志 / 车头 / 车厢卡片），素材必须原样贴；另一半是文字，必须按实拍的字形墨迹定位。
+// 这两件事 Java2D 一次就做完了，而且和离线预览（tools/psd-lcd/PsdLcdPreview.java）用的是
+// **同一份绘制代码** —— 预览图长什么样，游戏里就是什么样。
+//
+// 每帧只做三件事：
+//   1. 从 MTR 数据拼出 PsdLcdPainter.Content；
+//   2. 内容变了才重画（时钟 / 倒计时是分钟级，一般一分钟一次）；
+//   3. 把动态贴图贴成一个四边形，再叠广告层和滚动标语层。
+//
+// 坐标系（和方块模型一致）：
+//   translate(anchor 最左一格的左边缘, 面板上沿, 朝外 0.504 格)
+//   rotY(90 - readDir.asRotation())   readDir = facing.rotateYCounterclockwise()
+//   rotZ(180)                         ← 必须是 Z 轴 180°（写成 Y 轴会让字上下颠倒）
+//   scale(1 / 520)                    之后 1 单位 = 1 屏幕像素，+x 向右、+y 向下
 package dev.js.mtrheadlight.xiamen.pids;
 
+import java.awt.image.BufferedImage;
 import java.time.LocalDate;
 import java.time.format.TextStyle;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -28,69 +44,25 @@ import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.render.block.entity.BlockEntityRendererFactory;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.RotationAxis;
 import net.minecraft.world.World;
 
-/**
- * 厦门地铁 PSD-LCD 挂板（{@code mtrlte:psd_lcd_xiamen}）的方块实体渲染器。
- *
- * <h2>只做三件事</h2>
- * <ol>
- *   <li>拿到这一帧的内容（时钟 / 两班到站 / 当前站 / 线路 / 广告 / 标语），拼成
- *       {@link PsdLcdLayout.Content}；</li>
- *   <li>让 {@link PsdLcdLayout#plan} 排版 —— <b>一个坐标都不在本类里写</b>；</li>
- *   <li>把指令表画出去：色块走「白色贴图 + 顶点色」的自发光层，文字走
- *       {@link PidsXiamenText}（和厦门 PIDS 同一套，1px = 1px）。</li>
- * </ol>
- * 于是「游戏里的画面」和 `tools/preview-psd-lcd.js` 出的预览图是同一张指令表 ——
- * 预览那边只是把同样的指令交给 {@code Graphics2D}。
- *
- * <h2>坐标系</h2>
- * <p>屏幕平面宽 {@code 520 × 段数} px、高 160 px，原点左上、+x 向右（= 阅读方向）、
- * +y 向下、+z 扎进屏幕。世界变换：
- * <pre>
- *   translate(anchor 最左一格的左边缘, 面板上沿, 朝外 0.504 格)
- *   rotY(90 - readDir.asRotation())      readDir = facing.rotateYCounterclockwise()
- *   rotZ(180)                            ← 必须是 Z 轴 180°（写成 Y 轴会让字上下颠倒）
- *   scale(1 / 520)
- * </pre>
- * 这三步之后 +X = {@code readDir}、+Y = 世界向下、−Z = {@code facing}（朝外）。
- *
- * <h2>横向连接：只由 anchor 画一次</h2>
- * <p>{@link PsdLcdBlock#anchorOf} 找到链条最左一格，{@link PsdLcdBlock#lengthOf} 数出几格，
- * 宽度 = 520 × 格数。其它格直接 return —— 否则一整条会被画成好几段叠在一起。
- *
- * <h2>深度分层</h2>
- * <p>色块 / 描边 / 图标都走 {@link MoreRenderLayers#getLight}（beacon 层：贴图原色、不过光照贴图、
- * 写深度、不剔除），每一条指令的 z 依次往观察者方向挪 0.01px —— 总共不到 1.5px（≈3mm），
- * 视觉上就是一块平屏，但深度测试 / 上传排序（谁先谁后）都能稳定把「后画的」压在「先画的」上面。
- * 广告图在 −1.4px、文字在 −2.0px。
- */
+/** 厦门地铁 PSD-LCD 挂板（{@code mtrlte:psd_lcd_xiamen}）的方块实体渲染器。 */
 public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity> {
 
-    /**
-     * 1×1 纯白贴图：色块用它当「画笔」—— 顶点色 × 白 = 想要的颜色，
-     * 而 beacon 层不吃光照贴图，所以挂板永远是满亮的一块屏。
-     */
-    private static final Identifier WHITE_TEXTURE =
-            new Identifier(PsdLcdObjects.NAMESPACE, "textures/block/white.png");
-
-    /** 每条指令之间往观察者方向挪多少 px。 */
-    private static final float Z_STEP = 0.01F;
-    /** 广告图所在的深度（px）。 */
+    /** 广告层深度（px，负 = 更靠近观察者）。 */
     private static final float AD_Z = -1.40F;
-    /** 文字层深度（px）。 */
+    /** 滚动标语层深度（px）。 */
     private static final float TEXT_Z = -2.00F;
-    /** 圆角圆弧每 1.5px 一段。 */
-    private static final float ARC_STEP = 1.5F;
-
-    /** 编组卡片的张数（没有实时编组数据时的固定示意）。 */
+    /** 编组卡片的张数（没有实时编组数据时的示意）。 */
     private static final int DEFAULT_CARS = 4;
+    /** 内容检查的最小间隔（ms）—— 没必要每帧都拼一遍字符串。 */
+    private static final long CHECK_MS = 200L;
 
     private boolean warned;
+    private long lastSweep;
 
     public PsdLcdRenderer(final BlockEntityRendererFactory.Context context) {
         super(context.getRenderDispatcher());
@@ -120,7 +92,7 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                        final VertexConsumerProvider vertexConsumers, final int light, final int overlay) {
         try {
             renderSafe(entity, matrices, vertexConsumers);
-        } catch (Throwable t) {
+        } catch (final Throwable t) {
             if (!this.warned) {
                 this.warned = true;
                 LteLog.LOGGER.error("[lte] psd lcd render failed", t);
@@ -134,6 +106,7 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         if (world == null) {
             return;
         }
+        this.sweep();
         final BlockPos pos = entity.getPos();
         final BlockState state = world.getBlockState(pos);
         if (!(state.getBlock() instanceof PsdLcdBlock block)) {
@@ -164,43 +137,60 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         }
 
         final Content content = contentOf(entity, world, anchor, segments);
-        final List<PsdLcdLayout.Op> ops = PsdLcdLayout.plan(content.content(), segments);
+        final int bitmapW = PsdLcdLayout.bitmapWidth(segments);
+        final int bitmapH = PsdLcdLayout.bitmapHeight();
+        final String key = world.getRegistryKey().getValue() + "|" + anchor.asLong() + "|" + segments;
+        final PsdLcdTextures.Entry texture = PsdLcdTextures.acquire(key, bitmapW, bitmapH);
+        if (texture == null) {
+            return;
+        }
+        // 内容变了才重画（hash 里带上广告/标语状态，换广告时整屏也会跟着变）
+        if (!content.hash().equals(texture.hash)) {
+            final BufferedImage image = PsdLcdPainter.paint(content.content(), PsdLcdAssets.get(),
+                    bitmapW, bitmapH);
+            texture.hash = content.hash();
+            PsdLcdTextures.upload(texture, image);
+        }
 
         matrices.push();
         com.mojang.blaze3d.systems.RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         com.mojang.blaze3d.systems.RenderSystem.disableCull();
         try {
             applyTransform(matrices, facing);
-            final VertexConsumer vc = vertexConsumers.getBuffer(MoreRenderLayers.getLight(WHITE_TEXTURE, false));
             final Matrix4f matrix = matrices.peek().getPositionMatrix();
             final Matrix3f normal = matrices.peek().getNormalMatrix();
 
-            float z = 0.0F;
-            for (final PsdLcdLayout.Op op : ops) {
-                if (op instanceof PsdLcdLayout.Fill fill) {
-                    fill(vc, matrix, normal, fill.x0(), fill.y0(), fill.x1(), fill.y1(), z, fill.color());
-                    z -= Z_STEP;
-                } else if (op instanceof PsdLcdLayout.Quad quad) {
-                    quad(vc, matrix, normal, quad, z);
-                    z -= Z_STEP;
-                } else if (op instanceof PsdLcdLayout.RoundFill round) {
-                    roundFill(vc, matrix, normal, round, z);
-                    z -= Z_STEP;
-                } else if (op instanceof PsdLcdLayout.RoundStroke stroke) {
-                    roundStroke(vc, matrix, normal, stroke, z);
-                    z -= Z_STEP;
-                } else if (op instanceof PsdLcdLayout.Disc disc) {
-                    disc(vc, matrix, normal, disc.cx(), disc.cy(), disc.radius(), z, disc.color());
-                    z -= Z_STEP;
-                } else if (op instanceof PsdLcdLayout.AdSlot slot) {
-                    drawAd(matrices, vertexConsumers, content.ad(), slot);
-                } else if (op instanceof PsdLcdLayout.Ticker ticker) {
-                    final PidsXiamenLayout.Rect bar = new PidsXiamenLayout.Rect(
-                            ticker.x0(), ticker.y0(), ticker.x1(), ticker.y1());
-                    PidsXiamenTicker.draw(matrices, textRenderer, immediate, bar, ticker.sizeRatio(),
-                            content.tickerTick(), content.caption());
-                } else if (op instanceof PsdLcdLayout.Text line) {
-                    drawText(matrices, textRenderer, immediate, line);
+            // 整屏
+            final VertexConsumer screen = vertexConsumers.getBuffer(MoreRenderLayers.getLight(texture.id, false));
+            texturedQuad(screen, matrix, normal, PsdLcdLayout.widthPx(segments), PsdLcdLayout.HEIGHT_PX, 0.0F);
+
+            // 广告：叠在整屏前面（整屏那张图的广告位是空的，见 PsdLcdPainter#paintAd）
+            if (content.ad() != null && content.ad().image() != null) {
+                final float[] ad = PsdLcdPainter.adBox(PsdLcdLayout.widthPx(segments), PsdLcdLayout.HEIGHT_PX);
+                matrices.push();
+                try {
+                    matrices.translate(0.0F, 0.0F, AD_Z);
+                    final VertexConsumer vc = vertexConsumers.getBuffer(
+                            MoreRenderLayers.getLight(content.ad().image(), false));
+                    uvQuad(vc, matrices.peek().getPositionMatrix(), matrices.peek().getNormalMatrix(),
+                            ad[0], ad[1], ad[2], ad[3]);
+                } finally {
+                    matrices.pop();
+                }
+            }
+
+            // 滚动标语：MC 文字层（滚动是连续的，放进位图就得每帧重传贴图）
+            if (content.caption() != null) {
+                final float[] bar = PsdLcdPainter.tickerBox(PsdLcdLayout.widthPx(segments),
+                        PsdLcdLayout.HEIGHT_PX);
+                matrices.push();
+                try {
+                    matrices.translate(0.0F, 0.0F, TEXT_Z);
+                    PidsXiamenTicker.draw(matrices, textRenderer, immediate,
+                            new PidsXiamenLayout.Rect(bar[0], bar[1], bar[2], bar[3]),
+                            content.tickerRatio(), content.tickerTick(), content.caption());
+                } finally {
+                    matrices.pop();
                 }
             }
         } finally {
@@ -212,12 +202,16 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         }
     }
 
-    /**
-     * 屏幕的世界变换（见类注释）。{@code matrices} 进来时原点已经是 anchor 那一格的最小角。
-     */
+    private void sweep() {
+        final long now = System.currentTimeMillis();
+        if (now - this.lastSweep > 5_000L) {
+            this.lastSweep = now;
+            PsdLcdTextures.sweep();
+        }
+    }
+
+    /** 屏幕的世界变换（见类注释）。{@code matrices} 进来时原点已经是 anchor 那一格的最小角。 */
     private static void applyTransform(final MatrixStack matrices, final Direction facing) {
-        // 阅读方向 = 朝外方向逆时针 90°；链条方向（rotateYClockwise）正好是它的反向，
-        // 所以「沿链条走到头」拿到的是视觉最左一格（见 PsdLcdBlock#anchorOf）。
         final Direction readDir = facing.rotateYCounterclockwise();
         final float x = 0.5F - readDir.getOffsetX() * 0.5F + facing.getOffsetX() * PsdLcdLayout.ANCHOR_OUT;
         final float z = 0.5F - readDir.getOffsetZ() * 0.5F + facing.getOffsetZ() * PsdLcdLayout.ANCHOR_OUT;
@@ -229,190 +223,29 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         matrices.scale(scale, scale, scale);
     }
 
-    // ------------------------------------------------------------------ 图元
+    // ------------------------------------------------------------------ 四边形
 
-    private static void fill(final VertexConsumer vc, final Matrix4f m, final Matrix3f n,
-                             final float x0, final float y0, final float x1, final float y1,
-                             final float z, final int argb) {
-        emit(vc, m, n, x0, y0, x0, y1, x1, y1, x1, y0, z, argb);
+    /** 整张 uv 铺满一个矩形（整屏）。 */
+    private static void texturedQuad(final VertexConsumer vc, final Matrix4f m, final Matrix3f n,
+                                     final float w, final float h, final float z) {
+        vertexUv(vc, m, n, 0.0F, 0.0F, 0.0F, 0.0F, z);
+        vertexUv(vc, m, n, 0.0F, h, 0.0F, 1.0F, z);
+        vertexUv(vc, m, n, w, h, 1.0F, 1.0F, z);
+        vertexUv(vc, m, n, w, 0.0F, 1.0F, 0.0F, z);
     }
 
-    private static void quad(final VertexConsumer vc, final Matrix4f m, final Matrix3f n,
-                             final PsdLcdLayout.Quad q, final float z) {
-        emit(vc, m, n, q.x0(), q.y0(), q.x1(), q.y1(), q.x2(), q.y2(), q.x3(), q.y3(), z, q.color());
-    }
-
-    /** 一个四边形（顺时针写，uv 全取贴图中心的白色）。 */
-    private static void emit(final VertexConsumer vc, final Matrix4f m, final Matrix3f n,
-                             final float ax, final float ay, final float bx, final float by,
-                             final float cx, final float cy, final float dx, final float dy,
-                             final float z, final int argb) {
-        final int r = (argb >> 16) & 0xFF;
-        final int g = (argb >> 8) & 0xFF;
-        final int b = argb & 0xFF;
-        final int a = (argb >>> 24) & 0xFF;
-        vertex(vc, m, n, ax, ay, z, r, g, b, a);
-        vertex(vc, m, n, bx, by, z, r, g, b, a);
-        vertex(vc, m, n, cx, cy, z, r, g, b, a);
-        vertex(vc, m, n, dx, dy, z, r, g, b, a);
-    }
-
-    private static void vertex(final VertexConsumer vc, final Matrix4f m, final Matrix3f n,
-                               final float x, final float y, final float z,
-                               final int r, final int g, final int b, final int a) {
-        vc.vertex(m, x, y, z)
-                .color(r, g, b, a)
-                .texture(0.5F, 0.5F)
-                .overlay(OverlayTexture.DEFAULT_UV)
-                .light(PidsXiamenLayout.FULL_LIGHT)
-                .normal(n, 0.0F, 0.0F, -1.0F)
-                .next();
-    }
-
-    private static void roundFill(final VertexConsumer vc, final Matrix4f m, final Matrix3f n,
-                                  final PsdLcdLayout.RoundFill r, final float z) {
-        final float rad = Math.min(r.radius(), Math.min(r.x1() - r.x0(), r.y1() - r.y0()) * 0.5F);
-        if (rad <= 0.05F) {
-            fill(vc, m, n, r.x0(), r.y0(), r.x1(), r.y1(), z, r.color());
-            return;
-        }
-        fill(vc, m, n, r.x0(), r.y0() + rad, r.x1(), r.y1() - rad, z, r.color());
-        fill(vc, m, n, r.x0() + rad, r.y0(), r.x1() - rad, r.y1(), z, r.color());
-        disc(vc, m, n, r.x0() + rad, r.y0() + rad, rad, z, r.color());
-        disc(vc, m, n, r.x1() - rad, r.y0() + rad, rad, z, r.color());
-        disc(vc, m, n, r.x0() + rad, r.y1() - rad, rad, z, r.color());
-        disc(vc, m, n, r.x1() - rad, r.y1() - rad, rad, z, r.color());
-    }
-
-    private static void roundStroke(final VertexConsumer vc, final Matrix4f m, final Matrix3f n,
-                                    final PsdLcdLayout.RoundStroke s, final float z) {
-        final float w = Math.min(s.x1() - s.x0(), s.y1() - s.y0()) * 0.5F;
-        final float rad = Math.max(0.0F, Math.min(s.radius(), w - 0.01F));
-        final float t = Math.max(0.25F, Math.min(s.thickness(), rad > 0.25F ? rad : 0.25F));
-        if (rad <= 0.25F) {
-            fill(vc, m, n, s.x0(), s.y0(), s.x1(), s.y0() + t, z, s.color());
-            fill(vc, m, n, s.x0(), s.y1() - t, s.x1(), s.y1(), z, s.color());
-            fill(vc, m, n, s.x0(), s.y0(), s.x0() + t, s.y1(), z, s.color());
-            fill(vc, m, n, s.x1() - t, s.y0(), s.x1(), s.y1(), z, s.color());
-            return;
-        }
-        // 四条直边
-        fill(vc, m, n, s.x0() + rad, s.y0(), s.x1() - rad, s.y0() + t, z, s.color());
-        fill(vc, m, n, s.x0() + rad, s.y1() - t, s.x1() - rad, s.y1(), z, s.color());
-        fill(vc, m, n, s.x0(), s.y0() + rad, s.x0() + t, s.y1() - rad, z, s.color());
-        fill(vc, m, n, s.x1() - t, s.y0() + rad, s.x1(), s.y1() - rad, z, s.color());
-        // 四段圆角（从外半径画到内半径）
-        arc(vc, m, n, s.x0() + rad, s.y0() + rad, rad, t, 180.0F, 270.0F, z, s.color());
-        arc(vc, m, n, s.x1() - rad, s.y0() + rad, rad, t, 270.0F, 360.0F, z, s.color());
-        arc(vc, m, n, s.x1() - rad, s.y1() - rad, rad, t, 0.0F, 90.0F, z, s.color());
-        arc(vc, m, n, s.x0() + rad, s.y1() - rad, rad, t, 90.0F, 180.0F, z, s.color());
-    }
-
-    /** 圆角的一段圆环（屏幕坐标：y 向下，角度 0 = +x、90 = +y）。 */
-    private static void arc(final VertexConsumer vc, final Matrix4f m, final Matrix3f n,
-                            final float cx, final float cy, final float radius, final float thickness,
-                            final float fromDeg, final float toDeg, final float z, final int argb) {
-        final int steps = Math.max(2, (int) Math.ceil(radius / ARC_STEP));
-        for (int i = 0; i < steps; i++) {
-            final double a0 = Math.toRadians(fromDeg + (toDeg - fromDeg) * i / (double) steps);
-            final double a1 = Math.toRadians(fromDeg + (toDeg - fromDeg) * (i + 1) / (double) steps);
-            final float ox0 = cx + (float) Math.cos(a0) * radius;
-            final float oy0 = cy + (float) Math.sin(a0) * radius;
-            final float ox1 = cx + (float) Math.cos(a1) * radius;
-            final float oy1 = cy + (float) Math.sin(a1) * radius;
-            final float ix0 = cx + (float) Math.cos(a0) * (radius - thickness);
-            final float iy0 = cy + (float) Math.sin(a0) * (radius - thickness);
-            final float ix1 = cx + (float) Math.cos(a1) * (radius - thickness);
-            final float iy1 = cy + (float) Math.sin(a1) * (radius - thickness);
-            emit(vc, m, n, ox0, oy0, ox1, oy1, ix1, iy1, ix0, iy0, z, argb);
-        }
-    }
-
-    /** 圆：凑成扇形四边形（QUADS 没有三角图元）。 */
-    private static void disc(final VertexConsumer vc, final Matrix4f m, final Matrix3f n,
-                             final float cx, final float cy, final float radius,
-                             final float z, final int argb) {
-        if (radius <= 0.0F) {
-            return;
-        }
-        final int steps = Math.max(6, (int) Math.ceil(radius * 2.0F / ARC_STEP));
-        for (int i = 0; i < steps; i++) {
-            final double a0 = Math.PI * 2.0D * i / steps;
-            final double a1 = Math.PI * 2.0D * (i + 1) / steps;
-            final double am = (a0 + a1) * 0.5D;
-            emit(vc, m, n,
-                    cx, cy,
-                    cx + (float) Math.cos(a0) * radius, cy + (float) Math.sin(a0) * radius,
-                    cx + (float) Math.cos(am) * radius * 1.02F, cy + (float) Math.sin(am) * radius * 1.02F,
-                    cx + (float) Math.cos(a1) * radius, cy + (float) Math.sin(a1) * radius,
-                    z, argb);
-        }
-    }
-
-    // ------------------------------------------------------------------ 文字 / 广告
-
-    private static void drawText(final MatrixStack matrices, final TextRenderer textRenderer,
-                                 final VertexConsumerProvider.Immediate immediate,
-                                 final PsdLcdLayout.Text line) {
-        if (line.text() == null || line.text().isEmpty()) {
-            return;
-        }
-        final PidsXiamenLayout.HAlign align = switch (line.align()) {
-            case CENTER -> PidsXiamenLayout.HAlign.CENTER;
-            case RIGHT -> PidsXiamenLayout.HAlign.RIGHT;
-            default -> PidsXiamenLayout.HAlign.LEFT;
-        };
-        matrices.push();
-        try {
-            matrices.translate(0.0F, 0.0F, TEXT_Z);
-            PidsXiamenText.drawRun(matrices, textRenderer, immediate,
-                    new PidsXiamenText.Segment[]{new PidsXiamenText.Segment(
-                            line.text(), Math.max(1.0F, line.size()), line.color())},
-                    line.x(), line.yTop(), line.size(), align, line.maxWidth(),
-                    Float.NEGATIVE_INFINITY, Float.POSITIVE_INFINITY);
-        } finally {
-            matrices.pop();
-        }
-    }
-
-    /** 广告图：铺满版式给的那块矩形（和厦门 PIDS 一样走 beacon 层，满亮）。 */
-    private static void drawAd(final MatrixStack matrices, final VertexConsumerProvider vertexConsumers,
-                               final PidsXiamenAds.Ad ad, final PsdLcdLayout.AdSlot slot) {
-        if (ad == null || ad.image() == null) {
-            return;
-        }
-        matrices.push();
-        try {
-            matrices.translate(0.0F, 0.0F, AD_Z);
-            final MatrixStack.Entry entry = matrices.peek();
-            final Matrix4f m = entry.getPositionMatrix();
-            final Matrix3f n = entry.getNormalMatrix();
-            final VertexConsumer vc = vertexConsumers.getBuffer(MoreRenderLayers.getLight(ad.image(), false));
-            final int white = 0xFFFFFFFF;
-            uvQuad(vc, m, n, slot.x0(), slot.y0(), slot.x1(), slot.y1(), 0.0F, 1.0F, white);
-        } finally {
-            matrices.pop();
-        }
-    }
-
-    /** 带整张 uv 的矩形（广告图）。 */
     private static void uvQuad(final VertexConsumer vc, final Matrix4f m, final Matrix3f n,
-                               final float x0, final float y0, final float x1, final float y1,
-                               final float u0, final float v0, final int argb) {
-        final int r = (argb >> 16) & 0xFF;
-        final int g = (argb >> 8) & 0xFF;
-        final int b = argb & 0xFF;
-        vertexUv(vc, m, n, x0, y0, u0, v0, r, g, b);
-        vertexUv(vc, m, n, x0, y1, u0, 1.0F, r, g, b);
-        vertexUv(vc, m, n, x1, y1, 1.0F, 1.0F, r, g, b);
-        vertexUv(vc, m, n, x1, y0, 1.0F, v0, r, g, b);
+                               final float x0, final float y0, final float x1, final float y1) {
+        vertexUv(vc, m, n, x0, y0, 0.0F, 0.0F, 0.0F);
+        vertexUv(vc, m, n, x0, y1, 0.0F, 1.0F, 0.0F);
+        vertexUv(vc, m, n, x1, y1, 1.0F, 1.0F, 0.0F);
+        vertexUv(vc, m, n, x1, y0, 1.0F, 0.0F, 0.0F);
     }
 
     private static void vertexUv(final VertexConsumer vc, final Matrix4f m, final Matrix3f n,
-                                 final float x, final float y, final float u, final float v,
-                                 final int r, final int g, final int b) {
-        vc.vertex(m, x, y, 0.0F)
-                .color(r, g, b, 255)
+                                 final float x, final float y, final float u, final float v, final float z) {
+        vc.vertex(m, x, y, z)
+                .color(255, 255, 255, 255)
                 .texture(u, v)
                 .overlay(OverlayTexture.DEFAULT_UV)
                 .light(PidsXiamenLayout.FULL_LIGHT)
@@ -422,13 +255,14 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
 
     // ------------------------------------------------------------------ 内容
 
-    /** 一帧算一次的内容 + 广告 / 标语的两样附赠品。 */
-    private record Content(PsdLcdLayout.Content content, PidsXiamenAds.Ad ad,
-                           List<PidsXiamenTicker.Message> caption, long tickerTick) {
+    /** 一帧的内容 + 广告 / 标语这两样附赠品 + 用来判断「要不要重画」的哈希。 */
+    private record Content(PsdLcdPainter.Content content, PidsXiamenAds.Ad ad,
+                           List<PidsXiamenTicker.Message> caption, long tickerTick,
+                           float tickerRatio, String hash) {
     }
 
     private static Content contentOf(final PsdLcdBlockEntity entity, final World world, final BlockPos pos,
-                                  final int segments) {
+                                     final int segments) {
         final long gameTick = (long) MTRClient.getGameTick();
         final List<ScheduleEntry> schedules = PidsXiamenRenderer.schedulesFor(entity, pos);
         final int page = Math.max(0, entity.getDisplayPage());
@@ -492,19 +326,21 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                 stationZh = parts.length > 0 ? parts[0].trim() : "";
                 stationEn = parts.length > 1 ? parts[1].trim() : "";
             }
-        } catch (Throwable ignored) {
+        } catch (final Throwable ignored) {
             // 车站表还没同步：站名留空，其余照画。
         }
 
-        // ---- 编组（没有实时数据时的固定示意）
-        final List<String> carLabels = new ArrayList<>(DEFAULT_CARS);
+        // ---- 编组（没有实时数据时的固定示意；卡片素材自己画好「车 ❄ / 车 ❄❄」）
+        final List<String> carNumbers = new java.util.ArrayList<>(DEFAULT_CARS);
         for (int i = 1; i <= DEFAULT_CARS; i++) {
-            carLabels.add(Text.translatable("gui.mtrlte.psd_lcd.car", i).getString());
+            carNumbers.add(String.valueOf(i));
         }
 
         // ---- 广告 + 标语
         final List<PidsXiamenAds.Ad> ads = PidsXiamenSettings.applyAdOverride(entity.getAds());
-        final Chosen chosen = adAt(ads, entity.getAdvertisementIndex(), gameTick, tickerRect(segments));
+        final float[] bar = PsdLcdPainter.tickerBox(PsdLcdLayout.widthPx(segments), PsdLcdLayout.HEIGHT_PX);
+        final PidsXiamenLayout.Rect rect = new PidsXiamenLayout.Rect(bar[0], bar[1], bar[2], bar[3]);
+        final Chosen chosen = adAt(ads, entity.getAdvertisementIndex(), gameTick, rect);
         final PidsXiamenAds.Ad ad = chosen == null ? null : chosen.ad();
         final boolean hasAd = ad != null && ad.image() != null;
         final List<PidsXiamenTicker.Message> caption = hasAd && ad.text() != null
@@ -512,8 +348,9 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                 ? List.of(new PidsXiamenTicker.Message(ad.text().getString(), PidsXiamenLayout.COLOR_WHITE, 0.0F))
                 : null;
         final long tickerTick = chosen == null ? gameTick : chosen.tick();
+        final float tickerRatio = PsdLcdPainter.TICK_SIZE_RATIO;
 
-        final PsdLcdLayout.Content content = new PsdLcdLayout.Content(
+        final PsdLcdPainter.Content content = new PsdLcdPainter.Content(
                 dateText, weekdayZh, weekdayEn, clock,
                 Text.translatable("gui.mtrlte.pids.bound_for_label").getString(),
                 Text.translatable("gui.mtrlte.pids.bound_for_sub").getString(),
@@ -523,11 +360,16 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                 dest2[0], dest2[1], count2.number(),
                 unitZh, unitEn,
                 lineZh, lineEn, lineColor,
-                stationZh, stationEn, Text.translatable("gui.mtrlte.psd_lcd.this_station").getString(),
-                DEFAULT_CARS, carLabels,
+                stationZh, stationEn,
+                carNumbers,
                 Text.translatable("gui.mtrlte.psd_lcd.place_ad").getString(),
-                "", hasAd);
-        return new Content(content, ad, caption, tickerTick);
+                // 标语文字只给离线预览用；游戏里由 MC 文字层滚动，位图里不画
+                "",
+                hasAd);
+
+        // 哈希：只有这些变了才需要重画位图
+        final String hash = content + "|" + segments + "|" + (hasAd ? ad.image() : "noad");
+        return new Content(content, ad, caption, tickerTick, tickerRatio, hash);
     }
 
     /** 倒计时单位：中文写「分钟 / 秒」，英文写「min / s」。 */
@@ -548,12 +390,6 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
 
     private static ScheduleEntry entryAt(final List<ScheduleEntry> schedules, final int index) {
         return index >= 0 && index < schedules.size() ? schedules.get(index) : null;
-    }
-
-    /** 标语条的矩形（广告轮播的节拍要用它的宽度算「这条滚完要多久」）。 */
-    private static PidsXiamenLayout.Rect tickerRect(final int segments) {
-        final PsdLcdLayout.Box box = PsdLcdLayout.tickerBox(segments);
-        return new PidsXiamenLayout.Rect(box.x0(), box.y0(), box.x1(), box.y1());
     }
 
     /** 这一帧该播第几张广告、播到第几个 tick（时序与厦门 PIDS 一致：标语滚完才换）。 */
@@ -583,7 +419,7 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                     : List.of(new PidsXiamenTicker.Message(ad.text().getString(),
                             PidsXiamenLayout.COLOR_WHITE, 0.0F));
             final int ticks = PidsXiamenTicker.scrollSpanTicks(textRenderer,
-                    caption == null ? PidsXiamenTicker.messages() : caption, bar, 0.44F);
+                    caption == null ? PidsXiamenTicker.messages() : caption, bar, PsdLcdPainter.TICK_SIZE_RATIO);
             dwell[slot] = ticks > 0 ? ticks : PidsXiamenLayout.AD_ADVANCE_TICKS;
             total += dwell[slot];
         }

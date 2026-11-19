@@ -1,16 +1,19 @@
 #!/usr/bin/env node
-// 厦门地铁 PSD-LCD 挂板的离线预览：把渲染器用的那张「排版指令表」画成一张 PNG。
+// 厦门地铁 PSD-LCD 挂板的离线预览：用**渲染器同一份** Java2D 绘制代码出 PNG。
 //
-// 为什么还要调 Java：排版（src/main/java/.../xiamen/pids/PsdLcdLayout.java）是游戏和预览
-// 共用的唯一一份代码，而它是 Java。这个脚本只做三件事：
-//   1. 找 JDK（JAVA_HOME → 本机常见安装位置）；
-//   2. 用 javac 把 PsdLcdLayout.java + tools/psd-lcd/PsdLcdPreview.java 编到 temp/ 下面；
-//   3. 跑 PsdLcdPreview，输出 temp/psd-lcd-preview.png（尺寸 = 520×段数 × 160，四段正好 13:1）。
+//   v1.20.1/.../pids/PsdLcdPainter.java    ← 排版 + 绘制（不 import 任何 MC 类）
+//   v1.20.1/.../pids/PsdLcdTypeface.java   ← 字体解析（同一套兜底）
+//   tools/psd-lcd/PsdLcdPreview.java       ← 示例数据 + 出图
+//
+// 渲染器（PsdLcdRenderer）把同一份 paint() 的结果贴到面板上，所以预览图长什么样，
+// 游戏里就是什么样。
 //
 // 用法：
-//   node tools/preview-psd-lcd.js                 # 4 段（13:1），写 temp/psd-lcd-preview.png
-//   node tools/preview-psd-lcd.js --segments=6    # 其它段数
+//   node tools/preview-psd-lcd.js                  # 两张：6.9:1 与 13:1（游戏里 4 段）
+//   node tools/preview-psd-lcd.js --ratio=6.91     # 只出一张
+//   node tools/preview-psd-lcd.js --height=400     # 换输出像素高
 //   node tools/preview-psd-lcd.js --out=temp/x.png
+//   node tools/preview-psd-lcd.js --fonts=<目录>    # 指定字体目录（默认自动找资源包里的）
 'use strict';
 
 const { spawnSync } = require('node:child_process');
@@ -18,22 +21,22 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const repoRoot = path.resolve(__dirname, '..');
-const layoutSource = path.join(
-    repoRoot, 'v1.20.1/src/main/java/dev/js/mtrheadlight/xiamen/pids/PsdLcdLayout.java');
-const previewSource = path.join(repoRoot, 'tools/psd-lcd/PsdLcdPreview.java');
+const pkg = path.join(repoRoot, 'v1.20.1/src/main/java/dev/js/mtrheadlight/xiamen/pids');
+const sources = [
+    path.join(pkg, 'PsdLcdPainter.java'),
+    path.join(pkg, 'PsdLcdTypeface.java'),
+    path.join(repoRoot, 'tools/psd-lcd/PsdLcdPreview.java'),
+];
+const classesDir = path.join(repoRoot, 'temp/psd-lcd-preview-classes');
 
 function arg(name, fallback) {
-    const hit = process.argv.find((value) => value === `--${name}` || value.startsWith(`--${name}=`));
+    const hit = process.argv.find((v) => v === `--${name}` || v.startsWith(`--${name}=`));
     if (!hit) {
         return fallback;
     }
     const eq = hit.indexOf('=');
     return eq < 0 ? true : hit.slice(eq + 1);
 }
-
-const segments = Number(arg('segments', 4));
-const out = path.resolve(repoRoot, String(arg('out', 'temp/psd-lcd-preview.png')));
-const classesDir = path.join(repoRoot, 'temp/psd-lcd-preview-classes');
 
 function findJavaHome() {
     const candidates = [
@@ -50,7 +53,6 @@ function findJavaHome() {
             return home;
         }
     }
-    // 再退一步：PATH 上的 javac
     const probe = spawnSync('javac', ['-version'], { encoding: 'utf8' });
     if (probe.status === 0) {
         return null;
@@ -69,10 +71,7 @@ function run(command, args) {
 }
 
 function main() {
-    if (!Number.isInteger(segments) || segments < 1 || segments > 32) {
-        throw new Error(`--segments 必须是 1..32 的整数（收到 ${segments}）`);
-    }
-    for (const file of [layoutSource, previewSource]) {
+    for (const file of sources) {
         if (!fs.existsSync(file)) {
             throw new Error(`缺少源文件：${file}`);
         }
@@ -84,12 +83,34 @@ function main() {
     const javac = bin ? path.join(bin, process.platform === 'win32' ? 'javac.exe' : 'javac') : 'javac';
     const java = bin ? path.join(bin, process.platform === 'win32' ? 'java.exe' : 'java') : 'java';
 
-    // 只编这两个文件：PsdLcdLayout 不 import 任何 Minecraft 类，所以不需要整份模组源码。
-    run(javac, ['-encoding', 'UTF-8', '-d', classesDir, layoutSource, previewSource]);
-    const stdout = run(java, ['-Djava.awt.headless=true', '-cp', classesDir,
-        'dev.js.mtrheadlight.xiamen.pids.PsdLcdPreview', out, String(segments)]);
-    process.stdout.write(stdout);
-    console.log(`preview: ${out}`);
+    run(javac, ['-encoding', 'UTF-8', '-d', classesDir, ...sources]);
+
+    const height = Number(arg('height', 320));
+    const fonts = arg('fonts', null);
+    const out = arg('out', null);
+    const ratio = arg('ratio', null);
+    const cars = arg('cars', null);
+
+    // 默认出三张：
+    //   · 6.9:1 + 4 节   —— 对实拍用的正片（正常卡片宽度）
+    //   · 6.9:1 + 8 节   —— 验证长编组的逐节压缩（卡片缩窄、整行不溢出、不盖广告位）
+    //   · 13:1 + 4 节    —— 游戏里 4 段挂板的真实比例与分辨率
+    const jobs = ratio
+        ? [{ ratio: Number(ratio), out: out || 'temp/psd-lcd-preview.png', cars: cars || 4 }]
+        : [
+            { ratio: 6.91, out: out || 'temp/psd-lcd-preview.png', cars: 4 },
+            { ratio: 6.91, out: 'temp/psd-lcd-preview-8cars.png', cars: 8 },
+            { ratio: 13.0, out: 'temp/psd-lcd-preview-13x1.png', cars: 4 },
+        ];
+
+    for (const job of jobs) {
+        const target = path.resolve(repoRoot, String(job.out));
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        const args = ['-Djava.awt.headless=true', '-Dfile.encoding=UTF-8', '-cp', classesDir,
+            'dev.js.mtrheadlight.xiamen.pids.PsdLcdPreview', target, String(job.ratio),
+            String(height), String(fonts || ''), String(job.cars)];
+        process.stdout.write(run(java, args));
+    }
 }
 
 main();

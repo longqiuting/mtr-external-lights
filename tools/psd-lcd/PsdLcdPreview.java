@@ -1,189 +1,113 @@
-// 离线预览：把 PsdLcdLayout.plan() 的同一张指令表交给 Graphics2D 画成 PNG。
-// 只依赖 src/main/java/.../PsdLcdLayout.java（那一份文件不 import 任何 Minecraft 类），
-// 所以预览图和游戏里看到的排版是同一份代码出来的，不会各画各的。
+// 离线预览：把 PsdLcdPainter 的同一份绘制代码跑成 PNG。
+//
+// 只依赖 src/main/java/.../{PsdLcdPainter,PsdLcdTypeface}.java（这两个文件不 import 任何
+// Minecraft 类），所以预览图和游戏里看到的是同一份排版 —— 不会各画各的。
+//
+// 用法：
+//   java tools/psd-lcd/PsdLcdPreview.java <out.png> [宽/高比] [像素高] [字体目录]
+// 例：
+//   java tools/psd-lcd/PsdLcdPreview.java temp/psd-lcd-preview.png 6.91 320
 package dev.js.mtrheadlight.xiamen.pids;
 
-import java.awt.AlphaComposite;
-import java.awt.BasicStroke;
-import java.awt.Color;
 import java.awt.Font;
-import java.awt.FontMetrics;
-import java.awt.Graphics2D;
-import java.awt.GraphicsEnvironment;
-import java.awt.RenderingHints;
-import java.awt.Shape;
-import java.awt.geom.Path2D;
-import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.File;
-import java.util.Arrays;
 import java.util.List;
 
 import javax.imageio.ImageIO;
 
-/** {@code tools/preview-psd-lcd.js} 调的入口：{@code args[0] = 输出的 png}，{@code args[1] = 段数}。 */
+/** {@code tools/preview-psd-lcd.js} 调的入口。 */
 public final class PsdLcdPreview {
 
-    /** 字体：优先微软雅黑（和实拍上的思源黑体最接近），没有就退回对话框字体。 */
-    private static final String[] FONT_CANDIDATES = {
-            "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC",
-            "SimHei", "Dialog",
-    };
-
-    private static String fontFamily = "Dialog";
+    /** 资源包里那三支字的相对路径（和 xmlcd/config.json 里写的一致）。 */
+    private static final String[] PACK_FONTS = {"fonts/misans.otf", "fonts/roboto.ttf", "fonts/dg.ttf"};
 
     private PsdLcdPreview() {
     }
 
     public static void main(final String[] args) throws Exception {
         final File out = new File(args.length > 0 ? args[0] : "temp/psd-lcd-preview.png");
-        final int segments = args.length > 1 ? Integer.parseInt(args[1]) : 4;
-        fontFamily = pickFont();
+        final double ratio = args.length > 1 ? Double.parseDouble(args[1]) : 6.910D;
+        final int height = args.length > 2 ? Integer.parseInt(args[2]) : 320;
+        final File fontDir = args.length > 3 && !args[3].isBlank()
+                ? new File(args[3]) : defaultFontDir();
+        final int cars = args.length > 4 ? Integer.parseInt(args[4]) : 4;
 
-        final int w = (int) PsdLcdLayout.widthPx(segments);
-        final int h = (int) PsdLcdLayout.HEIGHT_PX;
-        final BufferedImage image = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
-        final Graphics2D g = image.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-        g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
-        g.setComposite(AlphaComposite.Src);
-
-        final List<PsdLcdLayout.Op> ops = PsdLcdLayout.plan(sample(), segments);
-        for (final PsdLcdLayout.Op op : ops) {
-            draw(g, op);
-        }
-        g.dispose();
+        final PsdLcdPainter.Assets assets = assets(fontDir);
+        final int width = (int) Math.round(height * ratio);
+        final BufferedImage image = PsdLcdPainter.paint(sample(cars), assets, width, height);
 
         if (out.getParentFile() != null) {
             out.getParentFile().mkdirs();
         }
         ImageIO.write(image, "PNG", out);
-        System.out.println("wrote " + out.getCanonicalPath() + "  (" + w + "x" + h + ", segments="
-                + segments + ", font=" + fontFamily + ")");
+        System.out.println("wrote " + out.getCanonicalPath() + "  (" + width + "x" + height
+                + ", ratio=" + String.format("%.3f", (double) width / height)
+                + ", cars=" + cars
+                + ", cjk=" + PsdLcdTypeface.name(assets.cjk)
+                + ", latin=" + PsdLcdTypeface.name(assets.latin)
+                + ", digits=" + PsdLcdTypeface.name(assets.digits) + ")");
     }
 
-    // ------------------------------------------------------------------ 画
-
-    private static void draw(final Graphics2D g, final PsdLcdLayout.Op op) {
-        if (op instanceof PsdLcdLayout.Fill fill) {
-            g.setColor(color(fill.color()));
-            g.fill(new java.awt.geom.Rectangle2D.Float(fill.x0(), fill.y0(),
-                    fill.x1() - fill.x0(), fill.y1() - fill.y0()));
-        } else if (op instanceof PsdLcdLayout.Quad q) {
-            final Path2D.Float path = new Path2D.Float();
-            path.moveTo(q.x0(), q.y0());
-            path.lineTo(q.x1(), q.y1());
-            path.lineTo(q.x2(), q.y2());
-            path.lineTo(q.x3(), q.y3());
-            path.closePath();
-            g.setColor(color(q.color()));
-            g.fill(path);
-        } else if (op instanceof PsdLcdLayout.RoundFill r) {
-            g.setColor(color(r.color()));
-            g.fill(new RoundRectangle2D.Float(r.x0(), r.y0(), r.x1() - r.x0(), r.y1() - r.y0(),
-                    r.radius() * 2.0F, r.radius() * 2.0F));
-        } else if (op instanceof PsdLcdLayout.RoundStroke s) {
-            final float t = s.thickness();
-            g.setColor(color(s.color()));
-            g.setStroke(new BasicStroke(t, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND));
-            g.draw(new RoundRectangle2D.Float(s.x0() + t * 0.5F, s.y0() + t * 0.5F,
-                    (s.x1() - s.x0()) - t, (s.y1() - s.y0()) - t,
-                    s.radius() * 2.0F, s.radius() * 2.0F));
-        } else if (op instanceof PsdLcdLayout.Disc d) {
-            g.setColor(color(d.color()));
-            g.fill(new java.awt.geom.Ellipse2D.Float(d.cx() - d.radius(), d.cy() - d.radius(),
-                    d.radius() * 2.0F, d.radius() * 2.0F));
-        } else if (op instanceof PsdLcdLayout.Text text) {
-            drawText(g, text);
-        } else if (op instanceof PsdLcdLayout.AdSlot slot) {
-            // 预览永远走「没有广告图」那一支（plan 会换成色块 + 文字），这里只是兜底。
-            g.setColor(color(PsdLcdLayout.COLOR_AD_BG));
-            g.fillRect((int) slot.x0(), (int) slot.y0(),
-                    (int) (slot.x1() - slot.x0()), (int) (slot.y1() - slot.y0()));
-        } else if (op instanceof PsdLcdLayout.Ticker ticker) {
-            drawTicker(g, ticker);
-        }
-    }
-
-    private static void drawText(final Graphics2D g, final PsdLcdLayout.Text text) {
-        if (text.text() == null || text.text().isEmpty()) {
-            return;
-        }
-        float size = Math.max(1.0F, text.size());
-        Font font = new Font(fontFamily, Font.PLAIN, Math.max(1, Math.round(size)));
-        float width = width(g, font, text.text(), size);
-        if (text.maxWidth() > 0.0F && width > text.maxWidth()) {
-            final float shrink = text.maxWidth() / width;
-            size *= shrink;
-            font = new Font(fontFamily, Font.PLAIN, Math.max(1, Math.round(size)));
-            width = width(g, font, text.text(), size);
-        }
-        final float x = switch (text.align()) {
-            case CENTER -> text.x() - width * 0.5F;
-            case RIGHT -> text.x() - width;
-            default -> text.x();
+    /** 资源包里的字体目录（本机装了那个包就用它，换机器就退回系统字体）。 */
+    private static File defaultFontDir() {
+        final String[] candidates = {
+                "C:/Users/AD/Desktop/PCL/.minecraft/versions/1.20.1-Fabric 0.19.3/resourcepacks/"
+                        + "厦门地铁一号线车辆/assets/mtr/xmlcd/fonts",
+                "../resourcepacks/厦门地铁一号线车辆/assets/mtr/xmlcd/fonts",
         };
-        g.setFont(font);
-        g.setColor(color(text.color()));
-        // 基线：MC 里 yTop 是字形上沿、字形高 = size；AWT 用 ascent 对齐，
-        // 再乘 0.95 让 CJK 的字身正好落在 [yTop, yTop + size] 里。
-        final FontMetrics metrics = g.getFontMetrics(font);
-        g.drawString(text.text(), x, text.yTop() + metrics.getAscent() * 0.95F);
-    }
-
-    /** 标语条：真实屏幕上它在滚，静态预览就画成「刚滚进来」的样子（左对齐 + 条内裁切）。 */
-    private static void drawTicker(final Graphics2D g, final PsdLcdLayout.Ticker ticker) {
-        final String sample = ticker.sample() == null || ticker.sample().isEmpty()
-                ? "此处滚动标语" : ticker.sample();
-        final float sizePx = (ticker.y1() - ticker.y0()) * ticker.sizeRatio();
-        final Font font = new Font(fontFamily, Font.PLAIN, Math.max(1, Math.round(sizePx)));
-        g.setFont(font);
-        g.setColor(color(PsdLcdLayout.COLOR_WHITE));
-        final Shape old = g.getClip();
-        g.clip(new java.awt.geom.Rectangle2D.Float(ticker.x0() + 5.0F, ticker.y0(),
-                (ticker.x1() - ticker.x0()) - 10.0F, ticker.y1() - ticker.y0()));
-        final float baseline = (ticker.y0() + ticker.y1()) * 0.5F + sizePx * 0.36F;
-        g.drawString(sample, ticker.x0() + 6.0F, baseline);
-        g.setClip(old);
-    }
-
-    private static float width(final Graphics2D g, final Font font, final String text, final float size) {
-        final FontMetrics fm = g.getFontMetrics(font);
-        return fm.stringWidth(text);
-    }
-
-    private static Color color(final int argb) {
-        return new Color((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF, (argb >>> 24) & 0xFF);
-    }
-
-    private static String pickFont() {
-        try {
-            final List<String> available = Arrays.asList(
-                    GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames());
-            for (final String candidate : FONT_CANDIDATES) {
-                if (available.contains(candidate)) {
-                    return candidate;
-                }
+        for (final String path : candidates) {
+            final File dir = new File(path);
+            if (dir.isDirectory()) {
+                return dir;
             }
-        } catch (Throwable ignored) {
-            // headless 环境拿不到字体表：退回 Dialog。
         }
-        return "Dialog";
+        return null;
+    }
+
+    /** 素材全部走模组自己的贴图（和游戏里是同一张），字体走资源包 / 系统。 */
+    private static PsdLcdPainter.Assets assets(final File fontDir) throws Exception {
+        final PsdLcdPainter.Assets assets = new PsdLcdPainter.Assets();
+        final File dir = new File("v1.20.1/src/main/resources/assets/mtrlte/textures/gui/psd_lcd");
+        assets.logo = read(dir, "xiamen_logo.png");
+        assets.nose = read(dir, "train_nose.png");
+        assets.carEnd = read(dir, "car_end.png");
+        assets.carMiddle = read(dir, "car_middle.png");
+
+        Font cjk = null;
+        Font latin = null;
+        if (fontDir != null && fontDir.isDirectory()) {
+            cjk = PsdLcdTypeface.fromFile(new File(fontDir, "misans.otf"));
+            latin = PsdLcdTypeface.fromFile(new File(fontDir, "roboto.ttf"));
+        }
+        // 大数字用系统细字重（dg.ttf 是七段数码管，和实拍里的大数字不是一回事）
+        assets.cjk = cjk != null ? cjk : PsdLcdTypeface.systemCjk();
+        assets.latin = latin != null ? latin : PsdLcdTypeface.systemLatin();
+        assets.digits = PsdLcdTypeface.systemLight();
+        return assets;
+    }
+
+    private static BufferedImage read(final File dir, final String name) throws Exception {
+        final File file = new File(dir, name);
+        return file.isFile() ? ImageIO.read(file) : null;
     }
 
     // ------------------------------------------------------------------ 示例内容
 
-    /** 与实拍（{@code 扫描全能王 2026-11-19 19.07.jpg}）一致的示例数据。 */
-    private static PsdLcdLayout.Content sample() {
-        return new PsdLcdLayout.Content(
+    /** 与实拍（{@code 扫描全能王 2026-11-19 19.07.jpg}）一致的数据。 */
+    private static PsdLcdPainter.Content sample(final int cars) {
+        final java.util.List<String> numbers = new java.util.ArrayList<>(cars);
+        for (int i = 1; i <= cars; i++) {
+            numbers.add(String.valueOf(i));
+        }
+        return new PsdLcdPainter.Content(
                 "2026-09-23", "星期三", "Wednesday", "11:10",
                 "开往", "Bound for", "华侨大学", "Huaqiao University", "7",
                 "下一趟开往", "Next train", "华侨大学", "Huaqiao University", "17",
                 "分钟", "min",
-                "6号线", "Line 6", 0xFFC21FE0,
-                "董任", "Dongren", "当前站 / This station",
-                4, List.of("1车", "2车", "3车", "4车"),
+                "6号线", "Line 6", 0xFFA004F8,
+                "董任", "Dongren",
+                numbers,
                 "此处放置广告",
                 "草坪，让月光替你唱。  XM6—厦门电视台移动电视  【树洞投稿方式】搜索“厦门树洞”小程序，点击加号参与树",
                 false);
