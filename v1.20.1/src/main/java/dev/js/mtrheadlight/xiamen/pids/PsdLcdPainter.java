@@ -331,7 +331,6 @@ public final class PsdLcdPainter {
             badge(g, c, assets, width, h);
             station(g, c, assets, width, h);
             cars(g, c, assets, width, h);
-            note(g, c, assets, width, h);
 
             // ---- 标语条：框 + 字都在位图里
             paintTicker(g, c, assets, width, h);
