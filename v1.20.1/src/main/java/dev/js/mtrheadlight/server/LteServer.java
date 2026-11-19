@@ -100,6 +100,10 @@ public final class LteServer implements ModInitializer {
         // 厦门 PIDS（地铁 / BRT）：模型与渲染照天津地铁，广告表走资源包。
         blockModule("xiamen pids blocks", dev.js.mtrheadlight.xiamen.pids.PidsXiamenObjects::register);
 
+        // 厦门地铁「屏蔽门顶板 LCD 挂板」：独立方块（1~N 格横向连成一条），
+        // 排版 / 文字 / 广告 / 配置界面全部复用上面的厦门 PIDS 那一套。
+        blockModule("psd lcd block", dev.js.mtrheadlight.xiamen.pids.PsdLcdObjects::register);
+
         // 厦门 PIDS 界面通道：客户端改广告序号 / 服务端叫开界面（刷子右键）。
         module("xiamen pids channel", dev.js.mtrheadlight.xiamen.pids.PidsXiamenNet::registerServer);
 

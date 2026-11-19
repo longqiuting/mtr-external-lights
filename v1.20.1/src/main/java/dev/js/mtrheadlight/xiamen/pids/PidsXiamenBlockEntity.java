@@ -55,6 +55,21 @@ public class PidsXiamenBlockEntity extends IPIDS.TileEntityPIDS {
                 ? block.kind() : PidsXiamenBlock.Kind.METRO;
     }
 
+    /**
+     * 给子类用的构造器：方块实体类型由子类给（{@code mtrlte:psd_lcd_xiamen}），
+     * 版式也直接指定 —— 子类（{@link PsdLcdBlockEntity}）不是 {@link PidsXiamenBlock} 的实例，
+     * 从方块上取 kind 取不到。
+     *
+     * <p>注意 {@code IPIDS.TileEntityPIDS} 的构造器会<b>虚调用</b> {@code getMaxArrivals()}，
+     * 所以子类覆写它时必须返回常量（别读还没赋值的字段）。
+     */
+    protected PidsXiamenBlockEntity(final net.minecraft.block.entity.BlockEntityType<?> type,
+                                    final BlockPos pos, final BlockState state,
+                                    final PidsXiamenBlock.Kind kind) {
+        super(type, pos, state);
+        this.kind = kind == null ? PidsXiamenBlock.Kind.METRO : kind;
+    }
+
     @Override
     public int getMaxArrivals() {
         return PidsXiamenLayout.rowsOf(this.kind);

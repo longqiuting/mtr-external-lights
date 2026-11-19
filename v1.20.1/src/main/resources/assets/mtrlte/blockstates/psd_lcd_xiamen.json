@@ -1,0 +1,8 @@
+{
+    "variants": {
+        "facing=north": { "model": "mtrlte:block/psd_lcd_xiamen" },
+        "facing=east":  { "model": "mtrlte:block/psd_lcd_xiamen", "y":  90 },
+        "facing=south": { "model": "mtrlte:block/psd_lcd_xiamen", "y": 180 },
+        "facing=west":  { "model": "mtrlte:block/psd_lcd_xiamen", "y": 270 }
+    }
+}

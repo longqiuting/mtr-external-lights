@@ -1,0 +1,24 @@
+{
+	"format_version": "1.9.0",
+	"credit": "LTE - Xiamen PSD-LCD panel (thin plate; the screen itself is drawn by PsdLcdRenderer)",
+	"textures": {
+		"0": "mtrlte:block/black",
+		"1": "mtrlte:block/metal",
+		"particle": "mtrlte:block/black"
+	},
+	"elements": [
+		{
+			"name": "Panel",
+			"from": [0, 5.54, 0],
+			"to": [16, 10.46, 1],
+			"faces": {
+				"north": {"uv": [0, 0, 16, 4.92], "texture": "#0"},
+				"east": { "uv": [0, 0, 1, 4.92], "texture": "#1"},
+				"south": {"uv": [0, 0, 16, 4.92], "texture": "#1"},
+				"west": { "uv": [0, 0, 1, 4.92], "texture": "#1"},
+				"up": {   "uv": [0, 0, 16, 1], "texture": "#1"},
+				"down": { "uv": [0, 0, 16, 1], "texture": "#1"}
+			}
+		}
+	]
+}

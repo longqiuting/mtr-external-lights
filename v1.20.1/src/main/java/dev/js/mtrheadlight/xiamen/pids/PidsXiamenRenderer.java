@@ -751,8 +751,8 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
                           Slide slide, long gameTick, String clock, String dateIso, String dateBrt) {
     }
 
-    /** 倒计时：「12 / 分钟」、「即将进站」或者「已到站」。 */
-    private record Countdown(String number, String unit) {
+    /** 倒计时（PSD-LCD 挂板复用，所以是包内可见）。 */
+    record Countdown(String number, String unit) {
     }
 
     /**
@@ -762,7 +762,7 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
      * 已经过了到点时间写「已到站」—— 厦门地铁屏上就是这个说法，不会出现「0 秒」这种读着像坏了的数字。
      * 关掉时回到 MTR 式的「X 秒 / X 分钟」。
      */
-    private static Countdown countdown(final ScheduleEntry entry) {
+    static Countdown countdown(final ScheduleEntry entry) {
         final long remainingSeconds = (entry.arrivalMillis - System.currentTimeMillis()) / 1000L;
         if (PidsXiamenSettings.arriving() && remainingSeconds <= ARRIVING_SECONDS) {
             final String state = Text.translatable(remainingSeconds < 0L
@@ -782,7 +782,7 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
     }
 
     /** 终点站：MTR 给的是「中文|英文」，拆成两行。 */
-    private static String[] destinations(final Route route, final ScheduleEntry entry) {
+    static String[] destinations(final Route route, final ScheduleEntry entry) {
         try {
             final String[] parts = ClientData.DATA_CACHE
                     .getFormattedRouteDestination(route, entry.currentStationIndex, "").split("\\|", -1);
@@ -795,7 +795,7 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
     }
 
     /** 「中文|英文」→ 前半；顺带去掉 MTR 可能塞进来的 {@code |} 与样式符号。 */
-    private static String firstPart(final String raw) {
+    static String firstPart(final String raw) {
         if (raw == null) {
             return "";
         }
@@ -804,7 +804,7 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         return text.replace("|", "").trim();
     }
 
-    private static Station resolveStation(final BlockPos pos) {
+    static Station resolveStation(final BlockPos pos) {
         try {
             return PidsStationResolver.resolve(ClientData.STATIONS, ClientData.DATA_CACHE, pos).station();
         } catch (Throwable t) {
@@ -812,7 +812,7 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         }
     }
 
-    private static List<ScheduleEntry> schedulesFor(final PidsXiamenBlockEntity entity, final BlockPos pos) {
+    static List<ScheduleEntry> schedulesFor(final PidsXiamenBlockEntity entity, final BlockPos pos) {
         final Station station = resolveStation(pos);
         if (station == null) {
             return Collections.emptyList();
@@ -829,7 +829,7 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
      * 4. 遍历这些站台的 ClientData.SCHEDULES_FOR_PLATFORM，丢掉终点站已过的条目，排序
      * </pre>
      */
-    private static List<ScheduleEntry> getSchedules(final PidsXiamenBlockEntity entity, final Station station,
+    static List<ScheduleEntry> getSchedules(final PidsXiamenBlockEntity entity, final Station station,
                                                     final BlockPos pos, final Map<Long, String> platformIdToName) {
         final Map<Long, Platform> stationIdToPlatforms =
                 ClientData.DATA_CACHE.requestStationIdToPlatforms(station.id);
@@ -879,7 +879,7 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
      * （用户要的就是「现在几点」，和日期同一套时间源）；关掉时回到 MTR 的世界钟点：
      * 一天 24000 tick 映射到 24 小时（天津的 {@code getFormattedTime}）。
      */
-    private static String formatTime(final World world) {
+    static String formatTime(final World world) {
         if (PidsXiamenSettings.localTime()) {
             final java.time.LocalTime now = java.time.LocalTime.now();
             return String.format("%02d:%02d", now.getHour(), now.getMinute());
@@ -892,7 +892,7 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
     }
 
     /** 日期：地铁版是 {@code YYYY-MM-DD}。 */
-    private static String formatIsoDate(final World world) {
+    static String formatIsoDate(final World world) {
         return dateNow(world).toString();
     }
 
@@ -902,7 +902,7 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
      * <p>{@link PidsXiamenSettings#localTime()} 打开时取<b>现实日期</b>；关掉时回落到世界天数
      * （第 0 天 = 2024-01-01 星期一），和钟点出自同一套时间。
      */
-    private static LocalDate dateNow(final World world) {
+    static LocalDate dateNow(final World world) {
         return PidsXiamenSettings.localTime() ? LocalDate.now() : worldDate(world);
     }
 

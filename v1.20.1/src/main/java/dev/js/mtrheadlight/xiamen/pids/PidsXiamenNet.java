@@ -162,17 +162,45 @@ public final class PidsXiamenNet {
                 }
             }
             final BlockPos dataPos = PidsXiamenBlock.dataPos(world, pos);
-            if (!ServerPlayNetworking.canSend(player, ID)) {
-                return;
-            }
-            final PacketByteBuf buf = PacketByteBufs.create();
-            buf.writeByte(KIND_OPEN);
-            buf.writeBlockPos(dataPos);
-            buf.writeBlockPos(partnerPos == null ? dataPos : partnerPos);
-            ServerPlayNetworking.send(player, ID, buf);
+            send(player, dataPos, partnerPos == null ? dataPos : partnerPos);
         } catch (Throwable t) {
             LteLog.LOGGER.warn("[lte] xiamen pids: could not open the config screen", t);
         }
+    }
+
+    /**
+     * 服务端：给「已经有自己的链条逻辑」的方块用（{@link PsdLcdBlock}）——
+     * dataPos / partnerPos 由调用方算好（anchor + 链条里第二格），这里只负责
+     * {@code syncData()} 和发包。
+     */
+    public static void openScreenAt(final ServerPlayerEntity player, final World world,
+                                    final BlockPos dataPos, final BlockPos partnerPos) {
+        if (player == null || world == null || dataPos == null) {
+            return;
+        }
+        try {
+            for (final BlockPos each : new BlockPos[]{dataPos, partnerPos}) {
+                if (each != null && world.getBlockEntity(each) instanceof PidsXiamenBlockEntity pids) {
+                    pids.syncData();
+                }
+            }
+            send(player, dataPos, partnerPos == null ? dataPos : partnerPos);
+        } catch (Throwable t) {
+            LteLog.LOGGER.warn("[lte] xiamen pids: could not open the config screen", t);
+        }
+    }
+
+    /** 发一个 OPEN 包（界面在客户端由 {@link PidsXiamenClient} 的接收器打开）。 */
+    private static void send(final ServerPlayerEntity player, final BlockPos dataPos,
+                             final BlockPos partnerPos) {
+        if (!ServerPlayNetworking.canSend(player, ID)) {
+            return;
+        }
+        final PacketByteBuf buf = PacketByteBufs.create();
+        buf.writeByte(KIND_OPEN);
+        buf.writeBlockPos(dataPos);
+        buf.writeBlockPos(partnerPos == null ? dataPos : partnerPos);
+        ServerPlayNetworking.send(player, ID, buf);
     }
 
     /** 另一半（另一格屏）；只有一格时返回它自己。 */

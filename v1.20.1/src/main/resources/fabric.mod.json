@@ -52,6 +52,7 @@
       "dev.js.mtrheadlight.railing.RailingGlassClient",
       "dev.js.mtrheadlight.decor.DecorClient",
       "dev.js.mtrheadlight.xiamen.pids.PidsXiamenClient",
+      "dev.js.mtrheadlight.xiamen.pids.PsdLcdClient",
       "dev.js.mtrheadlight.xiamen.dep.DepOnWallClient",
       "dev.js.mtrheadlight.logo.LogoClient",
       "dev.js.mtrheadlight.xiamen.machine.XiamenMachinesClient",
