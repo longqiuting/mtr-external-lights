@@ -34,14 +34,22 @@ import java.util.function.IntSupplier;
  * <h2>布局（用户点名：开关在上、滑块在下）</h2>
  * <pre>
  *   第 0–2 行：时间源 / 发光 / 刻度样式 / 整点报时 / 报时模式 / 红石控制   ← 开关与选项
- *   第 3–5 行：时针 / 分针 / 秒针长度                                    ← 滑块
- *   第 6 行  ：时间偏移（分钟） + 「应用」 + 当前显示 HH:MM
- *   第 7–9 行：六个颜色（钟面 / 时针 / 分针 / 秒针 / 中心轴 / 刻度）
- *   第 10 行 ：音效搜索 + 试听
- *   第 11–12 行：音效列表（可滚动、点一下就是选中）
+ *   第 3–5 行：钟面 / 时针 / 分针 / 秒针 / 中心轴 的显隐                  ← 开关
+ *   第 6–10 行：时针 / 分针 / 秒针长度、钟面半径、刻度半径                ← 滑块
+ *   第 11 行 ：时间偏移（分钟） + 「应用」 + 当前显示 HH:MM
+ *   第 12–14 行：六个颜色（钟面 / 时针 / 分针 / 秒针 / 中心轴 / 刻度）
+ *   第 15 行 ：音效搜索 + 试听
+ *   第 16–17 行：音效列表（可滚动、点一下就是选中）
  *   底部    ：全部复原 / 完成 / 取消
  * </pre>
  * 全局模式下所有行整体下移一行，第 0 行是「全局启用：开 / 关」。
+ *
+ * <h2>滚动（18 行 + 一行全局 = 19 行，小窗口放不下）</h2>
+ * <p>行高先按窗口高度自动算（{@value #MIN_ROW_H}–{@value #MAX_ROW_H}px），算到下限仍放不下时
+ * <b>整行滚动</b>：滚轮在面板内滚动、一次一行，右侧画一条细滚动条，底部三个按钮固定在面板
+ * 底部不跟着滚。滚动只改 {@link #row(int)} 里的行偏移，重建控件时把输入框里没提交的字留住
+ * （{@link #offsetText} / {@link #soundText}），所以滚一下不会把正在敲的音效 id 弄丢。
+ * 视口外的行不加控件 —— 看不见的东西点不到，也不会画出面板。
  *
  * <h2>每行一个 ↺（复原）</h2>
  * <p>每一行最右边都有一个方形 ↺（{@code 18px}，与 {@code ParameterScreen} 的复位列同一个做法）：
@@ -70,7 +78,11 @@ public final class ClockConfigScreen extends Screen {
     private static final int MAX_ROW_H = 22;
     private static final int MIN_ROW_H = 16;
     /** 单块模式的固定行数（见类注释的布局表）。 */
-    private static final int ROWS = 13;
+    private static final int ROWS = 18;
+    /** 面板顶部标题条高度（标题 + 一点留白）。 */
+    private static final int HEADER_H = 26;
+    /** 面板底部固定区：一行「报时音效：xxx」提示 + 三个按钮。 */
+    private static final int FOOTER_H = 38;
     private static final int PAD = 8;
     /** 每行末尾 ↺ 的宽度（和行高一个量级的方形按钮）。 */
     private static final int RESET_W = 18;
@@ -102,6 +114,14 @@ public final class ClockConfigScreen extends Screen {
     private int panelY;
     private int panelW;
     private int panelH;
+    /** 滚动的可见区域（行在里面才建控件 / 才画）；底部三个按钮在 {@link #bodyBottom} 之下，固定。 */
+    private int bodyTop;
+    private int bodyBottom;
+    /** 已滚过的行数（整行滚动，0 = 最上面）。 */
+    private int scrollRows;
+    /** 两个输入框里「还没提交」的文字：滚动重建控件时留住它们。 */
+    private String offsetText;
+    private String soundText;
     /** 两个参数格各自的宽度（↺ 列已经从总宽里扣掉）。 */
     private int colW;
     /** 一行内容（不含 ↺ 列）的宽度。 */
@@ -153,14 +173,32 @@ public final class ClockConfigScreen extends Screen {
 
     @Override
     protected void init() {
+        // 重建（滚动 / 复原）时把输入框里还没提交的字留住：旧控件这会儿已经从 children 里摘掉了，
+        // 但对象还在字段上，读它的文本正好。
+        if (this.offsetField != null) {
+            this.offsetText = this.offsetField.getText();
+        }
+        if (this.soundField != null) {
+            this.soundText = this.soundField.getText();
+        }
+        if (this.offsetText == null) {
+            this.offsetText = formatOffset(this.cfg.offsetMinutes);
+        }
+        if (this.soundText == null) {
+            this.soundText = this.cfg.chimeSound;
+        }
+
         this.rowOffset = this.global ? 1 : 0;
         this.rowCount = ROWS + this.rowOffset;
 
         this.panelW = Math.min(MAX_PANEL_W, this.width - 16);
         this.rowH = clamp((this.height - 78) / this.rowCount, MIN_ROW_H, MAX_ROW_H);
-        this.panelH = 26 + this.rowCount * this.rowH + 30;
+        this.panelH = Math.min(this.height - 4, HEADER_H + this.rowCount * this.rowH + FOOTER_H);
         this.panelY = Math.max(2, (this.height - this.panelH) / 2);
         this.panelX = (this.width - this.panelW) / 2;
+        this.bodyTop = this.panelY + HEADER_H;
+        this.bodyBottom = this.panelY + this.panelH - FOOTER_H;
+        this.scrollRows = clamp(this.scrollRows, 0, this.maxScrollRows());
         // ↺ 列从总宽里扣：内容永远不会压在 ↺ 上（rightX() + colW + GAP == resetX()）。
         this.contentW = this.panelW - 2 * PAD - RESET_W - GAP;
         this.colW = (this.contentW - GAP) / 2;
@@ -219,96 +257,141 @@ public final class ClockConfigScreen extends Screen {
             this.cfg.redstone = this.defaults.redstone;
         });
 
-        // ---- 第 3–5 行：三根指针的长度（滑块，右边各一个 ↺） ------------
-        this.lengthSlider(row(3), wh, "screen.mtrlte.clock.row.hourLen", this.cfg.hourLength,
-                v -> this.cfg.hourLength = v, () -> this.cfg.hourLength = this.defaults.hourLength);
-        this.lengthSlider(row(4), wh, "screen.mtrlte.clock.row.minuteLen", this.cfg.minuteLength,
-                v -> this.cfg.minuteLength = v, () -> this.cfg.minuteLength = this.defaults.minuteLength);
-        this.lengthSlider(row(5), wh, "screen.mtrlte.clock.row.secondLen", this.cfg.secondLength,
-                v -> this.cfg.secondLength = v, () -> this.cfg.secondLength = this.defaults.secondLength);
+        // ---- 第 3–5 行：五个显隐开关（开关行，全部在滑块之前） -------------
+        // 钟面 / 时针、分针 / 秒针、中心轴（中心轴独占一行，右半栏留空）。
+        this.cycle(left, row(3), this.colW, wh,
+                () -> Text.translatable("screen.mtrlte.clock.row.showFace", onOff(this.cfg.showFace)),
+                () -> this.cfg.showFace = !this.cfg.showFace);
+        this.cycle(right, row(3), this.colW, wh,
+                () -> Text.translatable("screen.mtrlte.clock.row.showHour", onOff(this.cfg.showHour)),
+                () -> this.cfg.showHour = !this.cfg.showHour);
+        this.resetButton(row(3), wh, () -> {
+            this.cfg.showFace = this.defaults.showFace;
+            this.cfg.showHour = this.defaults.showHour;
+        });
+        this.cycle(left, row(4), this.colW, wh,
+                () -> Text.translatable("screen.mtrlte.clock.row.showMinute", onOff(this.cfg.showMinute)),
+                () -> this.cfg.showMinute = !this.cfg.showMinute);
+        this.cycle(right, row(4), this.colW, wh,
+                () -> Text.translatable("screen.mtrlte.clock.row.showSecond", onOff(this.cfg.showSecond)),
+                () -> this.cfg.showSecond = !this.cfg.showSecond);
+        this.resetButton(row(4), wh, () -> {
+            this.cfg.showMinute = this.defaults.showMinute;
+            this.cfg.showSecond = this.defaults.showSecond;
+        });
+        this.cycle(left, row(5), this.contentW, wh,
+                () -> Text.translatable("screen.mtrlte.clock.row.showHub", onOff(this.cfg.showHub)),
+                () -> this.cfg.showHub = !this.cfg.showHub);
+        this.resetButton(row(5), wh, () -> this.cfg.showHub = this.defaults.showHub);
 
-        // ---- 第 6 行：偏移（分钟） + 应用 / 当前显示 HH:MM ---------------
+        // ---- 第 6–10 行：三根指针的长度 + 钟面半径 + 刻度半径（滑块，右边各一个 ↺） ----
+        this.lengthSlider(row(6), wh, "screen.mtrlte.clock.row.hourLen", this.cfg.hourLength,
+                0.20F, v -> this.cfg.hourLength = v, () -> this.cfg.hourLength = this.defaults.hourLength);
+        this.lengthSlider(row(7), wh, "screen.mtrlte.clock.row.minuteLen", this.cfg.minuteLength,
+                0.28F, v -> this.cfg.minuteLength = v, () -> this.cfg.minuteLength = this.defaults.minuteLength);
+        this.lengthSlider(row(8), wh, "screen.mtrlte.clock.row.secondLen", this.cfg.secondLength,
+                0.33F, v -> this.cfg.secondLength = v, () -> this.cfg.secondLength = this.defaults.secondLength);
+        this.lengthSlider(row(9), wh, "screen.mtrlte.clock.row.faceRadius", this.cfg.faceRadius,
+                ClockConfig.DEFAULT_FACE_RADIUS, v -> this.cfg.faceRadius = v,
+                () -> this.cfg.faceRadius = this.defaults.faceRadius);
+        this.lengthSlider(row(10), wh, "screen.mtrlte.clock.row.tickRadius", this.cfg.tickRadius,
+                ClockConfig.DEFAULT_TICK_RADIUS, v -> this.cfg.tickRadius = v,
+                () -> this.cfg.tickRadius = this.defaults.tickRadius);
+
+        // ---- 第 11 行：偏移（分钟） + 应用 / 当前显示 HH:MM ---------------
         final int applyW = 44;
         final int clockW = Math.max(60, this.contentW / 3);
         final int offsetW = this.contentW - clockW - applyW - 2 * GAP;
-        this.offsetField = new TextFieldWidget(this.textRenderer, left, row(6), offsetW, wh,
-                Text.translatable("screen.mtrlte.clock.offset"));
-        this.offsetField.setMaxLength(10);
-        this.offsetField.setTextPredicate(t -> t.matches("-?[0-9]{0,6}(\\.[0-9]{0,3})?"));
-        this.offsetField.setText(formatOffset(this.cfg.offsetMinutes));
-        this.offsetField.setChangedListener(text -> {
-            final Double v = parseDouble(text);
-            if (v != null) {
-                this.cfg.offsetMinutes = v.doubleValue();
-            }
-        });
-        this.addDrawableChild(this.offsetField);
+        if (this.rowVisible(row(11), wh)) {
+            this.offsetField = new TextFieldWidget(this.textRenderer, left, row(11), offsetW, wh,
+                    Text.translatable("screen.mtrlte.clock.offset"));
+            this.offsetField.setMaxLength(10);
+            this.offsetField.setTextPredicate(t -> t.matches("-?[0-9]{0,6}(\\.[0-9]{0,3})?"));
+            this.offsetField.setText(this.offsetText);
+            this.offsetField.setChangedListener(text -> {
+                this.offsetText = text;
+                final Double v = parseDouble(text);
+                if (v != null) {
+                    this.cfg.offsetMinutes = v.doubleValue();
+                }
+            });
+            this.addDrawableChild(this.offsetField);
 
-        this.addDrawableChild(ButtonWidget.builder(Text.translatable("screen.mtrlte.clock.apply"),
-                        b -> this.applyClockText())
-                .dimensions(left + offsetW + GAP, row(6), applyW, wh)
-                .build());
+            this.addDrawableChild(ButtonWidget.builder(Text.translatable("screen.mtrlte.clock.apply"),
+                            b -> this.applyClockText())
+                    .dimensions(left + offsetW + GAP, row(11), applyW, wh)
+                    .build());
 
-        this.clockField = new TextFieldWidget(this.textRenderer, left + offsetW + applyW + 2 * GAP,
-                row(6), clockW, wh, Text.translatable("screen.mtrlte.clock.clockField"));
-        this.clockField.setMaxLength(5);
-        this.clockField.setTextPredicate(t -> t.matches("[0-9]{0,2}:?[0-9]{0,2}"));
-        this.clockField.setPlaceholder(Text.translatable("screen.mtrlte.clock.clockHint"));
-        this.addDrawableChild(this.clockField);
-        this.resetButton(row(6), wh, () -> {
+            this.clockField = new TextFieldWidget(this.textRenderer, left + offsetW + applyW + 2 * GAP,
+                    row(11), clockW, wh, Text.translatable("screen.mtrlte.clock.clockField"));
+            this.clockField.setMaxLength(5);
+            this.clockField.setTextPredicate(t -> t.matches("[0-9]{0,2}:?[0-9]{0,2}"));
+            this.clockField.setPlaceholder(Text.translatable("screen.mtrlte.clock.clockHint"));
+            this.addDrawableChild(this.clockField);
+        } else {
+            this.offsetField = null;
+            this.clockField = null;
+        }
+        this.resetButton(row(11), wh, () -> {
             this.cfg.offsetMinutes = this.defaults.offsetMinutes;
+            this.offsetText = formatOffset(this.defaults.offsetMinutes);
             if (this.offsetField != null) {
-                this.offsetField.setText(formatOffset(this.defaults.offsetMinutes));
+                this.offsetField.setText(this.offsetText);
             }
         });
 
-        // ---- 第 7–9 行：六个颜色（左半栏 / 右半栏各一个） ----------------
-        colorCell(left, row(7), wh, "screen.mtrlte.clock.color.face",
+        // ---- 第 12–14 行：六个颜色（左半栏 / 右半栏各一个） ----------------
+        colorCell(left, row(12), wh, "screen.mtrlte.clock.color.face",
                 () -> this.cfg.faceColor, v -> this.cfg.faceColor = v);
-        colorCell(right, row(7), wh, "screen.mtrlte.clock.color.hour",
+        colorCell(right, row(12), wh, "screen.mtrlte.clock.color.hour",
                 () -> this.cfg.hourColor, v -> this.cfg.hourColor = v);
-        this.resetButton(row(7), wh, () -> {
+        this.resetButton(row(12), wh, () -> {
             this.cfg.faceColor = this.defaults.faceColor;
             this.cfg.hourColor = this.defaults.hourColor;
         });
-        colorCell(left, row(8), wh, "screen.mtrlte.clock.color.minute",
+        colorCell(left, row(13), wh, "screen.mtrlte.clock.color.minute",
                 () -> this.cfg.minuteColor, v -> this.cfg.minuteColor = v);
-        colorCell(right, row(8), wh, "screen.mtrlte.clock.color.second",
+        colorCell(right, row(13), wh, "screen.mtrlte.clock.color.second",
                 () -> this.cfg.secondColor, v -> this.cfg.secondColor = v);
-        this.resetButton(row(8), wh, () -> {
+        this.resetButton(row(13), wh, () -> {
             this.cfg.minuteColor = this.defaults.minuteColor;
             this.cfg.secondColor = this.defaults.secondColor;
         });
-        colorCell(left, row(9), wh, "screen.mtrlte.clock.color.hub",
+        colorCell(left, row(14), wh, "screen.mtrlte.clock.color.hub",
                 () -> this.cfg.hubColor, v -> this.cfg.hubColor = v);
-        colorCell(right, row(9), wh, "screen.mtrlte.clock.color.tick",
+        colorCell(right, row(14), wh, "screen.mtrlte.clock.color.tick",
                 () -> this.cfg.tickColor, v -> this.cfg.tickColor = v);
-        this.resetButton(row(9), wh, () -> {
+        this.resetButton(row(14), wh, () -> {
             this.cfg.hubColor = this.defaults.hubColor;
             this.cfg.tickColor = this.defaults.tickColor;
         });
 
-        // ---- 第 10 行：音效搜索 + 试听 ---------------------------------
+        // ---- 第 15 行：音效搜索 + 试听 ---------------------------------
         final int previewW = 44;
-        this.soundField = new TextFieldWidget(this.textRenderer, left, row(10),
-                this.contentW - previewW - GAP, wh,
-                Text.translatable("screen.mtrlte.clock.sound.search"));
-        this.soundField.setMaxLength(64);
-        this.soundField.setText(this.cfg.chimeSound);
-        this.soundField.setChangedListener(text -> {
-            this.soundScroll = 0;
-            this.refreshSounds();
-        });
-        this.addDrawableChild(this.soundField);
-        this.addDrawableChild(ButtonWidget.builder(Text.translatable("screen.mtrlte.clock.preview"),
-                        b -> this.preview())
-                .dimensions(left + this.contentW - previewW, row(10), previewW, wh)
-                .build());
-        this.resetButton(row(10), wh, () -> {
-            this.cfg.chimeSound = this.defaults.chimeSound;
-            if (this.soundField != null) {
-                this.soundField.setText(this.defaults.chimeSound);
+        if (this.rowVisible(row(15), wh)) {
+            this.soundField = new TextFieldWidget(this.textRenderer, left, row(15),
+                    this.contentW - previewW - GAP, wh,
+                    Text.translatable("screen.mtrlte.clock.sound.search"));
+            this.soundField.setMaxLength(64);
+            this.soundField.setText(this.soundText);
+            this.soundField.setChangedListener(text -> {
+                this.soundText = text;
+                this.soundScroll = 0;
                 this.refreshSounds();
+            });
+            this.addDrawableChild(this.soundField);
+            this.addDrawableChild(ButtonWidget.builder(Text.translatable("screen.mtrlte.clock.preview"),
+                            b -> this.preview())
+                    .dimensions(left + this.contentW - previewW, row(15), previewW, wh)
+                    .build());
+        } else {
+            this.soundField = null;
+        }
+        this.resetButton(row(15), wh, () -> {
+            this.cfg.chimeSound = this.defaults.chimeSound;
+            this.soundText = this.defaults.chimeSound;
+            if (this.soundField != null) {
+                this.soundField.setText(this.soundText);
             }
         });
 
@@ -327,9 +410,27 @@ public final class ClockConfigScreen extends Screen {
         this.refreshSounds();
     }
 
-    /** 第 {@code index} 行的 y（全局模式下整体下移一行，「全局启用」是第 0 行）。 */
+    /** 第 {@code index} 行的 y（全局模式下整体下移一行，「全局启用」是第 0 行；再减去滚过的行）。 */
     private int row(final int index) {
-        return this.panelY + 26 + (index + this.rowOffset) * this.rowH;
+        return this.bodyTop + (index + this.rowOffset - this.scrollRows) * this.rowH;
+    }
+
+    /** 面板里一次能放下几整行（滚动时用来夹 {@link #scrollRows}）。 */
+    private int visibleRows() {
+        return Math.max(1, (this.bodyBottom - this.bodyTop) / Math.max(1, this.rowH));
+    }
+
+    /** 最多能滚几行；0 = 这一屏放得下，不滚。 */
+    private int maxScrollRows() {
+        return Math.max(0, this.rowCount - this.visibleRows());
+    }
+
+    /**
+     * 这一行现在在视口里吗？不在就不建控件 —— 看不见的东西不该能点到，也不该画到面板外。
+     * （滚动是整行的，所以「在不在」只有两种答案，不会出现半行。）
+     */
+    private boolean rowVisible(final int y, final int h) {
+        return y >= this.bodyTop && y + h <= this.bodyBottom;
     }
 
     /** 每行末尾 ↺ 的 x：贴着面板右边缘。 */
@@ -343,6 +444,9 @@ public final class ClockConfigScreen extends Screen {
 
     /** 一行的 ↺：点一下把这行的字段写回出厂值，然后重建控件（滑块位置 / 按钮文字都要跟着变）。 */
     private void resetButton(final int y, final int h, final Runnable reset) {
+        if (!this.rowVisible(y, h)) {
+            return;
+        }
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("btn.resetOne"), b -> {
             reset.run();
             this.requestRebuild();
@@ -372,9 +476,14 @@ public final class ClockConfigScreen extends Screen {
      *
      * <p>文字用一个 {@code Supplier} 现拼 —— 值改完之后不用记「哪个按钮对应哪个字段」，
      * 反正每次都按当前配置重新生成。
+     *
+     * @return 建好的按钮；整行滚出视口时返回 {@code null}（没建控件）
      */
     private ButtonWidget cycle(final int x, final int y, final int w, final int h,
                                final java.util.function.Supplier<Text> label, final Runnable advance) {
+        if (!this.rowVisible(y, h)) {
+            return null;
+        }
         final ButtonWidget[] self = new ButtonWidget[1];
         final ButtonWidget button = ButtonWidget.builder(label.get(), b -> {
             advance.run();
@@ -385,17 +494,27 @@ public final class ClockConfigScreen extends Screen {
         return button;
     }
 
-    /** 长度滑块 + 它自己的 ↺（滑块占满内容宽，↺ 在复位列）。 */
+    /**
+     * 长度 / 半径滑块 + 它自己的 ↺（滑块占满内容宽，↺ 在复位列）。
+     *
+     * @param fallback 只用来在数值坏掉时给标签显示一个合理值（不影响真正写回的值）
+     */
     private void lengthSlider(final int y, final int h, final String labelKey, final float initial,
-                              final FloatSetter setter, final Runnable reset) {
+                              final float fallback, final FloatSetter setter, final Runnable reset) {
+        if (!this.rowVisible(y, h)) {
+            return;
+        }
         this.addDrawableChild(new LengthSlider(this.panelX + PAD, y, this.contentW, h, labelKey,
-                initial, setter));
+                initial, fallback, setter));
         this.resetButton(y, h, reset);
     }
 
     /** 一个颜色格子：左边 10px 色块 + 右边按钮，点按钮开取色界面。 */
     private void colorCell(final int x, final int y, final int h, final String key,
                            final IntSupplier current, final IntConsumer setter) {
+        if (!this.rowVisible(y, h)) {
+            return;
+        }
         final int swatchW = 14;
         this.swatches.add(new Swatch(x, y + (h - 10) / 2, current));
         this.addDrawableChild(ButtonWidget.builder(Text.translatable(key),
@@ -420,6 +539,13 @@ public final class ClockConfigScreen extends Screen {
         this.cfg.hourLength = this.defaults.hourLength;
         this.cfg.minuteLength = this.defaults.minuteLength;
         this.cfg.secondLength = this.defaults.secondLength;
+        this.cfg.faceRadius = this.defaults.faceRadius;
+        this.cfg.tickRadius = this.defaults.tickRadius;
+        this.cfg.showFace = this.defaults.showFace;
+        this.cfg.showHour = this.defaults.showHour;
+        this.cfg.showMinute = this.defaults.showMinute;
+        this.cfg.showSecond = this.defaults.showSecond;
+        this.cfg.showHub = this.defaults.showHub;
         this.cfg.faceColor = this.defaults.faceColor;
         this.cfg.hourColor = this.defaults.hourColor;
         this.cfg.minuteColor = this.defaults.minuteColor;
@@ -432,6 +558,15 @@ public final class ClockConfigScreen extends Screen {
         this.cfg.tickStyle = this.defaults.tickStyle;
         this.cfg.redstone = this.defaults.redstone;
         this.cfg.offsetMinutes = this.defaults.offsetMinutes;
+        this.offsetText = formatOffset(this.defaults.offsetMinutes);
+        this.soundText = this.defaults.chimeSound;
+        // 顺手把输入框也刷掉：重建时 init() 会从控件读文本，只改字段的话会被旧文本盖回去。
+        if (this.offsetField != null) {
+            this.offsetField.setText(this.offsetText);
+        }
+        if (this.soundField != null) {
+            this.soundField.setText(this.soundText);
+        }
         this.enabled = false;
         this.requestRebuild();
     }
@@ -564,15 +699,24 @@ public final class ClockConfigScreen extends Screen {
         context.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2,
                 this.panelY + 8, 0xFFFFFF);
 
+        // 行内容整体裁在 body 里：滚出去的控件既画不出面板，也不会压到标题 / 底部按钮上。
+        context.enableScissor(this.panelX + 1, this.bodyTop, this.panelX + this.panelW - 1,
+                Math.max(this.bodyTop, this.bodyBottom));
         super.render(context, mouseX, mouseY, delta);
 
         // 色块（按钮左边那一小格，颜色实时跟着配置走）
         for (final Swatch s : this.swatches) {
+            if (s.y + 10 < this.bodyTop || s.y > this.bodyBottom) {
+                continue;
+            }
             context.fill(s.x, s.y, s.x + 10, s.y + 10, 0xFF000000 | (s.color.getAsInt() & 0xFFFFFF));
             context.drawBorder(s.x, s.y, 10, 10, 0xFF000000);
         }
 
         this.drawSoundList(context, mouseX, mouseY);
+        context.disableScissor();
+
+        this.drawScrollBar(context);
 
         // 底部提示：当前选中的报时音效
         context.drawCenteredTextWithShadow(this.textRenderer,
@@ -580,12 +724,44 @@ public final class ClockConfigScreen extends Screen {
                 this.width / 2, this.panelY + this.panelH - 34, 0xB0B0B0);
     }
 
+    /** 右上角那条细滚动条（只有放不下时才画）：长度 = 视口占比，位置 = 滚到哪儿了。 */
+    private void drawScrollBar(final DrawContext context) {
+        final int max = this.maxScrollRows();
+        if (max <= 0) {
+            return;
+        }
+        final int x = this.panelX + this.panelW - PAD + 3;
+        final int top = this.bodyTop;
+        final int h = this.bodyBottom - this.bodyTop;
+        if (h <= 0) {
+            return;
+        }
+        final int total = this.rowCount;
+        final int barH = Math.max(12, h * this.visibleRows() / total);
+        final int barY = top + (h - barH) * this.scrollRows / max;
+        context.fill(x, top, x + 2, top + h, 0x40FFFFFF);
+        context.fill(x, barY, x + 2, barY + barH, 0xFFBFBFBF);
+    }
+
+    /** 音效列表的顶 y（第 16 行）—— 只在视口里才画。 */
+    private int soundListTop() {
+        return row(16);
+    }
+
+    /** 音效列表的实际高度：不超过两行，也不许戳出视口。 */
+    private int soundListHeight() {
+        return Math.max(0, Math.min(this.soundListH(), this.bodyBottom - this.soundListTop()));
+    }
+
     private void drawSoundList(final DrawContext context, final int mouseX, final int mouseY) {
         final int x = this.panelX + PAD;
-        final int y = row(11);
+        final int y = this.soundListTop();
         final int w = this.contentW;
-        final int h = this.soundListH();
+        final int h = this.soundListHeight();
         final int rh = this.soundRowH();
+        if (h <= 0 || y >= this.bodyBottom) {
+            return;
+        }
 
         context.fill(x, y, x + w, y + h, 0x60000000);
         context.drawBorder(x, y, w, h, 0xFF3A3A3A);
@@ -628,13 +804,14 @@ public final class ClockConfigScreen extends Screen {
             return false;
         }
         final int x = this.panelX + PAD;
-        final int y = row(11);
+        final int y = this.soundListTop();
         final int w = this.contentW;
-        final int h = this.soundListH();
-        if (mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h) {
+        final int h = this.soundListHeight();
+        if (h > 0 && mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h) {
             final int index = (int) ((mouseY - y + this.soundScroll) / this.soundRowH());
             if (index >= 0 && index < this.viewSounds.size()) {
                 this.cfg.chimeSound = this.viewSounds.get(index).toString();
+                this.soundText = this.cfg.chimeSound;
                 if (this.soundField != null) {
                     this.soundField.setText(this.cfg.chimeSound);
                 }
@@ -648,11 +825,22 @@ public final class ClockConfigScreen extends Screen {
     public boolean mouseScrolled(final double mouseX, final double mouseY, final double amount) {
         final int max = this.maxSoundScroll();
         final int x = this.panelX + PAD;
-        final int y = row(11);
+        final int y = this.soundListTop();
         if (max > 0 && mouseX >= x && mouseX < x + this.contentW
-                && mouseY >= y && mouseY < y + this.soundListH()) {
+                && mouseY >= y && mouseY < y + this.soundListHeight()) {
             this.soundScroll = (int) Math.max(0, Math.min(max,
                     this.soundScroll - amount * this.soundRowH() * 3));
+            return true;
+        }
+        // 面板放不下 18/19 行时：在面板里滚轮 = 整行滚动（先试面板，再考虑列表）。
+        if (this.maxScrollRows() > 0 && mouseX >= this.panelX && mouseX < this.panelX + this.panelW
+                && mouseY >= this.bodyTop && mouseY < this.bodyBottom) {
+            final int before = this.scrollRows;
+            final int step = amount > 0 ? 1 : -1;
+            this.scrollRows = clamp(this.scrollRows + step, 0, this.maxScrollRows());
+            if (this.scrollRows != before) {
+                this.requestRebuild();
+            }
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, amount);
@@ -691,19 +879,21 @@ public final class ClockConfigScreen extends Screen {
         }
     }
 
-    /** 长度滑块：**对数**映射（0.1 → 50），落值按 0.1 取整（与需求里的步进一致）。 */
+    /** 长度 / 半径滑块：**对数**映射（0.1 → 50），落值按 0.1 取整（与需求里的步进一致）。 */
     private static final class LengthSlider extends SliderWidget {
 
         private final String labelKey;
+        private final float fallback;
         private final FloatSetter setter;
 
         LengthSlider(final int x, final int y, final int w, final int h, final String labelKey,
-                     final float initial, final FloatSetter setter) {
+                     final float initial, final float fallback, final FloatSetter setter) {
             super(x, y, w, h,
                     Text.translatable(labelKey, String.format(Locale.ROOT, "%.1f",
-                            ClockConfig.snapLength(initial, 0.2F))),
-                    toSlider(ClockConfig.snapLength(initial, 0.2F)));
+                            ClockConfig.snapLength(initial, fallback))),
+                    toSlider(ClockConfig.snapLength(initial, fallback)));
             this.labelKey = labelKey;
+            this.fallback = fallback;
             this.setter = setter;
         }
 
@@ -715,7 +905,7 @@ public final class ClockConfigScreen extends Screen {
         float length() {
             return ClockConfig.snapLength(
                     (float) (ClockConfig.MIN_LENGTH * Math.pow(
-                            ClockConfig.MAX_LENGTH / ClockConfig.MIN_LENGTH, this.value)), 0.2F);
+                            ClockConfig.MAX_LENGTH / ClockConfig.MIN_LENGTH, this.value)), this.fallback);
         }
 
         @Override

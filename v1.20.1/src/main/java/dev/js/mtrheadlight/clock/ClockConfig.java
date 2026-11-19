@@ -26,17 +26,25 @@ import net.minecraft.util.StringIdentifiable;
  *
  * <h2>默认值</h2>
  * <p>默认是一台「白面、黑针、红秒针、短横线刻度、不报时、不接红石」的普通挂钟，
- * 三根指针长度按格算：时针 0.20 / 分针 0.28 / 秒针 0.33，钟面半径 = 1.08 × 最长针 ≈ 0.356 格，
- * 正好落在方块面里（不会戳出格子）。
+ * 三根指针长度按格算：时针 0.20 / 分针 0.28 / 秒针 0.33；<b>钟面半径与刻度半径是独立字段</b>
+ * （{@link #faceRadius} 0.36、{@link #tickRadius} 0.33），不再由最长针长度推算 —— 想让指针
+ * 长过钟面（站台大钟的针常常伸到盘子外面）只要把针调长，面不会跟着变大。
+ *
+ * <p>五个显隐开关（{@link #showFace} / {@link #showHour} / {@link #showMinute} /
+ * {@link #showSecond} / {@link #showHub}）默认全开。
  */
 public final class ClockConfig {
 
-    /** 指针长度下限（格）。 */
+    /** 指针长度 / 半径的下限（格）。 */
     public static final float MIN_LENGTH = 0.1F;
-    /** 指针长度上限（格）。 */
+    /** 指针长度 / 半径的上限（格）。 */
     public static final float MAX_LENGTH = 50.0F;
-    /** 长度滑块的步进：0.1 格。 */
+    /** 长度 / 半径滑块的步进：0.1 格。 */
     public static final float LENGTH_STEP = 0.1F;
+    /** 钟面半径默认值（格）：正好落在方块面里。 */
+    public static final float DEFAULT_FACE_RADIUS = 0.36F;
+    /** 刻度 / 数字的环绕半径默认值（格）：比钟面半径小一点点，刻度压在盘面边缘内侧。 */
+    public static final float DEFAULT_TICK_RADIUS = 0.33F;
     /** 默认报时音效：原版钟。 */
     public static final String DEFAULT_SOUND = "minecraft:block.bell.use";
     /** 手动校准偏移的上限（分钟）：不超过一天，再大就是「换一天」了。 */
@@ -202,6 +210,25 @@ public final class ClockConfig {
     /** 秒针长度（格）。 */
     public float secondLength = 0.33F;
 
+    /**
+     * 钟面圆半径（格）。<b>独立字段</b>：以前是 {@code max(三针长度) × 1.08}，把针调长盘子就跟着长；
+     * 现在两者分开（站台大钟的针可以伸到盘外）。
+     */
+    public float faceRadius = DEFAULT_FACE_RADIUS;
+    /** 刻度 / 数字的环绕半径（格）：12 个刻度均匀摆在这个圆上，与钟面半径无关。 */
+    public float tickRadius = DEFAULT_TICK_RADIUS;
+
+    /** 画不画钟面圆盘（刻度 / 数字跟着它一起显隐）。 */
+    public boolean showFace = true;
+    /** 画不画时针。 */
+    public boolean showHour = true;
+    /** 画不画分针。 */
+    public boolean showMinute = true;
+    /** 画不画秒针。 */
+    public boolean showSecond = true;
+    /** 画不画中心轴（盖住针根的那个小圆点）。 */
+    public boolean showHub = true;
+
     /** 钟面颜色（0xRRGGBB）。 */
     public int faceColor = 0xF2EAD8;
     /** 时针颜色。 */
@@ -243,6 +270,13 @@ public final class ClockConfig {
         out.hourLength = this.hourLength;
         out.minuteLength = this.minuteLength;
         out.secondLength = this.secondLength;
+        out.faceRadius = this.faceRadius;
+        out.tickRadius = this.tickRadius;
+        out.showFace = this.showFace;
+        out.showHour = this.showHour;
+        out.showMinute = this.showMinute;
+        out.showSecond = this.showSecond;
+        out.showHub = this.showHub;
         out.faceColor = this.faceColor;
         out.hourColor = this.hourColor;
         out.minuteColor = this.minuteColor;
@@ -278,6 +312,8 @@ public final class ClockConfig {
         this.hourLength = snapLength(this.hourLength, 0.20F);
         this.minuteLength = snapLength(this.minuteLength, 0.28F);
         this.secondLength = snapLength(this.secondLength, 0.33F);
+        this.faceRadius = snapLength(this.faceRadius, DEFAULT_FACE_RADIUS);
+        this.tickRadius = snapLength(this.tickRadius, DEFAULT_TICK_RADIUS);
         this.faceColor &= 0xFFFFFF;
         this.hourColor &= 0xFFFFFF;
         this.minuteColor &= 0xFFFFFF;
@@ -318,6 +354,13 @@ public final class ClockConfig {
         nbt.putFloat("hourLen", this.hourLength);
         nbt.putFloat("minuteLen", this.minuteLength);
         nbt.putFloat("secondLen", this.secondLength);
+        nbt.putFloat("faceRadius", this.faceRadius);
+        nbt.putFloat("tickRadius", this.tickRadius);
+        nbt.putBoolean("showFace", this.showFace);
+        nbt.putBoolean("showHour", this.showHour);
+        nbt.putBoolean("showMinute", this.showMinute);
+        nbt.putBoolean("showSecond", this.showSecond);
+        nbt.putBoolean("showHub", this.showHub);
         nbt.putInt("faceColor", this.faceColor);
         nbt.putInt("hourColor", this.hourColor);
         nbt.putInt("minuteColor", this.minuteColor);
@@ -341,6 +384,16 @@ public final class ClockConfig {
         this.hourLength = nbt.contains("hourLen") ? nbt.getFloat("hourLen") : fallback.hourLength;
         this.minuteLength = nbt.contains("minuteLen") ? nbt.getFloat("minuteLen") : fallback.minuteLength;
         this.secondLength = nbt.contains("secondLen") ? nbt.getFloat("secondLen") : fallback.secondLength;
+        // 老存档（拆分半径之前）没有这两个字段：按当年的公式 1.08 × 最长针 / ×0.92 反推，
+        // 保证读进来的钟和升级前长得一模一样，不会因为多了默认值突然变大变小。
+        final float legacyFace = 1.08F * Math.max(this.hourLength, Math.max(this.minuteLength, this.secondLength));
+        this.faceRadius = nbt.contains("faceRadius") ? nbt.getFloat("faceRadius") : legacyFace;
+        this.tickRadius = nbt.contains("tickRadius") ? nbt.getFloat("tickRadius") : legacyFace * 0.92F;
+        this.showFace = !nbt.contains("showFace") || nbt.getBoolean("showFace");
+        this.showHour = !nbt.contains("showHour") || nbt.getBoolean("showHour");
+        this.showMinute = !nbt.contains("showMinute") || nbt.getBoolean("showMinute");
+        this.showSecond = !nbt.contains("showSecond") || nbt.getBoolean("showSecond");
+        this.showHub = !nbt.contains("showHub") || nbt.getBoolean("showHub");
         this.faceColor = nbt.contains("faceColor") ? nbt.getInt("faceColor") : fallback.faceColor;
         this.hourColor = nbt.contains("hourColor") ? nbt.getInt("hourColor") : fallback.hourColor;
         this.minuteColor = nbt.contains("minuteColor") ? nbt.getInt("minuteColor") : fallback.minuteColor;
@@ -367,6 +420,13 @@ public final class ClockConfig {
         buf.writeFloat(this.hourLength);
         buf.writeFloat(this.minuteLength);
         buf.writeFloat(this.secondLength);
+        buf.writeFloat(this.faceRadius);
+        buf.writeFloat(this.tickRadius);
+        buf.writeBoolean(this.showFace);
+        buf.writeBoolean(this.showHour);
+        buf.writeBoolean(this.showMinute);
+        buf.writeBoolean(this.showSecond);
+        buf.writeBoolean(this.showHub);
         buf.writeInt(this.faceColor);
         buf.writeInt(this.hourColor);
         buf.writeInt(this.minuteColor);
@@ -388,6 +448,13 @@ public final class ClockConfig {
         cfg.hourLength = buf.readFloat();
         cfg.minuteLength = buf.readFloat();
         cfg.secondLength = buf.readFloat();
+        cfg.faceRadius = buf.readFloat();
+        cfg.tickRadius = buf.readFloat();
+        cfg.showFace = buf.readBoolean();
+        cfg.showHour = buf.readBoolean();
+        cfg.showMinute = buf.readBoolean();
+        cfg.showSecond = buf.readBoolean();
+        cfg.showHub = buf.readBoolean();
         cfg.faceColor = buf.readInt();
         cfg.hourColor = buf.readInt();
         cfg.minuteColor = buf.readInt();

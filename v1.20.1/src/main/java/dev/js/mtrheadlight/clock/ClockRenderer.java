@@ -58,10 +58,18 @@ import org.joml.Matrix4f;
  * {@link #rendersOutsideBoundingBox} 返回 {@code true}（钟面最大可以画到 54 格半径，
  * 远超方块的包围盒）。少了这两个，站台大钟走远一点就整块消失。
  *
- * <h2>亮度</h2>
+ * <h2>亮度（含昼夜）</h2>
  * <p>不发光时按 {@code max(方块光, 天空光 × 白天系数)} 映射到 0.35–1.0 乘到颜色上 ——
  * 夜里钟面变暗、被灯照着又亮回来。{@link ClockConfig.GlowMode} 命中当前昼夜时系数固定 1.0
  * （「看起来亮」，但不往世界里打方块光）。
+ *
+ * <p><b>这里不能直接拿 {@code getLightLevel(LightType.SKY, pos)} 当「多亮」用</b>：1.20.1 的
+ * {@code BlockRenderView#getLightLevel(LightType, BlockPos)} 只是光照引擎里的<b>原始值</b>
+ * （javap 看到它的默认实现就是 {@code lightingProvider.get(type).getLightLevel(pos)}），
+ * 夜里天空光仍然是 15 —— 时间只在 {@code LightingProvider#getLight(BlockPos, ambientDarkness)}
+ * （即 {@code sky - ambientDarkness}）和 {@code World#getAmbientDarkness()} 里体现。
+ * 所以昼夜系数由 {@link #dayFactor(World)} 自己算（{@code ambientDarkness} 0…11 → 1.0…0.15），
+ * 再乘到天空光上，白天/夜晚/室内外才会真的不一样。
  */
 public final class ClockRenderer implements BlockEntityRenderer<ClockBlockEntity> {
 
@@ -120,9 +128,10 @@ public final class ClockRenderer implements BlockEntityRenderer<ClockBlockEntity
         final Direction facing = state.get(ClockBlock.FACING);
 
         final double seconds = entity.displaySeconds(tickDelta);
-        final double maxLength = Math.max(cfg.hourLength, Math.max(cfg.minuteLength, cfg.secondLength));
-        final double radius = maxLength * 1.08D;
-        final int segments = segmentsFor(radius);
+        // 钟面半径 / 刻度半径是配置里的独立字段（不再由最长针长度推算）。
+        final double faceRadius = cfg.faceRadius;
+        final double tickRadius = cfg.tickRadius;
+        final int segments = segmentsFor(Math.max(faceRadius, tickRadius));
 
         final Frame frame = new Frame(facing);
         final float bright = brightness(world, entity.getPos(), cfg);
@@ -141,29 +150,40 @@ public final class ClockRenderer implements BlockEntityRenderer<ClockBlockEntity
         com.mojang.blaze3d.systems.RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         com.mojang.blaze3d.systems.RenderSystem.disableCull();
         try {
-            // ① 钟面
-            frame.depth = DISC_DEPTH;
-            this.disc(vc, matrix, frame, radius, face, segments);
+            // ① 钟面（+ 刻度 / 数字）。刻度没有独立的显隐开关：它跟着钟面一起开关，
+            //    只想要「没有刻度的干净盘面」就把刻度样式设成「无」。
+            if (cfg.showFace) {
+                frame.depth = DISC_DEPTH;
+                this.disc(vc, matrix, frame, faceRadius, face, segments);
 
-            // ② 刻度 / 数字（在钟面之上、指针之下）
-            frame.depth = TICK_DEPTH;
-            this.ticks(vc, matrix, frame, cfg, tick, radius, matrices, vertexConsumers);
+                // ② 刻度 / 数字（在钟面之上、指针之下）
+                frame.depth = TICK_DEPTH;
+                this.ticks(vc, matrix, frame, cfg, tick, faceRadius, tickRadius, matrices, vertexConsumers);
+            }
 
-            // ③ 三根指针
-            frame.depth = HOUR_DEPTH;
-            this.hand(vc, matrix, frame, ClockTime.hourFraction(seconds),
-                    cfg.hourLength, Math.max(0.012D, radius * 0.075D), hourHand);
-            frame.depth = MINUTE_DEPTH;
-            this.hand(vc, matrix, frame, ClockTime.minuteFraction(seconds),
-                    cfg.minuteLength, Math.max(0.010D, radius * 0.055D), minuteHand);
-            frame.depth = SECOND_DEPTH;
-            this.hand(vc, matrix, frame, ClockTime.secondFraction(seconds),
-                    cfg.secondLength, Math.max(0.006D, radius * 0.028D), secondHand);
+            // ③ 三根指针（各自可以单独关掉；长度与钟面半径无关，针可以伸到盘外）
+            if (cfg.showHour) {
+                frame.depth = HOUR_DEPTH;
+                this.hand(vc, matrix, frame, ClockTime.hourFraction(seconds),
+                        cfg.hourLength, Math.max(0.012D, faceRadius * 0.075D), hourHand);
+            }
+            if (cfg.showMinute) {
+                frame.depth = MINUTE_DEPTH;
+                this.hand(vc, matrix, frame, ClockTime.minuteFraction(seconds),
+                        cfg.minuteLength, Math.max(0.010D, faceRadius * 0.055D), minuteHand);
+            }
+            if (cfg.showSecond) {
+                frame.depth = SECOND_DEPTH;
+                this.hand(vc, matrix, frame, ClockTime.secondFraction(seconds),
+                        cfg.secondLength, Math.max(0.006D, faceRadius * 0.028D), secondHand);
+            }
 
             // ④ 中心轴盖住三根针的根部
-            frame.depth = HUB_DEPTH;
-            this.disc(vc, matrix, frame, Math.min(radius, radius * 0.04D + 0.03D), hub,
-                    Math.max(16, segments / 3));
+            if (cfg.showHub) {
+                frame.depth = HUB_DEPTH;
+                this.disc(vc, matrix, frame, Math.min(faceRadius, faceRadius * 0.04D + 0.03D), hub,
+                        Math.max(16, segments / 3));
+            }
         } finally {
             com.mojang.blaze3d.systems.RenderSystem.enableCull();
         }
@@ -212,14 +232,19 @@ public final class ClockRenderer implements BlockEntityRenderer<ClockBlockEntity
         frame.vertex(vc, matrix, -dx * tail - px * baseHalf, -dy * tail - py * baseHalf, color);
     }
 
-    /** 12 个刻度：每 30° 一个，样式按配置。 */
+    /**
+     * 12 个刻度：每 30° 一个，**摆在内圈 {@code tickRadius} 上**（另一个独立字段，跟钟面半径
+     * 无关）；刻度本身的粗细 / 长度按钟面半径 {@code faceRadius} 缩放（盘大刻度就该大一点）。
+     */
     private void ticks(final VertexConsumer vc, final Matrix4f matrix, final Frame frame,
-                       final ClockConfig cfg, final int color, final double radius,
-                       final MatrixStack matrices, final VertexConsumerProvider vertexConsumers) {
+                       final ClockConfig cfg, final int color, final double faceRadius,
+                       final double tickRadius, final MatrixStack matrices,
+                       final VertexConsumerProvider vertexConsumers) {
         if (cfg.tickStyle == ClockConfig.TickStyle.NONE) {
             return;
         }
-        final double ring = radius * 0.92D;
+        final double radius = Math.max(0.05D, faceRadius);
+        final double ring = tickRadius;
         for (int i = 0; i < 12; i++) {
             final double theta = TWO_PI * i / 12.0D;
             final double dx = Math.sin(theta);
@@ -333,24 +358,67 @@ public final class ClockRenderer implements BlockEntityRenderer<ClockBlockEntity
     /**
      * 不发光时乘到颜色上的亮度系数（0.35–1.0）。
      *
-     * <p>{@code max(方块光, 天空光 × 白天系数)}：白天户外 sky=15 → 1.0，夜里户外只有 0.3 倍
-     * 天空光（≈0.545），插火把就亮回来。{@code glow} 命中当前昼夜时直接 1.0。
+     * <p>公式：{@code 0.35 + 0.65 × clamp(max(方块光/15, 天空光/15 × dayFactor), 0, 1)}。
+     * {@code dayFactor} 见 {@link #dayFactor(World)}：白天 1.0、深夜 0.15。{@code glow} 命中
+     * 当前昼夜时直接 1.0（ALWAYS 不看时间）。
+     *
+     * <p><b>为什么不能只写 {@code sky/15}</b>：{@code getLightLevel(LightType.SKY, pos)} 是光照
+     * 引擎里的原始天空光，<b>不随昼夜变化</b>（露天永远是 15）。老实现拿它算系数，夜里室外也是
+     * {@code 15/15 = 1.0}，于是「从不 / 白天 / 夜间」三种模式在夜里看起来完全一样 —— 这就是
+     * 「发光开关不起作用」的根因。
      */
     public static float brightness(final World world, final BlockPos pos, final ClockConfig cfg) {
         if (world == null) {
             return 1.0F;
         }
-        final boolean day = world.isDay();
+        final boolean daylight = isDaylight(world);
         if (cfg.glow == ClockConfig.GlowMode.ALWAYS
-                || (cfg.glow == ClockConfig.GlowMode.DAY && day)
-                || (cfg.glow == ClockConfig.GlowMode.NIGHT && !day)) {
+                || (cfg.glow == ClockConfig.GlowMode.DAY && daylight)
+                || (cfg.glow == ClockConfig.GlowMode.NIGHT && !daylight)) {
             return 1.0F;
         }
-        final int sky = world.getLightLevel(LightType.SKY, pos);
-        final int block = world.getLightLevel(LightType.BLOCK, pos);
-        final double level = Math.max(block, sky * (day ? 1.0D : 0.3D)) / 15.0D;
-        final double clamped = MathHelper.clamp(level, 0.0D, 1.0D);
-        return (float) (0.35D + 0.65D * clamped);
+        final double sky = world.getLightLevel(LightType.SKY, pos) / 15.0D;
+        final double block = world.getLightLevel(LightType.BLOCK, pos) / 15.0D;
+        final double level = MathHelper.clamp(Math.max(block, sky * dayFactor(world)), 0.0D, 1.0D);
+        return (float) (0.35D + 0.65D * level);
+    }
+
+    /**
+     * 昼夜系数（0.15–1.0）：白天 1.0、黄昏渐暗、深夜 0.15。
+     *
+     * <p>用 {@link World#getAmbientDarkness()}（0 = 正午，11 = 午夜，原版
+     * {@code calculateAmbientDarkness()} 算出来的 0…11 整数）线性映射：{@code 0.15 + 0.85 × (1 - dark/11)}。
+     * 固定时间维度（下界 / 末地）没有昼夜，一律 1.0。
+     *
+     * <p>顺带一句：原版真正影响「方块看起来多亮」的是
+     * {@code LightingProvider#getLight(pos, ambientDarkness)} = {@code max(blockLight, skyLight - ambientDarkness)}，
+     * {@link World#getAmbientDarkness()} 就是那个 {@code ambientDarkness}。
+     */
+    public static float dayFactor(final World world) {
+        if (world == null) {
+            return 1.0F;
+        }
+        if (world.getDimension().hasFixedTime()) {
+            return 1.0F;
+        }
+        final int dark = MathHelper.clamp(world.getAmbientDarkness(), 0, 11);
+        return 0.15F + 0.85F * (1.0F - dark / 11.0F);
+    }
+
+    /**
+     * 现在算不算「白天」—— {@link ClockConfig.GlowMode#DAY} / {@code NIGHT} 的分界。
+     *
+     * <p>阈值和 {@code World#isDay()} 一致（{@code ambientDarkness < 4}）；固定时间维度按白天算
+     * （那里本来就没有「夜里」这回事）。
+     */
+    public static boolean isDaylight(final World world) {
+        if (world == null) {
+            return true;
+        }
+        if (world.getDimension().hasFixedTime()) {
+            return true;
+        }
+        return world.getAmbientDarkness() < 4;
     }
 
     /** 按亮度系数压暗一个 0xRRGGBB（不透明）。 */
