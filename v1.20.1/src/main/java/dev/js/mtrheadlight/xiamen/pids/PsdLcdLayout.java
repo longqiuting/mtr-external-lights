@@ -127,12 +127,15 @@ public final class PsdLcdLayout {
     /** 屏幕面离凹槽口（方块外面）的余量（16 分之格）：0.016px，只为了不和模型面 z-fighting。 */
     public static final float FACE_GAP_PX = 0.016F;
 
-    /** 吊板厚度（16 分之格）：前面板到方块背面的深度 16px —— 板体一路顶到玩家对面那块方块，
-     *  背面封住（旧版只到 6px，背面是空的，看着「没贴住 + 背面贴图不完整」）。 */
-    public static final float BOARD_THICKNESS_PX = 16.0F;
+    /** 吊板前面离格子外侧多远（16 分之格）：MTR {@code psd_top} 的箱体在 z 8..16，
+     *  前脸就在 8 —— 我们的板必须占同一个后半格，否则会从隔壁原版吊板前面凸出来。 */
+    public static final float PANEL_Z0_PX = 8.0F;
 
-    /** 屏幕凹进去多深（16 分之格）：浅槽 1px = 1/16 格，够用且不显深。 */
-    public static final float THICKNESS_PX = 1.0F;
+    /** 吊板厚度（16 分之格）：z 8..16，一路顶到方块背面（玩家对面那块方块），背面封住。 */
+    public static final float BOARD_THICKNESS_PX = 8.0F;
+
+    /** 屏幕凹进去多深（16 分之格）：极浅槽 0.5px = 1/32 格，只留一道刻线。 */
+    public static final float THICKNESS_PX = 0.5F;
 
     /** 屏幕窗口在世界里的高度（格）= 7/16。 */
     public static final float HEIGHT_BLOCKS = (WINDOW_Y1_PX - WINDOW_Y0_PX) / 16.0F;
@@ -151,7 +154,7 @@ public final class PsdLcdLayout {
      * 但 BER 把它当成了屏幕**中线**，于是整块画面从 y=5px 往下长、溢出到吊板下面 ——
      * 现在改成「窗口上沿 + 四角坐标」，见 {@link #windowQuad(Face, int)}。
      */
-    public static final float WINDOW_DEPTH_BLOCKS = (THICKNESS_PX - FACE_GAP_PX) / 16.0F;
+    public static final float WINDOW_DEPTH_BLOCKS = (PANEL_Z0_PX + THICKNESS_PX - FACE_GAP_PX) / 16.0F;
 
     /** 屏幕平面中线的世界高度（格，方块底面以上）：1.5 与 8.5 的中点 = 5px（只有调试用）。 */
     public static final float CENTER_Y_BLOCKS = ((WINDOW_Y0_PX + WINDOW_Y1_PX) * 0.5F) / 16.0F;

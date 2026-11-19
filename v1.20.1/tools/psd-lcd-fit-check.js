@@ -117,9 +117,10 @@ ok(wx0 === 0 && wx1 === 16, '窗口 x 是整格宽（0 … 16）', `x ${wx0} …
 ok(wy0 === 1.5 && wy1 === 8.5, '窗口 y 是 1.5 … 8.5（7px 带）', `y ${wy0} … ${wy1}`);
 ok(wz0 === wz1, '屏幕面是零厚度的平面（z 固定）', `z ${wz0} / ${wz1}`);
 
-// 前面（z = 0 那一层蒙皮）不能在窗口带里多出一块 —— 用户看到的「上面多出一个黑块」就是这么来的
+// 前面最靠外那一层蒙皮（z = PANEL_Z0）不能在窗口带里多出一块 —— 用户看到的「上面多出一个黑块」就是这么来的
+const frontZ = Math.min(...elements.filter((e) => e.faces && e.faces.north && e.from).map((e) => e.from[2]));
 const frontSkins = elements.filter((e) => e.faces && e.faces.north && e.from && e.to
-  && e.from[2] === 0 && e !== plane);
+  && Math.abs(e.from[2] - frontZ) < 1e-6 && e !== plane);
 let overlap = false;
 for (const e of frontSkins) {
   const y0 = e.from[1];
@@ -161,12 +162,13 @@ const jScale = constOf(java, 'BITMAP_SCALE');
 
 ok(jWinX0 === wx0 && jWinX1 === wx1, 'Java 的 WINDOW_X0/X1 与模型一致', `${jWinX0} … ${jWinX1}`);
 ok(jWinY0 === wy0 && jWinY1 === wy1, 'Java 的 WINDOW_Y0/Y1 与模型一致', `${jWinY0} … ${jWinY1}`);
-ok(Math.abs(jThick - wz0) < 1e-6, '模型里的屏幕面 z = Java 的 THICKNESS_PX', `z ${wz0} / ${jThick}`);
+const jZ0 = constOf(java, 'PANEL_Z0_PX');
+ok(Math.abs((jZ0 + jThick) - wz0) < 1e-6, '模型里的屏幕面 z = Java 的 PANEL_Z0_PX + THICKNESS_PX', `z ${wz0} / ${jZ0 + jThick}`);
 ok(jPxPerBlock === PX_PER_BLOCK && jScale === BITMAP_SCALE, 'Java 的 PX_PER_BLOCK / BITMAP_SCALE 未变',
   `${jPxPerBlock} / ${jScale}`);
 
-const quadZ = jThick - jGap;          // BER 四边形比模型面再往前 0.016px
-console.log(`  BER 四边形所在面 z = 1.6 − 0.016 = ${f(quadZ, 3)}px（模型面 ${jThick}px 之前，避免 z-fighting）`);
+const quadZ = jZ0 + jThick - jGap;     // BER 四边形比模型面再往前 0.016px
+console.log(`  BER 四边形所在面 z = ${jZ0} + ${jThick} − ${jGap} = ${f(quadZ, 3)}px（模型面 ${jZ0 + jThick}px 之前，避免 z-fighting）`);
 
 // ---------------------------------------------------------------- 3. 位图尺寸 / 宽高比
 

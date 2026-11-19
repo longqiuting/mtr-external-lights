@@ -68,17 +68,18 @@ public class PsdLcdBlock extends HorizontalFacingBlock implements BlockEntityPro
     public static final DirectionProperty FACING = HorizontalFacingBlock.FACING;
 
     /** 吊板的外形尺寸（16 分之几），全部来自 {@link PsdLcdLayout}（对齐 MTR 的 {@code psd_top}）。 */
-    private static final float PANEL_Z1 = PsdLcdLayout.BOARD_THICKNESS_PX;
+    private static final float PANEL_Z0 = PsdLcdLayout.PANEL_Z0_PX;
+    private static final float PANEL_Z1 = PANEL_Z0 + PsdLcdLayout.BOARD_THICKNESS_PX;
 
-    /** 四个方向的轮廓：一块 6px 厚、整块高（y 0..16）的吊板，贴着朝外那一面。 */
+    /** 四个方向的轮廓：一块 z 8..16（后半格，与 MTR psd_top 齐平）、整块高的吊板。 */
     private static final VoxelShape OUTLINE_NORTH =
-            Block.createCuboidShape(0.0D, 0.0D, 0.0D, 16.0D, 16.0D, PANEL_Z1);
+            Block.createCuboidShape(0.0D, 0.0D, PANEL_Z0, 16.0D, 16.0D, PANEL_Z1);
     private static final VoxelShape OUTLINE_SOUTH =
-            Block.createCuboidShape(0.0D, 0.0D, 16.0D - PANEL_Z1, 16.0D, 16.0D, 16.0D);
+            Block.createCuboidShape(0.0D, 0.0D, 16.0D - PANEL_Z1, 16.0D, 16.0D, 16.0D - PANEL_Z0);
     private static final VoxelShape OUTLINE_WEST =
-            Block.createCuboidShape(0.0D, 0.0D, 0.0D, PANEL_Z1, 16.0D, 16.0D);
+            Block.createCuboidShape(PANEL_Z0, 0.0D, 0.0D, PANEL_Z1, 16.0D, 16.0D);
     private static final VoxelShape OUTLINE_EAST =
-            Block.createCuboidShape(16.0D - PANEL_Z1, 0.0D, 0.0D, 16.0D, 16.0D, 16.0D);
+            Block.createCuboidShape(16.0D - PANEL_Z1, 0.0D, 0.0D, 16.0D - PANEL_Z0, 16.0D, 16.0D);
 
     public PsdLcdBlock(final Settings settings) {
         super(settings);
