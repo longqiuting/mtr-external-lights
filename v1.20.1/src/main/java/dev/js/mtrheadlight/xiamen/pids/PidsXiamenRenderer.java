@@ -23,6 +23,7 @@ import mtr.data.RailwayData;
 import mtr.data.Route;
 import mtr.data.ScheduleEntry;
 import mtr.data.Station;
+import mtr.data.TrainClient;
 import mtr.mappings.BlockEntityRendererMapper;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.HorizontalFacingBlock;
@@ -36,6 +37,7 @@ import net.minecraft.client.render.block.entity.BlockEntityRendererFactory;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.state.property.Property;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.RotationAxis;
@@ -194,11 +196,18 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         // 广告表先问全局覆盖：全局配置 → 其他 →「厦门 PIDS」里选了某一张，就所有屏都只播它
         // （单张 = 不轮播）；没选则用这块屏自己勾的分类（PidsXiamenBlockEntity#getAds）。
         final List<PidsXiamenAds.Ad> ads = PidsXiamenSettings.applyAdOverride(entity.getAds());
+        // 编组节数（只有地铁版式有那条编组带；读不到 = 0 → 不画叠加层，底图的静态画留着）。
+        final int cars = kind == PidsXiamenBlock.Kind.METRO
+                ? consistOf(resolveStation(pos), schedules.isEmpty() ? 0L : schedules.get(0).routeId)
+                : 0;
         final Screen screen = new Screen(kind, schedules, entity.getDisplayPage(),
                 slideOf(client.textRenderer, kind, gameTick, entity.getAdvertisementIndex(), ads),
-                gameTick, formatTime(world), formatIsoDate(world), formatBrtDate(world));
+                gameTick, formatTime(world), formatIsoDate(world), formatBrtDate(world), cars);
 
         countDraw(pos, kind, facing, partner);
+
+        // 叠加层贴图的回收（30 秒没人用就注销；同节数的屏共用一张，不随方块实体增长）
+        PidsXiamenConsistTextures.sweep();
 
         try {
             // 第一面：本格，屏幕朝 facing.rotateYClockwise()。
@@ -231,6 +240,10 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
                     vertexConsumers.getBuffer(MoreRenderLayers.getLight(kind.screenTexture(), false)),
                     0.0F, 0.0F, PidsXiamenLayout.SCREEN_WIDTH, PidsXiamenLayout.SCREEN_HEIGHT));
 
+            // 1.5) 编组条叠加层：只盖住顶部那条编组（地铁才有；BRT 底图里没有那条带）。
+            // 这一层是纯图形（背景 + 卡片 + 雪花），「N车」文字在下面第 4.5 步另外画。
+            step("consist", () -> renderConsist(matrices, vertexConsumers, screen));
+
             // 文字层往观察者方向推一点，避免和底图共面
             matrices.translate(0.0F, 0.0F, PidsXiamenLayout.TEXT_LAYER_Z);
 
@@ -256,6 +269,10 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
 
             // 4) 到站行
             step("rows", () -> renderArrivals(matrices, textRenderer, textConsumers, kind, screen));
+
+            // 4.5) 编组条的车号「N车」：走和上面这些行**同一套** MC TextRenderer
+            //      （PidsXiamenText#drawRun）—— 不烘在位图里，所以不会糊。
+            step("consistText", () -> renderConsistText(matrices, textRenderer, textConsumers, screen));
 
             // 5) 底部滚动标语：广告开着就用这张广告的 text（天津的语义），否则用资源包那套。
             step("ticker", () -> {
@@ -335,6 +352,86 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
                 .light(PidsXiamenLayout.FULL_LIGHT)
                 .normal(normal, 0.0F, 0.0F, -1.0F)
                 .next();
+    }
+
+    // ------------------------------------------------------------------ 编组条（动态叠加）
+
+    /**
+     * 叠加层沿法线往观察者方向偏多少（格）。0.002 格 ≈ 0.52 面板像素 ——
+     * 压在底图之上（底图在 0），又留在文字层（{@code TEXT_LAYER_Z = −0.7px}）之后，
+     * 所以「N车」的字永远在它上面。0.002 格够躲开深度精度，肉眼看还是贴着屏面。
+     */
+    private static final float CONSIST_LAYER_BLOCKS = 0.002F;
+
+    /** 车号后缀：底图里烘死的就是「N车」，这里保持同一个说法（不走 lang）。 */
+    private static final String CAR_SUFFIX = "车";
+
+    /**
+     * 编组条叠加层：贴在底图顶部那块矩形上的一张动态贴图（4×，见 {@link PidsXiamenConsist}）。
+     *
+     * <p>只有地铁版式有那条编组带（BRT 底图没有 → {@code cars} 恒为 0，这里直接不画）。
+     * 贴图本身<b>不含任何文字</b>；节数读不到时 {@code texture()} 返回 {@code null}，
+     * 于是什么都不画 —— 底图里那排静态画原样留着，屏不会空。
+     *
+     * <p>渲染层和底图相同（{@code MoreRenderLayers.getLight}）→ 亮度一致，不会出现
+     * 「编组条比面板亮/暗一档」。
+     */
+    private static void renderConsist(final MatrixStack matrices, final VertexConsumerProvider vertexConsumers,
+                                      final Screen screen) {
+        if (screen.kind() != PidsXiamenBlock.Kind.METRO || screen.cars() <= 0) {
+            return;
+        }
+        final Identifier id = PidsXiamenConsistTextures.texture(screen.cars());
+        if (id == null) {
+            return;
+        }
+        final float[] strip = PidsXiamenConsist.strip();
+        matrices.push();
+        try {
+            matrices.translate(0.0F, 0.0F, -CONSIST_LAYER_BLOCKS * PidsXiamenLayout.SCREEN_SCALE_DIVISOR);
+            drawQuad(matrices, vertexConsumers.getBuffer(MoreRenderLayers.getLight(id, false)),
+                    strip[0], strip[1], strip[2], strip[3]);
+        } finally {
+            matrices.pop();
+        }
+    }
+
+    /**
+     * 编组条的车号「N车」—— <b>文字层，走的是旧版 PIDS / 天津地铁同一套
+     * MC {@code TextRenderer} 顶点级绘制</b>（{@link PidsXiamenText#drawRun}），
+     * 和旁边的到站行、时钟、标语完全同一条路径，所以和它们一样清楚。
+     *
+     * <p>位置读 {@link PidsXiamenConsist#layout(int)}（贴图画卡片时用的也是它）：
+     * 每张卡片下面、右对齐到雪花左边。卡太多时 {@code maxWidth} 会让字整体缩一点，
+     * 不会压到雪花或越出卡片。
+     *
+     * <p><b>基线在带内</b>：{@code drawRun} 把「字形盒底边」压在
+     * {@code CAR_TEXT_TOP + CAR_TEXT_INK_H} = 24 + 6 = <b>30</b>，而底带内圈是 y 2..31 ——
+     * 所以字永远落在深蓝带里（和底下那排雪花 y 23..29 同一行），
+     * 预览里 {@code PidsXiamenConsist#insideBand} 对每一档节数都做了这条断言。
+     */
+    private static void renderConsistText(final MatrixStack matrices, final TextRenderer textRenderer,
+                                          final VertexConsumerProvider.Immediate immediate,
+                                          final Screen screen) {
+        if (screen.kind() != PidsXiamenBlock.Kind.METRO || screen.cars() <= 0) {
+            return;
+        }
+        // 叠加层没画出来（素材缺失 / GL 没就绪）时也不要单独画车号：
+        // 否则底图上那排烘死的「1车..6车」上面会再压一层字，看着像重影。
+        if (PidsXiamenConsistTextures.texture(screen.cars()) == null) {
+            return;
+        }
+        final PidsXiamenConsist.Card[] cards = PidsXiamenConsist.layout(screen.cars());
+        for (final PidsXiamenConsist.Card card : cards) {
+            final String label = (card.index() + 1) + CAR_SUFFIX;
+            PidsXiamenText.drawRun(matrices, textRenderer, immediate,
+                    new PidsXiamenText.Segment[]{new PidsXiamenText.Segment(
+                            label, PidsXiamenConsist.CAR_TEXT_INK_H, PidsXiamenLayout.COLOR_WHITE)},
+                    card.textRight(), PidsXiamenConsist.CAR_TEXT_TOP,
+                    PidsXiamenConsist.CAR_TEXT_INK_H,
+                    PidsXiamenLayout.HAlign.RIGHT, card.textW(),
+                    Float.NEGATIVE_INFINITY, Float.POSITIVE_INFINITY);
+        }
     }
 
     // ------------------------------------------------------------------ 日期 / 时间
@@ -748,7 +845,8 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
 
     /** 一帧算一次的东西，两面共用。 */
     private record Screen(PidsXiamenBlock.Kind kind, List<ScheduleEntry> schedules, int displayPage,
-                          Slide slide, long gameTick, String clock, String dateIso, String dateBrt) {
+                          Slide slide, long gameTick, String clock, String dateIso, String dateBrt,
+                          int cars) {
     }
 
     /** 倒计时（PSD-LCD 挂板复用，所以是包内可见）。 */
@@ -818,6 +916,62 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
             return Collections.emptyList();
         }
         return getSchedules(entity, station, pos, new HashMap<>());
+    }
+
+    /** 「拿不到编组」的告警只打一次（这条路径每帧都走，不能刷屏）。 */
+    private static boolean carsWarned;
+
+    /**
+     * 编组节数：MTR 里「这一站 / 这条线」正在跑的那列车有多少节（和 PSD-LCD 吊板同一套算法）。
+     *
+     * <p>三条入口：
+     * <ol>
+     *   <li>停在这个站、并且跑这条线的那列车；</li>
+     *   <li>停在这个站的任意一列车（跨线车 / 折返车）；</li>
+     *   <li>这条线路上任意一列在跑的车。</li>
+     * </ol>
+     *
+     * <p>三条都落空（单机存档还没发车 / 客户端还没同步列车）时返回 <b>0</b>：
+     * 渲染器据此<b>不画叠加层</b>，底图里那排烘死的静态编组原样留着 ——
+     * 宁可显示一张静态的 6 节，也不要空着或者瞎猜一个节数。
+     */
+    private static int consistOf(final Station station, final long routeId) {
+        try {
+            int atStationAny = 0;
+            int onRouteAny = 0;
+            for (final TrainClient train : ClientData.TRAINS) {
+                if (train == null || train.trainCars <= 0) {
+                    continue;
+                }
+                final Route route = train.getThisRoute();
+                final boolean onRoute = routeId > 0L && route != null && route.id == routeId;
+                if (onRoute && train.trainCars > onRouteAny) {
+                    onRouteAny = train.trainCars;
+                }
+                if (station == null || train.getThisStation() == null
+                        || train.getThisStation().id != station.id) {
+                    continue;
+                }
+                if (onRoute) {
+                    return train.trainCars;
+                }
+                atStationAny = Math.max(atStationAny, train.trainCars);
+            }
+            if (atStationAny > 0) {
+                return atStationAny;
+            }
+            if (onRouteAny > 0) {
+                return onRouteAny;
+            }
+        } catch (final Throwable t) {
+            // 列车表正在被服务端包改写：这一帧按「拿不到」处理，下一帧再试。
+        }
+        if (!carsWarned) {
+            carsWarned = true;
+            LteLog.LOGGER.warn("[lte] xiamen pids: no live train for this platform, "
+                    + "keeping the baked consist strip");
+        }
+        return 0;
     }
 
     /**

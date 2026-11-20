@@ -144,6 +144,12 @@ public final class PidsXiamenClient implements ClientModInitializer {
             } catch (Throwable t) {
                 LteLog.LOGGER.warn("[lte] xiamen pids ad set: could not invalidate the resolved cache", t);
             }
+            try {
+                // 编组条叠加层的底图 / 卡片素材是 BufferedImage 缓存的，换包后必须重读重画
+                PidsXiamenConsistTextures.invalidate();
+            } catch (Throwable t) {
+                LteLog.LOGGER.warn("[lte] xiamen pids consist: could not invalidate the overlay", t);
+            }
             return CompletableFuture.completedFuture(null);
         }
     }
