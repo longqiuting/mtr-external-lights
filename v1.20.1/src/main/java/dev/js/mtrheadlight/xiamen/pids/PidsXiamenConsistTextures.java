@@ -72,23 +72,21 @@ final class PidsXiamenConsistTextures {
     /**
      * 取（必要时画一张新的）这个节数对应的叠加层贴图。
      *
-     * @param cars 实际车厢数；{@code <= 0} = 读不到编组 → 返回 {@code null}（不画叠加层，
-     *             底图里那排静态画原样留着）
+     * @param cars 实际车厢数；{@code <= 0} = 读不到编组 → 一张<b>只有面板底色</b>的贴图
+     *             （编组条整块空着，同时也盖住底图里烘死的旧静态条）
      * @return 贴图 id，或 {@code null}（素材缺失 / 不在客户端线程 / GL 没就绪）
      */
     static Identifier texture(final int cars) {
-        if (cars <= 0) {
-            return null;
-        }
-        final BufferedImage bandImage = asset(BAND_ID);
-        final BufferedImage cardImage = asset(CARD_ID);
-        final BufferedImage flakeImage = asset(FLAKE_ID);
-        if (bandImage == null || cardImage == null || flakeImage == null) {
+        final int n = Math.max(0, Math.min(PidsXiamenConsist.MAX_CARS, cars));
+        final BufferedImage bandImage = n > 0 ? asset(BAND_ID) : null;
+        final BufferedImage cardImage = n > 0 ? asset(CARD_ID) : null;
+        final BufferedImage flakeImage = n > 0 ? asset(FLAKE_ID) : null;
+        if (n > 0 && (bandImage == null || cardImage == null || flakeImage == null)) {
             return null;
         }
 
-        final String key = "consist|" + generation + "|" + cars;
-        final long hash = PidsXiamenConsist.hash(cars, bandImage, cardImage, flakeImage);
+        final String key = "consist|" + generation + "|" + n;
+        final long hash = PidsXiamenConsist.hash(n, bandImage, cardImage, flakeImage);
         Entry entry = ENTRIES.get(key);
         if (entry != null && stillRegistered(entry) && entry.hash == hash) {
             entry.lastUse = System.currentTimeMillis();
@@ -100,7 +98,7 @@ final class PidsXiamenConsistTextures {
         try {
             final int w = PidsXiamenConsist.overlayWidth();
             final int h = PidsXiamenConsist.overlayHeight();
-            final BufferedImage image = PidsXiamenConsist.paint(bandImage, cardImage, flakeImage, cars);
+            final BufferedImage image = PidsXiamenConsist.paint(bandImage, cardImage, flakeImage, n);
             if (image == null) {
                 return null;
             }
@@ -109,7 +107,7 @@ final class PidsXiamenConsistTextures {
             // NEAREST + 无 mipmap：叠加层是 4× 直接画的，上屏不要再被线性插值糊一层
             texture.setFilter(false, false);
             final Identifier id = MinecraftClient.getInstance().getTextureManager()
-                    .registerDynamicTexture("pids_consist_" + generation + "_" + cars, texture);
+                    .registerDynamicTexture("pids_consist_" + generation + "_" + n, texture);
 
             final Entry created = new Entry();
             created.id = id;

@@ -58,9 +58,6 @@ import net.minecraft.world.World;
 /** 厦门地铁 PSD-LCD 挂板（{@code mtrlte:psd_lcd_xiamen}）的方块实体渲染器。 */
 public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity> {
 
-    /** 编组卡片的张数（没有实时编组数据时的示意）。 */
-    private static final int DEFAULT_CARS = 4;
-
     /**
      * <b>兜底</b>换图节奏：标语是空的时候（这张广告没有 {@code text}，PSD-LCD 的标语条也就没字）
      * 才回落到「每 200 tick（10 秒）换一张」。
@@ -125,7 +122,7 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
     private static final RenderLayer SOLID_LAYER = RenderLayer.getEntitySolid(SOLID_TEXTURE);
 
     private boolean warned;
-    /** 「拿不到实时编组、退回 4 节」这条 warning 只打一次（consistOf 每帧都在跑）。 */
+    /** 「拿不到实时编组 → 编组行留空」这条 warning 只打一次（consistOf 每帧都在跑）。 */
     private static boolean carsWarned;
     private long lastSweep;
 
@@ -254,7 +251,7 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                 vertex(vc, matrix, normalMatrix, quad[2][0], quad[2][1], quad[2][2], u1, 1.0F, normal);
                 vertex(vc, matrix, normalMatrix, quad[3][0], quad[3][1], quad[3][2], u1, 0.0F, normal);
             }
-            // ---- 滚动标语：压在屏幕面上的一条小贴图（长句才画，短句已经居中烘在整屏位图里）
+            // ---- 滚动标语：压在屏幕面上的一条小贴图（**短句长句都画**，一律滚动）
             drawTicker(content, cuts, extent, bitmapW, bitmapH, key, face,
                     matrix, normalMatrix, normal, immediate);
             // ---- 线路色带（MTR 式）：板子下沿那条 0.5px 的前脸（白图 × 顶点色，受世界光照）
@@ -610,7 +607,7 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
             stationEn = Text.translatable("gui.mtrlte.psd_lcd.this_station_en").getString();
         }
 
-        // ---- 编组：按 MTR 里「这一站 / 这条线」正在跑的那列车读实际节数（拿不到才退回 4 节）
+        // ---- 编组：按 MTR 里「这一站 / 这条线」正在跑的那列车读实际节数（拿不到就不画编组行）
         final int cars = consistOf(station, first == null ? 0L : first.routeId);
         final List<String> carNumbers = new java.util.ArrayList<>(cars);
         for (int i = 1; i <= cars; i++) {
@@ -640,18 +637,18 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                 ticker,
                 Text.translatable("gui.mtrlte.psd_lcd.place_ad").getString());
 
-        // ---- 标语滚动：字宽 > 框宽才滚；一轮的 tick 数与广告轮播共用同一个数
+        // ---- 标语滚动：**一律滚**（短句也从右往左滚），一轮的 tick 数与广告轮播共用同一个数
         final PsdLcdPainter.Assets assets = PsdLcdAssets.get();
         final float fontPx = PsdLcdPainter.tickerFontPx(bitmapW, bitmapH);
         final float textW = PsdLcdPainter.tickerTextWidth(content, assets, bitmapW, bitmapH);
         final float innerW = PsdLcdPainter.tickerInner(bitmapW, bitmapH)[2]
                 - PsdLcdPainter.tickerInner(bitmapW, bitmapH)[0];
         final float spanPxOfText = innerW + textW;
-        final int spanTicks = textW > innerW ? Math.max(1, Math.round(
+        final int spanTicks = textW > 0.0F ? Math.max(1, Math.round(
                 spanPxOfText / PidsXiamenTicker.pxPerTick(fontPx))) : 0;
         final float phase;
         if (spanTicks <= 0) {
-            // 字比框短：居中静止，不滚（广告轮播退回 AD_ROTATE_TICKS）
+            // 没有标语（空字）：没有可滚的东西（标语框也不画）
             phase = -1.0F;
         } else if (slot.passEnd > slot.passStart) {
             // 广告轮播在走：相位就是「这一张已经播了多少」，滚完那一刻正好换图
@@ -682,7 +679,7 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
      * 时长用的是 PSD-LCD 自己那条标语框的几何 —— 框内宽 + 这条字的宽度，除以
      * {@link PidsXiamenTicker#pxPerTick(float)}（与 PIDS <b>同一份</b>速度换算）：
      * 也就是屏上那句字正好滚出左缘的那一刻换图，不会「字滚到一半突然换广告」。
-     * 短句（字宽 ≤ 框宽，居中静止）没有「滚完」可言，退回 {@link #AD_ROTATE_TICKS}。
+     * <b>短句也一样滚</b>（同一套速度、同一条行程），所以不再有「短句不滚 → 固定停留」的例外。
      *
      * <p>返回的 {@code passStart/passEnd} 同时是标语滚动的相位基准（{@code contentOf} 里用），
      * 所以「滚到哪」和「什么时候换图」永远是同一对数。
@@ -766,7 +763,8 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
      * 所以「滚完」的时刻和 {@link #drawTicker} 画出来的滚动<b>逐像素同一套</b>
      * （PIDS 那边也是用同一个函数换算，只是字高不同）。
      *
-     * <p>字比框短（居中静止，不滚）→ {@link #AD_ROTATE_TICKS}；算不出来也一样。
+     * <p><b>标语一律滚</b>（短句也从右往左滚），所以这里不再有「短句不滚」的分支；
+     * 没字（{@code text} 空）时没有可滚的跨度，才回落 {@link #AD_ROTATE_TICKS}。
      */
     private static int passTicks(final PidsXiamenAds.Ad ad, final int bitmapW, final int bitmapH) {
         try {
@@ -778,8 +776,8 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                     bitmapW, bitmapH);
             final float innerW = PsdLcdPainter.tickerInner(bitmapW, bitmapH)[2]
                     - PsdLcdPainter.tickerInner(bitmapW, bitmapH)[0];
-            if (textW <= innerW) {
-                // 短句不滚：没有「滚完」这个时刻，按固定停留
+            if (textW <= 0.0F) {
+                // 量不出字宽：按固定停留
                 return AD_ROTATE_TICKS;
             }
             final float pxPerTick = PidsXiamenTicker.pxPerTick(
@@ -800,8 +798,9 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
      *   <li>停在这个站的任意一列车（跨线车 / 折返车）；</li>
      *   <li>这条线路上任意一列在跑的车。</li>
      * </ol>
-     * 三条都落空（单机存档还没发车、或者客户端还没同步列车）时退回
-     * {@link #DEFAULT_CARS} 节，并且<b>只 warning 一次</b>（这条路径每 200ms 走一次，不能刷屏）。
+     * 三条都落空（单机存档还没发车、或者客户端还没同步列车）时返回 <b>0</b> —— 编组行整块
+     * <b>不画</b>（不画占位、也不退回固定节数），广告区与其它文字照常；并且<b>只 warning 一次</b>
+     * （这条路径每 200ms 走一次，不能刷屏）。
      */
     private static int consistOf(final Station station, final long routeId) {
         try {
@@ -836,9 +835,9 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         if (!carsWarned) {
             carsWarned = true;
             LteLog.LOGGER.warn("[lte] psd lcd: no live train at this platform, "
-                    + "falling back to {} cars for the consist strip", DEFAULT_CARS);
+                    + "leaving the consist row blank");
         }
-        return DEFAULT_CARS;
+        return 0;
     }
 
     /** 两个 Station 是不是同一个（按 id；任一为 null 就是 false）。 */

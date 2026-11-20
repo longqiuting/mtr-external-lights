@@ -217,9 +217,9 @@ public final class PsdLcdPainter {
     /**
      * 这块屏要显示的内容（全部是已经解析好的字符串 —— 排版不认识 MTR）。
      *
-     * @param carNumbers 车厢编号（1 2 3 4），长度 = 画几张卡片
+     * @param carNumbers 车厢编号（1 2 3 4），长度 = 画几张卡片（空 = 编组行整块不画）
      * @param carNote    编组行下面那行小字（空 = 不画）
-     * @param tickerText 标语条文字（长句会滚，见 {@link #paintTickerStrip}；空 = 连标语框都不画）
+     * @param tickerText 标语条文字（<b>一律滚动</b>，见 {@link #paintTickerStrip}；空 = 连标语框都不画）
      * @param unitZh2/unitEn2 第二行的单位（第一行是 {@code unitZh/unitEn}）—— **两行各带各的**，
      *                        以前共用一个字段，第二行的「分钟 / min」就会跟着第一行一起空掉
      */
@@ -292,7 +292,7 @@ public final class PsdLcdPainter {
      * 是渲染器每 tick 单独画到一张小贴图上的（{@link #paintTickerStrip}），不能烘进整屏位图 ——
      * 整屏位图只在内容变化时重画，烘进去就等于「滚动标语又不滚了」。
      *
-     * @param tickerPhase 0…1 的滚动进度；{@code null} = 不画长句（短句仍然居中画）
+     * @param tickerPhase 0…1 的滚动进度；{@code null} = 位图里不烘字（游戏路径，字由渲染器滚）
      */
     public static BufferedImage paint(final Content c, final Assets assets, final BufferedImage ad,
                                       final int width, final int height, final Float tickerPhase) {
@@ -367,7 +367,7 @@ public final class PsdLcdPainter {
             station(g, c, assets, width, h);
             cars(g, c, assets, width, h);
 
-            // ---- 标语条：框永远画；短句（≤ 框宽）居中画进位图，长句由渲染器滚动（预览时按 tickerPhase 烘进来）
+            // ---- 标语条：框只要有字就画；字一律由渲染器滚动（预览时按 tickerPhase 烘进来）
             paintTicker(g, c, assets, width, height, tickerPhase);
         } finally {
             g.setTransform(savedTransform);
@@ -593,7 +593,7 @@ public final class PsdLcdPainter {
         if (numbers == null || numbers.isEmpty() || assets == null) {
             return;
         }
-        // 编组节数由渲染器按 MTR 里那列车的实际编组给（拿不到才退回 4 节）；
+        // 编组节数由渲染器按 MTR 里那列车的实际编组给（拿不到 → 列表为空 → 整行不画）；
         // 上限 16 只是防呆（真出现 20 节的编组，卡片会窄到看不清，不如截断）。
         final int n = Math.min(16, numbers.size());
 
@@ -650,11 +650,17 @@ public final class PsdLcdPainter {
         }
     }
 
-    /** 编组行下面那行小字（设计稿：注：此处按线路实际运营车辆读取编组）。 */
+    /**
+     * 编组行下面那行小字（设计稿：注：此处按线路实际运营车辆读取编组）。
+     *
+     * <p>编组行<b>整块不画</b>时（读不到实时编组）这行小字也一起不画 —— 它属于编组行，
+     * 留一行「注：……」挂在空行下面比空着更奇怪。
+     */
     private static void note(final Graphics2D g, final Content c, final Assets assets,
                              final float w, final float h) {
         final String text = c.carNote();
-        if (text == null || text.isBlank()) {
+        if (text == null || text.isBlank()
+                || c.carNumbers() == null || c.carNumbers().isEmpty()) {
             return;
         }
         line(g, text, assets == null ? null : assets.cjk(), "注：编组按线路实际运营车辆", NOTE_TOP * h,
@@ -748,7 +754,8 @@ public final class PsdLcdPainter {
      *
      * <p>为什么单独一张：整屏位图只在「内容变了」时重画（时钟 / 倒计时是分钟级），
      * 滚动标语每 tick 都要动 —— 把相位算进整屏的内容哈希就等于每 tick 重画 3000×455 的位图。
-     * 所以长句只画进这张「条内小贴图」，渲染器每 tick 上传它，短句（≤ 框宽）仍然居中烘在整屏位图里。
+     * 所以整屏位图里只有那一圈胶囊框，字<b>一律</b>画进这张「条内小贴图」（短句也滚，
+     * 从右缘外进来、滚出左缘）。
      *
      * <p>落点与 PIDS 一致：{@code x = 框内右缘 − phase × (框内宽 + 字宽)} —— phase=0 时整句
      * 刚好在框外右侧，phase=1 时整句从左缘出去；跨过边缘的字被位图边界直接切掉（半字），
@@ -784,12 +791,15 @@ public final class PsdLcdPainter {
     }
 
     /**
-     * 标语条：<b>胶囊框永远画</b>（有字才画），字按「滚不滚」分两路：
+     * 标语条：<b>胶囊框只要有字就画</b>，字一律<b>不烘进整屏位图</b> ——
      * <ul>
-     *   <li>字宽 ≤ 框内宽 → 居中画进位图（静止，不滚）；</li>
-     *   <li>字宽 &gt; 框内宽 → 位图里<b>不画字</b>（游戏里由渲染器每 tick 画小贴图滚动；
-     *       离线预览把 {@code tickerPhase} 传进来时，这里把那一帧合成就来，方便看图）。</li>
+     *   <li>游戏里：渲染器每 tick 把那一帧画到一张透明小贴图上滚（{@link #paintTickerStrip}），
+     *       短句长句同一套，都是「从右缘外进来、滚出左缘」；</li>
+     *   <li>离线预览：把 {@code tickerPhase} 传进来时，这里把那一帧合成就来，方便看图。</li>
      * </ul>
+     *
+     * <p>以前短句（字宽 ≤ 框内宽）是居中静止烘在位图里的 —— 现在<b>一律滚</b>，不再有那条分支：
+     * 短句和长句用同一个 {@code pxPerTick} 速度、同一条「框内宽 + 字宽」的行程。
      */
     private static void paintTicker(final Graphics2D g, final Content c, final Assets assets,
                                     final float width, final float height,
@@ -815,21 +825,12 @@ public final class PsdLcdPainter {
         g.setStroke(new BasicStroke(1.0F));
 
         final float[] inner = tickerInner(width, height);
-        final float innerW = inner[2] - inner[0];
         final float textW = tickerTextWidth(c, assets, width, height);
-        if (textW <= innerW) {
-            // 短句：居中静止（这一档与以前逐像素一致）
-            final float inkH = tickerFontPx(width, height);
-            line(g, text, assets == null ? null : assets.cjk(), text,
-                    (ty0 + ty1) * 0.5F - inkH * 0.5F, inkH,
-                    (tx0 + tx1) * 0.5F, Align.CENTER, innerW, COLOR_WHITE);
+        if (tickerPhase == null || textW <= 0.0F) {
+            // 游戏路径：字由渲染器滚动画在小贴图上，位图里不烘（短句也一样）
             return;
         }
-        if (tickerPhase == null) {
-            // 游戏路径：长句由渲染器滚动，位图里不烘字
-            return;
-        }
-        // 预览路径：把「滚到 tickerPhase」那一帧合成就来
+        // 预览路径：把「滚到 tickerPhase」那一帧合成就来（短句长句同一套）
         final BufferedImage strip = paintTickerStrip(c, assets, width, height, tickerPhase);
         g.drawImage(strip, Math.round(inner[0]), Math.round(inner[1] - offY), null);
     }

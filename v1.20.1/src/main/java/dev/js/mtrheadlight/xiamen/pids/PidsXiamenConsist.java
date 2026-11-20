@@ -6,10 +6,14 @@
 //
 //   <b>贴图层（这里，4× 位图）只放图形，一个字的文字都没有：</b>
 //   ① 底带 = 用户单独给的 `consist_band.png`（333×33，纯底带：深蓝圆角带 + 左端斜车头 +
-//      两端露青色，**不带卡片也不带字**），按<b>三段</b>铺（{@link #paintBand}）：
-//      左段（斜车头，35px）与右段（收边，21px）只按比例放大、绝不横向拉伸，
-//      中段（277px 纯色）横向拉伸填满 —— 所以 2 节到 16 节车头形状都不变形、也没有接缝。
-//      它是干净的底带，盖上去就把底图里那排烘死的卡片整片遮住，不需要「擦除」这一步；
+//      四周一圈青色余边，**不带卡片也不带字**），按<b>三段</b>铺（{@link #paintBand}）：
+//      左段（斜车头，35px）与右段（收边，2px 暗边线）只按比例放大、绝不横向拉伸，
+//      中段（276px 纯色）横向拉伸 —— 所以 2 节到 16 节车头形状都不变形、也没有接缝。
+//      <b>总长跟着节数伸缩</b>（{@link #bandWidth}）：右端 = 最后一张卡 + 收边 + 3px 留白，
+//      2 节短、6 节以上顶到带体右缘；右端以外<b>什么都不画</b>（铺面板底色 {@link #PANEL_BG}，
+//      既盖掉底图里那排烘死的旧静态卡片，又不会在小编组时留一个空盒子）；
+//      素材右侧那圈青色余边（{@link #bandBodyWidth} 之外的列）<b>不画</b> —— 那是底图里
+//      「带子铺满整行」时露出来的光晕，带子一收短就会变成一块孤零零的青色方块；
 //   ② 卡片 = <b>从底图里像素级切出来的那一张</b>（`gui/pids/consist_card.png`，41×20，
 //      底图坐标 x 210..250 / y 3..22）**按原尺寸平铺 N 次** —— 4× 时是逐像素块复制
 //      （最近邻、不插值、不重采样），所以卡片和底图里烘死的那排一模一样锐，
@@ -61,8 +65,13 @@ import java.awt.image.BufferedImage;
  *
  * <p>{@link #paint} 出来的是「整条编组带」的小贴图（4×，1332×132），渲染器把它铺回
  * {@link #STRIP} 那个矩形上，再用 {@code PidsXiamenText} 把车号写在
- * {@link #layout(int)} 给出的位置上；{@code cars <= 0}（读不到编组）时
- * {@code paint} 返回 {@code null}，调用方就<b>不画</b>叠加层 —— 底图里那排静态画原样留着，屏不会空。
+ * {@link #layout(int)} 给出的位置上。
+ *
+ * <p><b>底带长度跟着节数走</b>（{@link #bandWidth}）：右端 = 最后一张卡右缘 + 右端收边 +
+ * {@link #BAND_PAD}，节数少底带就短，最长到带体右缘（{@link #bandBodyWidth}，素材那圈青色光晕
+ * <b>不画</b>）；底带右端以外的行区铺 {@link #PANEL_BG}（= 从底图同一行采样的面板底色，
+ * 与周围像素逐字节相同，所以看不出拼缝），同时把底图里烘死的旧静态编组条盖住。
+ * {@code cars <= 0}（读不到编组）时整条行区只剩那块面板底色 → <b>编组条整块空着</b>。
  */
 public final class PidsXiamenConsist {
 
@@ -71,11 +80,34 @@ public final class PidsXiamenConsist {
     /** 叠加层分辨率倍数（1 面板像素 → 4 贴图像素）。 */
     public static final int SCALE = 4;
 
-    /** 编组带在底图上的矩形（含首末像素）：x 179..511、y 0..32 → 333 × 33。 */
+    /** 底带在底图上的矩形（含首末像素）：x 179..511、y 0..32 → 333 × 33。 */
     public static final int STRIP_X0 = 179;
     public static final int STRIP_Y0 = 0;
     public static final int STRIP_W = 333;
     public static final int STRIP_H = 33;
+
+    /**
+     * 底带右端在「最后一张卡右缘 + 右端收边」之外再留的空白（面板 px）。
+     * <p>底带总长 = 左段（斜车头，{@link #bandSegments} 量出来的） + 卡片行 + 右段（收边） + 这点留白，
+     * 见 {@link #bandWidth}：<b>节数少就短、节数多就长</b>，最长到带体右缘（{@link #bandBodyWidth}）。
+     */
+    public static final float BAND_PAD = 3.0F;
+
+    /**
+     * 底带以外那块区域的面板底色 —— <b>从底图 {@code pids_xiamen_metro.png} 采样得到的</b>
+     * {@code RGB(0, 0, 230)} = {@code 0xFF0000E6}。
+     *
+     * <p>采样点（{@code scan-consist-strip.js} 的「带外底色」一节，同一行上取众数）：
+     * 编组带矩形<b>左边紧邻</b>的 x 176..178 与<b>正下方</b> y 34..36，
+     * 覆盖 y 0..32 全部 33 行 / x 176..511 全部列 —— 底图里这两处都是纯面板底色，
+     * 逐字节 {@code (0,0,230)}，一列不例外。底带矩形<b>里面</b>不能拿来采样：
+     * 那里全是青色光晕 + 深蓝带体。
+     *
+     * <p>叠加层里 {@code x > bandWidth} 的像素一律就是这块颜色 —— 和周围面板像素
+     * <b>逐字节相同</b>，所以带子收短以后看不出任何「拼缝」（不会出现比底图亮/暗一档的盒子）。
+     * 换底图就重跑脚本，脚本会核对这个常量并打出来。
+     */
+    public static final int PANEL_BG = 0xFF0000E6;
 
     /** 卡片切片在底图上的矩形（像素级切，来自 scan-consist-strip.js --emit）。 */
     public static final int CARD_SRC_X = 210;
@@ -164,7 +196,7 @@ public final class PidsXiamenConsist {
      * 内容版本：改了绘制逻辑就 +1 —— 渲染器用它和节数一起算内容哈希，
      * 哈希没变就不重传贴图（见 {@code PidsXiamenConsistTextures}）。
      */
-    public static final int CONTENT_VERSION = 4;
+    public static final int CONTENT_VERSION = 6;
 
     /** 切片 keying（把深蓝底变成透明）时，alpha 到这个亮度就满不透明。 */
     private static final int KEY_FULL = 96;
@@ -196,16 +228,74 @@ public final class PidsXiamenConsist {
     }
 
     /**
-     * 底带三段的宽度（源像素）：{@code 左（斜车头）, 中（纯色）, 右（收边）}。
-     * <p>报告 / 预览用 —— 游戏里 {@link #paintBand} 用的是同一套量法。
+     * 底带三段的宽度（源像素）：{@code 左（斜车头）, 中（纯色，横向拉伸）, 收边（右端暗边线）}。
+     * <p>三段加起来 = {@link #bandBodyWidth}（带体宽度）—— 素材右边那圈青色余边不在里面：
+     * 它是底图里「带子铺满整行」时露出来的光晕，带子一收短就会变成一块孤零零的青色方块，
+     * 所以<b>不画</b>（见 {@link #paintBand}）。报告 / 预览用，游戏里走的是同一套量法。
      */
     public static int[] bandSegments(final BufferedImage band) {
         if (band == null) {
             return new int[]{0, 0, 0};
         }
-        final int left = Math.min(band.getWidth() - 2, leftSegment(band));
-        final int right = Math.min(band.getWidth() - left - 1, rightSegment(band));
-        return new int[]{left, Math.max(1, band.getWidth() - left - right), right};
+        segments(band);
+        final int bodyW = CACHED_BODY_RIGHT + 1;
+        final int left = Math.min(bodyW - 2, CACHED_LEFT_W);
+        final int cap = Math.max(1, Math.min(bodyW - left - 1, CACHED_CAP_W));
+        return new int[]{left, Math.max(1, bodyW - left - cap), cap};
+    }
+
+    /**
+     * <b>带体宽度</b>（源像素）= 底带素材里深蓝那一截的右缘 + 1 —— <b>底带能画到的最远处</b>。
+     * <pre>
+     *   consist_band.png  333 列 = 左 19 列青色光晕 + 带体 295 列（x 18..312）+ 右 20 列青色光晕
+     *   → bandBodyWidth() = 313，素材的 x 313..332 <b>不画</b>
+     * </pre>
+     * 带体右缘由像素量出来（{@link #bodyRight}），换底带不用改代码。
+     */
+    public static int bandBodyWidth(final BufferedImage band) {
+        if (band == null) {
+            return 0;
+        }
+        segments(band);
+        return CACHED_BODY_RIGHT + 1;
+    }
+
+    /**
+     * <b>底带总长</b>（面板 px，从 {@link #STRIP_X0} 起算）—— 跟着节数伸缩。
+     *
+     * <pre>
+     *   右缘 = 最后一张卡右缘 + 收边（{@link #bandSegments} 的第 3 段）+ {@link #BAND_PAD}
+     *   最小 = 左段（斜车头，35px）+ 一张卡 + 收边       ← 只挂 1 节也包得住
+     *   上限 = {@link #bandBodyWidth}                  ← 带体右缘，再往右只有青色余边（不画）
+     * </pre>
+     *
+     * <p>2 节 ≈ 124px、6 节以上 310px（顶到带体右缘）：节数越多底带越长，右端永远压在最后一张卡之后
+     * 一点点，剩下的行区（{@code bandWidth()..333}）用 {@link #PANEL_BG} 铺底 = 什么都不画。
+     * <b>绝不再把素材右边那圈青色余边画上去</b> —— 那正是收短以后「带子后面多出一块青色矩形」的来源。
+     *
+     * @return 面板 px；{@code cars <= 0} 或底带素材缺失 → 0
+     */
+    public static float bandWidth(final BufferedImage band, final int cars) {
+        if (cars <= 0 || band == null) {
+            return 0.0F;
+        }
+        final Card[] cards = layout(cars);
+        if (cards.length == 0) {
+            return 0.0F;
+        }
+        segments(band);
+        final int left = CACHED_LEFT_W;
+        final int cap = CACHED_CAP_W;
+        final float lastRight = cards[cards.length - 1].x1() - STRIP_X0;
+        final float natural = lastRight + cap + BAND_PAD;
+        final float minimal = left + CARD_W + cap;
+        final float max = CACHED_BODY_RIGHT + 1;       // 带体右缘：再往右只有青色余边，不画
+        return Math.min(max, Math.max(minimal, natural));
+    }
+
+    /** 底带右缘的底图 x 坐标（面板 px）= {@code STRIP_X0 + bandWidth()}；{@code cars <= 0} → {@code STRIP_X0}。 */
+    public static float bandRight(final BufferedImage band, final int cars) {
+        return STRIP_X0 + bandWidth(band, cars);
     }
 
     /**
@@ -387,27 +477,28 @@ public final class PidsXiamenConsist {
     }
 
     /**
-     * 画整条编组带（{@code 1332 × 132}）—— <b>只有图形，没有文字</b>。
+     * 画整条编组叠加层（{@code 1332 × 132}）—— <b>只有图形，没有文字</b>。
+     *
+     * <p>行区里除了「伸缩底带 + 卡片 + 雪花」以外一律铺 {@link #PANEL_BG}（面板底色）：
+     * 底带右端到行区右边界那一段因此<b>什么都没有</b>，而底图里烘死的旧 6 节静态条也被盖住。
+     * {@code cars <= 0}（读不到编组）时画出来的就是一块纯面板底色 —— 编组条整块空着。
      *
      * @param band   底带素材（{@code consist_band.png}，333×33，纯底带，不带卡片与文字）
      * @param card   卡片切片（{@code consist_card.png}，41×20，从底图像素级切出来）
      * @param flake  雪花切片（{@code consist_flake.png}，7×7）
-     * @param cars   实际车厢数；{@code <= 0} 或素材缺失 → 返回 {@code null}（= 不画叠加层）
-     * @return 4× 的 ARGB 位图，或 {@code null}
+     * @param cars   实际车厢数；{@code <= 0} = 读不到编组 → 只画面板底色（编组条空着）
+     * @return 4× 的 ARGB 位图；{@code cars > 0} 但素材缺失 → {@code null}
      */
     public static BufferedImage paint(final BufferedImage band, final BufferedImage card,
                                       final BufferedImage flake, final int cars) {
-        if (cars <= 0) {
-            // 读不到编组：不画叠加层，底图里那排静态画原样留着（屏不会空）
-            return null;
-        }
-        if (band == null || band.getWidth() < 8 || band.getHeight() < 4
+        final int n = Math.min(MAX_CARS, Math.max(0, cars));
+        if (n > 0 && (band == null || band.getWidth() < 8 || band.getHeight() < 4
                 || card == null || card.getWidth() < 2 || card.getHeight() < 2
-                || flake == null || flake.getWidth() < 2 || flake.getHeight() < 2) {
+                || flake == null || flake.getWidth() < 2 || flake.getHeight() < 2)) {
             return null;
         }
         try {
-            return paintUnsafe(band, card, flake, Math.min(MAX_CARS, cars));
+            return paintUnsafe(band, card, flake, n);
         } catch (final Throwable t) {
             return null;
         }
@@ -421,23 +512,30 @@ public final class PidsXiamenConsist {
         final int h = overlayHeight();
         final int[] pixels = new int[w * h];
 
-        paintBand(pixels, band);
+        // ① 整条行区先铺面板底色：底带右端以外「什么都不画」= 透出底图本来的底色。
+        //    这一铺同时把底图里烘死的旧静态编组条盖掉（否则 2 节屏右边还挂着 3..6 车）。
+        java.util.Arrays.fill(pixels, PANEL_BG);
 
-        final BufferedImage cardKeyed = keyed(card, true);
-        final BufferedImage flakeKeyed = keyed(flake, false);
-        for (final Card c : layout(cars)) {
-            // 卡片：高度永远是 4× 块复制；宽度按 cw 最近邻压（cw = 41 时就是纯块复制）
-            blitSqueezed(pixels, w, h, cardKeyed,
-                    dev(c.x0() - STRIP_X0), dev(CARD_TOP - STRIP_Y0),
-                    Math.max(1, Math.round(c.w() * SCALE)),
-                    Math.max(1, Math.round(CARD_H * SCALE)));
-            // 雪花：首 / 尾 1 颗、中间 2 颗；边长 7/6/5/4 也按 4× 块复制（7px 时纯块复制）
-            final int flakeDev = Math.max(1, Math.round(c.flakeW() * SCALE));
-            final int flakeTop = dev(FLAKE_TOP + (FLAKE_SRC_H - c.flakeW()) - STRIP_Y0);
-            for (int k = 0; k < c.flakes(); k++) {
-                final float fx = c.flakeX0() + k * (c.flakeW() + FLAKE_GAP);
-                blitSqueezed(pixels, w, h, flakeKeyed,
-                        dev(fx - STRIP_X0), flakeTop, flakeDev, flakeDev);
+        if (cars > 0) {
+            // ② 底带：长度跟着节数走（右端 = 最后一张卡 + 收边 + 留白）
+            paintBand(pixels, band, Math.round(bandWidth(band, cars) * SCALE));
+
+            final BufferedImage cardKeyed = keyed(card, true);
+            final BufferedImage flakeKeyed = keyed(flake, false);
+            for (final Card c : layout(cars)) {
+                // 卡片：高度永远是 4× 块复制；宽度按 cw 最近邻压（cw = 41 时就是纯块复制）
+                blitSqueezed(pixels, w, h, cardKeyed,
+                        dev(c.x0() - STRIP_X0), dev(CARD_TOP - STRIP_Y0),
+                        Math.max(1, Math.round(c.w() * SCALE)),
+                        Math.max(1, Math.round(CARD_H * SCALE)));
+                // 雪花：首 / 尾 1 颗、中间 2 颗；边长 7/6/5/4 也按 4× 块复制（7px 时纯块复制）
+                final int flakeDev = Math.max(1, Math.round(c.flakeW() * SCALE));
+                final int flakeTop = dev(FLAKE_TOP + (FLAKE_SRC_H - c.flakeW()) - STRIP_Y0);
+                for (int k = 0; k < c.flakes(); k++) {
+                    final float fx = c.flakeX0() + k * (c.flakeW() + FLAKE_GAP);
+                    blitSqueezed(pixels, w, h, flakeKeyed,
+                            dev(fx - STRIP_X0), flakeTop, flakeDev, flakeDev);
+                }
             }
         }
 
@@ -502,54 +600,79 @@ public final class PidsXiamenConsist {
 
     // ================================================================ 底带
 
-    /** 底带左段（斜车头）/ 右段（收边）的源像素宽度缓存。 */
+    /** 底带三段（源像素）的量法缓存：只在素材实例换了（F3+T / 换包）时重量一次。 */
     private static int CACHED_LEFT_W = -1;
-    private static int CACHED_RIGHT_W = -1;
+    private static int CACHED_CAP_W = -1;
+    private static int CACHED_BODY_RIGHT = -1;
     private static BufferedImage CACHED_BAND_FOR_SEG;
 
+    /** 量一次三段（左段 / 收边 / 带体右缘），按素材实例缓存。 */
+    private static void segments(final BufferedImage band) {
+        if (CACHED_BAND_FOR_SEG == band && CACHED_LEFT_W > 0) {
+            return;
+        }
+        final int left = leftSegment(band);
+        final int bodyRightCol = Math.max(left + 1, bodyRight(band));
+        final int span = Math.max(2, bodyRightCol + 1 - left);
+        CACHED_LEFT_W = left;
+        CACHED_BODY_RIGHT = bodyRightCol;
+        // 收边 = 带体右缘那条压暗的边线（+1 是把最右那一列本身也包进来）
+        CACHED_CAP_W = Math.max(1, Math.min(Math.min(8, span - 1), edgeRun(band, bodyRightCol) + 1));
+        CACHED_BAND_FOR_SEG = band;
+    }
+
     /**
-     * 底带按<b>三段</b>铺（9-slice 的横向版）：
+     * 底带按<b>三段</b>铺（9-slice 的横向版），只铺 {@code 0..dstBandW}：
      * <pre>
-     *   左段  x 0..leftW-1          含斜车头，按原像素等比放大，绝不横向拉伸
-     *   中段  leftW..srcW-rightW-1  纯深蓝 + 上下那两条浅色边，横向拉伸填满剩余宽度
-     *   右段  末尾 rightW 列        右端收边 / 圆角，同样只按比例放大
+     *   左段  x 0..leftW-1                  含斜车头（和它左边那点青色光晕），等比放大，绝不横向拉伸
+     *   中段  leftW..bodyRight-capW         纯深蓝 + 上下那两条浅色边，横向拉伸填满剩余宽度
+     *   收边  bodyRight-capW+1..bodyRight   右端那条压暗的边线，同样只按比例放大
      * </pre>
      * 三段用<b>同一个</b>缩放比（= 目标高 ÷ 底带高，这里正好 4），所以接缝处的行高、颜色完全对齐，
      * 2 节到 16 节都看不出接缝；车头形状在任何节数下都是原样。
      *
+     * <p><b>只画到带体右缘</b>（{@link #bandBodyWidth}）：素材 x 313..332 那 20 列是青色光晕 ——
+     * 底图里带子铺满整行时它在最右边，看不出来；带子一收短再把它画上去，就是
+     * 「底带后面多出一块青色矩形」。所以收边段取的是<b>带体自己的</b>暗边线，
+     * 到 {@code dstBandW} 为止一个青色像素都不画，右边直接接 {@link #PANEL_BG}（= 底图底色）。
+     *
+     * <p><b>总长跟着节数走</b>：{@code dstBandW} 来自 {@link #bandWidth}（最后一张卡 + 收边 + 留白），
+     * 不是整条行区 —— 节数少底带就短，剩下的行区保持 {@link #PANEL_BG}（= 什么都不画）。
+     *
      * <p>采样一律最近邻（放大时就是 4×4 块复制）——底带是纯色块，插值只会把它抹软。
      */
-    private static void paintBand(final int[] pixels, final BufferedImage band) {
+    private static void paintBand(final int[] pixels, final BufferedImage band, final int dstBandW) {
         final int dstW = overlayWidth();
         final int dstH = overlayHeight();
-        final int srcW = band.getWidth();
+        final int target = Math.min(dstW, dstBandW);
+        if (target <= 0) {
+            return;
+        }
         final int srcH = band.getHeight();
         final float scale = dstH / (float) srcH;
 
-        if (CACHED_BAND_FOR_SEG != band) {
-            CACHED_LEFT_W = leftSegment(band);
-            CACHED_RIGHT_W = rightSegment(band);
-            CACHED_BAND_FOR_SEG = band;
-        }
-        final int leftW = Math.max(1, Math.min(srcW - 2, CACHED_LEFT_W));
-        final int rightW = Math.max(1, Math.min(srcW - leftW - 1, CACHED_RIGHT_W));
-        final int midSrc = srcW - leftW - rightW;
+        segments(band);
+        final int leftW = CACHED_LEFT_W;
+        final int capW = CACHED_CAP_W;
+        final int bodyW = CACHED_BODY_RIGHT + 1;          // ← 带体右缘：青色余边不算
+        final int midSrc = Math.max(1, bodyW - leftW - capW);
+        final int capSrcX0 = bodyW - capW;
 
-        final int dstLeft = Math.round(leftW * scale);
-        final int dstRight = Math.round(rightW * scale);
-        final int dstMid = Math.max(1, dstW - dstLeft - dstRight);
+        final int dstLeft = Math.min(target, Math.round(leftW * scale));
+        final int dstCap = Math.min(target - dstLeft, Math.round(capW * scale));
+        final int dstMid = Math.max(1, target - dstLeft - dstCap);
 
         for (int y = 0; y < dstH; y++) {
             final int sy = Math.min(srcH - 1, (int) (y / scale));
             final int row = y * dstW;
-            for (int x = 0; x < dstW; x++) {
+            for (int x = 0; x < target; x++) {
                 final int sx;
                 if (x < dstLeft) {
                     // 左段：只按比例放大（不拉伸）→ 车头形状不变
                     sx = Math.min(leftW - 1, (int) (x / scale));
-                } else if (x >= dstW - dstRight) {
-                    // 右段：同上，只按比例放大 → 右端收边不变
-                    sx = srcW - rightW + Math.min(rightW - 1, (int) ((x - (dstW - dstRight)) / scale));
+                } else if (x >= target - dstCap) {
+                    // 收边：带体右缘那条暗边线，只按比例放大 → 右端收边不变形
+                    sx = capSrcX0 + Math.min(capW - 1, (int) ((x - (target - dstCap)) / scale));
                 } else {
                     // 中段：纯色，横向拉伸填满
                     sx = leftW + Math.min(midSrc - 1,
@@ -577,18 +700,40 @@ public final class PidsXiamenConsist {
         return Math.min(band.getWidth() - 2, maxFirst + 3);
     }
 
-    /** 右段宽度：逐行找「不是青色背景」的最右列，取最小值 → 从那一列起到末尾就是右段。 */
-    private static int rightSegment(final BufferedImage band) {
-        int minLast = band.getWidth() - 1;
-        for (int y = 2; y < band.getHeight() - 2; y++) {
+    /**
+     * <b>带体右缘</b>（源列，含）= 逐行找「深蓝带体」的最右列，取最大值。
+     * <p>素材右边那 20 列青色光晕不是带体 —— 这一列往右的像素一个都不画（见 {@link #paintBand}）。
+     * 换底带不用改代码，量出来的值会跟着变。
+     */
+    static int bodyRight(final BufferedImage band) {
+        int right = -1;
+        for (int y = 3; y < band.getHeight() - 2; y++) {
             for (int x = band.getWidth() - 1; x >= 0; x--) {
-                if (!isCyan(band.getRGB(x, y))) {
-                    minLast = Math.min(minLast, x);
+                if (isNavy(band.getRGB(x, y))) {
+                    right = Math.max(right, x);
                     break;
                 }
             }
         }
-        return Math.max(2, band.getWidth() - minLast);
+        return right < 0 ? band.getWidth() - 1 : right;
+    }
+
+    /**
+     * 带体右缘那圈「压暗的边线」有几列：从 {@code bodyRight} 往左数，
+     * 蓝通道比带内纯色暗 3 以上的列。这段按原比例放大（不拉伸），
+     * 带子右端那条边线才不会在长编组下被拉成一片、也不会被插值抹掉。
+     */
+    private static int edgeRun(final BufferedImage band, final int bodyRight) {
+        final int y = band.getHeight() / 2;
+        final int interior = band.getRGB(Math.max(0, bodyRight - 20), y) & 0xFF;   // 带内纯色的蓝
+        int run = 1;
+        for (int x = bodyRight - 1; x >= 0 && run < 8; x--) {
+            if (Math.abs((band.getRGB(x, y) & 0xFF) - interior) <= 3) {
+                break;
+            }
+            run++;
+        }
+        return run;
     }
 
     /** 底带的青色边（r 低、g/b 高）—— 用来划三段。 */
@@ -597,6 +742,14 @@ public final class PidsXiamenConsist {
         final int gg = (argb >> 8) & 0xFF;
         final int b = argb & 0xFF;
         return r < 110 && gg > 150 && b > 150;
+    }
+
+    /** 底带的深蓝带体（r/g 低、b 高）—— 用来找带体右缘。 */
+    private static boolean isNavy(final int argb) {
+        final int r = (argb >> 16) & 0xFF;
+        final int gg = (argb >> 8) & 0xFF;
+        final int b = argb & 0xFF;
+        return b > 150 && r < 60 && gg < 60;
     }
 
     // ================================================================ 切片 keying

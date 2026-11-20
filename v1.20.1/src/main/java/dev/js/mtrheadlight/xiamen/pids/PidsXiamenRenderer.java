@@ -369,16 +369,20 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
     /**
      * 编组条叠加层：贴在底图顶部那块矩形上的一张动态贴图（4×，见 {@link PidsXiamenConsist}）。
      *
-     * <p>只有地铁版式有那条编组带（BRT 底图没有 → {@code cars} 恒为 0，这里直接不画）。
-     * 贴图本身<b>不含任何文字</b>；节数读不到时 {@code texture()} 返回 {@code null}，
-     * 于是什么都不画 —— 底图里那排静态画原样留着，屏不会空。
+     * <p>只有地铁版式有那条编组带（BRT 底图没有 → 这里直接不画）。
+     * 贴图本身<b>不含任何文字</b>；节数读不到（{@code cars <= 0}）时贴图是一块
+     * <b>纯面板底色</b> —— 编组条整块空着（底带 / 卡片 / 雪花一个都不画），
+     * 同时把底图里烘死的旧 6 节静态条盖掉，屏上不会剩一排对不上的车号。
+     *
+     * <p>底带长度跟着节数走（{@link PidsXiamenConsist#bandWidth}）：2 节短、13 节长，
+     * 右端以外什么都不画。
      *
      * <p>渲染层和底图相同（{@code MoreRenderLayers.getLight}）→ 亮度一致，不会出现
      * 「编组条比面板亮/暗一档」。
      */
     private static void renderConsist(final MatrixStack matrices, final VertexConsumerProvider vertexConsumers,
                                       final Screen screen) {
-        if (screen.kind() != PidsXiamenBlock.Kind.METRO || screen.cars() <= 0) {
+        if (screen.kind() != PidsXiamenBlock.Kind.METRO) {
             return;
         }
         final Identifier id = PidsXiamenConsistTextures.texture(screen.cars());
@@ -932,8 +936,8 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
      * </ol>
      *
      * <p>三条都落空（单机存档还没发车 / 客户端还没同步列车）时返回 <b>0</b>：
-     * 渲染器据此<b>不画叠加层</b>，底图里那排烘死的静态编组原样留着 ——
-     * 宁可显示一张静态的 6 节，也不要空着或者瞎猜一个节数。
+     * 渲染器据此把编组条整块<b>留空</b>（只有面板底色，不画底带 / 卡片 / 车号）——
+     * 不猜节数、也不退回固定的 4 节。
      */
     private static int consistOf(final Station station, final long routeId) {
         try {
@@ -969,7 +973,7 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         if (!carsWarned) {
             carsWarned = true;
             LteLog.LOGGER.warn("[lte] xiamen pids: no live train for this platform, "
-                    + "keeping the baked consist strip");
+                    + "leaving the consist strip blank");
         }
         return 0;
     }

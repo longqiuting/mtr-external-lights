@@ -13,6 +13,13 @@
  *      带内的纯深蓝，否则 2 节编组时右半边会露出烘死的 3..6 车
  *   3. **卡片几何**（宽 / 高 / 间隙 / 行带）—— 用来校核 `CARD_W` / `CARD_H` / `GAP`，
  *      以及 `--emit` 要切的卡片矩形（第 1 张卡的真实包围盒）
+ *   4. **带外底色**（叠加层里 `x > bandWidth` 那段要铺的面板底色）—— 在底带矩形
+ *      左边紧邻的 3 列 / 正下方 3 行上取众数（同一行、矩形外面），写进
+ *      `PidsXiamenConsist#PANEL_BG`；脚本会顺手核对 Java 常量，不一致直接提示。
+ *      底带矩形**里面**不能采样 —— 那里是青色光晕 + 深蓝带体。
+ *   5. **带体右缘**（`consist_band.png` 里深蓝那一截的最后一列）—— 素材右侧那圈
+ *      青色余边（实测 20 列）不算带体，绘制时**不画**：带子一收短，它就会变成
+ *      「底带后面多出一块青色矩形」。三段（左 / 中 / 收边）加起来正好等于带体宽度。
  *
  * 判定用的三个色类（都按底图实际像素定，换底图就得重量）：
  *   navy  深蓝带底  b > 150 && r < 60 && g < 60
@@ -193,12 +200,14 @@ for (let y = cardBandY1 + 1; y <= sy1; y++) {
 }
 
 // ---- 5) 底带素材 consist_band.png：尺寸 / 不透明 / 三段宽度（左斜车头 / 中纯色 / 右收边）
+//          + 带体右缘（素材右侧那圈青色余边不算带体，绘制时不画）
 const BAND = path.join(VERSION_DIR,
   'src/main/resources/assets/mtrlte/textures/gui/pids/consist_band.png');
 let bandReport = null;
 if (fs.existsSync(BAND)) {
   const band = decodePng(BAND);
   const isCyan = ([r, g, b]) => r < 110 && g > 150 && b > 150;
+  const isNavy = ([r, g, b]) => b > 150 && r < 60 && g < 60;
   let maxFirst = 0;
   let minLast = band.width - 1;
   let opaque = true;
@@ -218,7 +227,25 @@ if (fs.existsSync(BAND)) {
     }
   }
   const leftW = Math.min(band.width - 2, maxFirst + 3);
-  const rightW = Math.max(2, band.width - minLast);
+  const cyanRightW = Math.max(2, band.width - minLast);
+  // 带体右缘：逐行找「深蓝带体」的最右列，取最大值（= PidsXiamenConsist#bodyRight）
+  let bodyRight = -1;
+  for (let y = 3; y < band.height - 2; y++) {
+    for (let x = band.width - 1; x >= 0; x--) {
+      if (isNavy(band.rgb(x, y))) { bodyRight = Math.max(bodyRight, x); break; }
+    }
+  }
+  if (bodyRight < 0) bodyRight = band.width - 1;
+  // 收边：带体右缘那条「压暗的边线」有几列（蓝通道比带内纯色暗 3 以上）
+  const midY = band.height >> 1;
+  const interiorB = band.rgb(Math.max(0, bodyRight - 20), midY)[2];
+  let edgeRun = 1;
+  for (let x = bodyRight - 1; x >= 0 && edgeRun < 8; x--) {
+    if (Math.abs(band.rgb(x, midY)[2] - interiorB) <= 3) break;
+    edgeRun++;
+  }
+  const capW = Math.max(1, Math.min(Math.min(8, bodyRight - leftW), edgeRun + 1));
+  const bodyW = bodyRight + 1;
   // 和底图那块逐列比对：中段（左上角青色 + 深蓝）能对上的列数
   let matchingColumns = 0;
   for (let x = 0; x < band.width; x++) {
@@ -235,9 +262,46 @@ if (fs.existsSync(BAND)) {
   }
   bandReport = {
     width: band.width, height: band.height, opaque,
-    leftW, midW: band.width - leftW - rightW, rightW, matchingColumns,
+    leftW, midW: bodyW - leftW - capW, capW, bodyW, cyanRightW,
+    cyanRightFrom: bodyW, matchingColumns,
   };
 }
+
+// ---- 6) 带外底色：叠加层里 x > bandWidth 那段要铺的色 —— 必须和底图逐字节一致
+//
+// 采样点（同一行上取众数，两种取法互相交叉验证）：
+//   ① 编组带矩形**左边紧邻**的 3 列（x sx0−3..sx0−1）× 全部 33 行 —— 同一行、矩形外面；
+//   ② 编组带矩形**正下方** 3 行（y sy1+1..sy1+3）× 编组带全宽。
+// 底带矩形**里面**不能采样：那里是青色光晕 + 深蓝带体（(16,224,255)…(0,0,212)），不是底色。
+const bgSamples = [];
+for (let y = sy0; y <= sy1; y++) {
+  for (let x = Math.max(0, sx0 - 3); x < sx0; x++) {
+    bgSamples.push(png.rgb(x, y).slice(0, 3).join(','));
+  }
+}
+for (let y = sy1 + 1; y <= Math.min(H - 1, sy1 + 3); y++) {
+  for (let x = sx0; x <= sx1; x++) {
+    bgSamples.push(png.rgb(x, y).slice(0, 3).join(','));
+  }
+}
+const bgCounts = new Map();
+for (const c of bgSamples) bgCounts.set(c, (bgCounts.get(c) || 0) + 1);
+const bgTop = [...bgCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+const bgRgb = bgTop[0].split(',').map(Number);
+const bgHex = (0xFF000000 | (bgRgb[0] << 16) | (bgRgb[1] << 8) | bgRgb[2]) >>> 0;
+const bgPure = bgTop[1] === bgSamples.length;
+// 核对 Java 常量（改了绘制逻辑就得让两边一致）
+const CONSIST_JAVA = path.join(VERSION_DIR,
+  'src/main/java/dev/js/mtrheadlight/xiamen/pids/PidsXiamenConsist.java');
+let javaPanelBg = null;
+try {
+  const src = fs.readFileSync(CONSIST_JAVA, 'utf8');
+  const m = src.match(/PANEL_BG\s*=\s*0x([0-9A-Fa-f]{8})/);
+  if (m) javaPanelBg = parseInt(m[1], 16) >>> 0;
+} catch (err) {
+  javaPanelBg = null;
+}
+const bgMatchesJava = javaPanelBg === bgHex;
 
 const cardW = cards.length
   ? cards.reduce((s, c) => s + (c[1] - c[0] + 1), 0) / cards.length : 0;
@@ -385,6 +449,13 @@ const report = {
   gapRatio: +((gaps.reduce((s, g) => s + g, 0) / Math.max(1, gaps.length)) / cardW).toFixed(3),
   slices: { card: cardRect, flake: flakeRectOut },
   band: bandReport,
+  panelBg: {
+    rgb: bgRgb, hex: '0x' + bgHex.toString(16).toUpperCase().padStart(8, '0'),
+    samples: bgSamples.length, uniform: bgPure,
+    javaConstant: javaPanelBg === null ? null
+      : '0x' + javaPanelBg.toString(16).toUpperCase().padStart(8, '0'),
+    matchesJava: bgMatchesJava,
+  },
 };
 
 if (process.argv.includes('--json')) {
@@ -407,13 +478,24 @@ console.log(`    卡片自然宽 = 高 × (2144/1024) = ${((cardBandY1 - cardBan
 if (bandReport) {
   console.log(`[3] 底带素材 gui/pids/consist_band.png  ${bandReport.width} × ${bandReport.height}` +
     `  全不透明=${bandReport.opaque}`);
-  console.log(`    三段：左（斜车头）${bandReport.leftW}px / 中（纯色）${bandReport.midW}px` +
-    ` / 右（收边）${bandReport.rightW}px   → 4× 后 ${bandReport.leftW * 4} / ` +
-    `${1332 - (bandReport.leftW + bandReport.rightW) * 4} / ${bandReport.rightW * 4}`);
+  console.log(`    三段（绘制用）：左（斜车头）${bandReport.leftW} / 中（纯色，横向拉伸）` +
+    `${bandReport.midW} / 收边（右端暗边线）${bandReport.capW}   → 带体 ${bandReport.bodyW} 列` +
+    `（x 0..${bandReport.bodyW - 1}）`);
+  console.log(`    右侧青色余边：${bandReport.width - bandReport.bodyW} 列` +
+    `（x ${bandReport.cyanRightFrom}..${bandReport.width - 1}）→ **不画**` +
+    `（底图里带子铺满整行时才有的光晕；带子一收短就会变成「后面一块青色」）`);
   console.log(`    和底图那块逐像素一致列：${bandReport.matchingColumns}/${bandReport.width}`);
 } else {
   console.log('[3] 底带素材 gui/pids/consist_band.png 缺失');
 }
+console.log(`[3b] 带外底色（叠加层 x > bandWidth 那段）  RGB(${bgRgb.join(',')}) = ` +
+  `0x${bgHex.toString(16).toUpperCase().padStart(8, '0')}` +
+  `   ← ${bgSamples.length} 个采样点${bgPure ? '全部相同' : '，众数'}` +
+  `（编组带左边紧邻 3 列 × 33 行 + 正下方 3 行）`);
+console.log(`     = PidsXiamenConsist.PANEL_BG ` +
+  (bgMatchesJava ? '（一致 ✓ 叠加层带外块和面板像素逐字节相同，看不出拼缝）'
+    : `（不一致！Java 里是 ${javaPanelBg === null ? '读不到'
+      : '0x' + javaPanelBg.toString(16).toUpperCase().padStart(8, '0')}，要改成上面这个）`));
 
 const fmtRect = (r) => r ? `x ${r.x0}..${r.x0 + r.w - 1}  y ${r.y0}..${r.y0 + r.h - 1}` +
   `  (${r.w} × ${r.h})` : '未切到';

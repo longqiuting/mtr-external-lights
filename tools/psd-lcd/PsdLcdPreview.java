@@ -11,8 +11,8 @@
 //   java tools/psd-lcd/PsdLcdPreview.java temp/psd-lcd-preview.png 6.91 320 - 4
 //   java tools/psd-lcd/PsdLcdPreview.java temp/p.png 6.91 455 - 8 0 17 分钟 min 0.35
 //
-// tickerPhase：0…1 的标语滚动进度（只对「字比框宽」的长句有效；短句永远居中静止）。
-// 不传 = 长句不画（和游戏里一样：长句由渲染器每 tick 画在小贴图上）。
+// tickerPhase：0…1 的标语滚动进度（短句长句都一样滚：都是「从右缘外进来、滚出左缘」）。
+// 不传 = 位图里不烘字（和游戏里一样：字由渲染器每 tick 画在小贴图上滚）。
 package dev.js.mtrheadlight.xiamen.pids;
 
 import java.awt.image.BufferedImage;
@@ -84,7 +84,8 @@ public final class PsdLcdPreview {
     private static PsdLcdPainter.Content sample(final int cars, final String count1, final String count2,
                                                 final String unitZh, final String unitEn,
                                                 final String ticker) {
-        final int n = Math.max(1, cars);
+        // cars = 0 → 空列表 = 「读不到编组」：编组行整块不画（预览这个分支用）
+        final int n = Math.max(0, cars);
         final java.util.List<String> numbers = new java.util.ArrayList<>(n);
         for (int i = 1; i <= n; i++) {
             numbers.add(String.valueOf(i));
