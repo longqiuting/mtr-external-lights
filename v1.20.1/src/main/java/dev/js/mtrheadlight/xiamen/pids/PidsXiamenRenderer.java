@@ -395,7 +395,10 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         matrices.push();
         try {
             matrices.translate(0.0F, 0.0F, -CONSIST_LAYER_BLOCKS * PidsXiamenLayout.SCREEN_SCALE_DIVISOR);
-            drawQuad(matrices, vertexConsumers.getBuffer(MoreRenderLayers.getLight(id, false)),
+            // 编组条叠加层是**带透明区**的贴图（除底带/卡片外全透明），
+            // 必须走 translucent 版本：`getLight(id, false)` 是 opaque beacon 层，
+            // 透明像素会被当黑色画出来 —— 就是实机上「编组条四周一片黑」的原因。
+            drawQuad(matrices, vertexConsumers.getBuffer(MoreRenderLayers.getLight(id, true)),
                     strip[0], strip[1], strip[2], strip[3]);
         } finally {
             matrices.pop();
