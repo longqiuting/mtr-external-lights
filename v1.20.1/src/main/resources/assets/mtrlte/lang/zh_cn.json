@@ -373,6 +373,7 @@
   "gui.mtrlte.pids.bound_for_sub": "Bound for",
   "gui.mtrlte.pids.date_line": "%1$d月%2$d日%3$s",
   "gui.mtrlte.pids.minute": "分钟",
+  "gui.mtrlte.pids.no_data": "暂无列车信息",
   "gui.mtrlte.pids.next_train": "下一列车",
   "gui.mtrlte.pids.next_train_label": "下一班开往",
   "gui.mtrlte.pids.next_train_sub": "Next train",
