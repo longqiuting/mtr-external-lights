@@ -386,6 +386,148 @@ ok(!/\.damage\(/.test(blockJava), '不对剪刀调用 damage()（不损工具）
 ok(blockJava.indexOf('mtr.Items.BRUSH') < blockJava.indexOf('Items.SHEARS'),
   '刷子分支在剪刀分支之前');
 
+// ---------------------------------------------------------------- 5. 色带顶点格式（纯色，不吃贴图）
+
+console.log('\n== 5. 线路色带：POSITION_COLOR 层 + 顶点只有位置/颜色 ==');
+const RENDERER_JAVA = path.join(VERSION_DIR,
+  'src/main/java/dev/js/mtrheadlight/xiamen/pids/PsdLcdRenderer.java');
+const rendererJava = fs.readFileSync(RENDERER_JAVA, 'utf8');
+
+/** 取出某个方法的方法体（从签名后的第一个 `{` 到配对 `}`，够用就行）。 */
+function methodBody(src, signature) {
+  const at = src.indexOf(signature);
+  if (at < 0) {
+    return null;
+  }
+  let i = src.indexOf('{', at);
+  if (i < 0) {
+    return null;
+  }
+  let depth = 0;
+  for (let j = i; j < src.length; j++) {
+    if (src[j] === '{') {
+      depth++;
+    } else if (src[j] === '}') {
+      depth--;
+      if (depth === 0) {
+        return src.slice(i, j + 1);
+      }
+    }
+  }
+  return null;
+}
+
+const drawStripBody = methodBody(rendererJava, 'private static void drawStrip(');
+const stripQuadBody = methodBody(rendererJava, 'private static void stripQuad(');
+
+ok(drawStripBody !== null, 'drawStrip 方法存在（色带只在这一个方法里发顶点）');
+ok(stripQuadBody !== null, 'stripQuad 方法存在（色带四边形 = 4 个顶点）');
+
+if (drawStripBody) {
+  ok(/immediate\.getBuffer\(RenderLayer\.getDebugQuads\(\)\)/.test(drawStripBody),
+    '色带用的是 RenderLayer.getDebugQuads()（VertexFormats.POSITION_COLOR，无 UV 元素）');
+  ok(!/getExterior|getLight\(/.test(drawStripBody),
+    '色带不再走带贴图的 EntityCutout（getExterior）/ 自发光层');
+}
+if (stripQuadBody) {
+  ok(/\.color\(/.test(stripQuadBody), '色带顶点写了 color（顶点色 = 线路色）');
+  ok(!/\.texture\(/.test(stripQuadBody),
+    '色带顶点<b>没有</b> .texture()（POSITION_COLOR 没有 UV 元素，写不进也不需要）');
+  ok(!/\.light\(|\.overlay\(|\.normal\(/.test(stripQuadBody),
+    '色带顶点不写 light / overlay / normal（POSITION_COLOR 里都没有这些元素）');
+}
+ok(!/STRIP_TEXTURE/.test(rendererJava) && !/new net\.minecraft\.util\.Identifier\(/.test(rendererJava),
+  '旧的白贴图常量（mtrlte:block/white，未进方块图集 → 缺失贴图）已经删掉（只留注释里的历史说明）');
+
+// ---------------------------------------------------------------- 6. 碰撞箱（对标 MTR psd_top）
+
+console.log('\n== 6. 碰撞箱 ↔ MTR mtr:psd_top（反编译数值）==');
+
+// 参考值来自 libs/MTR-fabric-1.20.1-3.6.4.2.jar 里的 mtr.block.BlockPSDTop：
+//   method_9530 (getOutlineShape) =
+//     IBlock.getVoxelShapeByDirection(0, persistent == NONE ? 0 : 7.5, 0, 16, 16, 6, facing)
+//   getCollisionShape 未重写；方块设置 Settings.create().requiresTool().strength(2.0F).nonOpaque()
+//   → MC 默认 getCollisionShape = getOutlineShape（collidable），所以碰撞箱就是下面这个箱。
+const MTR = {
+  x1: 0, x2: 16, z1: 0, z2: 6, y2: 16,
+  y1Normal: 0,          // persistent = NONE
+  y1Persistent: 7.5,    // persistent = ARROW | ROUTE | BLANK
+};
+
+/** IBlock#getVoxelShapeByDirection 的同一份映射（反编译原文）。 */
+function mtrBox(facing, persistent) {
+  const x1 = MTR.x1, x2 = MTR.x2, z1 = MTR.z1, z2 = MTR.z2;
+  const y1 = persistent ? MTR.y1Persistent : MTR.y1Normal;
+  const y2 = MTR.y2;
+  switch (facing) {
+    case 'EAST': return [16 - z2, y1, x1, 16 - z1, y2, x2];
+    case 'SOUTH': return [16 - x2, y1, 16 - z2, 16 - x1, y2, 16 - z1];
+    case 'WEST': return [z1, y1, 16 - x2, z2, y2, 16 - x1];
+    default: return [x1, y1, z1, x2, y2, z2];
+  }
+}
+
+/** 我们 PsdLcdBlock#outline 的 switch 里那段 createCuboidShape 原文 → 求值。 */
+const PANEL_Z1 = Z0 + num('BOARD_THICKNESS_PX');
+const outlineBody = methodBody(blockJava, 'private static VoxelShape outline(');
+ok(outlineBody !== null, 'PsdLcdBlock#outline 存在（轮廓 / 碰撞共用同一个算法）');
+
+function ourBox(facing, cut) {
+  const y0 = cut ? CUT_BOTTOM : 0;
+  const y1 = 16;
+  const z0 = Z0;
+  const z1 = PANEL_Z1;
+  const map = {
+    NORTH: [0, y0, z0, 16, y1, z1],
+    EAST: [16 - z1, y0, 0, 16 - z0, y1, 16],
+    SOUTH: [0, y0, 16 - z1, 16, y1, 16 - z0],
+    WEST: [z0, y0, 0, z1, y1, 16],
+  };
+  return map[facing];
+}
+
+/** 源码里必须真写着这四条（防止 JS 这份对照和 Java 各说各话）。 */
+const OUTLINE_EXPECT = {
+  EAST: '16.0D - z1, y0, 0.0D, 16.0D - z0, y1, 16.0D',
+  SOUTH: '0.0D, y0, 16.0D - z1, 16.0D, y1, 16.0D - z0',
+  WEST: 'z0, y0, 0.0D, z1, y1, 16.0D',
+  NORTH: '0.0D, y0, z0, 16.0D, y1, z1',
+};
+for (const [face, expr] of Object.entries(OUTLINE_EXPECT)) {
+  ok(outlineBody && outlineBody.includes(`Block.createCuboidShape(${expr})`),
+    `outline(${face}) 的箱子 = (${expr.replace(/y0/g, 'y0').replace(/z0/g, `z0=${Z0}`)})`);
+}
+
+// 碰撞箱必须真的是「那块板」，不能是空的
+ok(/getCollisionShape\(final BlockState state[\s\S]{0,400}?return outline\(state\.get\(FACING\), isCut\(state\)\);/
+    .test(blockJava), 'getCollisionShape 返回 outline(FACING, half_cut) —— 与轮廓同一个箱');
+const collisionBody = methodBody(blockJava, 'public VoxelShape getCollisionShape(');
+ok(collisionBody !== null && !/VoxelShapes\.empty\(\)/.test(collisionBody),
+  'getCollisionShape 不再返回 VoxelShapes.empty()');
+
+const eq = (a, b) => a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 1e-9);
+const boxText = (b) => `x ${b[0]}…${b[3]}  y ${b[1]}…${b[4]}  z ${b[2]}…${b[5]}`;
+/** 镜子：把 MTR 的箱翻到格子另一侧（z 0…6 ⇄ 10…16、x 同理）。 */
+const mirror = (b) => [16 - b[3], b[1], 16 - b[5], 16 - b[0], b[4], 16 - b[2]];
+
+console.log('  facing  形态          我们的箱（px）                                    MTR psd_top 的箱（镜像后）');
+for (const face of FACES) {
+  for (const state of models.STATES) {
+    const ours = ourBox(face, state.cut);
+    const mtr = mtrBox(face, state.cut);
+    ok(eq(ours, mirror(mtr)),
+      `facing=${face},half_cut=${state.cut} 的碰撞箱 = MTR ${state.cut ? 'persistent' : 'normal'} 形态（镜像到我们的 z ${Z0}…${PANEL_Z1}）`,
+      `我们 ${boxText(ours)} / MTR ${boxText(mtr)}`);
+    ok(Math.abs((ours[3] - ours[0]) - 16) < 1e-9 || Math.abs((ours[5] - ours[2]) - 16) < 1e-9,
+      `facing=${face},half_cut=${state.cut} 整格宽（16px，剪不改宽度）`);
+    ok(Math.abs((ours[4] - ours[1]) - (state.cut ? 16 - CUT_BOTTOM : 16)) < 1e-9,
+      `facing=${face},half_cut=${state.cut} 高度 = ${state.cut ? 16 - CUT_BOTTOM : 16}px（${state.cut ? '7.5…16' : '0…16'}，和 MTR 的 y 起 7.5/0 一致）`);
+    ok(!eq(ours, [0, 0, 0, 0, 0, 0]), `facing=${face},half_cut=${state.cut} 碰撞箱不是空的`);
+    console.log(`  ${face.padEnd(7)} ${(state.cut ? 'half_cut=true ' : 'half_cut=false').padEnd(14)}`
+      + ` ${boxText(ours).padEnd(48)} ${boxText(mtr)}`);
+  }
+}
+
 console.log('');
 if (failures.length) {
   console.error(`FAILED (${failures.length})`);

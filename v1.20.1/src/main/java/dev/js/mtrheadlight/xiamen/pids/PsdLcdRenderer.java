@@ -43,6 +43,7 @@ import mtr.mappings.BlockEntityRendererMapper;
 import mtr.render.MoreRenderLayers;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.render.OverlayTexture;
+import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.render.block.entity.BlockEntityRendererFactory;
@@ -63,10 +64,6 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
      * 厦门 PIDS 是按「标语滚动完」换，这条屏没有滚动字幕，所以用固定节拍。
      */
     private static final int AD_ROTATE_TICKS = 200;
-
-    /** 色带用的贴图：一张 16×16 的纯白（颜色全靠顶点色）。 */
-    private static final net.minecraft.util.Identifier STRIP_TEXTURE =
-            new net.minecraft.util.Identifier("mtrlte", "block/white");
 
     private boolean warned;
     /** 「拿不到实时编组、退回 4 节」这条 warning 只打一次（consistOf 每帧都在跑）。 */
@@ -96,11 +93,15 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
 
     // ------------------------------------------------------------------ 入口
 
+    /**
+     * {@code light} 不用：屏幕和色带都是满亮（屏幕 {@link PidsXiamenLayout#FULL_LIGHT}，
+     * 色带是 {@code POSITION_COLOR} 没有光照贴图元素），吃世界光反而会在夜里变黑。
+     */
     @Override
     public void render(final PsdLcdBlockEntity entity, final float tickDelta, final MatrixStack matrices,
                        final VertexConsumerProvider vertexConsumers, final int light, final int overlay) {
         try {
-            renderSafe(entity, matrices, vertexConsumers, light);
+            renderSafe(entity, matrices, vertexConsumers);
         } catch (final Throwable t) {
             if (!this.warned) {
                 this.warned = true;
@@ -110,7 +111,7 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
     }
 
     private void renderSafe(final PsdLcdBlockEntity entity, final MatrixStack matrices,
-                            final VertexConsumerProvider vertexConsumers, final int light) {
+                            final VertexConsumerProvider vertexConsumers) {
         final World world = entity.getWorld();
         if (world == null) {
             return;
@@ -187,9 +188,9 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                 vertex(vc, matrix, normalMatrix, quad[2][0], quad[2][1], quad[2][2], u1, 1.0F, normal);
                 vertex(vc, matrix, normalMatrix, quad[3][0], quad[3][1], quad[3][2], u1, 0.0F, normal);
             }
-            // ---- 线路色带（MTR 式）：板子下沿那条 0.5px 的前脸
+            // ---- 线路色带（MTR 式）：板子下沿那条 0.5px 的前脸（纯顶点色，不吃贴图）
             if (PidsXiamenSettings.lineStrip()) {
-                drawStrip(entity, matrix, normalMatrix, face, cuts, immediate, light);
+                drawStrip(entity, matrix, face, cuts, immediate);
             }
         } finally {
             com.mojang.blaze3d.systems.RenderSystem.enableCull();
@@ -282,19 +283,30 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
      * 位置。我们这边：
      * <ul>
      *   <li><b>不生成位图</b>：{@link PsdLcdStrip#colors(long)} 直接给出颜色数组，一个颜色发一个
-     *       纯色 quad（一张白色贴图 + 顶点色），N 条线就是 N 条横带 —— 视觉效果和 MTR 把
-     *       1×N 纹理拉满那条带子一样，但不用往 MTR 的纹理缓存里塞东西；</li>
+     *       纯色 quad，N 条线就是 N 条横带（{@link PsdLcdLayout#stripQuad(PsdLcdLayout.Face,
+     *       float, float, boolean, float, float)} 按 0…1 的相对量把 0.5px 的带子均分）——
+     *       视觉效果和 MTR 把 1×N 纹理拉满那条带子一样，但不用往 MTR 的纹理缓存里塞东西；</li>
      *   <li><b>y 带</b>跟着模型走：整块 1…1.5、剪过 8.5…9（{@link PsdLcdLayout#stripBandPx(boolean)}），
-     *       都在用户模型留出来的那条 0.5px 前脸（z = 10）上；</li>
-     *   <li><b>渲染层</b>同 MTR：{@code MoreRenderLayers.getExterior} = EntityCutout，
-     *       <b>受光</b>（用 BER 递进来的 {@code light}），不发光 —— 屏幕本身是
-     *       {@code getLight}（自发光），两者刻意不一样。</li>
+     *       都在用户模型留出来的那条 0.5px 前脸（z = 10）上。</li>
      * </ul>
+     *
+     * <h2>渲染层：{@code POSITION_COLOR}，不是带贴图的 {@code EntityCutout}</h2>
+     * <p>这里<b>曾经</b>用 {@code MoreRenderLayers.getExterior(mtrlte:block/white)}
+     * （= {@code EntityCutout}，顶点格式 {@code POSITION_COLOR_TEXTURE_OVERLAY_LIGHT_NORMAL}），
+     * 靠一张 1×1 白图 + 顶点色上色。<b>但那张白图只被代码引用，没有任何模型 json 用到它，
+     * 所以它不进方块图集</b>；图集查不到精灵就退回「缺失贴图」——用户实机上看到的一格格
+     * 黑紫方块就是这个。颜色本来就全在顶点上，贴图只是个必须存在的载体，于是改成
+     * {@link RenderLayer#getDebugQuads()}（{@code VertexFormats.POSITION_COLOR}）：
+     * 顶点只有位置 + 颜色，<b>没有 UV 元素</b>，也就不可能缺图
+     * （{@code ClockRenderer} 整个钟面就是这么画的）。
+     *
+     * <p>代价：{@code POSITION_COLOR} 没有光照贴图元素，色带恒满亮。这和旁边那块屏一致
+     * （屏幕用 {@code MoreRenderLayers.getLight} + {@link PidsXiamenLayout#FULL_LIGHT}，
+     * 本来就不吃世界光），不会出现「屏很亮、带子很暗」。
      */
     private static void drawStrip(final PsdLcdBlockEntity entity, final Matrix4f matrix,
-                                  final Matrix3f normalMatrix, final PsdLcdLayout.Face face,
-                                  final boolean[] cuts,
-                                  final VertexConsumerProvider.Immediate immediate, final int light) {
+                                  final PsdLcdLayout.Face face, final boolean[] cuts,
+                                  final VertexConsumerProvider.Immediate immediate) {
         final long platformId;
         try {
             platformId = entity.getPlatformId(ClientData.PLATFORMS, ClientData.DATA_CACHE);
@@ -303,8 +315,8 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
             return;
         }
         final int[] colors = PsdLcdStrip.colors(platformId);
-        final VertexConsumer vc = immediate.getBuffer(MoreRenderLayers.getExterior(STRIP_TEXTURE));
-        final float[] normal = PsdLcdLayout.screenNormal(face);
+        // POSITION_COLOR：顶点只有位置 + 颜色，没有贴图 / 光照 / 法线可写。
+        final VertexConsumer vc = immediate.getBuffer(RenderLayer.getDebugQuads());
         // 一格一段：每格自己的 y 带（剪没剪），一条线路一条横带（从上往下按数组顺序）。
         for (int i = 0; i < cuts.length; i++) {
             final float start = i * 16.0F;
@@ -312,26 +324,22 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
             for (int c = 0; c < colors.length; c++) {
                 final float v0 = 1.0F - (float) (c + 1) / colors.length;
                 final float v1 = 1.0F - (float) c / colors.length;
-                final float[][] quad = PsdLcdLayout.stripQuad(face, start, end, cuts[i], v0, v1);
-                stripVertex(vc, matrix, normalMatrix, quad[0], 0.0F, 0.0F, normal, colors[c], light);
-                stripVertex(vc, matrix, normalMatrix, quad[1], 0.0F, 1.0F, normal, colors[c], light);
-                stripVertex(vc, matrix, normalMatrix, quad[2], 1.0F, 1.0F, normal, colors[c], light);
-                stripVertex(vc, matrix, normalMatrix, quad[3], 1.0F, 0.0F, normal, colors[c], light);
+                stripQuad(vc, matrix, PsdLcdLayout.stripQuad(face, start, end, cuts[i], v0, v1),
+                        colors[c]);
             }
         }
     }
 
-    /** 色带的一个顶点：颜色 = 线路色，光照 = BER 递进来的 light（受光，不发光）。 */
-    private static void stripVertex(final VertexConsumer vc, final Matrix4f m, final Matrix3f n,
-                                    final float[] p, final float u, final float v,
-                                    final float[] normal, final int argb, final int light) {
-        vc.vertex(m, p[0], p[1], p[2])
-                .color((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF, (argb >>> 24) & 0xFF)
-                .texture(u, v)
-                .overlay(OverlayTexture.DEFAULT_UV)
-                .light(light)
-                .normal(n, normal[0], normal[1], normal[2])
-                .next();
+    /** 色带的一个四边形：四个顶点只写位置 + 颜色（顶点色 = 线路色）。 */
+    private static void stripQuad(final VertexConsumer vc, final Matrix4f m,
+                                  final float[][] quad, final int argb) {
+        final int r = (argb >> 16) & 0xFF;
+        final int g = (argb >> 8) & 0xFF;
+        final int b = argb & 0xFF;
+        final int a = (argb >>> 24) & 0xFF;
+        for (final float[] p : quad) {
+            vc.vertex(m, p[0], p[1], p[2]).color(r, g, b, a).next();
+        }
     }
 
     // ------------------------------------------------------------------ 内容

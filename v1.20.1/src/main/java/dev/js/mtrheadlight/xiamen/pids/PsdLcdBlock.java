@@ -45,8 +45,9 @@ import net.minecraft.world.World;
  *       板子只占 y 7.5..16，屏幕口跟着上移到 y 9..16（见 {@code models/block/psd_lcd_xiamen_half.json}，
  *       就是用户 json 的 {@code half} 组）。注意这<b>不是</b>「沿宽度切一半」：宽度永远是整格；</li>
  *   <li><b>屏幕</b>：LCD 画面由 BER 画在凹槽底那张面上（离方块外面 10.184px，
- *       {@link PsdLcdLayout#WINDOW_DEPTH_BLOCKS}），碰撞箱是空的，框选就是那块板
- *       （{@link #outline} 两个档各一份）;</li>
+ *       {@link PsdLcdLayout#WINDOW_DEPTH_BLOCKS}）；<b>轮廓和碰撞箱都是那块板</b>（两档各一份，
+ *       数值照抄 MTR {@code BlockPSDTop}，见 {@link #getCollisionShape}），所以玩家不能穿过吊板、
+ *       也能站在上面 ;</li>
  *   <li><b>四向</b>：{@code FACING} = 屏幕的<b>法线</b>，放置时固定取「玩家朝向的反方向」，
  *       也就是<b>永远面朝放置的玩家</b>（见 {@link #getPlacementState}）；</li>
  *   <li><b>任意位置可放</b>：{@link #canPlaceAt} 恒真，拆掉支撑方块也不会自己掉；</li>
@@ -109,11 +110,42 @@ public class PsdLcdBlock extends HorizontalFacingBlock implements BlockEntityPro
 
     // ------------------------------------------------------------------ 形状
 
-    /** 碰撞箱：空的（挂板不挡路）。 */
+    /**
+     * 碰撞箱：<b>就是那块板</b>（和 MTR 吊板一致，见 {@link #outline}）。
+     *
+     * <h2>为什么不是空的</h2>
+     * <p>以前这里返回 {@code VoxelShapes.empty()}（「挂板不挡路」），用户实机反馈「碰撞箱没有」——
+     * 板子挂在天花板下面，玩家能直接穿过去、也不能站在上面。
+     *
+     * <h2>MTR 原版吊板（{@code mtr:psd_top}）的数值</h2>
+     * <p>反编译 {@code libs/MTR-fabric-1.20.1-3.6.4.2.jar} 里的 {@code mtr.block.BlockPSDTop}：
+     * <ul>
+     *   <li>它<b>只重写了 {@code getOutlineShape}</b>（{@code method_9530}）：
+     *       {@code IBlock.getVoxelShapeByDirection(0, persistent == NONE ? 0 : 7.5, 0,
+     *       16, 16, 6, facing)} —— 模型空间 <b>x 0…16 / y 0…16 或 7.5…16 / z 0…6</b>，
+     *       再按 facing 转（{@code IBlock#getVoxelShapeByDirection} 的四向映射和我们的
+     *       {@link #outline} 是同一套）；只有 {@code air_left|air_right}（贴着玻璃端头）时
+     *       再用 {@code BlockPSDAPGGlassEndBase#getEndOutlineShape(base, state, 16, 6, ...)}
+     *       沿宽度削掉端头 —— 我们没有那个属性（每格整宽），不涉及；</li>
+     *   <li>它<b>没有重写 {@code getCollisionShape}</b>；方块设置是
+     *       {@code Settings.create().requiresTool().strength(2.0F).nonOpaque()}（<b>没有</b>
+     *       {@code noCollision()}），所以 MC 默认的 {@code AbstractBlock#getCollisionShape}
+     *       （{@code collidable ? getOutlineShape : empty}）生效 —— <b>碰撞箱 = 轮廓箱</b>。
+     *       也就是说 MTR 吊板两种形态各有一个实心箱，不是空的。</li>
+     * </ul>
+     *
+     * <p>{@code persistent} 那一档（y 从 <b>7.5</b> 起、只剩上半格）就是用户要的「剪过」形态；
+     * 我们的模型自己在 z 10…16（MTR 在 z 0…6，同样 6px，只是贴在格子另一侧），所以数值照搬、
+     * 只换 z 区间。于是两档正好对上 MTR 的两档：
+     * <pre>
+     *   我们 half_cut=false ⇔ MTR persistent=NONE     ：整块 y 0…16   × 6px 厚
+     *   我们 half_cut=true  ⇔ MTR persistent!=NONE   ：只剩上半格 y 7.5…16 × 6px 厚
+     * </pre>
+     */
     @Override
     public VoxelShape getCollisionShape(final BlockState state, final BlockView world,
                                         final BlockPos pos, final ShapeContext context) {
-        return VoxelShapes.empty();
+        return outline(state.get(FACING), isCut(state));
     }
 
     /** 这一格剪过没有（方块状态里没有这个属性时按「整块」处理）。 */
