@@ -63,6 +63,10 @@ import java.util.Set;
  *                     下方「矩形杆 + 尖三角」+ 圆角矩形线路牌（v5：牌高 +14%、左右内边距 +18%）；
  *                     环身<b>自带不透明白底</b>，线路主带在环边上断开（v8.1）；
  *                     换乘线路名不做任何「未命名」过滤 —— 站名/线路名就叫「未命名」也是合法名字，照常画
+ *   <b>多换乘</b>       一个站有 2 条以上换乘线路（v10）：线路牌换成一排<b>单行小牌</b>一字排开，
+ *                     放不下先整体缩（下限 55%），再放不下从<b>尾部截断</b>（至少留 1 个）——
+ *                     全部走纯函数 {@link #fitBadgeRow}（可离线断言），可用宽 = 本格站距 x 92%，
+ *                     所以既不压相邻站的站名，也不越出面板
  *   站名              45° 斜排、中文 + 英文两行；<b>可用到图片顶部的留白</b>，
  *                     逐站按字宽反解字号（超长的自己变小，再不行裁字加 “…”），绝不越界
  *   线路号牌          已删除（v4：用户不需要左侧圆角号码牌）
@@ -176,6 +180,42 @@ public final class XiamenStripPainter {
     /** 线路牌文字字号 / 牌高（v5：0.46 → 0.47，牌变大后文字随之略增）。 */
     public static final float IX_PLATE_TEXT_RATIO = 0.47f;
 
+    // ---- 多换乘（v10）：一个站有好几条换乘线路时，两行线路牌换成一排单行小牌 ----
+
+    /**
+     * 一排小牌的左右内边距 / 牌高：<b>0.30</b>。
+     *
+     * <p>规则抄自厦门 LCD {@code draw.js#drawTransBadges}（{@code pad = 标高 x 0.30}）：
+     * 每个标的宽度 = <b>文字宽 + 2 x 内边距</b>，缩小时字号和内边距一起线性缩。
+     * 这里只借规则，不抄它的版面。</p>
+     */
+    public static final float BADGE_PAD_RATIO = 0.30f;
+
+    /** 一排小牌之间的间距 / 牌高（比内边距小一档：一排牌看起来是“一组”）。 */
+    public static final float BADGE_GAP_RATIO = 0.16f;
+
+    /** 一排小牌的牌高 / 两行线路牌的高（单行字，所以矮一点）。 */
+    public static final float BADGE_H_RATIO = 0.80f;
+
+    /** 小牌文字字号 / 牌高（单行居中）。 */
+    public static final float BADGE_TEXT_RATIO = 0.52f;
+
+    /**
+     * 一排小牌的<b>缩放下限 55%</b>（用户指定）。
+     *
+     * <p>整排比本站可用宽还宽时按 {@code 可用宽 / 总宽} 缩，最多缩到 55%；缩到 55% 仍放不下
+     * 就<b>从尾部截断</b>（只画前面放得下的，至少留 1 个）—— 见 {@link #fitBadgeRow}。</p>
+     */
+    public static final float BADGE_MIN_SCALE = 0.55f;
+
+    /**
+     * 一排可用的横向宽度 / 站距：<b>0.92</b>。
+     *
+     * <p>站距就是“本格可用宽”（相邻两站圆心之间的距离）。留 8% 余量，一排牌无论怎么缩都
+     * <b>不会伸进相邻站那一格</b>，也就不可能压到旁边的站名 / 圆环。</p>
+     */
+    public static final float BADGE_AVAIL_RATIO = 0.92f;
+
     /**
      * 站名字号上限：<b>图片高度的 9.5%</b>（v5）。
      *
@@ -229,6 +269,12 @@ public final class XiamenStripPainter {
     public static volatile int lastSwapPlate;
     /** 线路牌高度（v5 报告用）。 */
     public static volatile int lastSwapPlateH;
+    /** v10：本次整张图“多换乘一排”一共画了几个标（0 = 没有多换乘站）。 */
+    public static volatile int lastBadgeCount;
+    /** v10：本次最紧的那一排缩到多少（1.00 = 一次都没缩；{@link #BADGE_MIN_SCALE} = 缩到下限）。 */
+    public static volatile float lastBadgeScale = 1f;
+    /** v10：本次从尾部截掉的总数（0 = 全画下了）。 */
+    public static volatile int lastBadgeDropped;
     /** 终点站圆环直径 / 终点箭头长度（日志 / 报告用）。 */
     public static volatile int lastTerminalRing;
     public static volatile int lastTerminalArrow;
@@ -367,6 +413,102 @@ public final class XiamenStripPainter {
         }
     }
 
+    /**
+     * 一排换乘小牌的排版结果（<b>纯数据</b>，不含 AWT / MC 类型 —— 离线脚本可以直接断言字段）。
+     *
+     * @see #fitBadgeRow(float[], float, float)
+     */
+    public static final class BadgeFit {
+        /** 字号 / 内边距 / 间距的缩放系数，永远在 {@code [BADGE_MIN_SCALE, 1]} 之间。 */
+        public final float scale;
+        /** 从<b>头部</b>开始画几个（1..输入个数）；后面的从尾部截断，不画。 */
+        public final int count;
+        /** 缩放后每个标的宽度（只填前 {@link #count} 个；含左右内边距）。 */
+        public final float[] widths;
+        /** 缩放后相邻标之间的间距。 */
+        public final float gap;
+        /** 缩放后整排总宽（含间距）。 */
+        public final float total;
+        /** {@code true} = 只剩 1 个、缩到 55% 也放不下（调用方仍画那 1 个，但要收进面板）。 */
+        public final boolean overflow;
+
+        BadgeFit(final float scale, final int count, final float[] widths, final float gap, final float total,
+                 final boolean overflow) {
+            this.scale = scale;
+            this.count = count;
+            this.widths = widths;
+            this.gap = gap;
+            this.total = total;
+            this.overflow = overflow;
+        }
+
+        @Override
+        public String toString() {
+            return String.format(Locale.ROOT, "BadgeFit{count=%d/%d, scale=%.3f, total=%.1f, gap=%.1f%s}",
+                    count, widths.length, scale, total, gap, overflow ? ", OVERFLOW" : "");
+        }
+    }
+
+    /**
+     * 多换乘一排的<b>排版纯函数</b>（离线可断言：不碰 Graphics2D、不碰 MC）。
+     *
+     * <h2>规则（用户指定，源自 LCD {@code drawTransBadges} / {@code xmlcdTransBadgeMeasure}）</h2>
+     * <ol>
+     *   <li>每个标的宽度 = <b>文字宽 + 2 x 内边距</b>，内边距 = 标高 x {@link #BADGE_PAD_RATIO}；</li>
+     *   <li>一排总宽（含间距）= 各标宽之和 + 间距 x (个数 - 1)；比可用宽还宽 →
+     *       缩放系数 = {@code 可用宽 / 总宽}，<b>下限 {@link #BADGE_MIN_SCALE}</b>（字号 / 内边距 / 间距一起缩）；</li>
+     *   <li>缩到下限仍放不下 → <b>从尾部截断</b>，只留前面放得下的，<b>至少留 1 个</b>；</li>
+     *   <li>截断后腾出来的宽度可以再把字放大（但不超过 100%）—— 所以“画的个数”一定取
+     *       <b>能让缩放系数 &gt;= 下限</b> 的最大那个前缀。</li>
+     * </ol>
+     *
+     * @param textWidths 各标的<b>文字</b>宽（按满缩字号量出来的像素，不含内边距；索引 = 画出来的顺序）
+     * @param available  本站可用宽（调用方传 {@code 站距 x BADGE_AVAIL_RATIO}；&lt;= 0 = 一格都放不下）
+     * @param baseHeight 标的<b>基础</b>高度（满缩时的牌高），内边距 / 间距都由它推
+     * @return 缩放系数 + 要画的个数 + 缩放后每块宽度 / 间距 / 总宽
+     */
+    public static BadgeFit fitBadgeRow(final float[] textWidths, final float available, final float baseHeight) {
+        final int n = textWidths == null ? 0 : textWidths.length;
+        if (n <= 0) {
+            return new BadgeFit(1f, 0, new float[0], 0f, 0f, false);
+        }
+        final float h = Math.max(1f, baseHeight);
+        final float pad = h * BADGE_PAD_RATIO;
+        final float gap = h * BADGE_GAP_RATIO;
+        final float avail = Math.max(0f, available);
+        // 满缩时每个标的宽度（文字宽 + 左右内边距）。
+        final float[] natural = new float[n];
+        for (int i = 0; i < n; i++) {
+            natural[i] = Math.max(1f, textWidths[i]) + pad * 2f;
+        }
+        // 从“全画”往下试：第一个能让缩放系数 >= 下限的前缀就是答案（截断从尾部丢）。
+        for (int keep = n; keep >= 1; keep--) {
+            float raw = 0f;
+            for (int i = 0; i < keep; i++) {
+                raw += natural[i];
+            }
+            raw += gap * (keep - 1);
+            final float fitScale = raw > 0f ? avail / raw : 1f;
+            if (fitScale < BADGE_MIN_SCALE && keep > 1) {
+                continue;                        // 还放不下 → 丢尾部一个再试
+            }
+            // 只剩 1 个时无论放不放得下都要画：缩到下限为止（overflow 标记给调用方收边用）。
+            final float scale = Math.max(BADGE_MIN_SCALE, Math.min(1f, fitScale));
+            final float[] widths = new float[keep];
+            float total = 0f;
+            for (int i = 0; i < keep; i++) {
+                widths[i] = natural[i] * scale;
+                total += widths[i];
+            }
+            final float scaledGap = gap * scale;
+            total += scaledGap * (keep - 1);
+            return new BadgeFit(scale, keep, widths, scaledGap, total, total > avail + 0.5f);
+        }
+        // 理论上到不了这里（keep == 1 一定 return）。
+        return new BadgeFit(BADGE_MIN_SCALE, 1, new float[]{natural[0] * BADGE_MIN_SCALE},
+                gap * BADGE_MIN_SCALE, natural[0] * BADGE_MIN_SCALE, true);
+    }
+
     /** 画一张（返回 ARGB 的 BufferedImage；比例或数据不合法时返回 null）。 */
     public static BufferedImage paint(final Model model) {
         if (model == null || model.names == null || model.names.length < 2 || !(model.aspectRatio > 0.05f)) {
@@ -388,6 +530,10 @@ public final class XiamenStripPainter {
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
             g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+            // v10：多换乘一排的实测值（日志 / 报告用），每次重画都从“没有多换乘”开始。
+            lastBadgeCount = 0;
+            lastBadgeScale = 1f;
+            lastBadgeDropped = 0;
 
             final int count = model.names.length;
             // v7：唯一的镜像规则 —— 方向 1 / 2 / 3 都是“列车朝左”，整条图一起镜像（含终点三角）。
@@ -400,7 +546,9 @@ public final class XiamenStripPainter {
             // 当前站和换乘牌，站名没镜像，三者会错位，终点也会指错站）。
             final String[] names = new String[count];
             final String[] namesEn = new String[count];
-            final Interchange[] swaps = new Interchange[count];
+            // v10：一个站可以有多条换乘线路 —— 每个站是一组（0 = 不是换乘站，1 = 老的两行线路牌，
+            //      2+ = 一排小牌，见 {@link #fitBadgeRow}）。
+            final Interchange[][] swaps = new Interchange[count][];
             // v6：已过站 = “数据顺序里排在当前站之前”的站（列车已经开过的那些）。
             // 灰化必须按数据顺序判定再随 flip 一起镜像，否则 flip 时灰的是未来的站。
             final boolean[] passed = new boolean[count];
@@ -408,7 +556,7 @@ public final class XiamenStripPainter {
                 final int d = flip ? count - 1 - i : i;
                 names[i] = model.names[d];
                 namesEn[i] = model.namesEn != null && d < model.namesEn.length ? model.namesEn[d] : "";
-                swaps[i] = dataInterchange(model, d);
+                swaps[i] = dataInterchanges(model, d);
                 passed[i] = d < current;
             }
             final int currentIndex = flip ? count - 1 - current : current;
@@ -525,10 +673,11 @@ public final class XiamenStripPainter {
                 if (i == currentIndex) {
                     continue;
                 }
-                final Interchange swap = swaps[i];
+                final Interchange[] swap = swaps[i];
                 if (swap != null) {
                     final int[] box = new int[2];
-                    if (drawInterchange(g, xs[i], lineY, lineRgb, swap, bandH, step, width, plateFloorY, box,
+                    // v10：一个站多条换乘 → 一排小牌（一字排开 / 缩 / 尾部截断），一条 → 老的两行线路牌。
+                    if (drawSwap(g, xs[i], lineY, lineRgb, swap, bandH, step, width, plateFloorY, box,
                             passed[i], false)) {
                         swapDrawn++;
                         plateBottomMax = Math.max(plateBottomMax, box[1]);
@@ -539,12 +688,12 @@ public final class XiamenStripPainter {
                     drawDot(g, xs[i], lineY, circle, passed[i] ? PASSED_GREY : lineRgb, passed[i]);
                 }
             }
-            final Interchange currentSwap = swaps[currentIndex];
+            final Interchange[] currentSwap = swaps[currentIndex];
             if (currentSwap != null) {
                 final int[] box = new int[2];
                 // 当前站同时是换乘站（v9）：完整的追逐箭头环，上半圈用当前站红、下半圈是换乘线路色，
                 // 环里不再放红实心圆；下方的线路牌照旧画出来。
-                if (drawInterchange(g, xs[currentIndex], lineY, lineRgb, currentSwap, bandH, step, width,
+                if (drawSwap(g, xs[currentIndex], lineY, lineRgb, currentSwap, bandH, step, width,
                         plateFloorY, box, false, true)) {
                     swapDrawn++;
                     plateBottomMax = Math.max(plateBottomMax, box[1]);
@@ -667,17 +816,35 @@ public final class XiamenStripPainter {
         g.setStroke(new BasicStroke(1f));
     }
 
-    /** 数据下标 {@code dataIndex} 的换乘信息；不是换乘站就 null。 */
-    private static Interchange dataInterchange(final Model model, final int dataIndex) {
+    /**
+     * 数据下标 {@code dataIndex} 的<b>全部</b>换乘线路；不是换乘站就 null。
+     *
+     * <p>v10：以前只返回第一条（{@code return ic}），一个站挂 3 条换乘线也只画得出 1 条。
+     * 现在按 {@code model.interchanges} 的顺序把同站的全部收下来 —— 顺序由
+     * {@code XiamenRouteStrip#interchanges} 定（线路色升序，同一存档每次都一样），
+     * 尾部截断时丢的永远是最后那条，结果可复现。</p>
+     */
+    private static Interchange[] dataInterchanges(final Model model, final int dataIndex) {
         if (model.interchanges == null || model.interchanges.length == 0) {
             return null;
         }
+        int n = 0;
         for (final Interchange ic : model.interchanges) {
             if (ic != null && ic.stationIndex == dataIndex) {
-                return ic;
+                n++;
             }
         }
-        return null;
+        if (n == 0) {
+            return null;
+        }
+        final Interchange[] found = new Interchange[n];
+        int k = 0;
+        for (final Interchange ic : model.interchanges) {
+            if (ic != null && ic.stationIndex == dataIndex) {
+                found[k++] = ic;
+            }
+        }
+        return found;
     }
 
     /**
@@ -704,13 +871,10 @@ public final class XiamenStripPainter {
                                            final boolean grey, final boolean asCurrent) {
         final int swapRgb = grey ? PASSED_GREY : (swap.rgb & 0xFFFFFF);
         final int ringD = Math.max(14, Math.round(bandH * IX_RING_RATIO));
-        final float rOut = ringD / 2f;
-        final float thick = ringD * IX_RING_THICK;
-        final float rIn = Math.max(1f, rOut - thick);
-        final int gap = Math.max(3, Math.round(bandH * IX_PLATE_GAP_RATIO));
         // 图标本体半径：任何情况都是追逐箭头环（v9 起当前站也是完整环，只是上半圈红），
         // 垂尾和线路牌都从“本体的下沿”开始算。
-        final float bodyR = rOut;
+        final float bodyR = ringD / 2f;
+        final int gap = Math.max(3, Math.round(bandH * IX_PLATE_GAP_RATIO));
 
         // ---- 线路牌几何（先算，垂尾要指向它）----
         int plateH = Math.max(10, Math.round(bandH * IX_PLATE_H_RATIO));
@@ -748,56 +912,13 @@ public final class XiamenStripPainter {
         final int plateW = Math.max(18, Math.min(maxW, Math.max(cjkW, enW) + padX * 2));
         final int px = cx - plateW / 2;   // 永远以图标中心为准，不为了塞进画面而左右平移
 
-        // ---- 追逐箭头环：先下半（换乘线路色），再上半（当前线路色 / 当前站红），共圆心共半径 ----
+        // ---- 追逐箭头环 + 垂尾：先下半（换乘线路色），再上半（当前线路色 / 当前站红），共圆心共半径 ----
         // v9：当前站同时是换乘站时，上半圈改用当前站的红（{@link #CURRENT_FILL}），下半仍是换乘线路色，
         //     两段之间的空隙照旧 —— 用户实拍确认「当前站与普通换乘站的区别体现在箭头上」，
         //     不再画环内红实心圆。
+        // v10：环 + 垂尾抽成 {@link #drawSwapBody}，多换乘那一排复用同一份画法（单条换乘像素级不变）。
         final int ringRgb = asCurrent ? CURRENT_FILL : (grey ? PASSED_GREY : ringColor(lineRgb));
-        final float cy = lineY;
-
-        // 环内底色（v8.1 顺手修掉的画序 bug）：**两种情况都先铺一层和环等大的白底**，
-        // 把线路主带挡在环外。
-        //
-        // 追逐箭头环的两段弧在 0° / 180°（环的左右两侧）各留一个缺口，主线正好从这两个缺口
-        // 里横穿过去；只有环身有不透明底色时，主带才会在环边上“断”开。
-        // v9：当前站不再填红圆（改用红上半弧），白底照样先铺 —— 主带依然在环边断开。
-        g.setColor(Color.WHITE);
-        g.fillOval(Math.round(cx - rOut), Math.round(cy - rOut), ringD, ringD);
-
-        {
-            g.setColor(new Color(swapRgb));
-            g.fill(annularSector(cx, cy, rOut, rIn, IX_ARC_BOTTOM_FROM, IX_ARC_BOTTOM_TO));
-            arrowHead(g, cx, cy, rOut, rIn, IX_ARC_BOTTOM_TO, swapRgb);
-
-            // 上半：30° → 150°，末端箭头尖朝左下（当前线路色；当前站 = 当前站红）
-            g.setColor(new Color(ringRgb));
-            g.fill(annularSector(cx, cy, rOut, rIn, IX_ARC_TOP_FROM, IX_ARC_TOP_TO));
-            arrowHead(g, cx, cy, rOut, rIn, IX_ARC_TOP_TO, ringRgb);
-        }
-
-        // ---- 垂尾（v4）：环底伸出一条矩形杆，杆端再收成一个尖三角，指向线路牌 ----
-        final float tailW = ringD * IX_TAIL_W;
-        // 起点贴住环底下沿再往内压一点，接缝处不会有白缝。
-        // v9：当前站也是完整环（不再是一个实心圆），所以两种情况都按环厚压。
-        final float shaftTop = cy + bodyR - thick * 0.45f;
-        final float tipY = plateTop - 2f;
-        // 尖三角的高度按「环底到牌子」之间真正剩下的空间取（不然空间不够时又被挤成一根光杆）。
-        final float tailHead = Math.min(ringD * IX_TAIL_HEAD, Math.max(3f, (tipY - shaftTop) * 0.42f));
-        final float headBaseY = tipY - tailHead;
-        if (headBaseY > shaftTop + 1f) {
-            g.setColor(new Color(swapRgb));
-            // 矩形杆
-            g.fillRect(Math.round(cx - tailW / 2f), Math.round(shaftTop),
-                    Math.max(1, Math.round(tailW)), Math.max(1, Math.round(headBaseY - shaftTop)));
-            // 杆端尖三角（底边与杆同宽，尖朝下指向线路牌）
-            g.fillPolygon(
-                    new int[]{Math.round(cx - tailW / 2f), Math.round(cx + tailW / 2f), cx},
-                    new int[]{Math.round(headBaseY), Math.round(headBaseY), Math.round(tipY)}, 3);
-        } else if (tipY > shaftTop) {
-            g.setColor(new Color(swapRgb));
-            g.fillRect(Math.round(cx - tailW / 2f), Math.round(shaftTop),
-                    Math.max(1, Math.round(tailW)), Math.max(1, Math.round(tipY - shaftTop)));
-        }
+        drawSwapBody(g, cx, lineY, ringRgb, swapRgb, ringD, plateTop - 2f);
 
         // ---- 线路牌：换乘线路色圆角矩形 + 两行居中文字（中文 / Line N）----
         if (plateW <= 0 || plateH <= 0) {
@@ -833,6 +954,195 @@ public final class XiamenStripPainter {
         lastSwapHead = ringD;
         lastSwapPlate = plateW;
         lastSwapPlateH = plateH;
+        return true;
+    }
+
+    /**
+     * 一站的换乘标记分派：<b>1 条</b>换乘 → 老的两行线路牌（{@link #drawInterchange}，版式一个字不动）；
+     * <b>2 条以上</b> → 一排单行小牌（{@link #drawInterchangeRow}）。
+     *
+     * @param box 输出 {牌上沿, 牌下沿}，站名排版要避让
+     */
+    private static boolean drawSwap(final Graphics2D g, final int cx, final int lineY, final int lineRgb,
+                                    final Interchange[] swaps, final int bandH, final float step,
+                                    final int width, final int floorY, final int[] box,
+                                    final boolean grey, final boolean asCurrent) {
+        if (swaps == null || swaps.length == 0) {
+            return false;
+        }
+        if (swaps.length == 1) {
+            return drawInterchange(g, cx, lineY, lineRgb, swaps[0], bandH, step, width, floorY, box, grey, asCurrent);
+        }
+        return drawInterchangeRow(g, cx, lineY, lineRgb, swaps, bandH, step, width, floorY, box, grey, asCurrent);
+    }
+
+    /**
+     * 追逐箭头环 + 垂尾（v10 从 {@link #drawInterchange} 里原样抽出，单条换乘那条路像素级不变）。
+     *
+     * <p>画序：环内白底（把线路主带挡在环外，主带才会在环边“断”开）→ 下半弧（换乘线路色）→
+     * 上半弧（当前线路色 / 当前站红）→ 垂尾（矩形杆 + 尖三角）指向 {@code tipY}。</p>
+     *
+     * @param ringRgb 上半弧颜色
+     * @param swapRgb 下半弧 / 垂尾颜色（已过站调用方传灰）
+     * @param tipY    垂尾尖端的 y（单条换乘 = 线路牌上沿 - 2，一排小牌 = 那一排的上沿 - 2）
+     */
+    private static void drawSwapBody(final Graphics2D g, final int cx, final int lineY, final int ringRgb,
+                                     final int swapRgb, final int ringD, final float tipY) {
+        final float rOut = ringD / 2f;
+        final float thick = ringD * IX_RING_THICK;
+        final float rIn = Math.max(1f, rOut - thick);
+        final float cy = lineY;
+
+        // 环内底色：两段弧在 0° / 180°（环左右两侧）各留一个缺口，主线正好从缺口横穿过去；
+        // 只有环身有不透明底色时，主带才会在环边上断开（v8.1）。
+        g.setColor(Color.WHITE);
+        g.fillOval(Math.round(cx - rOut), Math.round(cy - rOut), ringD, ringD);
+
+        g.setColor(new Color(swapRgb));
+        g.fill(annularSector(cx, cy, rOut, rIn, IX_ARC_BOTTOM_FROM, IX_ARC_BOTTOM_TO));
+        arrowHead(g, cx, cy, rOut, rIn, IX_ARC_BOTTOM_TO, swapRgb);
+
+        // 上半：30° → 150°，末端箭头尖朝左下（当前线路色；当前站 = 当前站红）
+        g.setColor(new Color(ringRgb));
+        g.fill(annularSector(cx, cy, rOut, rIn, IX_ARC_TOP_FROM, IX_ARC_TOP_TO));
+        arrowHead(g, cx, cy, rOut, rIn, IX_ARC_TOP_TO, ringRgb);
+
+        // ---- 垂尾（v4）：环底伸出一条矩形杆，杆端再收成一个尖三角 ----
+        final float tailW = ringD * IX_TAIL_W;
+        // 起点贴住环底下沿再往内压一点，接缝处不会有白缝。
+        final float shaftTop = cy + rOut - thick * 0.45f;
+        // 尖三角的高度按「环底到牌」之间真正剩下的空间取（不然空间不够时又被挤成一根光杆）。
+        final float tailHead = Math.min(ringD * IX_TAIL_HEAD, Math.max(3f, (tipY - shaftTop) * 0.42f));
+        final float headBaseY = tipY - tailHead;
+        if (headBaseY > shaftTop + 1f) {
+            g.setColor(new Color(swapRgb));
+            // 矩形杆
+            g.fillRect(Math.round(cx - tailW / 2f), Math.round(shaftTop),
+                    Math.max(1, Math.round(tailW)), Math.max(1, Math.round(headBaseY - shaftTop)));
+            // 杆端尖三角（底边与杆同宽，尖朝下指向线路牌）
+            g.fillPolygon(
+                    new int[]{Math.round(cx - tailW / 2f), Math.round(cx + tailW / 2f), cx},
+                    new int[]{Math.round(headBaseY), Math.round(headBaseY), Math.round(tipY)}, 3);
+        } else if (tipY > shaftTop) {
+            g.setColor(new Color(swapRgb));
+            g.fillRect(Math.round(cx - tailW / 2f), Math.round(shaftTop),
+                    Math.max(1, Math.round(tailW)), Math.max(1, Math.round(tipY - shaftTop)));
+        }
+    }
+
+    /**
+     * 一个站有<b>多条</b>换乘线路（v10）：追逐箭头环照旧（下半用<b>第一条</b>换乘线的颜色），
+     * 下方的两行线路牌换成一排<b>单行小牌</b>，一字排开、以站点中心为准居中。
+     *
+     * <h2>放不下时怎么办（用户指定，规则同 LCD {@code drawTransBadges}）</h2>
+     * <ol>
+     *   <li>先整体缩：{@code 缩放系数 = 可用宽 / 总宽}，下限 {@link #BADGE_MIN_SCALE}（55%），
+     *       字号 / 内边距 / 间距一起缩 —— 排版全在纯函数 {@link #fitBadgeRow} 里算；</li>
+     *   <li>缩到 55% 仍放不下 → <b>从尾部截断</b>，只画前面放得下的，<b>至少留 1 个</b>；</li>
+     *   <li>可用宽 = 本格<b>站距 x {@link #BADGE_AVAIL_RATIO}</b>（92%）—— 一排牌永远不会伸进
+     *       相邻站那一格，所以既不压旁边的站名，也不越出面板（最后再按面板左右边夹一次）。</li>
+     * </ol>
+     *
+     * <p>已过站：小牌统一用 {@link #PASSED_NAME_GREY}（<b>和站名同一个灰</b>），不用线路色；
+     * 环 / 垂尾沿用 {@link #PASSED_GREY}（和单条换乘的老画法一致）。</p>
+     *
+     * @param box 输出 {这一排的上沿, 下沿}，站名排版要避让
+     * @return 真的画出这一排了（标签全空的极端情况返回 false）
+     */
+    private static boolean drawInterchangeRow(final Graphics2D g, final int cx, final int lineY,
+                                              final int lineRgb, final Interchange[] swaps, final int bandH,
+                                              final float step, final int width, final int floorY,
+                                              final int[] box, final boolean grey, final boolean asCurrent) {
+        final int ringD = Math.max(14, Math.round(bandH * IX_RING_RATIO));
+        final float bodyR = ringD / 2f;
+        final int gap = Math.max(3, Math.round(bandH * IX_PLATE_GAP_RATIO));
+        // 一排小牌比两行线路牌矮一档（只有一行字），但上沿仍在同一条基线上 —— 其它元素位置不变。
+        final int top = lineY + Math.round(bodyR) + gap;
+        int badgeH = Math.max(9, Math.round(bandH * IX_PLATE_H_RATIO * BADGE_H_RATIO));
+        if (top + badgeH > floorY) {
+            badgeH = Math.max(9, floorY - top);
+        }
+        final float baseText = Math.max(5f, badgeH * BADGE_TEXT_RATIO);
+        final Font baseFont = font().deriveFont(Font.BOLD, baseText);
+
+        // 每个标的文字（单行：优先 “N号线”，没有线路号就用线路名）和满缩时的文字宽。
+        final String[] labels = new String[swaps.length];
+        final float[] textW = new float[swaps.length];
+        int nonEmpty = 0;
+        for (int i = 0; i < swaps.length; i++) {
+            String label = plateCjk(swaps[i]);
+            if (label.isEmpty()) {
+                label = plateEn(swaps[i]);
+            }
+            labels[i] = label;
+            if (!label.isEmpty()) {
+                nonEmpty++;
+                textW[i] = g.getFontMetrics(baseFont).stringWidth(label);
+            } else {
+                textW[i] = 1f;
+            }
+        }
+        if (nonEmpty == 0) {
+            return false;
+        }
+
+        // 可用宽 = 本格站距的 92%；排版（缩放 / 尾部截断）交给纯函数。
+        final float avail = Math.max(8f, step * BADGE_AVAIL_RATIO);
+        final BadgeFit fit = fitBadgeRow(textW, avail, badgeH);
+
+        // 环先画：下半圈用第一条换乘线的颜色（已过站 = 灰），垂尾指向这一排的上沿。
+        final int firstRgb = grey ? PASSED_GREY : (swaps[0].rgb & 0xFFFFFF);
+        final int ringRgb = asCurrent ? CURRENT_FILL : (grey ? PASSED_GREY : ringColor(lineRgb));
+        drawSwapBody(g, cx, lineY, ringRgb, firstRgb, ringD, top - 2f);
+
+        // 一排：以站点中心居中，再按面板左右边夹一次（端头站才用得上，绝不越出面板）。
+        final int totalW = Math.max(1, Math.round(fit.total));
+        int x = Math.round(cx - fit.total / 2f);
+        if (x < 1) {
+            x = 1;
+        }
+        if (x + totalW > width - 1) {
+            x = Math.max(1, width - 1 - totalW);
+        }
+        for (int i = 0; i < fit.count; i++) {
+            final int w = Math.max(4, Math.round(fit.widths[i]));
+            final int rgb = grey ? PASSED_NAME_GREY : (swaps[i].rgb & 0xFFFFFF);
+            g.setColor(new Color(rgb));
+            g.fill(new RoundRectangle2D.Float(x, top, w, badgeH, badgeH * 0.34f, badgeH * 0.34f));
+            final String label = labels[i];
+            if (!label.isEmpty()) {
+                final int inner = Math.max(2, w - Math.round(badgeH * BADGE_PAD_RATIO * fit.scale * 2f));
+                float size = Math.max(4f, baseText * fit.scale);
+                Font f = baseFont.deriveFont(size);
+                // 缩到 55% 之后仍差一点点（舍入 / 字形 bearing）→ 在自己这块牌里再收一收。
+                for (int k = 0; k < 5 && size > 4f && g.getFontMetrics(f).stringWidth(label) > inner; k++) {
+                    size *= 0.88f;
+                    f = baseFont.deriveFont(size);
+                }
+                g.setFont(f);
+                g.setColor(new Color(contrastText(rgb), true));
+                final String text = label;
+                final int tw = g.getFontMetrics(f).stringWidth(text);
+                // 兜底：文字永远不越出自己那块牌（裁在牌内，绝不压到旁边的标 / 站名）。
+                final Shape oldClip = g.getClip();
+                g.setClip(new Rectangle(x, top, w, badgeH));
+                g.drawString(text, x + (w - tw) / 2f,
+                        top + badgeH * 0.5f + (g.getFontMetrics(f).getAscent()
+                                - g.getFontMetrics(f).getDescent()) / 2f);
+                g.setClip(oldClip);
+            }
+            x += w + Math.max(0, Math.round(fit.gap));
+        }
+
+        box[0] = top;
+        box[1] = top + badgeH;
+        lastSwapHead = ringD;
+        lastSwapPlate = totalW;
+        lastSwapPlateH = badgeH;
+        // 报告口径：整张图所有“多换乘一排”加起来画了几个、丢了几个、最紧的那次缩到多少。
+        lastBadgeCount += fit.count;
+        lastBadgeDropped += swaps.length - fit.count;
+        lastBadgeScale = Math.min(lastBadgeScale, fit.scale);
         return true;
     }
 

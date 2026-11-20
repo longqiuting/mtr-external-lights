@@ -173,6 +173,10 @@ public final class XiamenRouteStrip {
      * 兜底只剩“MTR 已经算好的 {@code StationDetails#interchangeRoutes}”，同样过一遍本站台的排除规则。</p>
      *
      * <p>两条路都拿不到 → 不画换乘标记（<b>不缺数据时绝不猜</b>，退回普通圆环）。</p>
+     *
+     * <p><b>v10：一个站的全部换乘线路都要交出去</b>（以前只交第一条，吊板上一站挂 3 条线也只画
+     * 得出 1 条）。返回的数组是「站序 + 换乘线路」的<b>扁平列表</b>：同一站可能连续出现多条，
+     * 顺序 = 线路色升序（同一存档每次一致，尾部截断时丢的永远是最后那条）。</p>
      */
     private static XiamenStripPainter.Interchange[] interchanges(
             final HeadlightConfig cfg,
@@ -196,43 +200,41 @@ public final class XiamenRouteStrip {
         ownColors.add(Integer.valueOf(XiamenRouteStyle.lineColor(cfg, route, routeName) & 0xFFFFFF));
         ownNames.add(XiamenRouteStyle.shortName(routeName));
 
-        final XiamenStripPainter.Interchange[] result = new XiamenStripPainter.Interchange[stations.size()];
-        int count = 0;
+        final java.util.List<XiamenStripPainter.Interchange> found = new java.util.ArrayList<>();
         for (int i = 0; i < stations.size(); i++) {
             final ClientCache.PlatformRouteDetails.StationDetails station = stations.get(i);
             // ① MTR 的权威来源：第 i 站所属车站的全部线路（站名要对得上，见方法内注释）。
-            ClientCache.ColorNameTuple tuple = stationInterchangeTuple(route, i,
+            java.util.List<ClientCache.ColorNameTuple> tuples = stationInterchangeTuples(route, i,
                     station == null ? null : station.stationName, ownColors, ownNames);
             // ② 退化：MTR 已经按“当前线路色”过滤好的清单（仍然过一遍本站台的排除规则）。
-            if (tuple == null && station != null) {
-                tuple = firstForeignTuple(station.interchangeRoutes, ownColors, ownNames);
+            if (tuples.isEmpty() && station != null) {
+                tuples = foreignTuples(station.interchangeRoutes, ownColors, ownNames);
             }
-            if (tuple == null) {
-                continue;
+            // v10：一个站的多条换乘线路全部收下来（以前只取第一条），顺序 = 线路色升序（确定性）。
+            for (final ClientCache.ColorNameTuple tuple : tuples) {
+                final Route swapRoute = XiamenRouteStyle.findRouteByName(tuple.name);
+                final Integer override = XiamenRouteStyle.overrideColor(cfg, swapRoute, tuple.name);
+                final int rgb;
+                if (override != null) {
+                    rgb = override.intValue();
+                } else if ((tuple.color & 0xFFFFFF) != 0) {
+                    rgb = tuple.color & 0xFFFFFF;
+                } else {
+                    rgb = XiamenRouteStyle.lineColor(cfg, swapRoute, tuple.name);
+                }
+                final String cjk = XiamenStripPainter.cjkPart(tuple.name);
+                final String number = XiamenRouteStyle.lineNumber(swapRoute, tuple.name);
+                found.add(new XiamenStripPainter.Interchange(i, rgb, number, cjk));
+                logInterchange(station == null ? "" : XiamenStripPainter.cjkPart(station.stationName),
+                        cjk.isEmpty() ? tuple.name : cjk, number, rgb);
             }
-            final Route swapRoute = XiamenRouteStyle.findRouteByName(tuple.name);
-            final Integer override = XiamenRouteStyle.overrideColor(cfg, swapRoute, tuple.name);
-            final int rgb;
-            if (override != null) {
-                rgb = override.intValue();
-            } else if ((tuple.color & 0xFFFFFF) != 0) {
-                rgb = tuple.color & 0xFFFFFF;
-            } else {
-                rgb = XiamenRouteStyle.lineColor(cfg, swapRoute, tuple.name);
-            }
-            final String cjk = XiamenStripPainter.cjkPart(tuple.name);
-            final String number = XiamenRouteStyle.lineNumber(swapRoute, tuple.name);
-            result[i] = new XiamenStripPainter.Interchange(i, rgb, number, cjk);
-            count++;
-            logInterchange(station == null ? "" : XiamenStripPainter.cjkPart(station.stationName),
-                    cjk.isEmpty() ? tuple.name : cjk, number, rgb);
         }
-        return count == 0 ? null : result;
+        return found.isEmpty() ? null : found.toArray(new XiamenStripPainter.Interchange[0]);
     }
 
     /**
-     * 这条线路第 {@code index} 站所属车站上“别的线路”里的第一条（按线路色升序，和 MTR 的
-     * {@code allColors.sort(Integer::compareTo)} 一致，保证同一存档每次画出来都是同一条）。
+     * 这条线路第 {@code index} 站所属车站上<b>全部</b>“别的线路”（按线路色升序，和 MTR 的
+     * {@code allColors.sort(Integer::compareTo)} 一致，保证同一存档每次画出来都是同一个顺序）。
      *
      * <p><b>索引对齐校验</b>：{@code stationDetails[i]} 是 MTR 从 {@code route.platformIds} 逐项 map 出来的，
      * 正常情况下下标一一对应。但存两个同名线路（或 {@code findRoute} 拿到另一个 Route 实例）时，
@@ -240,38 +242,39 @@ public final class XiamenRouteStrip {
      * （同样表现为“出现不该有的换乘线路”）。所以这里再比一次<b>站名</b>：对不上就当作没有（
      * 交给调用方的退化路径，那条是按 stationDetails 自己的站算的）。</p>
      */
-    private static ClientCache.ColorNameTuple stationInterchangeTuple(
+    private static java.util.List<ClientCache.ColorNameTuple> stationInterchangeTuples(
             final Route route, final int index, final String expectedStationName,
             final Set<Integer> ownColors, final Set<String> ownNames) {
         if (route == null || route.platformIds == null || index < 0 || index >= route.platformIds.size()) {
-            return null;
+            return java.util.Collections.emptyList();
         }
         final long platformId = route.platformIds.get(index).platformId;
         final mtr.data.Station station =
                 ClientData.DATA_CACHE.platformIdToStation.get(Long.valueOf(platformId));
         if (station == null) {
-            return null;
+            return java.util.Collections.emptyList();
         }
         if (expectedStationName != null && !expectedStationName.isEmpty()
                 && !XiamenStripPainter.cjkPart(expectedStationName).equals(XiamenStripPainter.cjkPart(station.name))) {
-            return null;
+            return java.util.Collections.emptyList();
         }
         final java.util.Map<Integer, ClientCache.ColorNameTuple> all =
                 ClientData.DATA_CACHE.stationIdToRoutes.get(Long.valueOf(station.id));
-        return firstForeignTuple(all == null ? null : all.values(), ownColors, ownNames);
+        return all == null ? java.util.Collections.<ClientCache.ColorNameTuple>emptyList()
+                : foreignTuples(all.values(), ownColors, ownNames);
     }
 
     /**
-     * 在给定集合里挑一条“不是本站台自己的线路”：颜色和名称都要排除掉，
-     * 多条时取线路色最小的那条（确定性）。没有就 null。
+     * 在给定集合里挑出<b>全部</b>“不是本站台自己的线路”（颜色和名称都要排除掉），
+     * 多条时按线路色<b>升序</b>返回（确定性）。没有就空表。
      */
-    private static ClientCache.ColorNameTuple firstForeignTuple(
+    private static java.util.List<ClientCache.ColorNameTuple> foreignTuples(
             final java.util.Collection<ClientCache.ColorNameTuple> tuples,
             final Set<Integer> ownColors, final Set<String> ownNames) {
         if (tuples == null || tuples.isEmpty()) {
-            return null;
+            return java.util.Collections.emptyList();
         }
-        ClientCache.ColorNameTuple best = null;
+        final java.util.List<ClientCache.ColorNameTuple> found = new java.util.ArrayList<>();
         for (final ClientCache.ColorNameTuple tuple : tuples) {
             if (tuple == null || tuple.name == null || tuple.name.isEmpty()) {
                 continue;
@@ -280,11 +283,22 @@ public final class XiamenRouteStrip {
                     || ownNames.contains(XiamenRouteStyle.shortName(tuple.name))) {
                 continue;
             }
-            if (best == null || (tuple.color & 0xFFFFFF) < (best.color & 0xFFFFFF)) {
-                best = tuple;
+            // 同一条换乘线路只留一条（多站台 / 同名重复登记时别画两遍）。
+            boolean dup = false;
+            for (final ClientCache.ColorNameTuple kept : found) {
+                if ((kept.color & 0xFFFFFF) == (tuple.color & 0xFFFFFF)
+                        && XiamenRouteStyle.shortName(kept.name)
+                        .equals(XiamenRouteStyle.shortName(tuple.name))) {
+                    dup = true;
+                    break;
+                }
+            }
+            if (!dup) {
+                found.add(tuple);
             }
         }
-        return best;
+        found.sort((a, b) -> Integer.compare(a.color & 0xFFFFFF, b.color & 0xFFFFFF));
+        return found;
     }
 
     /** 每个“车站 + 换乘线路”只打一行：{@code [lte] strip: interchange station=<name> -> line=<id>}。 */
@@ -475,7 +489,7 @@ public final class XiamenRouteStrip {
         }
         LteLog.LOGGER.info("[lte] route strip: platform={} route={} id={} color=#{} stations={} dir={} tex={}x{} "
                         + "band={} line={} dot={} current={} termRing={} termArrow={} swap={} ring={} plate={} "
-                        + "font={} nameSize={}",
+                        + "badges={} dropped={} scale={} font={} nameSize={}",
                 Long.valueOf(platformId), XiamenRouteStyle.shortName(routeName),
                 route == null ? "?" : Long.valueOf(route.id), String.format("%06X", lineRgb & 0xFFFFFF),
                 Integer.valueOf(stations), Integer.valueOf(direction),
@@ -486,6 +500,9 @@ public final class XiamenRouteStrip {
                 Integer.valueOf(XiamenStripPainter.lastTerminalArrow),
                 Integer.valueOf(XiamenStripPainter.lastInterchangeCount),
                 Integer.valueOf(XiamenStripPainter.lastSwapHead), Integer.valueOf(XiamenStripPainter.lastSwapPlate),
+                Integer.valueOf(XiamenStripPainter.lastBadgeCount),
+                Integer.valueOf(XiamenStripPainter.lastBadgeDropped),
+                String.format(java.util.Locale.ROOT, "%.2f", Float.valueOf(XiamenStripPainter.lastBadgeScale)),
                 XiamenStripPainter.lastFontName, Integer.valueOf(XiamenStripPainter.lastNameSize));
     }
 }
