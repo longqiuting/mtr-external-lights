@@ -134,7 +134,7 @@ public final class PsdLcdLayout {
 
     /** 吊板前面离格子外侧多远（16 分之格）：MTR {@code psd_top} 的箱体在 z 8..16，
      *  前脸就在 8 —— 我们的板必须占同一个后半格，否则会从隔壁原版吊板前面凸出来。 */
-    public static final float PANEL_Z0_PX = 0.0F;
+    public static final float PANEL_Z0_PX = 10.0F;
 
     /** 吊板厚度（16 分之格）：z 0..6，与 MTR 吊板同厚度、外面齐平。 */
     public static final float BOARD_THICKNESS_PX = 6.0F;

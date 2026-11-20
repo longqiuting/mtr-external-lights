@@ -2,35 +2,33 @@
 	"format_version": "1.9.0",
 	"credit": "LTE - Xiamen PSD-LCD hanging board. Geometry is a landscape port of MTR PSD LCD 1.2.8 (Zzztick365, MIT) models/block/psd_top_lcd14_groove_left_base.json - same element decomposition (6px body / 1.6px recessed groove / screen plane at the groove floor / 0.5px top slab + 0.5px bottom band / 1px inset bottom step + two 22.5 deg chamfers), same single-panel texture, only the axis frame is transposed (that model is a portrait PSD-face panel facing +X and 8px along the run; ours is a landscape hanging board facing -Z and 16px along the run) and the window band is the 7px band y 1.5..8.5 fixed by PsdLcdLayout. The LCD itself is drawn by PsdLcdRenderer on the ScreenPlane face. Half-width variant (半格（观察者左半）：model x 8…16), generated from psd_lcd_xiamen.json by tools/gen-psd-lcd-half-models.js - only the run axis is cut, the section (6px body / 0.5px groove / 1.5..8.5 window band) is untouched.",
 	"textures": {
+		"particle": "mtrlte:block/psd_top",
 		"panel": "mtrlte:block/psd_top",
-		"screen": "mtrlte:block/psd_lcd_screen",
-		"particle": "mtrlte:block/psd_top"
+		"screen": "mtrlte:block/psd_lcd_screen"
 	},
 	"elements": [
 		{
 			"name": "TopSlab",
-			"_comment": "顶板 y 15.5..16（0.5px），z 0..6 —— 与 MTR psd_top 同厚同位置（外面齐平）。 [half=left: x 8..16]",
 			"from": [
 				8,
 				15.5,
-				0
+				10
 			],
 			"to": [
 				16,
 				16,
-				6
+				16
 			],
+			"rotation": {
+				"angle": 0,
+				"axis": "y",
+				"origin": [
+					0,
+					0,
+					10
+				]
+			},
 			"faces": {
-				"up": {
-					"uv": [
-						8,
-						0,
-						16,
-						6
-					],
-					"texture": "#panel",
-					"cullface": "up"
-				},
 				"north": {
 					"uv": [
 						8,
@@ -40,6 +38,15 @@
 					],
 					"texture": "#panel",
 					"cullface": "north"
+				},
+				"east": {
+					"uv": [
+						0,
+						0,
+						6,
+						0.5
+					],
+					"texture": "#panel"
 				},
 				"south": {
 					"uv": [
@@ -51,6 +58,58 @@
 					"texture": "#panel",
 					"cullface": "south"
 				},
+				"west": {
+					"uv": [
+						0,
+						0,
+						6,
+						0.5
+					],
+					"texture": "#panel"
+				},
+				"up": {
+					"uv": [
+						8,
+						0,
+						16,
+						6
+					],
+					"texture": "#panel",
+					"cullface": "up"
+				}
+			}
+		},
+		{
+			"name": "BottomBand",
+			"from": [
+				8,
+				1,
+				10
+			],
+			"to": [
+				16,
+				1.5,
+				16
+			],
+			"rotation": {
+				"angle": 0,
+				"axis": "y",
+				"origin": [
+					0,
+					0,
+					10
+				]
+			},
+			"faces": {
+				"north": {
+					"uv": [
+						8,
+						0,
+						16,
+						0.5
+					],
+					"texture": "#panel"
+				},
 				"east": {
 					"uv": [
 						0,
@@ -60,6 +119,16 @@
 					],
 					"texture": "#panel"
 				},
+				"south": {
+					"uv": [
+						8,
+						0,
+						16,
+						0.5
+					],
+					"texture": "#panel",
+					"cullface": "south"
+				},
 				"west": {
 					"uv": [
 						0,
@@ -68,23 +137,7 @@
 						0.5
 					],
 					"texture": "#panel"
-				}
-			}
-		},
-		{
-			"name": "BottomBand",
-			"_comment": "屏幕带下沿 y 1..1.5，z 0..6。 [half=left: x 8..16]",
-			"from": [
-				8,
-				1,
-				0
-			],
-			"to": [
-				16,
-				1.5,
-				6
-			],
-			"faces": {
+				},
 				"up": {
 					"uv": [
 						8,
@@ -102,66 +155,37 @@
 						6
 					],
 					"texture": "#panel"
-				},
-				"north": {
-					"uv": [
-						8,
-						0,
-						16,
-						0.5
-					],
-					"texture": "#panel"
-				},
-				"south": {
-					"uv": [
-						8,
-						0,
-						16,
-						0.5
-					],
-					"texture": "#panel",
-					"cullface": "south"
-				},
-				"east": {
-					"uv": [
-						0,
-						0,
-						6,
-						0.5
-					],
-					"texture": "#panel"
-				},
-				"west": {
-					"uv": [
-						0,
-						0,
-						6,
-						0.5
-					],
-					"texture": "#panel"
 				}
 			}
 		},
 		{
 			"name": "Body",
-			"_comment": "箱体 z 0.5..6（前脸 0 + 0.5px 浅槽），背面 6 与原版吊板同厚度。 [half=left: x 8..16]",
 			"from": [
 				8,
 				1.5,
-				0.5
+				10.2
 			],
 			"to": [
 				16,
 				15.5,
-				6
+				16
 			],
+			"rotation": {
+				"angle": 0,
+				"axis": "y",
+				"origin": [
+					0,
+					0,
+					10
+				]
+			},
 			"faces": {
-				"up": {
+				"east": {
 					"uv": [
-						8,
-						0,
-						16,
-						4.4
+						0.5,
+						0.5,
+						6,
+						14.5
 					],
 					"texture": "#panel"
 				},
@@ -175,15 +199,6 @@
 					"texture": "#panel",
 					"cullface": "south"
 				},
-				"east": {
-					"uv": [
-						0.5,
-						0.5,
-						6,
-						14.5
-					],
-					"texture": "#panel"
-				},
 				"west": {
 					"uv": [
 						0.5,
@@ -192,22 +207,39 @@
 						14.5
 					],
 					"texture": "#panel"
+				},
+				"up": {
+					"uv": [
+						8,
+						0,
+						16,
+						4.4
+					],
+					"texture": "#panel"
 				}
 			}
 		},
 		{
 			"name": "ScreenPlane",
-			"_comment": "屏幕面 x 0..16、y 1.5..8.5、z 0.5（前脸 0 + 1/32 浅槽），BER 贴图贴这块面。 [half=left: x 8..16]",
 			"from": [
 				8,
 				1.5,
-				0.5
+				10.5
 			],
 			"to": [
 				16,
 				8.5,
-				0.5
+				10.5
 			],
+			"rotation": {
+				"angle": 0,
+				"axis": "y",
+				"origin": [
+					0,
+					0,
+					10
+				]
+			},
 			"faces": {
 				"north": {
 					"uv": [
@@ -222,17 +254,25 @@
 		},
 		{
 			"name": "FrontSkinUpper",
-			"_comment": "屏幕上沿蒙皮 z 0..0.5。 [half=left: x 8..16]",
 			"from": [
 				8,
 				8.5,
-				0
+				10
 			],
 			"to": [
 				16,
 				15.5,
-				0.5
+				10.5
 			],
+			"rotation": {
+				"angle": 0,
+				"axis": "y",
+				"origin": [
+					0,
+					0,
+					10
+				]
+			},
 			"faces": {
 				"north": {
 					"uv": [
@@ -240,6 +280,24 @@
 						0.5,
 						16,
 						7.5
+					],
+					"texture": "#panel"
+				},
+				"east": {
+					"uv": [
+						0,
+						0,
+						1.6,
+						7
+					],
+					"texture": "#panel"
+				},
+				"west": {
+					"uv": [
+						0,
+						0,
+						1.6,
+						7
 					],
 					"texture": "#panel"
 				},
@@ -251,41 +309,58 @@
 						1.6
 					],
 					"texture": "#panel"
-				},
-				"east": {
-					"uv": [
-						0,
-						0,
-						1.6,
-						7
-					],
-					"texture": "#panel"
-				},
-				"west": {
-					"uv": [
-						0,
-						0,
-						1.6,
-						7
-					],
-					"texture": "#panel"
 				}
 			}
 		},
 		{
 			"name": "BottomStep",
-			"_comment": "最下面 1px 回缩 1px（z 1..6）。 [half=left: x 8..16]",
 			"from": [
 				8,
 				0,
-				1
+				11
 			],
 			"to": [
 				16,
 				1,
-				6
+				16
 			],
+			"rotation": {
+				"angle": 0,
+				"axis": "y",
+				"origin": [
+					0,
+					0,
+					10
+				]
+			},
 			"faces": {
+				"north": {
+					"uv": [
+						8,
+						0,
+						16,
+						1
+					],
+					"texture": "#panel"
+				},
+				"east": {
+					"uv": [
+						1,
+						0,
+						6,
+						1
+					],
+					"texture": "#panel"
+				},
+				"west": {
+					"uv": [
+						1,
+						0,
+						6,
+						1
+					],
+					"texture": "#panel"
+				},
 				"down": {
 					"uv": [
 						8,
@@ -294,7 +369,31 @@
 						5
 					],
 					"texture": "#panel"
-				},
+				}
+			}
+		},
+		{
+			"name": "BevelLower",
+			"from": [
+				8,
+				0,
+				10.2346
+			],
+			"to": [
+				16,
+				1,
+				11
+			],
+			"rotation": {
+				"angle": 22.5,
+				"axis": "x",
+				"origin": [
+					0,
+					0,
+					11
+				]
+			},
+			"faces": {
 				"north": {
 					"uv": [
 						8,
@@ -306,47 +405,22 @@
 				},
 				"east": {
 					"uv": [
-						1,
 						0,
-						6,
+						0,
+						1,
 						1
 					],
 					"texture": "#panel"
 				},
 				"west": {
 					"uv": [
-						1,
 						0,
-						6,
+						0,
+						1,
 						1
 					],
 					"texture": "#panel"
-				}
-			}
-		},
-		{
-			"name": "BevelLower",
-			"_comment": "下沿前角 22.5° 斜面，贴住 z=9 / y=0 那条棱。 [half=left: x 8..16]",
-			"from": [
-				8,
-				0,
-				0.2346
-			],
-			"to": [
-				16,
-				1,
-				1
-			],
-			"rotation": {
-				"origin": [
-					0,
-					0,
-					1
-				],
-				"axis": "x",
-				"angle": 22.5
-			},
-			"faces": {
+				},
 				"down": {
 					"uv": [
 						8,
@@ -355,57 +429,29 @@
 						1
 					],
 					"texture": "#panel"
-				},
-				"north": {
-					"uv": [
-						8,
-						0,
-						16,
-						1
-					],
-					"texture": "#panel"
-				},
-				"east": {
-					"uv": [
-						0,
-						0,
-						1,
-						1
-					],
-					"texture": "#panel"
-				},
-				"west": {
-					"uv": [
-						0,
-						0,
-						1,
-						1
-					],
-					"texture": "#panel"
 				}
 			}
 		},
 		{
 			"name": "BevelUpper",
-			"_comment": "下沿前角另一段 22.5° 斜面，贴住 z=8 / y=1 那条棱。 [half=left: x 8..16]",
 			"from": [
 				8,
 				0.2346,
-				0
+				10
 			],
 			"to": [
 				16,
 				1,
-				1
+				11
 			],
 			"rotation": {
+				"angle": -22.5,
+				"axis": "x",
 				"origin": [
 					0,
 					1,
-					0
-				],
-				"axis": "x",
-				"angle": -22.5
+					10
+				]
 			},
 			"faces": {
 				"north": {
