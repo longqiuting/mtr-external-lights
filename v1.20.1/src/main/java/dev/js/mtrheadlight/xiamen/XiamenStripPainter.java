@@ -68,7 +68,9 @@ import java.util.Set;
  *                     全部走纯函数 {@link #fitBadgeRow}（可离线断言），可用宽 = 本格站距 x 92%，
  *                     所以既不压相邻站的站名，也不越出面板
  *   站名              45° 斜排、中文 + 英文两行；<b>可用到图片顶部的留白</b>，
- *                     逐站按字宽反解字号（超长的自己变小，再不行裁字加 “…”），绝不越界
+ *                     逐站按字宽反解字号（超长的自己变小，再不行裁字加 “…”），绝不越界；
+ *                     <b>画面最右那一站</b>（终点站 / 镜像后的起点站）改成往左上的镜像 45°，
+ *                     墨迹末端压在自己的圆圈上（v11：以前是整条往左平移，站名离圆一圈空一个字宽）
  *   线路号牌          已删除（v4：用户不需要左侧圆角号码牌）
  * </pre>
  *
@@ -275,6 +277,20 @@ public final class XiamenStripPainter {
     public static volatile float lastBadgeScale = 1f;
     /** v10：本次从尾部截掉的总数（0 = 全画下了）。 */
     public static volatile int lastBadgeDropped;
+    /**
+     * v11：画面最右那一站（终点站 / 镜像后的起点站）站名的锚点 x。
+     *
+     * <ul>
+     *   <li><b>45° 镜像排版</b>（{@link #lastNameMirrored}）：= <b>圆心</b>，站名末端压在自己的圆圈上；</li>
+     *   <li><b>正排（namesBelow）</b>：= 站名<b>中心</b>（正常就等于圆心，夹边时会被推回来）；</li>
+     *   <li><b>45° 未镜像</b>：= 文字起点（等于圆心；被右边夹过就是夹回来的那个 x）。</li>
+     * </ul>
+     *
+     * <p>0 = 这次没画站名。</p>
+     */
+    public static volatile int lastNameAnchorX;
+    /** v11：终点站站名这次是不是走了「往左上」的镜像排版（45° 斜排、右侧放不下时）。 */
+    public static volatile boolean lastNameMirrored;
     /** 终点站圆环直径 / 终点箭头长度（日志 / 报告用）。 */
     public static volatile int lastTerminalRing;
     public static volatile int lastTerminalArrow;
@@ -534,6 +550,8 @@ public final class XiamenStripPainter {
             lastBadgeCount = 0;
             lastBadgeScale = 1f;
             lastBadgeDropped = 0;
+            lastNameAnchorX = 0;
+            lastNameMirrored = false;
 
             final int count = model.names.length;
             // v7：唯一的镜像规则 —— 方向 1 / 2 / 3 都是“列车朝左”，整条图一起镜像（含终点三角）。
@@ -707,7 +725,7 @@ public final class XiamenStripPainter {
             final float belowExtra = namesBelow && plateBottomMax > 0
                     ? Math.max(0f, plateBottomMax - (lineY + maxVisR)) : 0f;
             final float nameSize = drawNames(g, names, namesEn, xs, visR, currentIndex, passed, lineRgb, nameTop,
-                    bandBottom, lineY, step, namesBelow, rightEdge, contentX, belowExtra, nameCap);
+                    bandBottom, lineY, step, namesBelow, rightEdge, width, contentX, belowExtra, nameCap);
 
             // ---- 终点箭头：**整张图的最后一笔**（v5.1）----
             // 顺序：白底 → 主线 → 所有圆环 → 站名 → 箭头。箭头画在最后 = 箭尖永远在最上层，
@@ -1261,13 +1279,17 @@ public final class XiamenStripPainter {
      *   <li>下限 {@link #NAME_MIN_SCALE}×基准（且不低于 {@link #NAME_FLOOR}px），
      *       缩到下限还放不下就按字宽<b>裁字加 “…”</b>（LCD 的兜底做法）——
      *       <b>最长站名也不会越出面板</b>。</li>
+     *   <li><b>终点站（画面里最后一个站）</b>：45° 往右上一定放不下 → 改成<b>往左上的镜像排版</b>，
+     *       墨迹末端压在自己的圆心（{@link #drawRotatedNameEnd}）。老做法是把整条站名往左平移
+     *       {@code projected} 像素，站名离自己的圆圈空出一整个字宽（实拍里“终点站名整体左移”）。</li>
      * </ul>
      */
     private static float drawNames(final Graphics2D g, final String[] names, final String[] ens, final int[] xs,
                                    final float[] radii, final int currentIndex, final boolean[] passed,
                                    final int lineRgb, final int nameTop, final int bandBottom, final int lineY,
                                    final float step, final boolean namesBelow, final int rightEdge,
-                                   final int firstTextX, final float belowExtra, final int nameCap) {
+                                   final int imgW, final int firstTextX, final float belowExtra,
+                                   final int nameCap) {
         final int count = names.length;
         float maxR = 0f;
         for (final float r : radii) {
@@ -1437,7 +1459,13 @@ public final class XiamenStripPainter {
                 final int textW = g.getFontMetrics(cjkFont).stringWidth(label);
                 int x = Math.round(xs[i] - textW / 2f);
                 x = Math.max(x, Math.min(Math.round(xs[i]), firstTextX));
-                x = Math.min(x, rightEdge - textW - 2);
+                // v11：终点站优先“压在自己圆圈上居中”——允许用满到图片右边缘的那点白边
+                //      （不再只用到 rightEdge 的内边距），真的还放不下才夹回来。
+                x = Math.min(x, Math.max(firstTextX, imgW - 2 - textW));
+                x = Math.max(x, 2);
+                if (i == count - 1) {
+                    lastNameAnchorX = x + textW / 2;
+                }
                 final float baseline = lineY + radii[i] + belowExtra + clr
                         + g.getFontMetrics().getAscent();
                 g.drawString(label, x, baseline);
@@ -1445,7 +1473,7 @@ public final class XiamenStripPainter {
                     g.setFont(enFont);
                     g.setColor(enColor);
                     final int enW = g.getFontMetrics(enFont).stringWidth(en);
-                    g.drawString(en, Math.min(rightEdge - enW - 2, Math.max(firstTextX, xs[i] - enW / 2f)),
+                    g.drawString(en, Math.min(imgW - 2 - enW, Math.max(firstTextX, xs[i] - enW / 2f)),
                             baseline + enOffset);
                 }
             } else {
@@ -1455,12 +1483,31 @@ public final class XiamenStripPainter {
                 // 斜向投影，否则贴右沿时英文尾部会出画。最后留 3 px 余量（字形右侧还有 bearing）。
                 final int projected = (int) Math.ceil(Math.max(textW, enW) * DIAG)
                         + (en == null ? 0 : (int) Math.ceil(enOffset * DIAG)) + 4;
-                int x = xs[i];
-                if (x + projected > rightEdge - 6) {
-                    x = Math.max(firstTextX, rightEdge - 6 - projected);
-                }
                 final int baseY = Math.round(lineY - radii[i] - clr - s * 0.20f) - Math.round(enOffset);
-                drawRotatedName(g, label, en, x, baseY, cjkFont, enFont, enStep, enColor);
+                // ★ 终点站（画面里最后一个站）：45° 往右上走必定伸出面板右边，于是以前是把整条站名
+                //   **往左平移 projected 像素**（= 墨迹右上角贴面板右边），结果站名离自己的圆圈隔了
+                //   一整个字宽 —— 用户实拍里终点站名“整体左移”，和别的站不一个规矩。
+                //   v11 改成**镜像排版**：同样 45°，但文字往左上走、**墨迹末端压在自己的圆心**上。
+                //   横向占用还是 projected 像素（一个像素都没多），所以既不会越出面板、也不会比原来
+                //   多压到左边那一格；跟“这个站挂了几条换乘”完全无关（换乘只影响线下的线路牌）。
+                final boolean mirrorEnd = i == count - 1
+                        && xs[i] + projected > rightEdge - 6        // 往右上放不下
+                        && xs[i] - projected >= firstTextX;         // 往左上放得下
+                if (mirrorEnd) {
+                    lastNameMirrored = true;
+                    lastNameAnchorX = xs[i];
+                    drawRotatedNameEnd(g, label, en, textW, enW, xs[i], baseY, cjkFont, enFont, enStep,
+                            enColor);
+                } else {
+                    int x = xs[i];
+                    if (x + projected > rightEdge - 6) {
+                        x = Math.max(firstTextX, rightEdge - 6 - projected);
+                    }
+                    if (i == count - 1) {
+                        lastNameAnchorX = x;
+                    }
+                    drawRotatedName(g, label, en, x, baseY, cjkFont, enFont, enStep, enColor);
+                }
             }
         }
         g.setClip(oldClip);
@@ -1520,6 +1567,39 @@ public final class XiamenStripPainter {
             g.setFont(enFont);
             g.setColor(enColor);
             g.drawString(en, x, baseY + lineStep);
+        }
+        g.setTransform(old);
+    }
+
+    /**
+     * 终点站站名的<b>镜像 45°</b>排版（v11）：同样 45°，但文字<b>往左上走</b>，墨迹末端
+     * （最后一个字的下沿）压在 {@code (x, baseY)} —— 也就是压在自己的圆圈上。
+     *
+     * <p>为什么不直接把整条往左平移（老做法）：45° 站名往右上走会伸出面板，老做法把整条
+     * 往左推 {@code projected} 像素，于是站名和它自己的圆圈之间空出一整个字宽，看起来就是
+     * “终点站名整体左移”。镜像排版横向占用一个像素没变，但末端咬住圆心，与普通站同一套
+     * “站名从自己的圆圈长出来”的规矩。</p>
+     *
+     * <p>字形<b>不镜像</b>（照样能读）：只是把基线方向从「右下 → 右上」换成「左上 → 右下」，
+     * 文字按阅读方向仍然是正着的 45°。</p>
+     *
+     * @param cjkW 中文行宽（px，paint 里量好的）
+     * @param enW  英文行宽（px，没有英文传 0）
+     */
+    private static void drawRotatedNameEnd(final Graphics2D g, final String cjk, final String en,
+                                           final int cjkW, final int enW, final int x, final int baseY,
+                                           final Font cjkFont, final Font enFont, final float lineStep,
+                                           final Color enColor) {
+        final AffineTransform old = g.getTransform();
+        g.translate(x, baseY);
+        g.rotate(Math.PI / 4);
+        g.setFont(cjkFont);
+        // 从 x = -宽 画到 x = 0：墨迹末端正好落在锚点（自己的圆心）上。
+        g.drawString(cjk, -cjkW, 0);
+        if (en != null && !en.isEmpty()) {
+            g.setFont(enFont);
+            g.setColor(enColor);
+            g.drawString(en, -enW, lineStep);
         }
         g.setTransform(old);
     }

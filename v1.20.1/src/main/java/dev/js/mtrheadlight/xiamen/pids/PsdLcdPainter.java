@@ -138,6 +138,42 @@ public final class PsdLcdPainter {
     private static final float STA_EN_TOP = 0.2593F;
     private static final float STA_EN_INK = 0.0552F;
 
+    // ================================================================ 各列能用到哪儿（长站名的字号靠它反解）
+    //
+    // 长站名以前是「超了就 ∝ 缩」，没有下限、也没有真正的列边界 —— 10 个字的站名会被压到 40%
+    // （糊成一条线）；而「大数字」那一列是右对齐、宽度没约束，四个字的状态文案（即将进站 / 已到站）
+    // 会从数字右缘往左伸展，压进终点站那一列。这里把三列的**左右边界**量出来写成常量：
+    // 文字右缘 ≤ 列右缘、左缘 ≥ 列左缘，剩下的宽度交给 TextFit 反解字号
+    // （只缩不放，下限 62%，缩到底才截断）。数值是 W=3072 / h=444.6 / BOLD 黑体逐条量出来的，
+    // 量法与实测宽度见 tools/xiamen-text-fit 的运行输出。
+
+    /**
+     * 终点站列左缘（占屏宽）：左标签列最宽的一行墨迹右缘 + 间距。
+     * 「下一班开往」= 0.1545、「Third train」= 0.1569 → 0.1569 + 0.006。
+     */
+    private static final float DEST_COL_L = 0.1629F;
+    /**
+     * 终点站列右缘（占屏宽）：时间/数字列左缘 − 间距。两位数「23」墨迹宽 0.0349、右缘
+     * {@link #NUM_RIGHT} = 0.34 ⇒ 数字列左缘 0.3051 → 0.3051 − 0.007。
+     */
+    private static final float DEST_COL_R = 0.2981F;
+
+    /** 当前站列左缘：线路徽标右缘 {@link #BADGE_X1} 0.5367 + 间距 0.007。 */
+    private static final float STA_COL_L = 0.5437F;
+    /** 当前站列右缘：广告区左缘 {@link #AD_X0} 0.7197 − 间距 0.007。 */
+    private static final float STA_COL_R = 0.7127F;
+
+    /**
+     * 时间/数字列的左缘（占屏宽）：两位数字的墨迹左缘（量得 0.3051）。
+     * 数字右对齐到 {@link #NUM_RIGHT}，所以「数字」这一格的左界就是它。
+     */
+    private static final float NUM_COL_L = 0.3051F;
+    /**
+     * 状态文案（即将进站 / 已到站）能用到的最右缘：单位列右边、线路徽标左边。
+     * 这一档没有数字也没有单位，所以整块 0.3051…0.4322 都归它（4 个全角字 0.104 放得下）。
+     */
+    private static final float NUM_COL_R = 0.4322F;
+
     // ---- 编组行：车头 + N 节卡片（右缘对齐 CAR_ROW_X1，车头往左独立占位）
     private static final float CAR_ROW_X1 = 0.6894F;
     /** 编组行最左能到哪（占屏宽）：设计稿量到的行槽左缘（**含**第二行的数字「17」那一列）。 */
@@ -513,16 +549,29 @@ public final class PsdLcdPainter {
         line(g, labelSub, latin, "Bound for", cy + LBLEN_TOP * h, LBLEN_INK * h,
                 labelX, Align.LEFT, 0.10F * w, white);
 
-        final float destCx = DEST_CX * w;
+        // 终点站：列宽 = 标签列右缘 … 时间/数字列左缘（见 DEST_COL_L / DEST_COL_R）。
+        // 长站名只缩不放（下限 62%），缩到底才截断 —— 绝不压进右边那一列。
+        final float destMaxW = columnWidth(Column.DEST_ZH, w);
         line(g, dest, cjk, "华侨大学", cy + DEST_TOP * h, DEST_INK * h,
-                destCx, Align.CENTER, 0.10F * w, white);
+                DEST_CX * w, Align.CENTER, destMaxW, white);
         line(g, destEn, latin, "Huaqiao University", cy + DESTEN_TOP * h, DESTEN_INK * h,
-                destCx, Align.CENTER, 0.10F * w, white);
+                DEST_CX * w, Align.CENTER, columnWidth(Column.DEST_EN, w), white);
 
-        // 大数字：右缘对齐（7 与 17 都贴着这一列的右边）
-        line(g, count, digits, "0", cy + NUM_TOP * h, NUM_INK * h,
-                NUM_RIGHT * w, Align.RIGHT, 0.07F * w, white);
+        // 大数字 / 到站状态：
+        //   · 数字：右缘贴 NUM_RIGHT，左界是两位数字的墨迹左缘（只缩不截断）；
+        //   · 状态（即将进站 / 已到站）：没有数字也没有单位，从数字列左缘左对齐写起，
+        //     可以用到单位列右边 —— 以前它走数字那一格（右对齐 + 0.07w），4 个全角字会被压到
+        //     67% 并往左伸进终点站那一列。
         if (count != null && !count.isEmpty()) {
+            final boolean state = !count.codePoints().allMatch(Character::isDigit);
+            if (state) {
+                line(g, count, cjk, "已到站", cy + NUM_TOP * h, NUM_INK * h,
+                        columnAnchor(Column.COUNT_STATE, w), Align.LEFT,
+                        columnWidth(Column.COUNT_STATE, w), white);
+            } else {
+                line(g, count, digits, "0", cy + NUM_TOP * h, NUM_INK * h,
+                        NUM_RIGHT * w, Align.RIGHT, columnWidth(Column.COUNT, w), white);
+            }
             final float unitX = UNIT_X * w;
             line(g, unitZh, cjk, "分钟", cy + UNITZH_TOP * h, UNITZH_INK * h,
                     unitX, Align.LEFT, 0.045F * w, white);
@@ -573,10 +622,12 @@ public final class PsdLcdPainter {
         final Font latin = assets == null ? null : assets.latin();
         final float cx = STA_CX * w;
         final int white = COLOR_WHITE;
+        // 当前站：列宽 = 线路徽标右缘 … 广告区左缘。长站名只缩不放（下限 62%），
+        // 缩到底才截断 —— 一行大字压到徽标或广告上，比截断难看得多。
         line(g, c.stationZh(), cjk, "董任", STA_ZH_TOP * h, STA_ZH_INK * h,
-                cx, Align.CENTER, 0.11F * w, white);
+                cx, Align.CENTER, columnWidth(Column.STATION_ZH, w), white);
         line(g, c.stationEn(), latin, "Dongren", STA_EN_TOP * h, STA_EN_INK * h,
-                cx, Align.CENTER, 0.11F * w, white);
+                cx, Align.CENTER, columnWidth(Column.STATION_EN, w), white);
     }
 
     /**
@@ -889,13 +940,17 @@ public final class PsdLcdPainter {
      * 不同字符（有没有下伸部）在同一字号下的墨迹高并不一样。所以这里给的是
      * 「参考字串 + 它在设计稿里的墨迹高」，运行期反推字号 —— 换字体也不会跑版。
      *
+     * <p><b>宽度</b>：{@code maxW} 是这一列能用的宽度，超出时交给 {@link TextFit} ——
+     * 先反解字号（只缩不放，下限 {@link TextFit#MIN_SCALE}），缩到下限还放不下才截断加「…」。
+     * 以前是无下限地等比缩小（长站名被压成一条糊线），而且缩成什么样都不会承认放不下。
+     *
      * @param text    真正要画的字（可为空）
      * @param base    字体（null = 逻辑字体）
      * @param ref     量字号用的参考字串（null = 用 text 自己）
      * @param inkTop  墨迹上沿（px）
      * @param inkH    墨迹高（px）
      * @param anchor  对齐锚点（px）
-     * @param maxW    最宽多少（px；&lt;=0 = 不限）
+     * @param maxW    这一列能用的宽度（px；&lt;=0 = 不限）
      */
     private static void line(final Graphics2D g, final String text, final Font base, final String ref,
                              final float inkTop, final float inkH, final float anchor,
@@ -903,14 +958,16 @@ public final class PsdLcdPainter {
         if (text == null || text.isEmpty() || inkH <= 0.0F) {
             return;
         }
-        Font font = fit(base, ref == null ? text : ref, inkH);
-        float w = inkWidth(font, text);
-        if (maxW > 0.0F && w > maxW && w > 0.01F) {
-            font = font.deriveFont(font.getSize2D() * (maxW / w));
-            w = inkWidth(font, text);
-        }
-        final float inkX0 = inkX0(font, text);
-        final float inkY0 = inkY0(font, text);
+        final Fitted fitted = fitToColumn(text, base, ref == null ? text : ref, inkH, maxW);
+        final Font font = fitted.font();
+        final String drawn = fitted.text();
+        final float w = inkWidth(font, drawn);
+        final float inkX0 = inkX0(font, drawn);
+        final float inkY0 = inkY0(font, drawn);
+        // 缩过的字在**原来那一行**里垂直居中：墨迹上沿按「缩掉的高度」下移一半，
+        // 否则它贴着上沿画，看着像整行往上飘了。
+        final float top = fitted.shrunk()
+                ? inkTop + (inkH - inkHeight(font, drawn)) * 0.5F : inkTop;
         final float x = switch (align) {
             case CENTER -> anchor - inkX0 - w * 0.5F;
             case RIGHT -> anchor - inkX0 - w;
@@ -918,7 +975,187 @@ public final class PsdLcdPainter {
         };
         g.setFont(font);
         g.setColor(new Color(argbColor, true));
-        g.drawString(text, x, inkTop - inkY0);
+        g.drawString(drawn, x, top - inkY0);
+    }
+
+    // ---------------------------------------------------------------- 按列宽反解字号（长站名）
+
+    /** 一次排版的结果：最终字体（已按列宽反解）+ 最终文本（可能截断）+ 缩/裁了没有。 */
+    public record Fitted(Font font, String text, float size, boolean shrunk, boolean truncated) {
+    }
+
+    /** PSD-LCD 里需要「按列宽反解字号」的几格字。 */
+    public enum Column {
+        /** 终点站（中文，大）。 */
+        DEST_ZH,
+        /** 终点站（英文，小）。 */
+        DEST_EN,
+        /** 当前站（中文，大）。 */
+        STATION_ZH,
+        /** 当前站（英文，小）。 */
+        STATION_EN,
+        /** 倒计时数字（右对齐贴 {@link #NUM_RIGHT}，只缩不截断 —— 「1…」没有意义）。 */
+        COUNT,
+        /** 到站状态文案（即将进站 / 已到站，占据数字 + 单位那一整块）。 */
+        COUNT_STATE
+    }
+
+    /**
+     * 这一列能用的宽度（px）：居中的列取「中心到左右边界里更近的那一边」×2
+     * —— 所以居中画出来的字左右都不会越界。
+     *
+     * <p>公开给离线断言（{@code tools/xiamen-text-fit}）用：断言量的是**同一份**边界。
+     */
+    public static float columnWidth(final Column column, final float width) {
+        return switch (column) {
+            case DEST_ZH, DEST_EN ->
+                    2.0F * Math.min(DEST_CX - DEST_COL_L, DEST_COL_R - DEST_CX) * width;
+            case STATION_ZH, STATION_EN ->
+                    2.0F * Math.min(STA_CX - STA_COL_L, STA_COL_R - STA_CX) * width;
+            case COUNT -> (NUM_RIGHT - DEST_COL_R) * width;
+            case COUNT_STATE -> (NUM_COL_R - NUM_COL_L) * width;
+        };
+    }
+
+    /** 这一列的水平锚点（px）：居中列给中线、右对齐列给右缘、左对齐列给左缘。 */
+    public static float columnAnchor(final Column column, final float width) {
+        return switch (column) {
+            case DEST_ZH, DEST_EN -> DEST_CX * width;
+            case STATION_ZH, STATION_EN -> STA_CX * width;
+            case COUNT -> NUM_RIGHT * width;
+            case COUNT_STATE -> NUM_COL_L * width;
+        };
+    }
+
+    /** 这一列的对齐方式。 */
+    public static Align columnAlign(final Column column) {
+        return switch (column) {
+            case DEST_ZH, DEST_EN, STATION_ZH, STATION_EN -> Align.CENTER;
+            case COUNT -> Align.RIGHT;
+            case COUNT_STATE -> Align.LEFT;
+        };
+    }
+
+    /**
+     * 这一列文字能到的最左缘（px）：居中 / 左对齐列就是「锚点 − 0 或 − 半宽」，
+     * 右对齐列是「锚点 − 列宽」。它们由 {@link #columnWidth} 反推，所以和量出来的边界是同一份。
+     */
+    public static float columnLeft(final Column column, final float width) {
+        final float anchor = columnAnchor(column, width);
+        return switch (columnAlign(column)) {
+            case LEFT -> anchor;
+            case RIGHT -> anchor - columnWidth(column, width);
+            case CENTER -> anchor - columnWidth(column, width) * 0.5F;
+        };
+    }
+
+    /** 这一列文字能到的最右缘（px）。离线断言用它判「右缘 ≤ 列右缘」。 */
+    public static float columnRight(final Column column, final float width) {
+        final float anchor = columnAnchor(column, width);
+        return switch (columnAlign(column)) {
+            case RIGHT -> anchor;
+            case LEFT -> anchor + columnWidth(column, width);
+            case CENTER -> anchor + columnWidth(column, width) * 0.5F;
+        };
+    }
+
+    /** 这一列文字的墨迹左缘（px，按 {@code fitted} 的实际宽度算）。离线断言用。 */
+    public static float inkLeft(final Column column, final Fitted fitted, final float width) {
+        final float anchor = columnAnchor(column, width);
+        final float w = inkWidth(fitted.font(), fitted.text());
+        return switch (columnAlign(column)) {
+            case LEFT -> anchor;
+            case RIGHT -> anchor - w;
+            case CENTER -> anchor - w * 0.5F;
+        };
+    }
+
+    /** 这一列文字的墨迹右缘（px）。 */
+    public static float inkRight(final Column column, final Fitted fitted, final float width) {
+        return inkLeft(column, fitted, width) + inkWidth(fitted.font(), fitted.text());
+    }
+
+    /**
+     * 这一列的排版结果（字号 / 最终文本 / 是否缩过 / 是否截断）。
+     *
+     * <p>绘制（{@link #row} / {@link #station}）和离线断言（{@code tools/xiamen-text-fit}）
+     * 调的是<b>同一个函数</b>，所以断言量的就是屏上画的那一次。
+     */
+    public static Fitted fitColumn(final Column column, final String text, final Assets assets,
+                                   final float width, final float height) {
+        final Assets a = assets == null ? new Assets() : assets;
+        final float h = layoutHeight(width, height);
+        final Font base;
+        final String ref;
+        final float inkH;
+        switch (column) {
+            case DEST_ZH -> {
+                base = a.cjk();
+                ref = "华侨大学";
+                inkH = DEST_INK * h;
+            }
+            case DEST_EN -> {
+                base = a.latin();
+                ref = "Huaqiao University";
+                inkH = DESTEN_INK * h;
+            }
+            case STATION_ZH -> {
+                base = a.cjk();
+                ref = "董任";
+                inkH = STA_ZH_INK * h;
+            }
+            case STATION_EN -> {
+                base = a.latin();
+                ref = "Dongren";
+                inkH = STA_EN_INK * h;
+            }
+            case COUNT -> {
+                base = a.digits();
+                ref = "0";
+                inkH = NUM_INK * h;
+            }
+            default -> {
+                base = a.cjk();
+                ref = "已到站";
+                inkH = NUM_INK * h;
+            }
+        }
+        final boolean mayTruncate = column != Column.COUNT;
+        return fitToColumn(text, base, ref, inkH, columnWidth(column, width), mayTruncate);
+    }
+
+    /**
+     * 排版一列字：名义字号（按参考字串的墨迹高反推）→ 按列宽反解 → 缩到下限才截断。
+     *
+     * @param mayTruncate 放不下时允不允许截断（数字那一格不允许：截成「1…」没有意义，
+     *                    宁可让它在 62% 上略微出格 —— 实际上只有 4 位以上的分钟数才会走到）
+     */
+    private static Fitted fitToColumn(final String text, final Font base, final String ref,
+                                      final float nominalInkH, final float maxW) {
+        return fitToColumn(text, base, ref, nominalInkH, maxW, true);
+    }
+
+    private static Fitted fitToColumn(final String text, final Font base, final String ref,
+                                      final float nominalInkH, final float maxW,
+                                      final boolean mayTruncate) {
+        final Font nominal = fit(base, ref, nominalInkH);
+        final float nominalSize = nominal.getSize2D();
+        if (text == null || text.isEmpty() || maxW <= 0.0F) {
+            return new Fitted(nominal, text == null ? "" : text, nominalSize, false, false);
+        }
+        final TextFit.Metrics metrics = metrics(nominal);
+        final float size = TextFit.fitFontSize(text, metrics, nominalSize, maxW, TextFit.MIN_SCALE);
+        final boolean shrunk = size < nominalSize - 0.01F;
+        final String drawn = mayTruncate
+                ? TextFit.ellipsize(text, metrics, size, maxW)
+                : text;
+        return new Fitted(nominal.deriveFont(Math.max(1.0F, size)), drawn, size,
+                shrunk, !drawn.equals(text));
+    }
+
+    /** 量字：给字号 → 这段字的墨迹宽（和 {@code drawString} 出来的墨迹同一个口径）。 */
+    private static TextFit.Metrics metrics(final Font base) {
+        return (text, size) -> inkWidth(base.deriveFont(Math.max(1.0F, size)), text);
     }
 
     /** 反推字号：让 {@code ref} 在这个字号下的墨迹高正好等于 {@code inkH}。 */

@@ -388,6 +388,7 @@
   "gui.mtrlte.pids.weekday.5": "Fri",
   "gui.mtrlte.pids.weekday.6": "Sat",
   "gui.mtrlte.pids.weekday.7": "Sun",
+  "gui.mtrlte.psd_lcd.arrived": "Arrived",
   "gui.mtrlte.psd_lcd.this_station": "Current station",
   "gui.mtrlte.psd_lcd.place_ad": "Place your ad here",
   "gui.mtrlte.psd_lcd.car": "Car %s",

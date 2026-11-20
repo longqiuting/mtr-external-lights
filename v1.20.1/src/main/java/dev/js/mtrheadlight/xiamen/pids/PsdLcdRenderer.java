@@ -551,10 +551,12 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         final String[] dest2 = second == null || route2 == null
                 ? new String[]{"", ""} : PidsXiamenRenderer.destinations(route2, second);
 
+        // 倒计时：PSD-LCD 用自己的「已到站」语言键（gui.mtrlte.psd_lcd.arrived）；
+        // 档位判定在 ArrivalCountdown —— 到站一律写「已到站」，不会出现「0秒 / 0分钟」。
         final PidsXiamenRenderer.Countdown count1 = first == null
-                ? new PidsXiamenRenderer.Countdown("", "") : PidsXiamenRenderer.countdown(first);
+                ? new PidsXiamenRenderer.Countdown("", "") : PidsXiamenRenderer.countdown(first, true);
         final PidsXiamenRenderer.Countdown count2 = second == null
-                ? new PidsXiamenRenderer.Countdown("", "") : PidsXiamenRenderer.countdown(second);
+                ? new PidsXiamenRenderer.Countdown("", "") : PidsXiamenRenderer.countdown(second, true);
         // 单位：**两行各算各的**（以前两行共用 count1 算出来的那一份，第一行没数字时
         // 第二行的「分钟 / min」就一起消失了 —— 用户报的「分钟有时不显示」有一半是这个）；
         // 数字在、单位却是空的时候退回「分钟 / min」，屏上不会出现「17」后面没有单位。

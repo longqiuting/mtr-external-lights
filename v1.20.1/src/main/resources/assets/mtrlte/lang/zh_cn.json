@@ -388,6 +388,7 @@
   "gui.mtrlte.pids.weekday.5": "星期五",
   "gui.mtrlte.pids.weekday.6": "星期六",
   "gui.mtrlte.pids.weekday.7": "星期日",
+  "gui.mtrlte.psd_lcd.arrived": "已到站",
   "gui.mtrlte.psd_lcd.this_station": "当前站 / This station",
   "gui.mtrlte.psd_lcd.place_ad": "此处放置广告",
   "gui.mtrlte.psd_lcd.car": "%s车",

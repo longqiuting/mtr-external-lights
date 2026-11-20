@@ -108,12 +108,11 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
     private static final LocalDate EPOCH = LocalDate.of(2024, 1, 1);
 
     /**
-     * 「即将进站」的阈值（秒）：一分钟以内就不再写「X 秒」，直接写「即将进站」。
-     * 关掉 {@link PidsXiamenSettings#arriving()} 时回到旧的「X 秒 / X 分钟」。
+     * 诊断日志间隔（tick）。
+     *
+     * <p>「即将进站」的阈值（{@code ArrivalCountdown#ARRIVING_SECONDS}）和档位判定都在
+     * {@link ArrivalCountdown} 里（纯函数，离线可断言）。
      */
-    private static final long ARRIVING_SECONDS = 60L;
-
-    /** 诊断日志间隔（tick）。 */
     private static final long LOG_INTERVAL_TICKS = 200L;
 
     private static boolean warned;
@@ -497,8 +496,8 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
 
             // 右列：终点站（大）/ 英文（小）/ 倒计时（大数字 + 小单位）
             drawFlow(matrices, textRenderer, immediate, card, row.padRatio(), row.gapRatio(),
-                    line(row.dest(), card, destination[0]),
-                    line(row.destSub(), card, destination[1]),
+                    fittedLine(row.dest(), card, destination[0], textRenderer),
+                    fittedLine(row.destSub(), card, destination[1], textRenderer),
                     countLine(row.count(), row.unit(), card, countdown));
         }
     }
@@ -521,8 +520,8 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
             final Countdown countdown = countdown(entry);
 
             drawFlow(matrices, textRenderer, immediate, card, row.padRatio(), row.gapRatio(),
-                    line(row.dest(), card, Text.translatable(
-                            "gui.mtrlte.pids.bound_for_station", destination).getString()),
+                    fittedLine(row.dest(), card, Text.translatable(
+                            "gui.mtrlte.pids.bound_for_station", destination).getString(), textRenderer),
                     routeLine(row, card, route, routeName, countdown));
         }
     }
@@ -799,6 +798,41 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
                 size, card.x(style.xRatio()), style.align(), card.w() * style.maxWidthRatio());
     }
 
+    /**
+     * 量字：给字号（px）→ 这段文字在屏上有多宽。
+     *
+     * <p>口径和 {@link PidsXiamenText#drawRun} 完全一致（{@code TextRenderer.getWidth × size / 8}），
+     * 所以「这里量出来的宽」就是「屏上画出来的宽」—— 断言才作数。
+     */
+    private static TextFit.Metrics metrics(final TextRenderer textRenderer) {
+        return (text, size) -> PidsXiamenText.width(textRenderer, text, size);
+    }
+
+    /**
+     * 到站行里「终点站」那一格：<b>按列宽反解字号（只缩不放，下限 62%），缩到下限才截断</b>。
+     *
+     * <p>可用的宽度 = {@code maxWidthRatio × 框宽}，这一列右缘因此落在框内、越不过旁边那一列：
+     * <ul>
+     *   <li>地铁：{@code 76 + 0.55×162 = 165.1}（框右缘 169）；</li>
+     *   <li>BRT：{@code 22 + 0.88×158 = 161.0}（框右缘 167）。</li>
+     * </ul>
+     *
+     * <p>以前超长站名交给 {@code drawRun} 无限等比缩小（10 字压到名义字号的 40%，屏上是一条糊线），
+     * 而且缩到多小都不会承认「放不下」。现在最多少到 {@link TextFit#MIN_SCALE}（62%），
+     * 再长就尾部加「…」—— 和 PSD-LCD 挂板、线路条带同一条规则
+     * （见 {@code tools/xiamen-text-fit} 的离线断言）。
+     */
+    private static Line fittedLine(final PidsXiamenLayout.TextStyle style, final PidsXiamenLayout.Rect card,
+                                   final String text, final TextRenderer textRenderer) {
+        final float nominal = size(style, card);
+        final float maxWidth = card.w() * style.maxWidthRatio();
+        final TextFit.Fitted fitted = TextFit.fit(text, metrics(textRenderer),
+                nominal, maxWidth, TextFit.MIN_SCALE);
+        return new Line(new PidsXiamenText.Segment[]{
+                new PidsXiamenText.Segment(fitted.text(), fitted.size(), style.color())},
+                fitted.size(), card.x(style.xRatio()), style.align(), maxWidth);
+    }
+
     /** 字号（px）= 框高 × sizeRatio。 */
     private static float size(final PidsXiamenLayout.TextStyle style, final PidsXiamenLayout.Rect card) {
         return Math.max(3.0F, card.h() * style.sizeRatio());
@@ -867,21 +901,36 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
     /**
      * 倒计时。
      *
-     * <p>{@link PidsXiamenSettings#arriving()} 打开时（默认）：一分钟以内写「即将进站」，
-     * 已经过了到点时间写「已到站」—— 厦门地铁屏上就是这个说法，不会出现「0 秒」这种读着像坏了的数字。
-     * 关掉时回到 MTR 式的「X 秒 / X 分钟」。
+     * <p>档位判定在 {@link ArrivalCountdown}（纯函数，离线可断言）：<b>到站（剩余 ≤ 0）一律写
+     * 「已到站」</b>，和 {@link PidsXiamenSettings#arriving()} 那个开关<b>无关</b> ——
+     * 以前这一档并在这个 if 里，秒数模式一到站就写「0秒」、分钟模式写「0分钟」，
+     * 读起来像屏坏了。现在两种模式到站都只写「已到站」；开关只管「一分钟以内要不要写即将进站」。
+     *
+     * <p>「已停稳」不用另取信号：MTR 的到站表里这条班次在发车之前一直留着、
+     * {@code arrivalMillis} 一直在过去，所以整段停站时间它都是「已到站」，发车后才被下一班替换。
      */
     static Countdown countdown(final ScheduleEntry entry) {
+        return countdown(entry, false);
+    }
+
+    /**
+     * 同上，PSD-LCD 挂板用这一版：它有自己的「已到站」文案键
+     * （{@link ArrivalCountdown#KEY_ARRIVED_PSD_LCD}），两套屏的措辞可以分开改。
+     *
+     * @param psdLcd {@code true} = 走 PSD-LCD 的那套语言键
+     */
+    static Countdown countdown(final ScheduleEntry entry, final boolean psdLcd) {
         final long remainingSeconds = (entry.arrivalMillis - System.currentTimeMillis()) / 1000L;
-        if (PidsXiamenSettings.arriving() && remainingSeconds <= ARRIVING_SECONDS) {
-            final String state = Text.translatable(remainingSeconds < 0L
-                    ? "gui.mtrlte.pids.arrived" : "gui.mtrlte.pids.arriving").getString();
-            return new Countdown(state, "");
+        final ArrivalCountdown.State state =
+                ArrivalCountdown.state(remainingSeconds, PidsXiamenSettings.arriving());
+        final String stateKey = ArrivalCountdown.stateKey(state, psdLcd);
+        if (stateKey != null) {
+            // 已到站 / 即将进站：文字状态，没有数字也没有单位
+            return new Countdown(Text.translatable(stateKey).getString(), "");
         }
-        final boolean minutes = remainingSeconds > 60L;
-        return new Countdown(
-                String.valueOf(minutes ? remainingSeconds / 60L : Math.max(0L, remainingSeconds)),
-                Text.translatable(minutes ? "gui.mtrlte.pids.minute" : "gui.mtrlte.pids.second").getString());
+        final String unitKey = ArrivalCountdown.unitKey(state);
+        return new Countdown(ArrivalCountdown.digits(state, remainingSeconds),
+                unitKey == null ? "" : Text.translatable(unitKey).getString());
     }
 
     /** 第 {@code row} 行对应哪条到站（考虑翻页）。 */
