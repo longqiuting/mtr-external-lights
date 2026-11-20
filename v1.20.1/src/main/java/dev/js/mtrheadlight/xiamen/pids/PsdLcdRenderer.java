@@ -10,10 +10,10 @@
 //   · 窗口矩形 x 0…16、y 1.5…8.5、z = 1.6（屏幕面）——不多一个像素；
 //   · 位图宽高比 = 窗口宽高比（16:7 / 段），内容不会被拉伸（见 tools/psd-lcd-fit-check.js）。
 //
-// 剪刀把某一格剪成半格（PsdLcdBlock.HALF = left / right）以后，这一格只剩 8px：
-// 整条链按「每格占 16 分之几」拼成区间，相邻区间接得上就并成一段（本格 right + 下一格 left
-// 正好拼回一整段），每一段发一个四边形、贴图 u 按段的位置裁 —— 所以半格既不会被拉伸，
-// 也不会和邻居重叠；被剪掉的那半格是真的没有几何（有洞就是洞）。
+// 剪刀把某一格剪成「只剩上半格」（PsdLcdBlock.HALF_CUT = true）以后，这一格的板子只占
+// y 7.5…16、屏幕口在 y 9…16（模型 psd_lcd_xiamen_half.json）。渲染上只有一件事变了：
+// **这一格的四边形 y 带从 1.5…8.5 换成 9…16**，宽度仍然是整格（一格 = 一整段）。
+// 被剪掉的下半截是真的没有几何（有洞就是洞），不是把画面裁掉一半。
 //
 // 旧版错在把「屏幕面中线 y = 5px」当成了四边形原点，再 rotZ(180) 让画面往下长，
 // 于是 7px 高的画面从 y=5px 一直挂到 y=-2px（吊板下面），看起来像「多画了一遍」。
@@ -121,18 +121,17 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         }
         final Direction facing = state.get(PsdLcdBlock.FACING);
         final PsdLcdLayout.Face face = faceOf(facing);
-        // 每格的面板在阅读轴上占多少（剪刀剪过就是 8px，没剪就是 16px），整条链现算。
+        // 一格 = 一整段（16px 宽）：剪刀不改宽度，只改这一格的 y 带，所以链的宽度永远是
+        // 段数 × 16px，每格的四边形就是自己的那一整段。
         final java.util.List<BlockPos> chain = PsdLcdBlock.run(world, anchor);
-        final float[] spans = spansOf(world, chain, state);
-        final float extentStart = minStart(spans);
-        final float extentEnd = maxEnd(spans);
-        final float extent = Math.max(1.0F, extentEnd - extentStart);
-        final java.util.List<float[]> pieces = piecesOf(spans);
+        final boolean[] cuts = cutsOf(world, chain, state);
+        final float extent = Math.max(1, chain.size()) * 16.0F;
 
         final Content content = contentOf(entity, world, anchor, extent);
         final int bitmapW = PsdLcdLayout.bitmapWidthFor(extent);
-        final int bitmapH = PsdLcdLayout.bitmapHeight();
-        final String shapeKey = shapeKey(spans);
+        // 位图高度跟着窗口高度走（整块 7px、剪后 9…16 也是 7px ⇒ 455px，两条一样）。
+        final int bitmapH = PsdLcdLayout.bitmapHeight(anyCut(cuts));
+        final String shapeKey = shapeKey(cuts);
         final String key = world.getRegistryKey().getValue() + "|" + anchor.asLong() + "|" + shapeKey;
         final PsdLcdTextures.Entry texture = PsdLcdTextures.acquire(key, bitmapW, bitmapH);
         if (texture == null) {
@@ -167,14 +166,15 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         com.mojang.blaze3d.systems.RenderSystem.disableCull();
         try {
             final VertexConsumer vc = immediate.getBuffer(MoreRenderLayers.getLight(texture.id, false));
-            // 一段（连续面板）发一个四边形。整格链 = 只有一个 (0, extent)；剪过以后
-            // 被剪掉的那半格既没有几何、也不发顶点 —— 内容在 u 上按同一段裁剪，不会重叠。
-            // 注意：四边形的<b>位置</b>用绝对区间（相对 anchor 那一格的左边缘），
-            // 只有贴图的 u 才按 extentStart/extent 归一化 —— 否则「右半」会被画到左半去。
-            for (final float[] piece : pieces) {
-                final float[][] quad = PsdLcdLayout.windowQuad(face, piece[0], piece[1]);
-                final float u0 = (piece[0] - extentStart) / extent;
-                final float u1 = (piece[1] - extentStart) / extent;
+            // 一格一个四边形：u 取这一格在整条链里的那一段（所以整条链是一张连续画面），
+            // v 永远是 0…1 —— 每格四边形的高度正好等于窗口高度，v 不做任何拉伸。
+            // y 带按这一格自己的 HALF_CUT 取：没剪 1.5…8.5，剪过 9…16。
+            for (int i = 0; i < cuts.length; i++) {
+                final float start = i * 16.0F;
+                final float end = start + 16.0F;
+                final float[][] quad = PsdLcdLayout.windowQuad(face, start, end, cuts[i]);
+                final float u0 = start / extent;
+                final float u1 = end / extent;
                 vertex(vc, matrix, normalMatrix, quad[0][0], quad[0][1], quad[0][2], u0, 0.0F, normal);
                 vertex(vc, matrix, normalMatrix, quad[1][0], quad[1][1], quad[1][2], u0, 1.0F, normal);
                 vertex(vc, matrix, normalMatrix, quad[2][0], quad[2][1], quad[2][2], u1, 1.0F, normal);
@@ -189,73 +189,39 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         }
     }
 
-    // ------------------------------------------------------------------ 半格拼条
+    // ------------------------------------------------------------------ 剪没剪
 
     /**
-     * 整条链每格面板在阅读轴上的 {@code {start, end}}（16 分之格，第 i 格从 16i 起）。
+     * 整条链每格「剪过没有」（{@link PsdLcdBlock#HALF_CUT}），下标和 {@link PsdLcdBlock#run} 一致。
      *
-     * <p>第 i 格的 {@code FACING} 理论上和 anchor 一致（{@link PsdLcdBlock#run} 只认同类方块），
-     * 剪过的那一格取它的 {@link PsdLcdBlock#HALF}：整格 [0,16]、左半 [0,8]、右半 [8,16]。
+     * <p>第 i 格的 FACING 理论上和 anchor 一致（{@link PsdLcdBlock#run} 只认同类方块），
+     * 但剪没剪是每格自己的事 —— 一条链可以「整块 + 剪过 + 整块」这样混着。
      */
-    private static float[] spansOf(final World world, final java.util.List<BlockPos> chain,
-                                   final BlockState anchorState) {
-        final float[] spans = new float[chain.size() * 2];
+    private static boolean[] cutsOf(final World world, final java.util.List<BlockPos> chain,
+                                    final BlockState anchorState) {
+        final boolean[] cuts = new boolean[chain.size()];
         for (int i = 0; i < chain.size(); i++) {
             final BlockState each = i == 0 ? anchorState : world.getBlockState(chain.get(i));
-            final PsdLcdBlock.Half half = each.getBlock() instanceof PsdLcdBlock && each.contains(PsdLcdBlock.HALF)
-                    ? each.get(PsdLcdBlock.HALF) : PsdLcdBlock.Half.NONE;
-            final float[] span = PsdLcdBlock.panelSpan(half);
-            spans[i * 2] = i * 16.0F + span[0];
-            spans[i * 2 + 1] = i * 16.0F + span[1];
+            cuts[i] = PsdLcdBlock.isCut(each);
         }
-        return spans;
+        return cuts;
     }
 
-    private static float minStart(final float[] spans) {
-        float out = Float.MAX_VALUE;
-        for (int i = 0; i < spans.length; i += 2) {
-            out = Math.min(out, spans[i]);
-        }
-        return out == Float.MAX_VALUE ? 0.0F : out;
-    }
-
-    private static float maxEnd(final float[] spans) {
-        float out = -Float.MAX_VALUE;
-        for (int i = 1; i < spans.length; i += 2) {
-            out = Math.max(out, spans[i]);
-        }
-        return out == -Float.MAX_VALUE ? 16.0F : out;
-    }
-
-    /**
-     * 把各格的区间并成「连续段」：前一段的终点和后一段的起点相等（浮点容差 1e-4）就接上。
-     *
-     * <p>这是「两半拼回一整段」的实现：本格 {@code half=right} 的 [8,16] 与下一格
-     * {@code half=left} 的 [16,24] 相接 → 合并成 [8,24]，一个四边形、一次贴图、零缝。
-     * 被剪掉的那半格（相邻区间不相接）就是真的没有几何 —— 有洞就是洞，不会补一块拉伸的画面。
-     */
-    private static java.util.List<float[]> piecesOf(final float[] spans) {
-        final java.util.List<float[]> out = new java.util.ArrayList<>();
-        float start = spans[0];
-        float end = spans[1];
-        for (int i = 2; i < spans.length; i += 2) {
-            if (Math.abs(spans[i] - end) <= 1.0E-4F) {
-                end = spans[i + 1];
-                continue;
+    /** 链里有没有剪过的格（决定位图高度用哪一档窗口带）。 */
+    private static boolean anyCut(final boolean[] cuts) {
+        for (final boolean cut : cuts) {
+            if (cut) {
+                return true;
             }
-            out.add(new float[]{start, end});
-            start = spans[i];
-            end = spans[i + 1];
         }
-        out.add(new float[]{start, end});
-        return out;
+        return false;
     }
 
-    /** 形状签名（贴图缓存 / 内容哈希都用它）：剪过哪一格、剪成哪半变了就得重建。 */
-    private static String shapeKey(final float[] spans) {
-        final StringBuilder out = new StringBuilder(spans.length * 4);
-        for (final float value : spans) {
-            out.append(Math.round(value)).append(',');
+    /** 形状签名（贴图缓存 / 内容哈希都用它）：哪一格剪过变了就得重建。 */
+    private static String shapeKey(final boolean[] cuts) {
+        final StringBuilder out = new StringBuilder(cuts.length);
+        for (final boolean cut : cuts) {
+            out.append(cut ? '1' : '0');
         }
         return out.toString();
     }
@@ -408,7 +374,7 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                 Text.translatable("gui.mtrlte.psd_lcd.place_ad").getString());
 
         // 哈希：只有这些变了才需要重画位图（广告图换了也要重画，所以把图片 id 也带上；
-        // 剪成半格以后宽度变了也重画 —— 位图宽度跟着 spanPx 走，不能拿旧宽度的位图拉伸）
+        // 接 / 拆一格以后宽度变了也重画 —— 位图宽度跟着 spanPx 走，不能拿旧宽度的位图拉伸）
         final String adKey = ad == null || ad.image() == null ? "-" : ad.image().toString();
         return new Content(content, adImage,
                 content + "|" + Math.round(spanPx) + "|" + adKey);

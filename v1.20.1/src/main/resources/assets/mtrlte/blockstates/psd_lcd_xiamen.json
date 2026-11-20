@@ -1,19 +1,14 @@
 {
-    "_comment": "facing = 屏幕法线，half = 沿铺开轴的宽度：none 整格 / left、right 半格（观察者左右）。四个 facing 的 y 旋转与 PsdLcdLayout.Face#blockstateY() 一一对应；半格模型由 tools/gen-psd-lcd-half-models.js 从整格模型切出来（half=left 保留 model x 8..16，half=right 保留 0..8）。",
+    "_comment": "facing = 屏幕法线（与 PsdLcdLayout.Face#blockstateY() 一一对应）；half_cut = 剪刀剪过没有：false 整块（psd_lcd_xiamen.json，屏幕窗口 y 1.5..8.5）/ true 只剩上半格（psd_lcd_xiamen_half.json，屏幕窗口 y 9..16，板子只占 y 7.5..16）。两套模型都来自用户给的 psd_lcd_xiamen.json 的 normal / half 两组，逐字段未改。",
     "variants": {
-        "facing=north,half=none":  { "model": "mtrlte:block/psd_lcd_xiamen" },
-        "facing=east,half=none":   { "model": "mtrlte:block/psd_lcd_xiamen", "y":  90 },
-        "facing=south,half=none":  { "model": "mtrlte:block/psd_lcd_xiamen", "y": 180 },
-        "facing=west,half=none":   { "model": "mtrlte:block/psd_lcd_xiamen", "y": 270 },
+        "facing=north,half_cut=false": { "model": "mtrlte:block/psd_lcd_xiamen" },
+        "facing=east,half_cut=false":  { "model": "mtrlte:block/psd_lcd_xiamen", "y":  90 },
+        "facing=south,half_cut=false": { "model": "mtrlte:block/psd_lcd_xiamen", "y": 180 },
+        "facing=west,half_cut=false":  { "model": "mtrlte:block/psd_lcd_xiamen", "y": 270 },
 
-        "facing=north,half=left":  { "model": "mtrlte:block/psd_lcd_xiamen_half_left" },
-        "facing=east,half=left":   { "model": "mtrlte:block/psd_lcd_xiamen_half_left", "y":  90 },
-        "facing=south,half=left":  { "model": "mtrlte:block/psd_lcd_xiamen_half_left", "y": 180 },
-        "facing=west,half=left":   { "model": "mtrlte:block/psd_lcd_xiamen_half_left", "y": 270 },
-
-        "facing=north,half=right": { "model": "mtrlte:block/psd_lcd_xiamen_half_right" },
-        "facing=east,half=right":  { "model": "mtrlte:block/psd_lcd_xiamen_half_right", "y":  90 },
-        "facing=south,half=right": { "model": "mtrlte:block/psd_lcd_xiamen_half_right", "y": 180 },
-        "facing=west,half=right":  { "model": "mtrlte:block/psd_lcd_xiamen_half_right", "y": 270 }
+        "facing=north,half_cut=true":  { "model": "mtrlte:block/psd_lcd_xiamen_half" },
+        "facing=east,half_cut=true":   { "model": "mtrlte:block/psd_lcd_xiamen_half", "y":  90 },
+        "facing=south,half_cut=true":  { "model": "mtrlte:block/psd_lcd_xiamen_half", "y": 180 },
+        "facing=west,half_cut=true":   { "model": "mtrlte:block/psd_lcd_xiamen_half", "y": 270 }
     }
 }

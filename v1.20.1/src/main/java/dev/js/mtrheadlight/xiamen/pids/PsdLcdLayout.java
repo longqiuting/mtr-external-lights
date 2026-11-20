@@ -11,10 +11,10 @@
 //   顶板       y 15.5 … 16（0.5px 薄片，贴天花板）
 //   屏幕窗口  前面（z=0）y 1.5 … 8.5 的整格宽口子，凹进去 1.6px → 屏幕面在 z = 1.6
 //
-// 剪刀（PsdLcdBlock#onUse + HALF 属性）可以把**一格**剪成半格：模型换成
-// psd_lcd_xiamen_half_left.json（model x 8…16）/ _half_right.json（0…8），
-// 世界几何改用 windowQuad(Face, startPx, endPx) 的「区间」版本 ——
-// 高度、凹槽、板厚都不变，只沿铺开轴切一半，所以位图宽高比仍然等于窗口宽高比。
+// 剪刀（PsdLcdBlock#onUse + HALF_CUT 属性）剪一下**这一格**就只剩上半格：模型换成
+// psd_lcd_xiamen_half.json（用户给的 half 组原样：板子只占 y 7.5…16、屏幕窗口 y 9…16），
+// 世界几何的 y 带跟着从 1.5…8.5 换成 9…16 —— 宽度、板厚、凹槽都不变，
+// 所以位图宽高比仍然等于窗口宽高比。
 //
 // 屏幕画面由 BER 画在凹槽底那张面上（比模型面再往前 0.016px，只为了不 z-fighting）。
 // 位图 / 四边形的宽高比严格等于窗口的 16:7，所以窗内内容不会被拉伸（见 tools/psd-lcd-fit-check.js）。
@@ -116,17 +116,48 @@ public final class PsdLcdLayout {
 
     // ================================================================ 块内几何（16 分之几）
 
-    /** 屏幕窗口下沿（方块底面以上多少 16 分之格）：1.5px。同模型 ScreenPlane 的 {@code from.y}。 */
+    /**
+     * 屏幕窗口下沿（方块底面以上多少 16 分之格）：整块 = 1.5px。
+     * 同整块模型 {@code ScreenPlane} 的 {@code from.y}。
+     */
     public static final float WINDOW_Y0_PX = 1.5F;
 
-    /** 屏幕窗口上沿：8.5px（高 7px）。同模型 ScreenPlane 的 {@code to.y}。 */
+    /** 屏幕窗口上沿（整块）：8.5px（高 7px）。同整块模型 {@code ScreenPlane} 的 {@code to.y}。 */
     public static final float WINDOW_Y1_PX = 8.5F;
+
+    /**
+     * 剪过（{@code half_cut=true}）以后的窗口下沿：<b>9px</b> —— 用户给的 half 组里
+     * {@code ScreenPlane} 是 {@code [0,9,10.5] → [16,16,10.5]}，也就是「只剩上半格」：
+     * 板子在 y 7.5…16、屏幕口在 y 9…16。
+     */
+    public static final float CUT_WINDOW_Y0_PX = 9.0F;
+
+    /** 剪过以后的窗口上沿：16px（贴方块顶），窗口仍然是 7px 高。 */
+    public static final float CUT_WINDOW_Y1_PX = 16.0F;
 
     /** 屏幕窗口左沿 / 右沿：整格宽（横向连接时每格都接上，所以是连续的）。 */
     public static final float WINDOW_X0_PX = 0.0F;
     public static final float WINDOW_X1_PX = 16.0F;
 
-    /** 屏幕窗口的宽高比（= 位图必须满足的宽高比，按 1 段算）。 */
+    /**
+     * 屏幕窗口的 y 带（16 分之格）：{@code {下沿, 上沿}}。
+     *
+     * <p>剪刀只改<b>高度方向的那一格带</b>：整块 1.5…8.5，剪后 9…16（两条都是 7px 高，
+     * 所以位图高度不变，但下沿整体上移 —— 板子下半截被剪掉了）。
+     */
+    public static float[] windowBandPx(final boolean cut) {
+        return cut
+                ? new float[]{CUT_WINDOW_Y0_PX, CUT_WINDOW_Y1_PX}
+                : new float[]{WINDOW_Y0_PX, WINDOW_Y1_PX};
+    }
+
+    /** 屏幕窗口的 y 带（格，方块底面以上）：{@code {下沿, 上沿}}。 */
+    public static float[] windowBandBlocks(final boolean cut) {
+        final float[] px = windowBandPx(cut);
+        return new float[]{px[0] / 16.0F, px[1] / 16.0F};
+    }
+
+    /** 屏幕窗口的宽高比（= 位图必须满足的宽高比，按 1 段算）。两种状态都是 16:7。 */
     public static final float WINDOW_ASPECT = (WINDOW_X1_PX - WINDOW_X0_PX) / (WINDOW_Y1_PX - WINDOW_Y0_PX);
 
     /** 屏幕面离凹槽口（方块外面）的余量（16 分之格）：0.016px，只为了不和模型面 z-fighting。 */
@@ -142,15 +173,19 @@ public final class PsdLcdLayout {
     /** 屏幕凹进去多深（16 分之格）：极浅槽 0.5px = 1/32 格，只留一道刻线。 */
     public static final float THICKNESS_PX = 0.5F;
 
-    /** 屏幕窗口在世界里的高度（格）= 7/16。 */
+    /** 屏幕窗口在世界里的高度（格）= 7/16（整块；剪后按 {@link #windowBandPx(boolean)} 算）。 */
     public static final float HEIGHT_BLOCKS = (WINDOW_Y1_PX - WINDOW_Y0_PX) / 16.0F;
 
-    /** 屏幕高度（px）。**不随段数变化**。 */
+    /** 屏幕高度（px）。**不随段数变化**，也不随剪不剪变（两条窗口带都是 7px）。 */
     public static final float HEIGHT_PX = PX_PER_BLOCK * HEIGHT_BLOCKS;
 
-    /** 屏幕窗口下沿 / 上沿的世界高度（格，方块底面以上）。 */
+    /** 屏幕窗口下沿 / 上沿的世界高度（格，方块底面以上）——整块；剪后用 {@link #windowBandBlocks(boolean)}。 */
     public static final float WINDOW_Y0_BLOCKS = WINDOW_Y0_PX / 16.0F;
     public static final float WINDOW_Y1_BLOCKS = WINDOW_Y1_PX / 16.0F;
+
+    /** 剪后屏幕窗口下沿 / 上沿的世界高度（格）。 */
+    public static final float CUT_WINDOW_Y0_BLOCKS = CUT_WINDOW_Y0_PX / 16.0F;
+    public static final float CUT_WINDOW_Y1_BLOCKS = CUT_WINDOW_Y1_PX / 16.0F;
 
     /**
      * 屏幕面离方块外面多远（格）= 1.584/16 = 0.099。BER 只认这一个数，模型改了它跟着走。
@@ -181,8 +216,7 @@ public final class PsdLcdLayout {
     }
 
     /**
-     * 位图宽度（px），按面板在阅读轴上实际占的像素数算（半格 = 8px、整格 = 16px，
-     * 一条链可以是 8+16+16 这种和）。
+     * 位图宽度（px），按面板在阅读轴上实际占的像素数算（一格 = 16px，一条链可以是 n × 16）。
      *
      * <p>和 {@link #windowQuad(Face, float, float)} 用的是同一个 {@code spanPx}，
      * 所以「位图多宽」和「四边形多宽」永远是同一个数 → 画面不会被拉伸。
@@ -191,9 +225,20 @@ public final class PsdLcdLayout {
         return Math.max(1, Math.round(Math.max(1.0F, spanPx) / 16.0F * PX_PER_BLOCK * BITMAP_SCALE));
     }
 
-    /** 位图高度（px）。**不随段数变化**。 */
+    /**
+     * 位图高度（px）：**不随段数变化**，但跟着窗口高度走 —— 剪过以后窗口带是 9…16
+     * （仍然 7px，所以数值和整块一样，但这里是按 {@link #windowBandPx(boolean)} 现算的，
+     * 哪天 half 组换了带高，位图自动跟上，不会拉伸）。
+     */
+    public static int bitmapHeight(final boolean cut) {
+        final float[] band = windowBandPx(cut);
+        final float blocks = (band[1] - band[0]) / 16.0F;
+        return Math.max(1, Math.round(blocks * PX_PER_BLOCK * BITMAP_SCALE));
+    }
+
+    /** 位图高度（px），整块那一档（= {@code bitmapHeight(false)}）。 */
     public static int bitmapHeight() {
-        return Math.max(1, Math.round(HEIGHT_PX * BITMAP_SCALE));
+        return bitmapHeight(false);
     }
 
     // ================================================================ 屏幕四角（世界坐标）
@@ -213,24 +258,37 @@ public final class PsdLcdLayout {
      * @return {@code float[4][3]}：{{x,y,z} × 4}
      */
     public static float[][] windowQuad(final Face facing, final int segments) {
-        return windowQuad(facing, 0.0F, Math.max(1, segments) * 16.0F);
+        return windowQuad(facing, 0, segments, false);
+    }
+
+    /** 整条链（{@code segments} 格）的四个顶点，使用整块那一档的窗口带。 */
+    public static float[][] windowQuad(final Face facing, final float startPx, final float endPx) {
+        return windowQuad(facing, startPx, endPx, false);
+    }
+
+    /** {@link #windowQuad(Face, int)} 的 y 带可控版本：一格一段，剪不剪由调用方给。 */
+    public static float[][] windowQuad(final Face facing, final int segments, final boolean cut) {
+        return windowQuad(facing, 0, segments, cut);
     }
 
     /**
      * 只画链条里的<b>一段</b>：{@code [startPx, endPx]} 是这段面板在阅读轴上的位置
      * （单位 = 16 分之格，从 anchor 那一格<b>观察者左边缘</b>量起，可以超过 16 = 伸进下一格）。
      *
-     * <p>半格剪裁就靠这个重载：整格传 {@code (0,16)}，左半 {@code (0,8)}，右半 {@code (8,16)}；
-     * 相邻的「本格右半 + 下一格左半」是 {@code (8,16)} 与 {@code (16,24)}，首尾相接、不重叠。
-     * 老的四参数版本 {@code (0, segments*16)} 与旧行为逐顶点相同。
+     * <p>y 带按「剪不剪」取：整块 1.5…8.5，剪后 9…16（{@link #windowBandPx(boolean)}）；z 两种状态
+     * 都是 {@code WINDOW_DEPTH_BLOCKS}（= 10.484/16）—— 两套模型的 {@code ScreenPlane} 都在 z = 10.5。
+     * 剪刀不再沿铺开轴切，所以正常调用就是「一格 = 一整段」{@code [16i, 16i+16)}；
+     * 区间重载留着让相邻两段的接缝用同一份算术算出来。
      */
-    public static float[][] windowQuad(final Face facing, final float startPx, final float endPx) {
+    public static float[][] windowQuad(final Face facing, final float startPx, final float endPx,
+                                       final boolean cut) {
         final Face f = facing == null ? Face.NORTH : facing;
         final Face right = f.right();
         final float from = Math.min(startPx, endPx) / 16.0F;
         final float to = Math.max(startPx, endPx) / 16.0F;
-        final float y0 = WINDOW_Y0_BLOCKS;
-        final float y1 = WINDOW_Y1_BLOCKS;
+        final float[] band = windowBandBlocks(cut);
+        final float y0 = band[0];
+        final float y1 = band[1];
         // 屏幕面在法线方向上的坐标：north/west 从 0 往内量，south/east 从 1 往内量。
         final float plane = f.negativeAxis() ? WINDOW_DEPTH_BLOCKS : 1.0F - WINDOW_DEPTH_BLOCKS;
         // 起点 = anchor 那一格「背对 right」的那条边（= 观察者看来的左边缘）。

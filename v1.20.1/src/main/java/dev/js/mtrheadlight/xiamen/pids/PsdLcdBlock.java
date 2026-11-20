@@ -20,11 +20,10 @@ import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.state.StateManager;
+import net.minecraft.state.property.BooleanProperty;
 import net.minecraft.state.property.DirectionProperty;
-import net.minecraft.state.property.EnumProperty;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
-import net.minecraft.util.StringIdentifiable;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
@@ -38,12 +37,15 @@ import net.minecraft.world.World;
  *
  * <h2>形态</h2>
  * <ul>
- *   <li><b>吊板</b>：外形和 MTR 的普通吊板（{@code mtr:block/psd_top_left_base}）是同一套——
- *       6px 厚、整块高（y 0..16，从天花板吊下来）、底面一圈 1px 台阶 + 22.5° 倒角；我们把它拉满整格宽，
+ *   <li><b>吊板（整块，{@code half_cut=false}）</b>：外形和 MTR 的普通吊板（{@code mtr:block/psd_top_left_base}）
+ *       是同一套——6px 厚、整块高（y 0..16，从天花板吊下来）、底面一圈 1px 台阶 + 22.5° 倒角；我们把它拉满整格宽，
  *       并在前面挖一个 <b>1.6px 深的插屏凹槽</b>（y 1.5..8.5，见 {@code models/block/psd_lcd_xiamen.json}）；</li>
- *   <li><b>屏幕</b>：LCD 画面由 BER 画在凹槽底那张面上（离方块外面 1.584px，
+ *   <li><b>吊板（剪过，{@code half_cut=true}）</b>：<b>只剩上半格</b>——剪刀剪掉板子下半截，
+ *       板子只占 y 7.5..16，屏幕口跟着上移到 y 9..16（见 {@code models/block/psd_lcd_xiamen_half.json}，
+ *       逐字来自用户给的 half 组）。注意这<b>不是</b>「沿宽度切一半」：宽度永远是整格；</li>
+ *   <li><b>屏幕</b>：LCD 画面由 BER 画在凹槽底那张面上（离方块外面 10.484px，
  *       {@link PsdLcdLayout#WINDOW_DEPTH_BLOCKS}），碰撞箱是空的，框选就是那块板
- *       （{@link #OUTLINE_NORTH} 等四个方向各一份）;</li>
+ *       （{@link #outline} 两个档各一份）;</li>
  *   <li><b>四向</b>：{@code FACING} = 屏幕的<b>法线</b>，放置时固定取「玩家朝向的反方向」，
  *       也就是<b>永远面朝放置的玩家</b>（见 {@link #getPlacementState}）；</li>
  *   <li><b>任意位置可放</b>：{@link #canPlaceAt} 恒真，拆掉支撑方块也不会自己掉；</li>
@@ -74,67 +76,34 @@ public class PsdLcdBlock extends HorizontalFacingBlock implements BlockEntityPro
     public static final DirectionProperty FACING = HorizontalFacingBlock.FACING;
 
     /**
-     * 面板沿「铺开轴」占多少：{@link Half#NONE} = 整格（16px），{@link Half#LEFT} / {@link Half#RIGHT} = 半格（8px）。
+     * 剪刀剪过没有：{@code false} = 整块吊板（y 0..16，屏幕窗口 y 1.5..8.5），
+     * {@code true} = <b>只剩上半格</b>（板子 y 7.5..16，屏幕窗口 y 9..16）。
      *
-     * <p><b>left / right 是观察者（站在屏幕正面看）的左右</b>，不是 model 空间的 ±x：
-     * 基础朝向（facing=north）时观察者的右手边是 model 的 −x，所以
-     * <ul>
-     *   <li>{@code half=left} → model x <b>8…16</b>（模型文件 {@code psd_lcd_xiamen_half_left.json}）；</li>
-     *   <li>{@code half=right} → model x <b>0…8</b>（{@code psd_lcd_xiamen_half_right.json}）。</li>
-     * </ul>
-     * 剪刀的切换顺序是 {@code none → left → right → none}（见 {@link #onUse}）：
-     * 连点三下回到整格；中间两档可以拿来和相邻那一格拼成一段
-     * （本格 right + 下一格 left 正好在格子边界对齐，见 {@link #panelSpan}）。
+     * <p>blockstate json 里的键就是 {@code half_cut=false|true}，剪后换模型
+     * {@code mtrlte:block/psd_lcd_xiamen_half}。剪刀右键切换，不损工具（见 {@link #onUse}）。
+     *
+     * <p>以前这里是三档枚举 {@code half = none|left|right}（沿宽度切一半）—— 那是误解：
+     * 用户要的是「剪完只剩上半格」，宽度永远整格。
      */
-    public static final EnumProperty<Half> HALF = EnumProperty.of("half", Half.class);
-
-    /** {@link #HALF} 的三个值。{@code id} 就是 blockstate json 里的字符串。 */
-    public enum Half implements StringIdentifiable {
-        /** 整格。 */
-        NONE("none"),
-        /** 观察者左半（model x 8…16）。 */
-        LEFT("left"),
-        /** 观察者右半（model x 0…8）。 */
-        RIGHT("right");
-
-        private final String id;
-
-        Half(final String id) {
-            this.id = id;
-        }
-
-        @Override
-        public String asString() {
-            return this.id;
-        }
-
-        /** 剪刀切一下之后的那一档：none → left → right → none。 */
-        public Half next() {
-            return switch (this) {
-                case NONE -> LEFT;
-                case LEFT -> RIGHT;
-                case RIGHT -> NONE;
-            };
-        }
-    }
+    public static final BooleanProperty HALF_CUT = BooleanProperty.of("half_cut");
 
     /** 吊板的外形尺寸（16 分之几），全部来自 {@link PsdLcdLayout}（对齐 MTR 的 {@code psd_top}）。 */
     private static final float PANEL_Z0 = PsdLcdLayout.PANEL_Z0_PX;
     private static final float PANEL_Z1 = PANEL_Z0 + PsdLcdLayout.BOARD_THICKNESS_PX;
 
-    /** 半格的宽度：8/16 格。 */
-    public static final float HALF_WIDTH_PX = 8.0F;
+    /** 剪后板子的下沿（16 分之格）= half 组 BottomStep 的 {@code from.y}：板子只占 7.5..16。 */
+    public static final float CUT_BOTTOM_Y_PX = 7.5F;
 
     public PsdLcdBlock(final Settings settings) {
         super(settings);
         this.setDefaultState(this.getStateManager().getDefaultState()
                 .with(FACING, Direction.NORTH)
-                .with(HALF, Half.NONE));
+                .with(HALF_CUT, false));
     }
 
     @Override
     protected void appendProperties(final StateManager.Builder<Block, BlockState> builder) {
-        builder.add(FACING, HALF);
+        builder.add(FACING, HALF_CUT);
     }
 
     // ------------------------------------------------------------------ 形状
@@ -146,9 +115,14 @@ public class PsdLcdBlock extends HorizontalFacingBlock implements BlockEntityPro
         return VoxelShapes.empty();
     }
 
+    /** 这一格剪过没有（方块状态里没有这个属性时按「整块」处理）。 */
+    public static boolean isCut(final BlockState state) {
+        return state != null && state.contains(HALF_CUT) && state.get(HALF_CUT);
+    }
+
     /**
-     * 轮廓：那块吊板。<b>整格 / 半格各一份</b> —— 半格时只框住留下的那 8px，
-     * 否则剪完以后选区还是一个整格，看着像没剪干净。
+     * 轮廓：那块吊板。<b>整块 / 剪后各一份</b> —— 整块 = 后面那 6px、y 0..16；
+     * 剪后 = 同一块 6px、y <b>7.5..16</b>（下半截没了，选区也不能还占着整格）。
      *
      * <p>形状在 <b>model 空间</b>写（基础朝向 = 朝北，屏幕面在 z=0 那侧），再按 {@code FACING}
      * 转到世界坐标。四个映射与 blockstate 的 y 旋转、{@link PsdLcdLayout#windowQuad} 同源：
@@ -162,48 +136,21 @@ public class PsdLcdBlock extends HorizontalFacingBlock implements BlockEntityPro
     @Override
     public VoxelShape getOutlineShape(final BlockState state, final BlockView world,
                                       final BlockPos pos, final ShapeContext context) {
-        return outline(state.get(FACING), state.get(HALF));
-    }
-
-    /** 面板在 model 空间占的 x 区间（16 分之格）：left = 8…16，right = 0…8，none = 0…16。 */
-    private static float[] modelXSpan(final Half half) {
-        return switch (half) {
-            case LEFT -> new float[]{HALF_WIDTH_PX, 16.0F};
-            case RIGHT -> new float[]{0.0F, HALF_WIDTH_PX};
-            default -> new float[]{0.0F, 16.0F};
-        };
+        return outline(state.get(FACING), isCut(state));
     }
 
     /** {@link #getOutlineShape} 的实际算法：model 空间的箱子按 facing 转到世界。 */
-    private static VoxelShape outline(final Direction facing, final Half half) {
-        final float[] span = modelXSpan(half == null ? Half.NONE : half);
-        final float x0 = span[0];
-        final float x1 = span[1];
+    private static VoxelShape outline(final Direction facing, final boolean cut) {
+        // 宽度永远是整格（0..16），剪只剪高度方向的下半截。
+        final float y0 = cut ? CUT_BOTTOM_Y_PX : 0.0F;
+        final float y1 = 16.0F;
         final float z0 = PANEL_Z0;
         final float z1 = PANEL_Z1;
         return switch (facing == null ? Direction.NORTH : facing) {
-            case EAST -> Block.createCuboidShape(16.0D - z1, 0.0D, x0, 16.0D - z0, 16.0D, x1);
-            case SOUTH -> Block.createCuboidShape(16.0D - x1, 0.0D, 16.0D - z1,
-                    16.0D - x0, 16.0D, 16.0D - z0);
-            case WEST -> Block.createCuboidShape(z0, 0.0D, 16.0D - x1, z1, 16.0D, 16.0D - x0);
-            default -> Block.createCuboidShape(x0, 0.0D, z0, x1, 16.0D, z1);
-        };
-    }
-
-    /**
-     * 一格面板在「阅读轴」上占的区间（16 分之格）：{@code {起点, 终点}}，
-     * 从这一格<b>观察者左边缘</b>往阅读方向量。
-     *
-     * <p>用来拼链条：第 i 格的区间是 {@code [16i + start, 16i + end]}。整格 = [0,16]，
-     * 左半 = [0,8]（贴着本格左边缘），右半 = [8,16]（贴着右边的格子边界）——
-     * 所以「本格 right + 下一格 left」正好接在边界上，拼回一整段，缝为 0
-     * （最多受浮点影响一个像素以内）。
-     */
-    public static float[] panelSpan(final Half half) {
-        return switch (half == null ? Half.NONE : half) {
-            case LEFT -> new float[]{0.0F, HALF_WIDTH_PX};
-            case RIGHT -> new float[]{HALF_WIDTH_PX, 16.0F};
-            default -> new float[]{0.0F, 16.0F};
+            case EAST -> Block.createCuboidShape(16.0D - z1, y0, 0.0D, 16.0D - z0, y1, 16.0D);
+            case SOUTH -> Block.createCuboidShape(0.0D, y0, 16.0D - z1, 16.0D, y1, 16.0D - z0);
+            case WEST -> Block.createCuboidShape(z0, y0, 0.0D, z1, y1, 16.0D);
+            default -> Block.createCuboidShape(0.0D, y0, z0, 16.0D, y1, z1);
         };
     }
 
@@ -257,17 +204,17 @@ public class PsdLcdBlock extends HorizontalFacingBlock implements BlockEntityPro
      * <p>服务端发起（客户端读的是可能过期的副本），见 {@link PidsXiamenNet#openScreenAt}。
      * 非刷子仍然交回给父类（父类返回 PASS，什么都不会发生）。
      *
-     * <h2>剪刀 = 把面板剪成半格</h2>
-     * <p>{@link Items#SHEARS} 右键按 {@link Half#next()} 循环
-     * {@code 整格 → 左半 → 右半 → 整格}（<b>不</b>和刷子抢：刷子先判，命中就开界面）。
+     * <h2>剪刀 = 剪掉下半截（只剩上半格）</h2>
+     * <p>{@link Items#SHEARS} 右键切换 {@link #HALF_CUT}：{@code false → true → false}
+     * （「剪 / 复原」，<b>不</b>和刷子抢：刷子先判，命中就开界面）。
      * <ul>
      *   <li><b>只服务端改状态</b>（{@code world.setBlockState}），客户端只回 {@code SUCCESS}
      *       让手有挥动动作 —— 客户端自己改会被下一次同步覆盖，还可能两下各改一次；</li>
      *   <li><b>不消耗工具</b>：只有 {@code ItemStack#damage} 才会掉耐久，这里一个字都不写，
      *       所以剪刀在生存里剪多少次都一样；</li>
      *   <li>播 {@code ENTITY_SHEEP_SHEAR}（剪刀的通用音效），音高 1.2 听上去更像「剪金属」；</li>
-     *   <li>整条链的几何<b>每帧现算</b>（{@link #panelSpan} + 渲染器），所以改一格立刻重排，
-     *       不需要同步任何方块实体数据。</li>
+     *   <li>整条链的几何<b>每帧现算</b>（渲染器 + {@link PsdLcdLayout#windowBandPx(boolean)}），
+     *       所以改一格立刻重排，不需要同步任何方块实体数据。</li>
      * </ul>
      */
     @Override
@@ -289,8 +236,8 @@ public class PsdLcdBlock extends HorizontalFacingBlock implements BlockEntityPro
             if (world.isClient) {
                 return ActionResult.SUCCESS;
             }
-            final Half next = state.get(HALF).next();
-            world.setBlockState(pos, state.with(HALF, next), Block.NOTIFY_ALL);
+            final boolean cut = !isCut(state);
+            world.setBlockState(pos, state.with(HALF_CUT, cut), Block.NOTIFY_ALL);
             world.playSound(null, pos, SoundEvents.ENTITY_SHEEP_SHEAR, SoundCategory.BLOCKS,
                     1.0F, 1.2F);
             // 故意不对玩家手上那把剪刀做任何事：没有 damage() 就没有耐久消耗。

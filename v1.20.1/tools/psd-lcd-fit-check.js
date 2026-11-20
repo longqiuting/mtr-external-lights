@@ -6,14 +6,15 @@
  * 这块屏出过四次同类/邻类的错：内容画了两遍、内容整体偏下且溢出到吊板下面、窗口上半截是黑的、
  * **上一轮把「广告区」当多余删了（右侧一片蓝到底）、编组行挤到最右边并压在当前站上**。
  * 前三次的真因都是「四边形 / 位图 / 模型窗口」三者尺寸或原点对不上，后一次是版式比例没跟设计稿对。
- * 这个脚本把三者 + 版式摊开来逐条对账，不进游戏也能判定：
+ * 这个脚本把这些摊开来逐条对账，不进游戏也能判定：
  *
- *   1. 从模型 json 里读窗口矩形（ScreenPlane 的 from/to）→ 窗口像素宽高比；
- *   2. 和 PsdLcdLayout.java 的常量对一遍（模型改了、代码没改 → 直接失败）；
- *   3. 算出每段（1 格）的位图尺寸，断言 |位图宽高比 ÷ 窗口宽高比 − 1| < 1%；
+ *   1. **两套模型就是用户给的 json**：normal 组 → psd_lcd_xiamen.json，half 组（只剩上半格）
+ *      → psd_lcd_xiamen_half.json，逐 element 逐字段比对（tools/psd-lcd-models.js）；
+ *   2. 每档的窗口矩形（ScreenPlane）↔ PsdLcdLayout.java 常量 ↔ BER 面 z（模型 10.5 / 四边形 10.484）；
+ *   3. 每档的位图尺寸：断言 |位图宽高比 ÷ 窗口宽高比 − 1| < 1%（剪不剪都不许拉伸）；
  *   4. 真的调 Java2D 画三张预览（4 段 / 8 段 / 13:1），从 PNG 字节里读**实际**宽高再断言一遍；
  *   5. 读 PNG 第一行的像素，断言「第一行不是纯黑」（= 位图首行就是内容首行，上面没有黑边）；
- *   6. 打印窗口四个顶点 + 位图 ↔ 窗口的映射，方便和实机截图对账；
+ *   6. 打印两档的窗口四个顶点 + 位图 ↔ 窗口的映射；
  *   7. 版式比例：PsdLcdPainter.java 里的分栏比例 vs 设计稿
  *      `厦门地铁PSD-LCD示意.png`（5383×779）逐像素量出来的比例，误差 < 0.01；
  *   8. 版式落到位图上：**广告区必须占 0.79…1.00 且不是底色**（整屏高）、
@@ -32,10 +33,11 @@ const path = require('path');
 const zlib = require('zlib');
 const { execFileSync } = require('child_process');
 
+const models = require('./psd-lcd-models');
+
 const HERE = __dirname;                                    // …/v1.20.1/tools
 const VERSION_DIR = path.resolve(HERE, '..');               // …/v1.20.1
 const REPO = path.resolve(VERSION_DIR, '..');               // …/mtr-headlight
-const MODEL = path.join(VERSION_DIR, 'src/main/resources/assets/mtrlte/models/block/psd_lcd_xiamen.json');
 const LAYOUT_JAVA = path.join(VERSION_DIR, 'src/main/java/dev/js/mtrheadlight/xiamen/pids/PsdLcdLayout.java');
 const PAINTER_JAVA = path.join(VERSION_DIR, 'src/main/java/dev/js/mtrheadlight/xiamen/pids/PsdLcdPainter.java');
 const PAINTER_DIR = path.join(VERSION_DIR, 'src/main/java/dev/js/mtrheadlight/xiamen/pids');
@@ -87,65 +89,39 @@ function f(n, digits = 4) {
   return Number(n).toFixed(digits);
 }
 
-// ---------------------------------------------------------------- 1. 模型窗口矩形
+// ---------------------------------------------------------------- 1. 两套模型 = 用户 json
 
-console.log('== 1. 模型里的屏幕窗口（ScreenPlane）==');
-const model = JSON.parse(fs.readFileSync(MODEL, 'utf8'));
-const elements = model.elements || [];
-const plane = elements.find((e) => e.name === 'ScreenPlane')
-  || elements.find((e) => e.faces && e.faces.north && e.faces.north.texture === '#screen')
-  || elements.find((e) => e.from && e.to && e.from[2] === e.to[2] && e.faces && e.faces.north);
-
-if (!plane) {
-  console.error('  FAIL  模型里找不到屏幕窗口面（ScreenPlane / #screen north face）');
-  process.exit(1);
-}
-
-const [wx0, wy0, wz0] = plane.from;
-const [wx1, wy1, wz1] = plane.to;
-const winW = wx1 - wx0;              // 16px = 1 格
-const winH = wy1 - wy0;              // 7px
-const winAspect = winW / winH;
-
-console.log(`  屏幕面元素    ${plane.name || '(unnamed)'}`);
-console.log(`  from          [${plane.from.join(', ')}]`);
-console.log(`  to            [${plane.to.join(', ')}]`);
-console.log(`  窗口像素      ${winW} × ${winH} px（16 分之几）→ 纯宽度比 ${f(winAspect, 6)}:1 / 段`);
-console.log(`  屏幕材质      ${plane.faces.north.texture}`);
-
-ok(wx0 === 0 && wx1 === 16, '窗口 x 是整格宽（0 … 16）', `x ${wx0} … ${wx1}`);
-ok(wy0 === 1.5 && wy1 === 8.5, '窗口 y 是 1.5 … 8.5（7px 带）', `y ${wy0} … ${wy1}`);
-ok(wz0 === wz1, '屏幕面是零厚度的平面（z 固定）', `z ${wz0} / ${wz1}`);
-
-// 前面最靠外那一层蒙皮（z = PANEL_Z0）不能在窗口带里多出一块 —— 用户看到的「上面多出一个黑块」就是这么来的
-const frontZ = Math.min(...elements.filter((e) => e.faces && e.faces.north && e.from).map((e) => e.from[2]));
-const frontSkins = elements.filter((e) => e.faces && e.faces.north && e.from && e.to
-  && Math.abs(e.from[2] - frontZ) < 1e-6 && e !== plane);
-let overlap = false;
-for (const e of frontSkins) {
-  const y0 = e.from[1];
-  const y1 = e.to[1];
-  if (y1 > wy0 + 1e-6 && y0 < wy1 - 1e-6) {
-    overlap = true;
-    console.log(`  FAIL  前面蒙皮 ${e.name} 压进了窗口带 y ${y0}…${y1}`);
+console.log('== 1. 两套模型 ↔ 用户给的 psd_lcd_xiamen.json（逐字段）==');
+const ref = models.loadRef();
+console.log(`  参考文件  ${models.REF_PATH}`);
+const loaded = [];
+for (const state of models.STATES) {
+  const file = models.modelPath(state.file);
+  if (!fs.existsSync(file)) {
+    ok(false, `${state.file} 存在`, file);
+    continue;
   }
+  const model = models.readJson(file);
+  const expected = models.groupElements(ref, state.group);
+  const cmp = models.compareModelToGroup(model, expected);
+  ok(cmp.ok, `${state.label}：${state.file} = 参考 json 的 ${state.group} 组（${expected.length} el / ${cmp.total} 字段）`,
+    cmp.ok ? '' : `差异 ${cmp.diffs.length} 处`);
+  for (const d of cmp.diffs) {
+    console.log(`        ${d}`);
+  }
+  const elements = model.elements || [];
+  const plane = elements.find((e) => e.name === 'ScreenPlane')
+    || elements.find((e) => e.faces && e.faces.north && e.faces.north.texture === '#screen');
+  if (!plane) {
+    ok(false, `${state.file} 里有屏幕窗口面（ScreenPlane）`);
+    continue;
+  }
+  loaded.push({ state, elements, plane });
 }
-ok(!overlap, '窗口带里没有任何前面蒙皮（内容不会被压住 / 不会多出黑块）');
 
-// 前表面从 y=1 到 y=16 必须连续覆盖：蒙皮 ∪ 窗口 = 整块高，没有漏光的缝
-const bands = frontSkins.map((e) => [e.from[1], e.to[1]]).concat([[wy0, wy1]])
-  .sort((a, b) => a[0] - b[0]);
-let cursor = 1;
-let continuous = true;
-for (const [a, b] of bands) {
-  if (a > cursor + 1e-6) continuous = false;
-  cursor = Math.max(cursor, b);
-}
-ok(continuous && cursor >= 16 - 1e-6, '前面由「蒙皮 + 窗口」从上到下连续铺满 y 1…16', `覆盖到 ${cursor}`);
+// ---------------------------------------------------------------- 2. 窗口带 ↔ Java 常量
 
-// ---------------------------------------------------------------- 2. 和 Java 常量对账
-
-console.log('\n== 2. 模型 ↔ PsdLcdLayout.java ==');
+console.log('\n== 2. 每档的窗口带（ScreenPlane）↔ PsdLcdLayout.java ==');
 const java = fs.readFileSync(LAYOUT_JAVA, 'utf8');
 function constOf(source, name) {
   const m = source.match(new RegExp(`static final float ${name}\\s*=\\s*([-0-9.f]+)F`));
@@ -153,38 +129,86 @@ function constOf(source, name) {
 }
 const jWinY0 = constOf(java, 'WINDOW_Y0_PX');
 const jWinY1 = constOf(java, 'WINDOW_Y1_PX');
+const jCutY0 = constOf(java, 'CUT_WINDOW_Y0_PX');
+const jCutY1 = constOf(java, 'CUT_WINDOW_Y1_PX');
 const jWinX0 = constOf(java, 'WINDOW_X0_PX');
 const jWinX1 = constOf(java, 'WINDOW_X1_PX');
 const jThick = constOf(java, 'THICKNESS_PX');
 const jGap = constOf(java, 'FACE_GAP_PX');
+const jZ0 = constOf(java, 'PANEL_Z0_PX');
 const jPxPerBlock = constOf(java, 'PX_PER_BLOCK');
 const jScale = constOf(java, 'BITMAP_SCALE');
 
-ok(jWinX0 === wx0 && jWinX1 === wx1, 'Java 的 WINDOW_X0/X1 与模型一致', `${jWinX0} … ${jWinX1}`);
-ok(jWinY0 === wy0 && jWinY1 === wy1, 'Java 的 WINDOW_Y0/Y1 与模型一致', `${jWinY0} … ${jWinY1}`);
-const jZ0 = constOf(java, 'PANEL_Z0_PX');
-ok(Math.abs((jZ0 + jThick) - wz0) < 1e-6, '模型里的屏幕面 z = Java 的 PANEL_Z0_PX + THICKNESS_PX', `z ${wz0} / ${jZ0 + jThick}`);
 ok(jPxPerBlock === PX_PER_BLOCK && jScale === BITMAP_SCALE, 'Java 的 PX_PER_BLOCK / BITMAP_SCALE 未变',
   `${jPxPerBlock} / ${jScale}`);
+ok(jWinY0 === 1.5 && jWinY1 === 8.5, 'Java WINDOW_Y0/Y1 = 1.5 / 8.5（整块）', `${jWinY0} / ${jWinY1}`);
+ok(jCutY0 === 9.0 && jCutY1 === 16.0, 'Java CUT_WINDOW_Y0/Y1 = 9 / 16（剪后只剩上半格）', `${jCutY0} / ${jCutY1}`);
 
-const quadZ = jZ0 + jThick - jGap;     // BER 四边形比模型面再往前 0.016px
-console.log(`  BER 四边形所在面 z = ${jZ0} + ${jThick} − ${jGap} = ${f(quadZ, 3)}px（模型面 ${jZ0 + jThick}px 之前，避免 z-fighting）`);
+const planeZModel = jZ0 + jThick;          // 10.5 —— 模型 ScreenPlane
+const planeZBer = planeZModel - jGap;      // 10.484 —— BER 四边形
+ok(Math.abs(planeZModel - 10.5) < 1e-9, `模型屏幕面 z = ${f(planeZModel, 3)}px（= PANEL_Z0 + THICKNESS）`);
+ok(Math.abs(planeZBer - 10.484) < 1e-9, `BER 四边形 z = ${f(planeZBer, 3)}px（模型面 ${f(planeZModel, 3)} − ${jGap}）`);
+
+for (const { state, elements, plane } of loaded) {
+  const [wx0, wy0, wz0] = plane.from;
+  const [wx1, wy1, wz1] = plane.to;
+  console.log(`\n  ${state.label}`);
+  console.log(`    ScreenPlane   from [${plane.from.join(', ')}] → to [${plane.to.join(', ')}]`);
+  console.log(`    窗口          x ${wx0} … ${wx1}px   y ${wy0} … ${wy1}px（高 ${f(wy1 - wy0, 2)}px）   z ${wz0}px`);
+  ok(wx0 === jWinX0 && wx1 === jWinX1, `${state.label} 窗口 x 是整格宽（${jWinX0} … ${jWinX1}）`, `x ${wx0} … ${wx1}`);
+  ok(wy0 === state.windowY0 && wy1 === state.windowY1,
+    `${state.label} 窗口 y 带 = ${state.windowY0} … ${state.windowY1}`,
+    `实际 y ${wy0} … ${wy1}`);
+  ok(wz0 === wz1 && Math.abs(wz0 - planeZModel) < 1e-9, `${state.label} 屏幕面零厚度、z = ${f(planeZModel, 3)}`,
+    `z ${wz0} / ${wz1}`);
+
+  // 前面最靠外那一层蒙皮（z = PANEL_Z0）不能在窗口带里多出一块
+  const frontZ = Math.min(...elements.filter((e) => e.faces && e.faces.north && e.from).map((e) => e.from[2]));
+  const frontSkins = elements.filter((e) => e.faces && e.faces.north && e.from && e.to
+    && Math.abs(e.from[2] - frontZ) < 1e-6 && e !== plane);
+  let overlap = false;
+  for (const e of frontSkins) {
+    if (e.to[1] > wy0 + 1e-6 && e.from[1] < wy1 - 1e-6) {
+      overlap = true;
+      console.log(`    FAIL  前面蒙皮 ${e.name} 压进了窗口带 y ${e.from[1]}…${e.to[1]}`);
+    }
+  }
+  ok(!overlap, `${state.label} 窗口带里没有前面蒙皮（内容不会被压住 / 不会多出黑块）`);
+
+  // 这块板的前表面必须连续：蒙皮 ∪ 窗口 从上到下不漏缝，一直到 y = 16
+  const bands = frontSkins.map((e) => [e.from[1], e.to[1]]).concat([[wy0, wy1]])
+    .sort((a, b) => a[0] - b[0]);
+  let cursor = bands[0][0];
+  let continuous = true;
+  for (const [a, b] of bands) {
+    if (a > cursor + 1e-6) continuous = false;
+    cursor = Math.max(cursor, b);
+  }
+  ok(continuous && cursor >= 16 - 1e-6, `${state.label} 前面由「蒙皮 + 窗口」连续铺到 y = 16`, `从 ${bands[0][0]} 覆盖到 ${cursor}`);
+}
 
 // ---------------------------------------------------------------- 3. 位图尺寸 / 宽高比
 
-console.log('\n== 3. 位图尺寸（每段现算，不拿旧宽度拉伸）==');
-const segmentsList = [1, 2, 3, 4, 8];
-for (const seg of segmentsList) {
-  const bmpW = Math.round(seg * PX_PER_BLOCK * BITMAP_SCALE);
+console.log('\n== 3. 位图尺寸（每档按自己的窗口高算，不拿旧高度拉伸）==');
+for (const { state, plane } of loaded) {
+  const winW = plane.to[0] - plane.from[0];
+  const winH = plane.to[1] - plane.from[1];
   const bmpH = Math.round((winH / 16) * PX_PER_BLOCK * BITMAP_SCALE);
-  const winAspectSeg = (winW * seg) / winH;
-  const ratio = bmpW / bmpH;
-  const err = Math.abs(ratio / winAspectSeg - 1);
-  ok(err < 0.01, `${seg} 段位图 ${bmpW}×${bmpH} 宽高比 = 窗口 ${f(winAspectSeg, 3)}:1`,
-    `误差 ${f(err * 100, 3)}%`);
+  for (const seg of [1, 2, 3, 4, 8]) {
+    const bmpW = Math.round(seg * PX_PER_BLOCK * BITMAP_SCALE);
+    const winAspectSeg = (winW * seg) / winH;
+    const ratio = bmpW / bmpH;
+    const err = Math.abs(ratio / winAspectSeg - 1);
+    ok(err < 0.01, `${state.label} ${seg} 段位图 ${bmpW}×${bmpH} 宽高比 = 窗口 ${f(winAspectSeg, 3)}:1`,
+      `误差 ${f(err * 100, 3)}%`);
+  }
 }
 
 // ---------------------------------------------------------------- 4. 三张预览（真画一遍）
+
+const winH = loaded.length ? loaded[0].plane.to[1] - loaded[0].plane.from[1] : 7;
+const winW = loaded.length ? loaded[0].plane.to[0] - loaded[0].plane.from[0] : 16;
+const previewHeight = Math.round((winH / 16) * PX_PER_BLOCK * BITMAP_SCALE);   // = 455，和游戏里一致
 
 const javac = findTool('javac');
 const javaBin = findTool('java');
@@ -193,8 +217,6 @@ const previews = [
   { name: '8seg', seg: 8, ratio: (winW * 8) / winH, label: '8 段' },
   { name: '13to1', seg: null, ratio: 13, label: '13:1（设计稿比例）' },
 ];
-
-const previewHeight = Math.round((winH / 16) * PX_PER_BLOCK * BITMAP_SCALE);   // = 455，和游戏里一致
 
 if (process.argv.includes('--no-preview') || !javac || !javaBin) {
   notes.push(javac && javaBin ? '--no-preview：跳过实际出图'
@@ -241,29 +263,39 @@ if (process.argv.includes('--no-preview') || !javac || !javaBin) {
   }
 }
 
-// ---------------------------------------------------------------- 5. 四顶点 + 映射
+// ---------------------------------------------------------------- 5. 四顶点
 
-console.log('\n== 5. 屏幕四顶点（1 段，anchor 那一格的最小角为原点）==');
-const planeZ = (wz0 - jGap) / 16;
-const leftTop = [1.0, wy1 / 16, planeZ];      // facing=north：观察者在北侧，左手边是 +x（东）
-const leftBottom = [1.0, wy0 / 16, planeZ];
-const rightBottom = [0.0, wy0 / 16, planeZ];
-const rightTop = [0.0, wy1 / 16, planeZ];
-const pts = [['左上', leftTop], ['左下', leftBottom], ['右下', rightBottom], ['右上', rightTop]];
-for (const [name, p] of pts) {
-  console.log(`  ${name}  x=${f(p[0], 4)}  y=${f(p[1], 4)}  z=${f(p[2], 4)}`
-    + `   (像素 ${f(p[0] * 16, 2)}, ${f(p[1] * 16, 2)}, ${f(p[2] * 16, 3)})`);
+console.log('\n== 5. 屏幕四顶点（1 段，anchor 那一格的最小角为原点，facing=north）==');
+for (const { state, plane } of loaded) {
+  const planeZ = (planeZBer) / 16;
+  const y0 = plane.from[1] / 16;
+  const y1 = plane.to[1] / 16;
+  const pts = [
+    ['左上', [1.0, y1, planeZ]],
+    ['左下', [1.0, y0, planeZ]],
+    ['右下', [0.0, y0, planeZ]],
+    ['右上', [0.0, y1, planeZ]],
+  ];
+  console.log(`  ${state.label}`);
+  for (const [name, p] of pts) {
+    console.log(`    ${name}  x=${f(p[0], 4)}  y=${f(p[1], 4)}  z=${f(p[2], 4)}`
+      + `   (像素 ${f(p[0] * 16, 2)}, ${f(p[1] * 16, 2)}, ${f(p[2] * 16, 3)})`);
+  }
+  ok(Math.abs(y0 * 16 - state.windowY0) < 1e-9 && Math.abs(y1 * 16 - state.windowY1) < 1e-9,
+    `${state.label} 四边形 y 带 = ${state.windowY0} … ${state.windowY1}px`,
+    `顶点 ${f(y0 * 16, 3)} … ${f(y1 * 16, 3)}`);
+  ok(Math.abs(planeZ * 16 - planeZBer) < 1e-9, `${state.label} 四边形面 z = ${f(planeZBer, 3)}px`,
+    f(planeZ * 16, 4));
 }
 
-console.log('\n== 6. 位图 ↔ 窗口映射（facing=north，3 段）==');
+console.log('\n== 6. 位图 ↔ 窗口映射（facing=north，3 段，整块那一档）==');
 const seg = 3;
 const bmpW = Math.round(seg * PX_PER_BLOCK * BITMAP_SCALE);
 const bmpH = previewHeight;
 console.log(`  位图           ${bmpW} × ${bmpH} px`);
-console.log(`  位图 (0,0)  ↔  窗口 左上  (x=${f(leftTop[0], 3)}, y=${f(leftTop[1], 4)}, z=${f(leftTop[2], 4)})`);
-console.log(`  位图 (W,H)  ↔  窗口 右下  (x=${f(rightBottom[0], 3)}, y=${f(rightBottom[1], 4)}, z=${f(rightBottom[2], 4)})`);
 console.log(`  每格映射       ${bmpW / seg}px 宽 × ${bmpH}px 高 = ${f(bmpW / seg / bmpH, 4)}:1 / 段`);
-console.log(`  窗口下方      y ${f(wy0 / 16, 4)} 格 = 1.5px —— 四边形不会再往下伸到吊板下面`);
+console.log(`  整块窗口下沿   y ${f(jWinY0 / 16, 4)} 格 = ${jWinY0}px`);
+console.log(`  剪后窗口下沿   y ${f(jCutY0 / 16, 4)} 格 = ${jCutY0}px（同一块位图，v 仍是 0…1，只换 y 带）`);
 
 // ---------------------------------------------------------------- 7. 版式比例（设计稿 vs 代码）
 
@@ -358,8 +390,6 @@ if (rendered.length > 0) {
     ok(bgColumn === 0, `${r.label} 广告区从上到下占满整屏高`, `x=0.90 这一列底色像素 ${bgColumn}`);
 
     // 8.3 广告区的左缘 = 设计稿量到的 0.7197（±0.01），而且在 0.79 的左边
-    //     扫描行选 y=0.79：这一条横带上只有底色和广告区（当前站在上面、编组行在下面、
-    //     标语条从 0.828 才开始），所以从 0.60 往右扫到的第一个非底色像素就是广告区左缘。
     const adLeft = firstNonBgFrom(png, Math.round(0.6 * W), Math.round(0.79 * H));
     const adLeftNorm = adLeft / W;
     ok(Math.abs(adLeftNorm - DESIGN.ad.x0) <= LAYOUT_TOL, `${r.label} 广告区左缘 = ${DESIGN.ad.x0}（设计稿）`,
@@ -367,7 +397,7 @@ if (rendered.length > 0) {
     ok(adLeftNorm < 0.79, `${r.label} 广告区从 0.72 起就开始了（0.79…1.00 全在广告区里面）`,
       `左缘 ${f(adLeftNorm, 4)} < 0.79`);
 
-    // 8.4 编组行右缘 ≤ 0.78：在编组行那条带里，左边最后一个非底色像素
+    // 8.4 编组行右缘 ≤ 0.78
     const cy0 = Math.round((P('CAR_Y0') + 0.02) * H);
     const cy1 = Math.round((P('CAR_Y1') - 0.02) * H);
     let carsRight = 0;
@@ -384,8 +414,7 @@ if (rendered.length > 0) {
     ok(carsRightNorm <= P('CAR_ROW_X1') + 0.005, `${r.label} 编组行右缘 = 代码里的 ${f(P('CAR_ROW_X1'), 4)}`,
       `实际 ${f(carsRightNorm, 4)}`);
 
-    // 8.5 编组行那条带里，广告区左边不许有东西压进「当前站」那一列之上：
-    //     当前站下面那条横带（STA 下沿 … CAR_Y0）在桩站列范围内必须是底色
+    // 8.5 当前站与编组行之间那条横带必须是底色
     const gapY0 = Math.round((staBox.y1 + 0.01) * H);
     const gapY1 = Math.round((carsBox.y0 - 0.01) * H);
     let dirty = 0;
@@ -502,7 +531,6 @@ function decodePng(file) {
     prev = row;
   }
 
-  // 第一行的统计（沿用旧断言：位图首行不是黑边 / 就是底色）
   let maxR = 0;
   let maxG = 0;
   let maxB = 0;
