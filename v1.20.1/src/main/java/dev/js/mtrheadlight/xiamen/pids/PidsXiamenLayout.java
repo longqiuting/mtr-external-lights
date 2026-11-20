@@ -21,9 +21,9 @@ package dev.js.mtrheadlight.xiamen.pids;
  *
  * <h2>坐标 = 底图像素</h2>
  * <p>屏幕平面就是底图的 512×235 个像素，原点左上、x 向右、y 向下。
- * 渲染时整块平面被 {@code scale(1 / }{@value #SCREEN_SCALE_DIVISOR}{@code )} 压进世界：
+ * 渲染时整块平面被 {@code scale(1/}{@value #SCREEN_SCALE_DIVISOR_X}{@code , 1/}{@value #SCREEN_SCALE_DIVISOR_Y}{@code )} 压进世界：
  * <pre>
- *   512 / 261.1 = 1.96 格宽     235 / 261.1 = 0.90 格高
+ *   512 / 256.0 = 2.00 格宽     235 / 250.67 = 0.9375 格高（正好铺满模型玻璃的 32×15 px）
  * </pre>
  * 与「两格宽的横向 PIDS」一致。所以下面所有数字都是<b>直接在 PNG 上量出来的像素</b>，
  * 不需要任何 0.49 之类的换算（上一版用的是 251×115 的缩放单位，读起来要多跳一次）。
@@ -55,8 +55,35 @@ public final class PidsXiamenLayout {
     public static final float SCREEN_HEIGHT = 235.0F;
 
     /**
-     * 屏幕缩放的分母：512×235 px 被 {@code scale(1/261.1)} 压成 1.96 × 0.90 格。
-     * <p>上次是 {@code 251×115 单位 / 128}，物理尺寸完全相同，只是坐标系换成了底图像素。
+     * 玻璃面在世界里的尺寸（<b>模型 px</b>，和 {@code pids_xiamen.json} 对账出来的）：
+     * 两块 22.5° 斜板各 {@code z 0..16}（= 1 格宽），合起来 <b>32</b>；板长 <b>15</b>。
+     * <p>这就是「面板可见区域」的物理大小：quad 必须<b>正好</b>是 32 × 15，
+     * 少一点点就露出模型那块黑面（{@code mtrlte:block/black}）→ 屏上一条黑边。
+     */
+    public static final float GLASS_WIDTH_PX = 32.0F;
+    public static final float GLASS_HEIGHT_PX = 15.0F;
+
+    /**
+     * 屏幕缩放的<b>分母</b>：把 512×235 px 的底图铺满 32×15 模型 px 的玻璃面。
+     *
+     * <h3>为什么 X / Y 不再是同一个数（2026-11-20 修黑边）</h3>
+     * 玻璃面的宽高比 = 32/15 = <b>2.1333</b>，底图 = 512/235 = <b>2.1787</b> —— 天生差 2.13%。
+     * 以前两者共用一个 {@code 261.1}：宽度凑了个 1.96 格（两边各留 0.02 格），高度只有 0.90 格，
+     * 而板长是 0.9375 格 → <b>上下各露 0.3px 的黑</b>（长度方向也各露 0.32px）。
+     * 现在按「宽 ↔ 32px、高 ↔ 15px」分别定分母，
+     * quad 的四条边和玻璃的四条边<b>严丝合缝</b>；底图被竖向拉伸 2.13%（0.2px/10px，看不出来）。
+     * <pre>
+     *   512 / 256.0  = 2.000 格 = 32 模型 px   ✓ 玻璃宽
+     *   235 / 250.6667 = 0.9375 格 = 15 模型 px  ✓ 玻璃板长（= 15·cos22.5 / 16 的竖直落差）
+     * </pre>
+     */
+    public static final float SCREEN_SCALE_DIVISOR_X = 256.0F;        // = 512 / (32/16)
+    public static final float SCREEN_SCALE_DIVISOR_Y = 250.66667F;    // = 235 / (15/16)
+
+    /**
+     * 旧的「每格 px 数」参考值：<b>只</b>用于沿 Z 的图层偏移（{@link #TEXT_LAYER_Z} /
+     * {@link #AD_LAYER_Z} / 编组条叠加层）和字号换算 —— 也就是「1px 有多厚」。
+     * <p>屏幕平面本身用 {@link #SCREEN_SCALE_DIVISOR_X} / {@link #SCREEN_SCALE_DIVISOR_Y}。
      */
     public static final float SCREEN_SCALE_DIVISOR = 261.1F;
 
@@ -64,10 +91,20 @@ public final class PidsXiamenLayout {
 
     /** 屏幕左上角沿「屏幕朝外」方向外移多少（格）。 */
     public static final float ANCHOR_OUT = 0.4797F;
-    /** 屏幕左上角沿 facing 往回缩多少（格）。= 0.5 − 0.02（贴图从 z=0.02 起）。 */
-    public static final float ANCHOR_ALONG = 0.48F;
-    /** 屏幕左上角的高度（格）。 */
-    public static final float ANCHOR_Y = 0.8467F;
+    /**
+     * 屏幕左上角沿 facing 往回缩多少（格）。
+     * <p>玻璃面 {@code z} 从 0 铺到 16（每格），两块合起来整整 2 格 ——
+     * 所以锚点必须落在<b>本格起点</b>（{@code 0.5 − 0.5}），quad 正好 2 格铺满，
+     * 两端一个像素都不留（以前是 0.48，两端各留 0.02 格 = 0.32px 的黑缝）。
+     */
+    public static final float ANCHOR_ALONG = 0.5F;
+    /**
+     * 屏幕左上角的<b>高度</b>（格）= 玻璃上沿。
+     * <p>斜板 {@code y 0..15} 绕 22.5° 转过去以后，上沿在 {@code 15·cos22.5° = 13.858px = 0.86614 格}。
+     * 这个数同时满足「quad 的竖直落差 = 0.9375·cos22.5° = 0.86614」→ 下沿正好落到 {@code y=0}。
+     * <p>以前是 0.8467（比玻璃上沿低 0.31px）+ 高度只有 0.90 格，于是上下各露一条黑。
+     */
+    public static final float ANCHOR_Y = 0.86614F;
 
     /** 屏幕绕自身「长轴」的倾角（度），贴合模型 ±22.5° 的斜面。 */
     public static final float SCREEN_TILT_X = 22.5F;

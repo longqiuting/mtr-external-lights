@@ -38,7 +38,7 @@ import net.minecraft.world.World;
  * <h2>两块宽，但只有一半画东西</h2>
  * <p>一对儿方块的 facing 一定是「SOUTH/WEST 之一」+「NORTH/EAST 之一」。天津的做法是：
  * facing 是 <b>SOUTH 或 WEST</b> 的那一半才画（{@link #canStoreData}），它一帧画出横跨
- * 两格的整块屏（1.96 格宽），另一半什么都不画。这里照抄这套判定 —— 否则一整块屏会被画两遍，
+ * 两格的整块屏（2.00 格宽），另一半什么都不画。这里照抄这套判定 —— 否则一整块屏会被画两遍，
  * 而且是镜像的。
  */
 public class PidsXiamenBlock extends BlockPIDSBaseHorizontal {
