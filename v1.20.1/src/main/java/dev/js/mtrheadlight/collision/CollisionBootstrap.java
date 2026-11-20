@@ -77,6 +77,10 @@ public final class CollisionBootstrap implements ClientModInitializer {
                     if (DriverKeyBypass.holds(self)) {
                         return;
                     }
+                    // 手持 YUM「随时上车工具」：同理不接冲量（服务端也跳过，这里是客户端那一份镜像）。
+                    if (OnboardToolBypass.holds(self)) {
+                        return;
+                    }
                     self.setVelocity(x, y, z);
                     self.velocityModified = true;
                     // 被撞飞不是摔下来：清掉落体距离，免得落地多一条「摔死了」盖掉我们的死亡文案。

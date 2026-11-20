@@ -62,10 +62,37 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
     private static final int DEFAULT_CARS = 4;
 
     /**
-     * 「全局广告集」生效时，PSD-LCD 的广告区每隔多少 tick 换下一张（200 = 10 秒）。
-     * 厦门 PIDS 是按「标语滚动完」换，这条屏没有滚动字幕，所以用固定节拍。
+     * <b>兜底</b>换图节奏：标语是空的时候（这张广告没有 {@code text}，PSD-LCD 的标语条也就没字）
+     * 才回落到「每 200 tick（10 秒）换一张」。
+     *
+     * <p>正常情况<b>不用这个数</b>：换图触发点是「这一张的标语滚完一轮」
+     * （{@link PidsXiamenTicker#scrollSpanTicks}，与厦门 PIDS 的
+     * {@code PidsXiamenRenderer#slideOf} 同一套算法、同一个速度表），
+     * 见 {@link #adOf(PsdLcdBlockEntity, World)}。
      */
     private static final int AD_ROTATE_TICKS = 200;
+
+    /**
+     * 每块屏自己的广告轮播状态（{@code world|anchor} → 播到第几张、这一张播到哪个 tick）。
+     *
+     * <p>为什么不是全局一个 index：广告集的起点是每块屏自己的 {@code advertisementIndex}，
+     * 一个人多段拼接的长屏和隔壁单段小屏不该同拍换图（PIDS 那边也是每块屏各算各的时间线）。
+     * 这里是<b>纯客户端</b>的记账 —— 真正的 {@code advertisementIndex} 存在方块实体里、
+     * 由刷子界面改；渲染线程不该去写 NBT，所以「滚完一轮 +1」只记在这张表里。
+     */
+    private static final java.util.Map<String, AdRotation> ROTATIONS = new java.util.HashMap<>();
+
+    /** 一块屏的轮播状态。 */
+    private static final class AdRotation {
+        /** 当前生效的那份广告集（{@link PidsAdSetCache#activeAds()} 返回的同一个 List 实例）。 */
+        Object setRef;
+        /** 那时候有几张（集合换了 / 张数变了就重来）。 */
+        int count;
+        /** 现在播的是第几张（已经 {@code floorMod} 过的下标）。 */
+        int slot;
+        /** 这一张播到哪个世界 tick 算「标语滚完一轮」。 */
+        long passEnd;
+    }
 
     /**
      * 纯色几何（线路色带）用的**载体贴图**：{@code mtrlte:textures/block/white.png}，
@@ -141,7 +168,7 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         if (world == null) {
             return;
         }
-        this.sweep();
+        this.sweep(world);
         final BlockPos pos = entity.getPos();
         final BlockState state = world.getBlockState(pos);
         if (!(state.getBlock() instanceof PsdLcdBlock)) {
@@ -276,11 +303,29 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         };
     }
 
-    private void sweep() {
+    private void sweep(final World world) {
         final long now = System.currentTimeMillis();
         if (now - this.lastSweep > 5_000L) {
             this.lastSweep = now;
             PsdLcdTextures.sweep();
+            sweepRotations(world);
+        }
+    }
+
+    /**
+     * 清掉<b>别的维度</b>的轮播状态（换维度 / 换存档后，旧键永远不会再被问到）。
+     * 小于 512 条时不动：同一维度里几百块屏是正常的，逐条比前缀反而更贵。
+     */
+    private static void sweepRotations(final World world) {
+        if (world == null) {
+            return;
+        }
+        final String prefix = world.getRegistryKey().getValue() + "|";
+        synchronized (ROTATIONS) {
+            if (ROTATIONS.size() <= 512) {
+                return;
+            }
+            ROTATIONS.keySet().removeIf(key -> key == null || !key.startsWith(prefix));
         }
     }
 
@@ -501,14 +546,27 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
     }
 
     /**
-     * 这块屏当前要显示的广告（和厦门 PIDS 同一套：全局广告集 → 全局单张覆盖 → 这块屏自己勾的分类，
-     * 见 {@link PidsXiamenSettings#applyAdOverride(List)}）。广告关掉 / 表是空的 → {@code null}。
+     * 这块屏当前要显示的广告（和厦门 PIDS 同一套优先级：全局广告集 → 全局单张覆盖 →
+     * 这块屏自己勾的分类，见 {@link PidsXiamenSettings#applyAdOverride(List)}）。
+     * 广告关掉 / 表是空的 → {@code null}。
      *
-     * <h2>轮播</h2>
-     * <p>PSD-LCD 没有厦门 PIDS 那条「标语滚完」的时间线（这一格只有广告区，没有滚动字幕），
-     * 所以「全局广告集」生效时按世界 tick 每 {@value #AD_ROTATE_TICKS} tick 换一张：
-     * {@code (advertisementIndex + time / AD_ROTATE_TICKS) mod n}。这样多块屏各自错开、
-     * 又都严格按集合里的顺序走。没开广告集时保持老行为 —— 只按 {@code advertisementIndex} 取一张，不随时间变。
+     * <h2>换图节奏：标语滚完一轮（不是定时）</h2>
+     * <p>广告集生效时，换图触发点与厦门 PIDS 完全一致：<b>这一张的标语滚完一轮</b>才 +1。
+     * 时长直接复用 PIDS 那条时间线的算法 —— {@link PidsXiamenTicker#scrollSpanTicks}
+     * （标语条宽度 + 这条字的宽度）/ 滚动速度，也就是 {@code PidsXiamenRenderer#slideOf}
+     * 算 {@code dwell[i]} 用的同一个函数。PSD-LCD 的标语条是静态画的（整句居中，不滚），
+     * 所以这里把「滚完一轮」当成这一张广告的<b>停留时长</b>：字多的广告停得久，字少的换得勤，
+     * 和 PIDS 的观感一致。
+     *
+     * <p>每块屏各记各的（{@link #ROTATIONS}）：起点是这块屏自己的
+     * {@code advertisementIndex}，滚完一轮就 {@code (slot + 1) mod n}，别人的屏不受影响。
+     *
+     * <p><b>兜底</b>：这张广告没有 {@code text}（标语条没字，算不出「滚完」要多久）时，
+     * 回落到 {@link #AD_ROTATE_TICKS}（10 秒一张）。
+     *
+     * <p>广告集关着 / 空 / 图都不在了（{@link PidsAdSetCache#activeAds()} 为 {@code null}）时，
+     * 完全保持老行为：只按 {@code advertisementIndex} 取一张，不随时间变（单张覆盖 /
+     * 各屏自己的分类都不轮播）。
      */
     private static PidsXiamenAds.Ad adOf(final PsdLcdBlockEntity entity, final World world) {
         try {
@@ -519,13 +577,85 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
             if (ads == null || ads.isEmpty()) {
                 return null;
             }
-            int slot = entity.getAdvertisementIndex();
-            if (PidsAdSetCache.activeAds() != null) {
-                slot += (int) ((world == null ? 0L : world.getTime()) / AD_ROTATE_TICKS);
+            final List<PidsXiamenAds.Ad> set = PidsAdSetCache.activeAds();
+            if (set == null || set.isEmpty()) {
+                // 广告集没生效（关着 / 空 / 图全丢了）：老行为，一张到底，不轮播。
+                final String key = rotationKey(entity, world);
+                if (key != null) {
+                    synchronized (ROTATIONS) {
+                        ROTATIONS.remove(key);
+                    }
+                }
+                return ads.get(Math.floorMod(entity.getAdvertisementIndex(), ads.size()));
             }
-            return ads.get(Math.floorMod(slot, ads.size()));
+            final String key = rotationKey(entity, world);
+            if (key == null) {
+                return set.get(Math.floorMod(entity.getAdvertisementIndex(), set.size()));
+            }
+            final long now = world.getTime();
+            synchronized (ROTATIONS) {
+                AdRotation state = ROTATIONS.get(key);
+                if (state == null || state.setRef != set || state.count != set.size()) {
+                    // 第一次见到这块屏 / 广告集换了 / 张数变了：从这块屏自己的起点重新开始。
+                    state = new AdRotation();
+                    state.setRef = set;
+                    state.count = set.size();
+                    state.slot = Math.floorMod(entity.getAdvertisementIndex(), state.count);
+                    state.passEnd = now + passTicks(set.get(state.slot));
+                    ROTATIONS.put(key, state);
+                } else if (now >= state.passEnd) {
+                    // 标语滚完一轮 → 下一张。就算中间隔了很久（区块卸载后重进）也只前进一步，
+                    // 不会一次跳过好几张。
+                    state.slot = (state.slot + 1) % state.count;
+                    state.passEnd = now + passTicks(set.get(state.slot));
+                }
+                return set.get(state.slot);
+            }
         } catch (final Throwable ignored) {
             return null;
+        }
+    }
+
+    /** 轮播状态的键：{@code world|anchor}（一条链只有一个锚点，所以一屏一条）。 */
+    private static String rotationKey(final PsdLcdBlockEntity entity, final World world) {
+        if (entity == null) {
+            return null;
+        }
+        try {
+            return (world == null ? "?" : world.getRegistryKey().getValue().toString())
+                    + "|" + PsdLcdBlock.anchorOf(world, entity.getPos()).asLong();
+        } catch (final Throwable ignored) {
+            return null;
+        }
+    }
+
+    /**
+     * 这张广告「标语滚完一轮」要多少 tick —— 直接问 PIDS 那条时间线的同一个函数
+     * （{@link PidsXiamenTicker#scrollSpanTicks}）。
+     *
+     * <p><b>为什么用 PIDS 地铁那条标语框当度量基准</b>：PSD-LCD 的位图是按 <b>520 px/格 × 2</b>
+     * 渲染的（3 段 = 3120 px 宽），直接拿位图像素去量，「滚一遍」会被放大成一分多钟；而实际
+     * 观感该跟 PIDS 一样 —— 一句标语滚完就换。所以量的是 PIDS 地铁那条 {@code 323×28} 的
+     * 标语框（字号 0.52），也就是<b>同一条广告在 PIDS 上会停多久，这里就停多久</b>。
+     *
+     * <p>算不出来（没字 / 没客户端 / 条太窄）返回 {@link #AD_ROTATE_TICKS}。
+     */
+    private static int passTicks(final PidsXiamenAds.Ad ad) {
+        try {
+            if (ad == null || ad.text() == null || ad.text().getString().isBlank()) {
+                return AD_ROTATE_TICKS;
+            }
+            final net.minecraft.client.MinecraftClient client =
+                    net.minecraft.client.MinecraftClient.getInstance();
+            if (client == null || client.textRenderer == null) {
+                return AD_ROTATE_TICKS;
+            }
+            final PidsXiamenLayout.Metro ref = PidsXiamenLayout.METRO;
+            final int ticks = PidsXiamenTicker.scrollSpanTicks(client.textRenderer,
+                    PidsXiamenRenderer.captionOf(ad), ref.ticker(), ref.tickerText().sizeRatio());
+            return ticks > 0 ? ticks : AD_ROTATE_TICKS;
+        } catch (final Throwable ignored) {
+            return AD_ROTATE_TICKS;
         }
     }
 

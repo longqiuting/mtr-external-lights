@@ -635,7 +635,7 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
      *
      * @return {@code null} = 广告没画 / 这张没有文字 → 回落到 {@link PidsXiamenTicker} 的资源包列表
      */
-    private static List<PidsXiamenTicker.Message> captionOf(final PidsXiamenAds.Ad ad) {
+    static List<PidsXiamenTicker.Message> captionOf(final PidsXiamenAds.Ad ad) {
         if (ad == null || ad.text() == null) {
             return null;
         }

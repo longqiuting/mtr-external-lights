@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import dev.js.mtrheadlight.collision.CarGeometry;
 import dev.js.mtrheadlight.collision.CollisionImpact;
 import dev.js.mtrheadlight.collision.DriverKeyBypass;
+import dev.js.mtrheadlight.collision.OnboardToolBypass;
 import dev.js.mtrheadlight.collision.TrainTickCapture;
 
 /**
@@ -271,6 +272,12 @@ public final class ServerCollision {
         // 与客户端 {@code CollisionSystem} 用同一个判定（DriverKeyBypass），两边行为一致。
         // 只在玩家手持时成立，松手下一 tick 就恢复；生物与其它玩家完全不受影响。
         if (DriverKeyBypass.active(living)) {
+            return;
+        }
+        // 手持 YUM「随时上车工具」的玩家：同上，列车碰撞整套让开（推出 / 伤害 / 撞飞 / 流血窗口）。
+        // 判定与客户端 {@code CollisionSystem} / {@code CollisionBootstrap} 共用 {@link OnboardToolBypass}，
+        // 所以不会出现「客户端没撞、服务端把你撞飞」。松手下一 tick 恢复。
+        if (OnboardToolBypass.active(living)) {
             return;
         }
         // 飞出阶段：已经不在车体里也要按撞击车速继续扣，直到死亡或状态过期。

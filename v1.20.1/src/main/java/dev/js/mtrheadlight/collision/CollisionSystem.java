@@ -504,6 +504,10 @@ public final class CollisionSystem {
         if (DriverKeyBypass.active(entity)) {
             return movement;
         }
+        // 手持 YUM「随时上车工具」：同一个道理 —— 要能走到车门前面右键，不能被车顶接住。
+        if (OnboardToolBypass.active(entity)) {
+            return movement;
+        }
         try {
             final HeadlightConfig cfg = MtrHeadlightClient.config();
             if (!cfg.trainCollision) {
@@ -573,6 +577,17 @@ public final class CollisionSystem {
             // 或者被车顶「按」在车外上不去。松手后下一 tick 自动恢复，不是永久免伤。
             // 道床是轨面不是列车，照常结算。
             if (DriverKeyBypass.active(player)) {
+                roofKey = null;
+                if (cfg.trackbedCollision) {
+                    trackbed(player, cfg, world);
+                }
+                return;
+            }
+
+            // 手持 YUM「随时上车工具」：车体这套几何（推出 / 车顶站立 / 撞击伤害 / 流血窗口）
+            // 整套跳过，行为与上面「驾驶钥匙」逐条一致 —— 工具就是为了「走到车边上右键上车」，
+            // 被推出去就永远上不了车。道床照常结算（那是轨面，不是列车）。松手下一 tick 恢复。
+            if (OnboardToolBypass.active(player)) {
                 roofKey = null;
                 if (cfg.trackbedCollision) {
                     trackbed(player, cfg, world);
