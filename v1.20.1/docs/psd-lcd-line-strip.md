@@ -174,16 +174,21 @@ IDrawing.drawTexture(matrices, vertexConsumer,
 
 ### 怎么画的
 
-* `PsdLcdRenderer#drawStrip`：一格一段，每条颜色一个 **纯色 quad**（顶点只有位置 + 颜色，
-  用 `RenderLayer.getDebugQuads()` = `VertexFormats.POSITION_COLOR`），**不生成位图**、
-  **不吃贴图**、不往 MTR 的纹理缓存里塞东西，服务端零依赖、方块实体零新增字段；
-* 以前这里是 `MoreRenderLayers.getExterior(mtrlte:block/white)`（`EntityCutout`，顶点带 UV）
-  + 一张 1×1 白图：那张白图只有代码引用、没有任何模型 json 用到它，**不进方块图集**，
-  图集查不到就退回「缺失贴图」，实机上色带变成一格格黑紫方块 —— 所以改成纯色顶点层；
-* 代价：`POSITION_COLOR` 没有光照贴图元素，色带**恒满亮**。屏幕本身也是满亮
-  （`MoreRenderLayers.getLight(...)` + `FULL_LIGHT`），两者一致，不会「屏很亮、带子很暗」；
+* `PsdLcdRenderer#drawStrip`：一格一段，每条颜色一个 **quad**（顶点色 = 线路色，
+  贴图是一张 16×16 全白 `mtrlte:textures/block/white.png`），**不生成位图**、
+  不往 MTR 的纹理缓存里塞东西，服务端零依赖、方块实体零新增字段；
+* 渲染层是 `RenderLayer.getEntitySolid(白图)`（顶点格式
+  `POSITION_COLOR_TEXTURE_OVERLAY_LIGHT_NORMAL`，**带 lightmap 元素**）。白图由 entity 层
+  **按资源路径直绑**（`Sampler0` 读原图），不经过方块图集 —— 所以不会像老版本那样
+  「只被代码引用 ⇒ 没进图集 ⇒ 缺失贴图 ⇒ 一格格黑紫方块」；
+* 光照取**这一格自己**的位置：`WorldRenderer.getLightmapCoordinates(world, pos)`
+  （天空光 + 方块光打包，夜间由 lightmap 纹理里的环境暗度压暗），和隔壁 MTR 原版吊板一致。
+  以前用的是 `POSITION_COLOR`（没有 lightmap 元素）→ 色带恒满亮，用户对比原版吊板后指出
+  「像在发光」，所以改回受光。**屏幕本身仍然满亮**（`MoreRenderLayers.getLight` + `FULL_LIGHT`，
+  屏幕该像屏幕一样常亮），这里只改色带；
 * 几何走 `PsdLcdLayout#stripQuad`，和屏幕四边形共用同一段 `planeQuad`（铺开轴、左右起点、
-  朝向翻转同一份算术），所以不可能出现「色带画到屏幕背面」。
+  朝向翻转同一份算术），所以不可能出现「色带画到屏幕背面」。绕序朝外（自检脚本四向验算
+  `cross·normal > 0`），`getEntitySolid` 开剔除也不会被剔掉。
 
 ### 开关
 

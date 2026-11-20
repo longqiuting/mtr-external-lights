@@ -46,9 +46,11 @@ import net.minecraft.client.render.OverlayTexture;
 import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
+import net.minecraft.client.render.WorldRenderer;
 import net.minecraft.client.render.block.entity.BlockEntityRendererFactory;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.world.World;
@@ -64,6 +66,26 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
      * 厦门 PIDS 是按「标语滚动完」换，这条屏没有滚动字幕，所以用固定节拍。
      */
     private static final int AD_ROTATE_TICKS = 200;
+
+    /**
+     * 纯色几何（线路色带）用的**载体贴图**：{@code mtrlte:textures/block/white.png}，
+     * 16×16、每个像素都是不透明的纯白 —— 顶点色 × 白图 = 纯色。
+     *
+     * <p>为什么不会像上一版那样「黑紫方块」：{@link RenderLayer#getEntitySolid(Identifier)}
+     * 是**按资源路径直绑贴图**（{@code Sampler0} 读原图），<b>不经过方块图集</b>，
+     * 所以这张图不需要被任何模型 json 引用、也不需要 {@code block/white} 这种精灵名。
+     */
+    private static final Identifier SOLID_TEXTURE = new Identifier("mtrlte", "textures/block/white.png");
+
+    /**
+     * 受光的实体层：{@code entity_solid} 程序，顶点格式
+     * {@code POSITION_COLOR_TEXTURE_OVERLAY_LIGHT_NORMAL}（<b>有 lightmap 元素</b>），
+     * 写深度、开剔除、不混合。
+     *
+     * <p>颜色 = 顶点色 × 贴图 × lightmap × 方向性明暗（{@code minecraft_mix_light}），
+     * 所以色带和旁边的普通方块吃同一套世界光照，不会「看着自己在发光」。
+     */
+    private static final RenderLayer SOLID_LAYER = RenderLayer.getEntitySolid(SOLID_TEXTURE);
 
     private boolean warned;
     /** 「拿不到实时编组、退回 4 节」这条 warning 只打一次（consistOf 每帧都在跑）。 */
@@ -94,8 +116,11 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
     // ------------------------------------------------------------------ 入口
 
     /**
-     * {@code light} 不用：屏幕和色带都是满亮（屏幕 {@link PidsXiamenLayout#FULL_LIGHT}，
-     * 色带是 {@code POSITION_COLOR} 没有光照贴图元素），吃世界光反而会在夜里变黑。
+     * 屏幕**保持满亮**（getLight + FULL_LIGHT，和厦门 PIDS 同一套：屏幕本来就该像屏幕一样亮）。
+     * **线路色带**（一块普通方块表面）以前走 getDebugQuads()（POSITION_COLOR，没有 lightmap 元素）→ 恒满亮，
+     * 所以改成受世界光照：lightmap 坐标取那个方块位置的
+     * {@code WorldRenderer#getLightmapCoordinates(world, pos)}（天空光 + 方块光打包，夜间由 lightmap 纹理里的环境暗度压暗）。
+     * 颜色仍走顶点色 tint（白图 × 顶点色 = 纯色），多条线路一条一个颜色。
      */
     @Override
     public void render(final PsdLcdBlockEntity entity, final float tickDelta, final MatrixStack matrices,
@@ -188,9 +213,9 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                 vertex(vc, matrix, normalMatrix, quad[2][0], quad[2][1], quad[2][2], u1, 1.0F, normal);
                 vertex(vc, matrix, normalMatrix, quad[3][0], quad[3][1], quad[3][2], u1, 0.0F, normal);
             }
-            // ---- 线路色带（MTR 式）：板子下沿那条 0.5px 的前脸（纯顶点色，不吃贴图）
+            // ---- 线路色带（MTR 式）：板子下沿那条 0.5px 的前脸（白图 × 顶点色，受世界光照）
             if (PidsXiamenSettings.lineStrip()) {
-                drawStrip(entity, matrix, face, cuts, immediate);
+                drawStrip(entity, world, matrix, normalMatrix, normal, face, cuts, chain, immediate);
             }
         } finally {
             com.mojang.blaze3d.systems.RenderSystem.enableCull();
@@ -290,22 +315,24 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
      *       都在用户模型留出来的那条 0.5px 前脸（z = 10）上。</li>
      * </ul>
      *
-     * <h2>渲染层：{@code POSITION_COLOR}，不是带贴图的 {@code EntityCutout}</h2>
+     * <h2>渲染层：受光的 {@code EntitySolid}（白图 × 顶点色），不再用 {@code POSITION_COLOR}</h2>
      * <p>这里<b>曾经</b>用 {@code MoreRenderLayers.getExterior(mtrlte:block/white)}
      * （= {@code EntityCutout}，顶点格式 {@code POSITION_COLOR_TEXTURE_OVERLAY_LIGHT_NORMAL}），
      * 靠一张 1×1 白图 + 顶点色上色。<b>但那张白图只被代码引用，没有任何模型 json 用到它，
-     * 所以它不进方块图集</b>；图集查不到精灵就退回「缺失贴图」——用户实机上看到的一格格
-     * 黑紫方块就是这个。颜色本来就全在顶点上，贴图只是个必须存在的载体，于是改成
-     * {@link RenderLayer#getDebugQuads()}（{@code VertexFormats.POSITION_COLOR}）：
-     * 顶点只有位置 + 颜色，<b>没有 UV 元素</b>，也就不可能缺图
-     * （{@code ClockRenderer} 整个钟面就是这么画的）。
-     *
-     * <p>代价：{@code POSITION_COLOR} 没有光照贴图元素，色带恒满亮。这和旁边那块屏一致
-     * （屏幕用 {@code MoreRenderLayers.getLight} + {@link PidsXiamenLayout#FULL_LIGHT}，
-     * 本来就不吃世界光），不会出现「屏很亮、带子很暗」。
+     * 所以它不进方块图集</b>；图集查不到精灵就退回「缺失贴图」——实机上会出现一格格黑紫方块。
+     * 修法是**别让它走图集**：{@link RenderLayer#getEntitySolid(Identifier)}
+     * 按资源路径直绑贴图（{@code Sampler0} 直接读原图，不需要任何模型 json 引用它），
+     * 于是能回到带 lightmap 的顶点格式 {@code POSITION_COLOR_TEXTURE_OVERLAY_LIGHT_NORMAL}，
+     * 顶点色 tint = 线路色，白图 × 顶点色 = 纯色。
+     * <p>光照：{@code WorldRenderer#getLightmapCoordinates(world, pos)} 取**这一格自己的**位置
+     * （天空光 + 方块光打包，夜间由 lightmap 纹理里的环境暗度压暗），和隔壁 MTR 原版吊板一致。
+     * 以前是 {@code getDebugQuads()}（{@code POSITION_COLOR}，没有 lightmap 元素）→ 色带恒满亮，
+     * 用户对比隔壁原版吊板后指出「像在发光」，所以改回受光。
      */
-    private static void drawStrip(final PsdLcdBlockEntity entity, final Matrix4f matrix,
+    private static void drawStrip(final PsdLcdBlockEntity entity, final World world, final Matrix4f matrix,
+                                  final Matrix3f normalMatrix, final float[] normal,
                                   final PsdLcdLayout.Face face, final boolean[] cuts,
+                                  final java.util.List<BlockPos> chain,
                                   final VertexConsumerProvider.Immediate immediate) {
         final long platformId;
         try {
@@ -315,30 +342,42 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
             return;
         }
         final int[] colors = PsdLcdStrip.colors(platformId);
-        // POSITION_COLOR：顶点只有位置 + 颜色，没有贴图 / 光照 / 法线可写。
-        final VertexConsumer vc = immediate.getBuffer(RenderLayer.getDebugQuads());
-        // 一格一段：每格自己的 y 带（剪没剪），一条线路一条横带（从上往下按数组顺序）。
+        // 受光的实体层：顶点格式 POSITION_COLOR_TEXTURE_OVERLAY_LIGHT_NORMAL（白图 × 顶点色）。
+        final VertexConsumer vc = immediate.getBuffer(SOLID_LAYER);
+        // 一格一段：每格自己的 y 带（剪没剪）、自己的光照（和这一格的邻居同一套世界光照），
+        // 一条线路一条横带（从上往下按数组顺序）。
         for (int i = 0; i < cuts.length; i++) {
+            final int cellLight = WorldRenderer.getLightmapCoordinates(world, chain.get(i));
             final float start = i * 16.0F;
             final float end = start + 16.0F;
             for (int c = 0; c < colors.length; c++) {
                 final float v0 = 1.0F - (float) (c + 1) / colors.length;
                 final float v1 = 1.0F - (float) c / colors.length;
-                stripQuad(vc, matrix, PsdLcdLayout.stripQuad(face, start, end, cuts[i], v0, v1),
-                        colors[c]);
+                stripQuad(vc, matrix, normalMatrix, normal, cellLight,
+                        PsdLcdLayout.stripQuad(face, start, end, cuts[i], v0, v1), colors[c]);
             }
         }
     }
 
-    /** 色带的一个四边形：四个顶点只写位置 + 颜色（顶点色 = 线路色）。 */
-    private static void stripQuad(final VertexConsumer vc, final Matrix4f m,
+    /**
+     * 色带的一个四边形：顶点色 = 线路色，UV 取白图的任意一点（0,0；整张图都是纯白），
+     * light 是该方块位置的真实光照 —— 所以颜色被世界光照压暗 / 提亮，不再恒满亮。
+     */
+    private static void stripQuad(final VertexConsumer vc, final Matrix4f m, final Matrix3f n,
+                                  final float[] normal, final int light,
                                   final float[][] quad, final int argb) {
         final int r = (argb >> 16) & 0xFF;
         final int g = (argb >> 8) & 0xFF;
         final int b = argb & 0xFF;
         final int a = (argb >>> 24) & 0xFF;
         for (final float[] p : quad) {
-            vc.vertex(m, p[0], p[1], p[2]).color(r, g, b, a).next();
+            vc.vertex(m, p[0], p[1], p[2])
+                    .color(r, g, b, a)
+                    .texture(0.0F, 0.0F)
+                    .overlay(OverlayTexture.DEFAULT_UV)
+                    .light(light)
+                    .normal(n, normal[0], normal[1], normal[2])
+                    .next();
         }
     }
 

@@ -1,33 +1,41 @@
-// 时钟的渲染器：**整个钟面都是代码画的**（POSITION_COLOR，不吃贴图、不吃光照贴图）。
+// 时钟的渲染器：整个钟面都是代码画的（白图 × 顶点色，吃世界光照）。
 package dev.js.mtrheadlight.clock;
 
 import net.minecraft.block.BlockState;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.render.LightmapTextureManager;
+import net.minecraft.client.render.OverlayTexture;
 import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
+import net.minecraft.client.render.WorldRenderer;
 import net.minecraft.client.render.block.entity.BlockEntityRenderer;
 import net.minecraft.client.render.block.entity.BlockEntityRendererFactory;
 import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.math.MathHelper;
-import net.minecraft.world.LightType;
 import net.minecraft.world.World;
+import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 
 /**
  * 时钟方块实体的渲染器 —— 圆盘钟面、三根指针、中心轴、12 个刻度 / 数字，全部用
- * {@link RenderLayer#getDebugQuads()}（{@code POSITION_COLOR}）在 {@link MatrixStack} 的局部
- * 坐标里画出来。
+ * {@link #LIT_LAYER}（{@code POSITION_COLOR_TEXTURE_OVERLAY_LIGHT_NORMAL}）在 {@link MatrixStack}
+ * 的局部坐标里画出来，颜色写在顶点色上。
  *
- * <h2>为什么用 debug quads</h2>
- * <p>这一层是纯顶点色：<b>没有贴图采样、也不吃光照贴图</b>，写进去的 RGB 就是屏幕上看到的样子。
- * 所以「发光 = 颜色不衰减」只要改乘不乘亮度系数就行，不需要额外的渲染层、也不需要贴图。
- * quads 层只有 QUADS 一种图元，圆盘用「中心 + 弧上两点 + 弧中点」的扇形四边形凑（见
- * {@link #disc}）。
+ * <h2>为什么用「白图 × 顶点色」而不是 debug quads</h2>
+ * <p>以前这一层是 {@code RenderLayer.getDebugQuads()}（{@code POSITION_COLOR}）：<b>没有贴图采样、
+ * 也没有 lightmap 元素</b>，写进去的 RGB 就是屏幕上看到的样子 —— 也就是说钟面<b>恒满亮</b>，
+ * 夜里和隔壁普通方块并排放就像自己会发光。用户实机对比 MTR 原版吊板后要求钟面按普通受光方块做。
+ *
+ * <p>现在：{@link #LIT_LAYER} = {@code RenderLayer.getEntityCutoutNoCull(白图)}，顶点格式
+ * {@code POSITION_COLOR_TEXTURE_OVERLAY_LIGHT_NORMAL}（<b>带 lightmap / overlay / normal</b>），
+ * 颜色 = 顶点色（各部件自己的颜色）× 16×16 全白贴图 × 世界光照。
+ * 用 NoCull 变体是因为钟面几何的绕序是「朝 -FACING」，而它画在 {@code -FACING} 那一侧、玩家从
+ * 正面看 —— 开剔除会把整个钟面删掉；同理法线仍写 +FACING，方向性明暗才和方块正面一致。
  *
  * <h2>局部空间</h2>
  * <p>方块实体渲染时矩阵已经平移到了方块最小角，所以本类里的坐标是「0..1 的方块内空间」，
@@ -59,22 +67,36 @@ import org.joml.Matrix4f;
  * 远超方块的包围盒）。少了这两个，站台大钟走远一点就整块消失。
  *
  * <h2>亮度（含昼夜）</h2>
- * <p>不发光时按 {@code max(方块光, 天空光 × 白天系数)} 映射到 0.35–1.0 乘到颜色上 ——
- * 夜里钟面变暗、被灯照着又亮回来。{@link ClockConfig.GlowMode} 命中当前昼夜时系数固定 1.0
- * （「看起来亮」，但不往世界里打方块光）。
+ * <p>默认**完全交给 lightmap**：顶点写的是方块自己那一格的 {@code WorldRenderer.getLightmapCoordinates(world, pos)}，
+ * 也就是原版给普通方块用的那一对坐标。夜里 lightmap 纹理本身会把天空光那一半按环境暗度压暗，
+ * 所以钟面跟着变暗、被灯照着又亮回来，和隔壁方块一致。
  *
- * <p><b>这里不能直接拿 {@code getLightLevel(LightType.SKY, pos)} 当「多亮」用</b>：1.20.1 的
- * {@code BlockRenderView#getLightLevel(LightType, BlockPos)} 只是光照引擎里的<b>原始值</b>
- * （javap 看到它的默认实现就是 {@code lightingProvider.get(type).getLightLevel(pos)}），
- * 夜里天空光仍然是 15 —— 时间只在 {@code LightingProvider#getLight(BlockPos, ambientDarkness)}
- * （即 {@code sky - ambientDarkness}）和 {@code World#getAmbientDarkness()} 里体现。
- * 所以昼夜系数由 {@link #dayFactor(World)} 自己算（{@code ambientDarkness} 0…11 → 1.0…0.15），
- * 再乘到天空光上，白天/夜晚/室内外才会真的不一样。
+ * <p>{@link ClockConfig.GlowMode} 是<b>用户显式勾选</b>的「钟面自己亮」（默认 {@code OFF}）：
+ * 命中当前昼夜时 `lightFor` 才写满值，那是可切换的开关，不是默认行为。
+ *
+ * <p><b>不能再自己乘一遍亮度系数</b>（老实现是 {@code 0.35 + 0.65 × max(...)}）：lightmap 已经在
+ * 着色器里乘过一次，再乘就是压暗两次，钟面会比隔壁方块明显更黑。
  */
 public final class ClockRenderer implements BlockEntityRenderer<ClockBlockEntity> {
 
     /** 远处不消失：384 格（比默认的 64 格远得多，站台两头都看得到）。 */
     public static final int RENDER_DISTANCE = 384;
+
+    /**
+     * 纯色几何的载体贴图：{@code mtrlte:textures/block/white.png}，16×16、每像素不透明纯白。
+     * entity 层按资源路径直绑（{@code Sampler0} 读原图），<b>不经过方块图集</b>，
+     * 所以不需要任何模型 json 引用它。
+     */
+    private static final Identifier SOLID_TEXTURE = new Identifier("mtrlte", "textures/block/white.png");
+
+    /**
+     * 受光层：{@code entity_cutout_no_cull} 程序，顶点格式
+     * {@code POSITION_COLOR_TEXTURE_OVERLAY_LIGHT_NORMAL}（<b>有 lightmap 元素</b>），写深度。
+     *
+     * <p>为什么是 NoCull：钟面几何的绕序算出来朝向 {@code -FACING}，而钟面画在 {@code -FACING}
+     * 那一侧、玩家从 {@code +FACING} 正面看 —— 一开剔除整个钟面就没了。
+     */
+    private static final RenderLayer LIT_LAYER = RenderLayer.getEntityCutoutNoCull(SOLID_TEXTURE);
 
     /**
      * 最里面那一层的深度：盘面就贴在这里 —— 沿 {@code -FACING} 走 0.484 格，即局部坐标 0.016，
@@ -134,21 +156,26 @@ public final class ClockRenderer implements BlockEntityRenderer<ClockBlockEntity
         final int segments = segmentsFor(Math.max(faceRadius, tickRadius));
 
         final Frame frame = new Frame(facing);
-        final float bright = brightness(world, entity.getPos(), cfg);
-        final int face = shade(cfg.faceColor, bright);
-        final int tick = shade(cfg.tickColor, bright);
-        final int hourHand = shade(cfg.hourColor, bright);
-        final int minuteHand = shade(cfg.minuteColor, bright);
-        final int secondHand = shade(cfg.secondColor, bright);
-        final int hub = shade(cfg.hubColor, bright);
+        // 光照：默认吃**这个方块位置**的真实光照（和隔壁普通方块同一套 lightmap；
+        // 钟块挂在天花板 / 墙上也照样取它自己那一格）。配置里的发光模式命中当前昼夜时
+        // 才写满值 —— 那是用户显式勾选的「钟面自己亮」。
+        final int lightCoord = lightFor(world, entity.getPos(), cfg, light);
+        frame.light = lightCoord;
+        frame.normals = matrices.peek().getNormalMatrix();
+        // 颜色不再自己乘亮度系数：明暗全部交给 lightmap，否则夜里会被压暗两次。
+        final int face = opaque(cfg.faceColor);
+        final int tick = opaque(cfg.tickColor);
+        final int hourHand = opaque(cfg.hourColor);
+        final int minuteHand = opaque(cfg.minuteColor);
+        final int secondHand = opaque(cfg.secondColor);
+        final int hub = opaque(cfg.hubColor);
 
-        final VertexConsumer vc = vertexConsumers.getBuffer(RenderLayer.getDebugQuads());
+        final VertexConsumer vc = vertexConsumers.getBuffer(LIT_LAYER);
         final Matrix4f matrix = matrices.peek().getPositionMatrix();
 
         // 顶点色就是最终颜色：位置光 / 实体受击闪红这些状态会通过 shader 的 ColorModulator
-        // 影响输出，先归一到白色。
+        // 影响输出，先归一到白色。（不再改 cull：这一层自己是 NoCull，强行改全局状态会波及同帧其它层。）
         com.mojang.blaze3d.systems.RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
-        com.mojang.blaze3d.systems.RenderSystem.disableCull();
         try {
             // ① 钟面（+ 刻度 / 数字）。刻度没有独立的显隐开关：它跟着钟面一起开关，
             //    只想要「没有刻度的干净盘面」就把刻度样式设成「无」。
@@ -187,7 +214,9 @@ public final class ClockRenderer implements BlockEntityRenderer<ClockBlockEntity
                         Math.max(16, segments / 3));
             }
         } finally {
-            com.mojang.blaze3d.systems.RenderSystem.enableCull();
+            // 只回滚自己改过的那一项（颜色调节器 ColorModulator = 中性白）；
+            // cull / 深度一概不碰：同帧其它层（例如不写 cull 阶段的 beacon 层）靠继承的状态工作。
+            com.mojang.blaze3d.systems.RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         }
     }
 
@@ -343,7 +372,7 @@ public final class ClockRenderer implements BlockEntityRenderer<ClockBlockEntity
         final int width = this.textRenderer.getWidth(label);
         this.textRenderer.draw(label, -width / 2.0F, -4.0F, color | 0xFF000000, false, finalMatrix,
                 vertexConsumers, TextRenderer.TextLayerType.NORMAL, 0,
-                LightmapTextureManager.MAX_LIGHT_COORDINATE);
+                frame.light);
     }
 
     /**
@@ -358,54 +387,34 @@ public final class ClockRenderer implements BlockEntityRenderer<ClockBlockEntity
     // ------------------------------------------------------------------ 亮度
 
     /**
-     * 不发光时乘到颜色上的亮度系数（0.35–1.0）。
+     * 这一帧写进顶点的 lightmap 坐标。
      *
-     * <p>公式：{@code 0.35 + 0.65 × clamp(max(方块光/15, 天空光/15 × dayFactor), 0, 1)}。
-     * {@code dayFactor} 见 {@link #dayFactor(World)}：白天 1.0、深夜 0.15。{@code glow} 命中
-     * 当前昼夜时直接 1.0（ALWAYS 不看时间）。
+     * <p><b>默认</b>取方块自己那一格的真实光照 {@link World#getLightmapCoordinates(BlockPos)}：
+     * 它就是原版给普通方块算的那一对坐标（天空光 + 方块光打包成 16×16 的采样点），
+     * lightmap 纹理本身已经按当帧的环境暗度压过天空光那一半，所以夜里会自然变暗、
+     * 被灯照着又会亮回来 —— 和隔壁方块完全一致。
      *
-     * <p><b>为什么不能只写 {@code sky/15}</b>：{@code getLightLevel(LightType.SKY, pos)} 是光照
-     * 引擎里的原始天空光，<b>不随昼夜变化</b>（露天永远是 15）。老实现拿它算系数，夜里室外也是
-     * {@code 15/15 = 1.0}，于是「从不 / 白天 / 夜间」三种模式在夜里看起来完全一样 —— 这就是
-     * 「发光开关不起作用」的根因。
+     * <p>只有配置里的 {@link ClockConfig.GlowMode} 命中当前昼夜时才写满值
+     * （{@link LightmapTextureManager#MAX_LIGHT_COORDINATE}）：那是用户显式勾选的
+     * 「钟面自己亮」（默认 {@code OFF}），不是渲染器的默认行为。
+     *
+     * <p>{@code world == null}（理论不该发生）时退回 BER 传进来的 {@code fallbackLight}。
      */
-    public static float brightness(final World world, final BlockPos pos, final ClockConfig cfg) {
+    public static int lightFor(final World world, final BlockPos pos, final ClockConfig cfg,
+                               final int fallbackLight) {
         if (world == null) {
-            return 1.0F;
+            return fallbackLight;
         }
         final boolean daylight = isDaylight(world);
         if (cfg.glow == ClockConfig.GlowMode.ALWAYS
                 || (cfg.glow == ClockConfig.GlowMode.DAY && daylight)
                 || (cfg.glow == ClockConfig.GlowMode.NIGHT && !daylight)) {
-            return 1.0F;
+            return LightmapTextureManager.MAX_LIGHT_COORDINATE;
         }
-        final double sky = world.getLightLevel(LightType.SKY, pos) / 15.0D;
-        final double block = world.getLightLevel(LightType.BLOCK, pos) / 15.0D;
-        final double level = MathHelper.clamp(Math.max(block, sky * dayFactor(world)), 0.0D, 1.0D);
-        return (float) (0.35D + 0.65D * level);
+        return WorldRenderer.getLightmapCoordinates(world, pos);
     }
 
-    /**
-     * 昼夜系数（0.15–1.0）：白天 1.0、黄昏渐暗、深夜 0.15。
-     *
-     * <p>用 {@link World#getAmbientDarkness()}（0 = 正午，11 = 午夜，原版
-     * {@code calculateAmbientDarkness()} 算出来的 0…11 整数）线性映射：{@code 0.15 + 0.85 × (1 - dark/11)}。
-     * 固定时间维度（下界 / 末地）没有昼夜，一律 1.0。
-     *
-     * <p>顺带一句：原版真正影响「方块看起来多亮」的是
-     * {@code LightingProvider#getLight(pos, ambientDarkness)} = {@code max(blockLight, skyLight - ambientDarkness)}，
-     * {@link World#getAmbientDarkness()} 就是那个 {@code ambientDarkness}。
-     */
-    public static float dayFactor(final World world) {
-        if (world == null) {
-            return 1.0F;
-        }
-        if (world.getDimension().hasFixedTime()) {
-            return 1.0F;
-        }
-        final int dark = MathHelper.clamp(world.getAmbientDarkness(), 0, 11);
-        return 0.15F + 0.85F * (1.0F - dark / 11.0F);
-    }
+    // 注：夜里变暗这一层现在由 lightmap 纹理本身完成（见 lightFor），不再手写亮度系数。
 
     /**
      * 现在算不算「白天」—— {@link ClockConfig.GlowMode#DAY} / {@code NIGHT} 的分界。
@@ -423,12 +432,9 @@ public final class ClockRenderer implements BlockEntityRenderer<ClockBlockEntity
         return world.getAmbientDarkness() < 4;
     }
 
-    /** 按亮度系数压暗一个 0xRRGGBB（不透明）。 */
-    public static int shade(final int rgb, final float factor) {
-        final int r = MathHelper.clamp((int) (((rgb >> 16) & 0xFF) * factor), 0, 255);
-        final int g = MathHelper.clamp((int) (((rgb >> 8) & 0xFF) * factor), 0, 255);
-        final int b = MathHelper.clamp((int) ((rgb & 0xFF) * factor), 0, 255);
-        return (0xFF << 24) | (r << 16) | (g << 8) | b;
+    /** 0xRRGGBB → 不透明 ARGB（顶点色要写 alpha，配置里的颜色只有 RGB）。 */
+    public static int opaque(final int rgb) {
+        return 0xFF000000 | (rgb & 0xFFFFFF);
     }
 
     // ------------------------------------------------------------------ 帧
@@ -447,6 +453,10 @@ public final class ClockRenderer implements BlockEntityRenderer<ClockBlockEntity
         private final Vec3d up;
         /** 当前这一层的深度（沿法线离钟心多远）。 */
         private double depth;
+        /** 这一帧写进每个顶点的 lightmap 坐标（见 {@link ClockRenderer#lightFor}）。 */
+        private int light;
+        /** 法线矩阵（写 {@code .normal()} 用）。 */
+        private Matrix3f normals;
 
         Frame(final Direction facing) {
             this.normal = Vec3d.of(facing.getVector());
@@ -472,6 +482,13 @@ public final class ClockRenderer implements BlockEntityRenderer<ClockBlockEntity
             final float z = (float) (0.5D + this.right.z * a + this.up.z * b + this.normal.z * this.depth);
             vc.vertex(matrix, x, y, z)
                     .color((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF, (argb >>> 24) & 0xFF)
+                    // 白图（16×16 全白）：UV 随便取一点都等价，颜色全在顶点色上。
+                    .texture(0.0F, 0.0F)
+                    .overlay(OverlayTexture.DEFAULT_UV)
+                    .light(this.light)
+                    // 法线写 +FACING：方向性明暗（minecraft_mix_light）才和方块正面一致。
+                    .normal(this.normals,
+                            (float) this.normal.x, (float) this.normal.y, (float) this.normal.z)
                     .next();
         }
     }

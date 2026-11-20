@@ -386,9 +386,9 @@ ok(!/\.damage\(/.test(blockJava), '不对剪刀调用 damage()（不损工具）
 ok(blockJava.indexOf('mtr.Items.BRUSH') < blockJava.indexOf('Items.SHEARS'),
   '刷子分支在剪刀分支之前');
 
-// ---------------------------------------------------------------- 5. 色带顶点格式（纯色，不吃贴图）
+// ---------------------------------------------------------------- 5. 受光：屏幕满亮 / 色带吃世界光
 
-console.log('\n== 5. 线路色带：POSITION_COLOR 层 + 顶点只有位置/颜色 ==');
+console.log('\n== 5. 受光：屏幕仍满亮 / 色带改成世界光照 ==');
 const RENDERER_JAVA = path.join(VERSION_DIR,
   'src/main/java/dev/js/mtrheadlight/xiamen/pids/PsdLcdRenderer.java');
 const rendererJava = fs.readFileSync(RENDERER_JAVA, 'utf8');
@@ -417,27 +417,102 @@ function methodBody(src, signature) {
   return null;
 }
 
+const renderBody = methodBody(rendererJava, 'private void renderSafe(');
 const drawStripBody = methodBody(rendererJava, 'private static void drawStrip(');
 const stripQuadBody = methodBody(rendererJava, 'private static void stripQuad(');
 
+ok(renderBody !== null, 'renderSafe 方法存在');
 ok(drawStripBody !== null, 'drawStrip 方法存在（色带只在这一个方法里发顶点）');
 ok(stripQuadBody !== null, 'stripQuad 方法存在（色带四边形 = 4 个顶点）');
 
+// ---- 屏幕：**保持不变**（用户明确要求屏幕和 PIDS 一样常亮，一行都没动）
+if (renderBody) {
+  ok(/immediate\.getBuffer\(MoreRenderLayers\.getLight\(texture\.id, false\)\)/.test(renderBody),
+    '屏幕 quad 仍是 MoreRenderLayers.getLight(texture.id, false)（屏幕该像屏幕一样常亮）');
+  ok(/\.light\(PidsXiamenLayout\.FULL_LIGHT\)/.test(rendererJava),
+    '屏幕顶点仍写 FULL_LIGHT（屏幕满亮，与厦门 PIDS 同一套）');
+}
+// 色带 / 全渲染器都不许再用 debug quads
+ok(!/getBuffer\(\s*RenderLayer\.getDebugQuads\(\)\s*\)/.test(rendererJava),
+  '渲染器里不再有任何 getBuffer(RenderLayer.getDebugQuads())（色带不再走 POSITION_COLOR）');
+
+// ---- 色带：受光实体层 + 真实 lightmap
+ok(/RenderLayer\.getEntitySolid\(SOLID_TEXTURE\)/.test(rendererJava),
+  '色带 layer = RenderLayer.getEntitySolid(SOLID_TEXTURE)（POSITION_COLOR_TEXTURE_OVERLAY_LIGHT_NORMAL）');
+ok(/new Identifier\("mtrlte", "textures\/block\/white\.png"\)/.test(rendererJava),
+  '白图 id 是直绑资源路径 mtrlte:textures/block/white.png（不进方块图集也能用）');
+ok(fs.existsSync(path.join(VERSION_DIR,
+  'src/main/resources/assets/mtrlte/textures/block/white.png')),
+  'white.png 真的在 resources/assets/mtrlte/textures/block/ 里');
 if (drawStripBody) {
-  ok(/immediate\.getBuffer\(RenderLayer\.getDebugQuads\(\)\)/.test(drawStripBody),
-    '色带用的是 RenderLayer.getDebugQuads()（VertexFormats.POSITION_COLOR，无 UV 元素）');
-  ok(!/getExterior|getLight\(/.test(drawStripBody),
-    '色带不再走带贴图的 EntityCutout（getExterior）/ 自发光层');
+  ok(/immediate\.getBuffer\(SOLID_LAYER\)/.test(drawStripBody), '色带用的是受光层 SOLID_LAYER');
+  ok(/WorldRenderer\.getLightmapCoordinates\(world, chain\.get\(i\)\)/.test(drawStripBody),
+    '色带光照 = 这一格自己位置的 WorldRenderer.getLightmapCoordinates(world, pos)');
+  ok(!/FULL_LIGHT|FULL_BRIGHT/.test(drawStripBody), '色带里不再写满亮 light（没有 FULL_LIGHT / FULL_BRIGHT）');
 }
 if (stripQuadBody) {
-  ok(/\.color\(/.test(stripQuadBody), '色带顶点写了 color（顶点色 = 线路色）');
-  ok(!/\.texture\(/.test(stripQuadBody),
-    '色带顶点<b>没有</b> .texture()（POSITION_COLOR 没有 UV 元素，写不进也不需要）');
-  ok(!/\.light\(|\.overlay\(|\.normal\(/.test(stripQuadBody),
-    '色带顶点不写 light / overlay / normal（POSITION_COLOR 里都没有这些元素）');
+  ok(/\.color\(/.test(stripQuadBody), '色带顶点写 color（顶点色 tint = 线路色）');
+  ok(/\.texture\(0\.0F, 0\.0F\)/.test(stripQuadBody), '色带顶点写 texture(0,0)（白图不透明，uv 任意）');
+  ok(/\.light\(light\)/.test(stripQuadBody), '色带顶点写 light(light)');
+  ok(/\.overlay\(OverlayTexture\.DEFAULT_UV\)/.test(stripQuadBody), '色带顶点写 overlay(DEFAULT_UV)');
+  ok(/\.normal\(n, normal\[0\], normal\[1\], normal\[2\]\)/.test(stripQuadBody),
+    '色带顶点写 normal（法线 = 屏幕朝向：方向性明暗和方块正面一致）');
 }
-ok(!/STRIP_TEXTURE/.test(rendererJava) && !/new net\.minecraft\.util\.Identifier\(/.test(rendererJava),
-  '旧的白贴图常量（mtrlte:block/white，未进方块图集 → 缺失贴图）已经删掉（只留注释里的历史说明）');
+ok(!/STRIP_TEXTURE/.test(rendererJava),
+  '旧的 STRIP_TEXTURE 常量名不再复用（现在叫 SOLID_TEXTURE，语义 = 直绑白图）');
+
+// 色带四边形绕序必须朝屏幕法线 —— getEntitySolid 开剔除，绕序反了整条带子会消失
+{
+  const faces = ['NORTH', 'EAST', 'SOUTH', 'WEST'];
+  for (const face of faces) {
+    const quad = stripQuad(face, 0, 16, false);
+    const n = VEC[face];
+    const e1 = [quad[1][0] - quad[0][0], quad[1][1] - quad[0][1], quad[1][2] - quad[0][2]];
+    const e2 = [quad[2][0] - quad[1][0], quad[2][1] - quad[1][1], quad[2][2] - quad[1][2]];
+    const c = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+    const dot = c[0] * n[0] + c[1] * n[1] + c[2] * n[2];
+    ok(dot > 0,
+      `facing=${face} 的色带四边形绕序朝外（cross·normal = ${dot.toFixed(4)} > 0，开剔除不会消失）`);
+  }
+}
+
+// ---------------------------------------------------------------- 5b. 时钟：钟面受光
+
+console.log('\n== 5b. 时钟钟面：真实受光（不再 POSITION_COLOR 满亮）==');
+const CLOCK_JAVA = path.join(VERSION_DIR, 'src/main/java/dev/js/mtrheadlight/clock/ClockRenderer.java');
+const clockJava = fs.readFileSync(CLOCK_JAVA, 'utf8');
+const clockRender = methodBody(clockJava, 'public void render(');
+const clockVertex = methodBody(clockJava, 'void vertex(final VertexConsumer vc');
+const lightForBody = methodBody(clockJava, 'public static int lightFor(');
+
+ok(clockRender !== null && clockVertex !== null && lightForBody !== null,
+  'ClockRenderer 的 render / Frame.vertex / lightFor 都在');
+ok(!/getBuffer\(\s*RenderLayer\.getDebugQuads\(\)\s*\)/.test(clockJava),
+  '时钟不再 getBuffer(RenderLayer.getDebugQuads())');
+ok(/RenderLayer\.getEntityCutoutNoCull\(SOLID_TEXTURE\)/.test(clockJava),
+  'LIT_LAYER = getEntityCutoutNoCull(白图)（POSITION_COLOR_TEXTURE_OVERLAY_LIGHT_NORMAL、NoCull）');
+ok(/new Identifier\("mtrlte", "textures\/block\/white\.png"\)/.test(clockJava),
+  '时钟也用同一张直绑白图 mtrlte:textures/block/white.png');
+if (clockRender) {
+  ok(/getBuffer\(LIT_LAYER\)/.test(clockRender), '钟面从 LIT_LAYER 取 buffer');
+  ok(/lightFor\(world, entity\.getPos\(\), cfg, light\)/.test(clockRender),
+    '光照 = lightFor(world, entity.getPos(), cfg, light)（取钟块自己那一格）');
+  ok(!/enableCull\(\)|disableCull\(\)/.test(clockRender),
+    '不再强改全局 cull（NoCull 层自带，避免污染同帧其它层）');
+}
+if (lightForBody) {
+  ok(/WorldRenderer\.getLightmapCoordinates\(world, pos\)/.test(lightForBody),
+    '默认光照 = WorldRenderer.getLightmapCoordinates(world, pos)（原版给普通方块的那一对坐标）');
+  ok(/MAX_LIGHT_COORDINATE/.test(lightForBody),
+    '满值只在 GlowMode 命中当前昼夜时写（可切换的「钟面自己亮」，默认 OFF）');
+}
+if (clockVertex) {
+  ok(/\.texture\(0\.0F, 0\.0F\)/.test(clockVertex), '钟面顶点写 texture(0,0)');
+  ok(/\.overlay\(OverlayTexture\.DEFAULT_UV\)/.test(clockVertex), '钟面顶点写 overlay');
+  ok(/\.light\(this\.light\)/.test(clockVertex), '钟面顶点写 light(this.light)');
+  ok(/\.normal\(this\.normals,/.test(clockVertex), '钟面顶点写 normal（+FACING，方向性明暗和方块正面一致）');
+}
+
 
 // ---------------------------------------------------------------- 6. 碰撞箱（对标 MTR psd_top）
 
