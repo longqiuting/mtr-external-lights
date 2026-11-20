@@ -392,6 +392,7 @@
   "gui.mtrlte.psd_lcd.place_ad": "Place your ad here",
   "gui.mtrlte.psd_lcd.car": "Car %s",
   "gui.mtrlte.psd_lcd.line_en": "Line %s",
+  "gui.mtrlte.psd_lcd.line_strip": "Show the line colour strip",
   "gui.mtrlte.psd_lcd.min_en": "min",
   "gui.mtrlte.psd_lcd.sec_en": "s",
   "gui.mtrlte.psd_lcd.next_train_label": "Next",

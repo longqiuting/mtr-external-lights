@@ -1,5 +1,5 @@
 {
-    "_comment": "facing = 屏幕法线（与 PsdLcdLayout.Face#blockstateY() 一一对应）；half_cut = 剪刀剪过没有：false 整块（psd_lcd_xiamen.json，屏幕窗口 y 1.5..8.5）/ true 只剩上半格（psd_lcd_xiamen_half.json，屏幕窗口 y 9..16，板子只占 y 7.5..16）。两套模型都来自用户给的 psd_lcd_xiamen.json 的 normal / half 两组，逐字段未改。",
+    "_comment": "facing = 屏幕法线（与 PsdLcdLayout.Face#blockstateY() 一一对应）；half_cut = 剪刀剪过没有：false 整块（psd_lcd_xiamen.json = 用户 json 的 mornal 组，屏幕窗口 y 1.5..8.5）/ true 只剩上半格（psd_lcd_xiamen_half.json = half 组，屏幕窗口 y 9..16，板子只占 y 7.5..16）。两套模型都由 tools/psd-lcd-models.js 从 tools/psd/psd_lcd_xiamen.json 确定性变换生成，不许手改；坐标差异见 docs/psd-lcd-line-strip.md。",
     "variants": {
         "facing=north,half_cut=false": { "model": "mtrlte:block/psd_lcd_xiamen" },
         "facing=east,half_cut=false":  { "model": "mtrlte:block/psd_lcd_xiamen", "y":  90 },

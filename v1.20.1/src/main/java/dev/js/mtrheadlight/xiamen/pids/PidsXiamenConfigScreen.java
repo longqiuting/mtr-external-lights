@@ -71,6 +71,8 @@ public final class PidsXiamenConfigScreen extends ScreenMapper {
     private int adCount;
 
     private WidgetBetterCheckbox selectAll;
+    /** 「显示线路色带」那个开关（PSD-LCD 下沿用；设置是全局的，落在 {@link PidsXiamenSettings}）。 */
+    private WidgetBetterCheckbox lineStripBox;
     private ButtonWidget filterButton;
     private ButtonWidget adsButton;
     private WidgetBetterTextField pageInput;
@@ -80,6 +82,7 @@ public final class PidsXiamenConfigScreen extends ScreenMapper {
     private int colX;
     private int colW;
     /** 各控件实际的 y（render() 里按这个画标签，不再用「反推行高」那套魔法数）。 */
+    private int stripY;
     private int platformY;
     private int filterY;
     private int noStationY;
@@ -139,6 +142,20 @@ public final class PidsXiamenConfigScreen extends ScreenMapper {
         return this.selectAll;
     }
 
+    /**
+     * 这个位置是不是 PSD-LCD 挂板（{@code mtrlte:psd_lcd_xiamen}）—— 只有它有下沿色带，
+     * 所以「显示线路色带」那个开关也只给它显示（PIDS 屏没有色带，别塞一个按了没反应的勾）。
+     */
+    private boolean isLcdBlock() {
+        try {
+            final var client = net.minecraft.client.MinecraftClient.getInstance();
+            return client.world != null
+                    && client.world.getBlockState(this.dataPos).getBlock() instanceof PsdLcdBlock;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     /** 这个位置有没有车站（MTR 的站台表按车站取；站外就选不了）。 */
     private boolean hasStation() {
         try {
@@ -163,6 +180,20 @@ public final class PidsXiamenConfigScreen extends ScreenMapper {
         // 每一行：标签 12px + 控件 20px + 8px 余量 = 30。标签单独占一行，
         // 不再「上一行的控件 + 下一行的标签」挤在同一段 y 上（用户报的「按钮与文字重叠」）。
         int y = 66;
+
+        // 0) 显示线路色带（PSD-LCD 挂板下沿那条 0.5px 的带子）。开关类一律排在最上面。
+        //    写的是全局设置（PidsXiamenSettings），对所有挂板同时生效，所以关界面不用发任何包。
+        //    只有 PSD-LCD 挂板有这个开关（PIDS 屏没有色带，别给它塞一个按了没反应的勾）。
+        this.stripY = -1;
+        if (isLcdBlock()) {
+            this.stripY = y;
+            this.lineStripBox = new WidgetBetterCheckbox(0, 0, 0, ROW_H,
+                    tr("gui.mtrlte.psd_lcd.line_strip"), checked -> PidsXiamenSettings.setLineStrip(checked));
+            this.lineStripBox.setChecked(PidsXiamenSettings.lineStrip());
+            IDrawing.setPositionAndWidth(this.lineStripBox, this.colX, y, this.colW);
+            this.addDrawableChild(this.lineStripBox);
+            y += 30;
+        }
 
         // 1) 自动检测附近站台（勾上 = 清空筛选，和 MTR 的语义一致）
         this.platformY = y;

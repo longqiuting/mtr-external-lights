@@ -392,6 +392,7 @@
   "gui.mtrlte.psd_lcd.place_ad": "此处放置广告",
   "gui.mtrlte.psd_lcd.car": "%s车",
   "gui.mtrlte.psd_lcd.line_en": "Line %s",
+  "gui.mtrlte.psd_lcd.line_strip": "显示线路色带（下沿 0.5px）",
   "gui.mtrlte.psd_lcd.min_en": "min",
   "gui.mtrlte.psd_lcd.sec_en": "s",
   "gui.mtrlte.psd_lcd.next_train_label": "下一趟开往",

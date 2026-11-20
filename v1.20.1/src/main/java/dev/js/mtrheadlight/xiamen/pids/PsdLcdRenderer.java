@@ -5,15 +5,18 @@
 // 尺寸都对不上 —— 现在全部并进位图：文字 / 图标 / 标语 / 广告文字都画在同一个 BufferedImage
 // 里，渲染器只发一个四边形。
 //
-// 四边形的四个顶点**就是**模型里 ScreenPlane 那块面的四个角，由
+// 四边形的四个顶点**就是**模型里凹槽底那张面的四个角，由
 // PsdLcdLayout#windowQuad 算出（不做任何矩阵旋转）。所以：
-//   · 窗口矩形 x 0…16、y 1.5…8.5、z = 1.6（屏幕面）——不多一个像素；
+//   · 窗口矩形 x 0…16、y 1.5…8.5、z = 10.2（凹槽底；四边形再往前 0.016px = 10.184）——不多一个像素；
 //   · 位图宽高比 = 窗口宽高比（16:7 / 段），内容不会被拉伸（见 tools/psd-lcd-fit-check.js）。
 //
 // 剪刀把某一格剪成「只剩上半格」（PsdLcdBlock.HALF_CUT = true）以后，这一格的板子只占
 // y 7.5…16、屏幕口在 y 9…16（模型 psd_lcd_xiamen_half.json）。渲染上只有一件事变了：
 // **这一格的四边形 y 带从 1.5…8.5 换成 9…16**，宽度仍然是整格（一格 = 一整段）。
 // 被剪掉的下半截是真的没有几何（有洞就是洞），不是把画面裁掉一半。
+//
+// 另外还画一条**线路色带**（MTR 式，见 PsdLcdStrip / PsdLcdLayout#stripQuad）：板子下沿那条
+// 0.5px 的前脸上，颜色取这个站台经过的线路色。
 //
 // 旧版错在把「屏幕面中线 y = 5px」当成了四边形原点，再 rotZ(180) 让画面往下长，
 // 于是 7px 高的画面从 y=5px 一直挂到 y=-2px（吊板下面），看起来像「多画了一遍」。
@@ -61,6 +64,10 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
      */
     private static final int AD_ROTATE_TICKS = 200;
 
+    /** 色带用的贴图：一张 16×16 的纯白（颜色全靠顶点色）。 */
+    private static final net.minecraft.util.Identifier STRIP_TEXTURE =
+            new net.minecraft.util.Identifier("mtrlte", "block/white");
+
     private boolean warned;
     /** 「拿不到实时编组、退回 4 节」这条 warning 只打一次（consistOf 每帧都在跑）。 */
     private static boolean carsWarned;
@@ -93,7 +100,7 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
     public void render(final PsdLcdBlockEntity entity, final float tickDelta, final MatrixStack matrices,
                        final VertexConsumerProvider vertexConsumers, final int light, final int overlay) {
         try {
-            renderSafe(entity, matrices, vertexConsumers);
+            renderSafe(entity, matrices, vertexConsumers, light);
         } catch (final Throwable t) {
             if (!this.warned) {
                 this.warned = true;
@@ -103,7 +110,7 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
     }
 
     private void renderSafe(final PsdLcdBlockEntity entity, final MatrixStack matrices,
-                            final VertexConsumerProvider vertexConsumers) {
+                            final VertexConsumerProvider vertexConsumers, final int light) {
         final World world = entity.getWorld();
         if (world == null) {
             return;
@@ -179,6 +186,10 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                 vertex(vc, matrix, normalMatrix, quad[1][0], quad[1][1], quad[1][2], u0, 1.0F, normal);
                 vertex(vc, matrix, normalMatrix, quad[2][0], quad[2][1], quad[2][2], u1, 1.0F, normal);
                 vertex(vc, matrix, normalMatrix, quad[3][0], quad[3][1], quad[3][2], u1, 0.0F, normal);
+            }
+            // ---- 线路色带（MTR 式）：板子下沿那条 0.5px 的前脸
+            if (PidsXiamenSettings.lineStrip()) {
+                drawStrip(entity, matrix, normalMatrix, face, cuts, immediate, light);
             }
         } finally {
             com.mojang.blaze3d.systems.RenderSystem.enableCull();
@@ -257,6 +268,68 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                 .texture(u, v)
                 .overlay(OverlayTexture.DEFAULT_UV)
                 .light(PidsXiamenLayout.FULL_LIGHT)
+                .normal(n, normal[0], normal[1], normal[2])
+                .next();
+    }
+
+    // ------------------------------------------------------------------ 线路色带
+
+    /**
+     * 板子下沿那条线路色带（MTR {@code RenderPSDTop#renderAdditional} 的对应物）。
+     *
+     * <p>MTR 的做法：{@code ClientData.DATA_CACHE.getColorStrip(platformId)} 现场生成一张
+     * 1×N 的位图（每个经过这个站台的线路 1 像素），贴在 y 14.5…15、整条链宽、z 在前脸上的
+     * 位置。我们这边：
+     * <ul>
+     *   <li><b>不生成位图</b>：{@link PsdLcdStrip#colors(long)} 直接给出颜色数组，一个颜色发一个
+     *       纯色 quad（一张白色贴图 + 顶点色），N 条线就是 N 条横带 —— 视觉效果和 MTR 把
+     *       1×N 纹理拉满那条带子一样，但不用往 MTR 的纹理缓存里塞东西；</li>
+     *   <li><b>y 带</b>跟着模型走：整块 1…1.5、剪过 8.5…9（{@link PsdLcdLayout#stripBandPx(boolean)}），
+     *       都在用户模型留出来的那条 0.5px 前脸（z = 10）上；</li>
+     *   <li><b>渲染层</b>同 MTR：{@code MoreRenderLayers.getExterior} = EntityCutout，
+     *       <b>受光</b>（用 BER 递进来的 {@code light}），不发光 —— 屏幕本身是
+     *       {@code getLight}（自发光），两者刻意不一样。</li>
+     * </ul>
+     */
+    private static void drawStrip(final PsdLcdBlockEntity entity, final Matrix4f matrix,
+                                  final Matrix3f normalMatrix, final PsdLcdLayout.Face face,
+                                  final boolean[] cuts,
+                                  final VertexConsumerProvider.Immediate immediate, final int light) {
+        final long platformId;
+        try {
+            platformId = entity.getPlatformId(ClientData.PLATFORMS, ClientData.DATA_CACHE);
+        } catch (final Throwable t) {
+            // 站台表还没同步：这一帧不画色带（下一帧会再试）。
+            return;
+        }
+        final int[] colors = PsdLcdStrip.colors(platformId);
+        final VertexConsumer vc = immediate.getBuffer(MoreRenderLayers.getExterior(STRIP_TEXTURE));
+        final float[] normal = PsdLcdLayout.screenNormal(face);
+        // 一格一段：每格自己的 y 带（剪没剪），一条线路一条横带（从上往下按数组顺序）。
+        for (int i = 0; i < cuts.length; i++) {
+            final float start = i * 16.0F;
+            final float end = start + 16.0F;
+            for (int c = 0; c < colors.length; c++) {
+                final float v0 = 1.0F - (float) (c + 1) / colors.length;
+                final float v1 = 1.0F - (float) c / colors.length;
+                final float[][] quad = PsdLcdLayout.stripQuad(face, start, end, cuts[i], v0, v1);
+                stripVertex(vc, matrix, normalMatrix, quad[0], 0.0F, 0.0F, normal, colors[c], light);
+                stripVertex(vc, matrix, normalMatrix, quad[1], 0.0F, 1.0F, normal, colors[c], light);
+                stripVertex(vc, matrix, normalMatrix, quad[2], 1.0F, 1.0F, normal, colors[c], light);
+                stripVertex(vc, matrix, normalMatrix, quad[3], 1.0F, 0.0F, normal, colors[c], light);
+            }
+        }
+    }
+
+    /** 色带的一个顶点：颜色 = 线路色，光照 = BER 递进来的 light（受光，不发光）。 */
+    private static void stripVertex(final VertexConsumer vc, final Matrix4f m, final Matrix3f n,
+                                    final float[] p, final float u, final float v,
+                                    final float[] normal, final int argb, final int light) {
+        vc.vertex(m, p[0], p[1], p[2])
+                .color((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF, (argb >>> 24) & 0xFF)
+                .texture(u, v)
+                .overlay(OverlayTexture.DEFAULT_UV)
+                .light(light)
                 .normal(n, normal[0], normal[1], normal[2])
                 .next();
     }

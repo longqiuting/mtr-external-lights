@@ -8,9 +8,10 @@
  * 前三次的真因都是「四边形 / 位图 / 模型窗口」三者尺寸或原点对不上，后一次是版式比例没跟设计稿对。
  * 这个脚本把这些摊开来逐条对账，不进游戏也能判定：
  *
- *   1. **两套模型就是用户给的 json**：normal 组 → psd_lcd_xiamen.json，half 组（只剩上半格）
- *      → psd_lcd_xiamen_half.json，逐 element 逐字段比对（tools/psd-lcd-models.js）；
- *   2. 每档的窗口矩形（ScreenPlane）↔ PsdLcdLayout.java 常量 ↔ BER 面 z（模型 10.5 / 四边形 10.484）；
+ *   1. **两套模型就是用户给的 json 过一遍确定性变换**：`mornal` 组 → psd_lcd_xiamen.json，
+ *      `half` 组（只剩上半格）→ psd_lcd_xiamen_half.json（tools/psd-lcd-models.js）；
+ *   2. 每档的窗口矩形**从模型几何量出来**（扫高度找「最前面那个面 = 凹槽底」的连续区间）
+ *      ↔ PsdLcdLayout.java 常量 ↔ BER 面 z（模型 10.2 / 四边形 10.184）；
  *   3. 每档的位图尺寸：断言 |位图宽高比 ÷ 窗口宽高比 − 1| < 1%（剪不剪都不许拉伸）；
  *   4. 真的调 Java2D 画三张预览（4 段 / 8 段 / 13:1），从 PNG 字节里读**实际**宽高再断言一遍；
  *   5. 读 PNG 第一行的像素，断言「第一行不是纯黑」（= 位图首行就是内容首行，上面没有黑边）；
@@ -91,7 +92,7 @@ function f(n, digits = 4) {
 
 // ---------------------------------------------------------------- 1. 两套模型 = 用户 json
 
-console.log('== 1. 两套模型 ↔ 用户给的 psd_lcd_xiamen.json（逐字段）==');
+console.log('== 1. 两套模型 ↔ 用户给的 psd_lcd_xiamen.json（过一遍确定性变换）==');
 const ref = models.loadRef();
 console.log(`  参考文件  ${models.REF_PATH}`);
 const loaded = [];
@@ -102,26 +103,28 @@ for (const state of models.STATES) {
     continue;
   }
   const model = models.readJson(file);
-  const expected = models.groupElements(ref, state.group);
-  const cmp = models.compareModelToGroup(model, expected);
-  ok(cmp.ok, `${state.label}：${state.file} = 参考 json 的 ${state.group} 组（${expected.length} el / ${cmp.total} 字段）`,
-    cmp.ok ? '' : `差异 ${cmp.diffs.length} 处`);
-  for (const d of cmp.diffs) {
-    console.log(`        ${d}`);
-  }
-  const elements = model.elements || [];
-  const plane = elements.find((e) => e.name === 'ScreenPlane')
-    || elements.find((e) => e.faces && e.faces.north && e.faces.north.texture === '#screen');
-  if (!plane) {
-    ok(false, `${state.file} 里有屏幕窗口面（ScreenPlane）`);
-    continue;
-  }
-  loaded.push({ state, elements, plane });
+  const expected = models.transformGroup(ref, state.group, state.bboxY[0]);
+  const identical = JSON.stringify(model) === JSON.stringify(expected);
+  ok(identical, `${state.label}：${state.file} = 参考 json 的 ${state.group} 组变换后的结果`
+    + `（${expected.elements.length} 元素）`,
+  identical ? '' : '磁盘上的模型和生成器不一致 —— 跑 node tools/psd-lcd-models.js --write');
+
+  // 窗口带**从模型几何量出来**（用户的新模型里没有 ScreenPlane 了）：
+  // 扫一遍高度，找「最前面那个面 = 凹槽底」的连续区间 = 屏幕能画的范围。
+  const band = models.derivedWindowBand(model);
+  ok(Math.abs(band.y0 - state.windowY0) < 0.06 && Math.abs(band.y1 - state.windowY1) < 0.06,
+    `${state.file} 的窗口带 = ${state.windowY0} … ${state.windowY1}（从几何量出来的）`,
+    `模型 ${band.y0} … ${band.y1}`);
+  loaded.push({
+    state,
+    elements: model.elements || [],
+    plane: { from: [0, band.y0, band.z], to: [16, band.y1, band.z] },
+  });
 }
 
 // ---------------------------------------------------------------- 2. 窗口带 ↔ Java 常量
 
-console.log('\n== 2. 每档的窗口带（ScreenPlane）↔ PsdLcdLayout.java ==');
+console.log('\n== 2. 每档的窗口带（模型几何）↔ PsdLcdLayout.java ==');
 const java = fs.readFileSync(LAYOUT_JAVA, 'utf8');
 function constOf(source, name) {
   const m = source.match(new RegExp(`static final float ${name}\\s*=\\s*([-0-9.f]+)F`));
@@ -133,7 +136,8 @@ const jCutY0 = constOf(java, 'CUT_WINDOW_Y0_PX');
 const jCutY1 = constOf(java, 'CUT_WINDOW_Y1_PX');
 const jWinX0 = constOf(java, 'WINDOW_X0_PX');
 const jWinX1 = constOf(java, 'WINDOW_X1_PX');
-const jThick = constOf(java, 'THICKNESS_PX');
+// SCREEN_FACE_Z_PX 在 Java 里是算式（PANEL_Z0 + SCREEN_RECESS），这里按同一份算式现算。
+const jScreenZ = constOf(java, 'PANEL_Z0_PX') + constOf(java, 'SCREEN_RECESS_PX');
 const jGap = constOf(java, 'FACE_GAP_PX');
 const jZ0 = constOf(java, 'PANEL_Z0_PX');
 const jPxPerBlock = constOf(java, 'PX_PER_BLOCK');
@@ -144,17 +148,17 @@ ok(jPxPerBlock === PX_PER_BLOCK && jScale === BITMAP_SCALE, 'Java 的 PX_PER_BLO
 ok(jWinY0 === 1.5 && jWinY1 === 8.5, 'Java WINDOW_Y0/Y1 = 1.5 / 8.5（整块）', `${jWinY0} / ${jWinY1}`);
 ok(jCutY0 === 9.0 && jCutY1 === 16.0, 'Java CUT_WINDOW_Y0/Y1 = 9 / 16（剪后只剩上半格）', `${jCutY0} / ${jCutY1}`);
 
-const planeZModel = jZ0 + jThick;          // 10.5 —— 模型 ScreenPlane
-const planeZBer = planeZModel - jGap;      // 10.484 —— BER 四边形
-ok(Math.abs(planeZModel - 10.5) < 1e-9, `模型屏幕面 z = ${f(planeZModel, 3)}px（= PANEL_Z0 + THICKNESS）`);
-ok(Math.abs(planeZBer - 10.484) < 1e-9, `BER 四边形 z = ${f(planeZBer, 3)}px（模型面 ${f(planeZModel, 3)} − ${jGap}）`);
+const planeZModel = jScreenZ;                 // 10.2 —— 模型里凹槽底那一层
+const planeZBer = planeZModel - jGap;         // 10.184 —— BER 四边形
+ok(Math.abs(planeZModel - 10.2) < 1e-9, `模型屏幕面 z = ${f(planeZModel, 3)}px（= 正面 ${jZ0} + 凹槽 0.2）`);
+ok(Math.abs(planeZBer - 10.184) < 1e-9, `BER 四边形 z = ${f(planeZBer, 3)}px（模型面 ${f(planeZModel, 3)} − ${jGap}）`);
 
 for (const { state, elements, plane } of loaded) {
   const [wx0, wy0, wz0] = plane.from;
   const [wx1, wy1, wz1] = plane.to;
   console.log(`\n  ${state.label}`);
-  console.log(`    ScreenPlane   from [${plane.from.join(', ')}] → to [${plane.to.join(', ')}]`);
-  console.log(`    窗口          x ${wx0} … ${wx1}px   y ${wy0} … ${wy1}px（高 ${f(wy1 - wy0, 2)}px）   z ${wz0}px`);
+  console.log(`    窗口（从几何量）  x ${wx0} … ${wx1}px   y ${wy0} … ${wy1}px（高 ${f(wy1 - wy0, 2)}px）`
+    + `   z ${wz0}px`);
   ok(wx0 === jWinX0 && wx1 === jWinX1, `${state.label} 窗口 x 是整格宽（${jWinX0} … ${jWinX1}）`, `x ${wx0} … ${wx1}`);
   ok(wy0 === state.windowY0 && wy1 === state.windowY1,
     `${state.label} 窗口 y 带 = ${state.windowY0} … ${state.windowY1}`,
@@ -162,29 +166,22 @@ for (const { state, elements, plane } of loaded) {
   ok(wz0 === wz1 && Math.abs(wz0 - planeZModel) < 1e-9, `${state.label} 屏幕面零厚度、z = ${f(planeZModel, 3)}`,
     `z ${wz0} / ${wz1}`);
 
-  // 前面最靠外那一层蒙皮（z = PANEL_Z0）不能在窗口带里多出一块
-  const frontZ = Math.min(...elements.filter((e) => e.faces && e.faces.north && e.from).map((e) => e.from[2]));
-  const frontSkins = elements.filter((e) => e.faces && e.faces.north && e.from && e.to
-    && Math.abs(e.from[2] - frontZ) < 1e-6 && e !== plane);
-  let overlap = false;
-  for (const e of frontSkins) {
-    if (e.to[1] > wy0 + 1e-6 && e.from[1] < wy1 - 1e-6) {
-      overlap = true;
-      console.log(`    FAIL  前面蒙皮 ${e.name} 压进了窗口带 y ${e.from[1]}…${e.to[1]}`);
-    }
-  }
-  ok(!overlap, `${state.label} 窗口带里没有前面蒙皮（内容不会被压住 / 不会多出黑块）`);
-
-  // 这块板的前表面必须连续：蒙皮 ∪ 窗口 从上到下不漏缝，一直到 y = 16
-  const bands = frontSkins.map((e) => [e.from[1], e.to[1]]).concat([[wy0, wy1]])
+  // 前脸必须连续：整格高度上都得有几何（不是 z=10 就是凹槽底 10.2），不然会从上/下看穿
+  const frontBands = elements
+    .map((e) => [Math.min(e.from[1], e.to[1]), Math.max(e.from[1], e.to[1])])
+    .concat([[wy0, wy1], [state.cut ? 7.5 : 0.0, wy0], [wy1, 16.0]])
     .sort((a, b) => a[0] - b[0]);
-  let cursor = bands[0][0];
+  let cursor = frontBands[0][0];
   let continuous = true;
-  for (const [a, b] of bands) {
+  for (const [a, b] of frontBands) {
     if (a > cursor + 1e-6) continuous = false;
     cursor = Math.max(cursor, b);
   }
-  ok(continuous && cursor >= 16 - 1e-6, `${state.label} 前面由「蒙皮 + 窗口」连续铺到 y = 16`, `从 ${bands[0][0]} 覆盖到 ${cursor}`);
+  const top = state.cut ? 16.0 : 16.0;
+  const bottom = state.cut ? 7.5 : 0.0;
+  ok(continuous && cursor >= top - 1e-6,
+    `${state.label} 前脸从 y ${bottom} 连续铺到 y ${top}（窗口上下都有板子）`,
+    `从 ${frontBands[0][0]} 覆盖到 ${cursor}`);
 }
 
 // ---------------------------------------------------------------- 3. 位图尺寸 / 宽高比

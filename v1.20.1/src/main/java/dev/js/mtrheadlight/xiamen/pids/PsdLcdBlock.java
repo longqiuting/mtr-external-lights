@@ -37,13 +37,14 @@ import net.minecraft.world.World;
  *
  * <h2>形态</h2>
  * <ul>
- *   <li><b>吊板（整块，{@code half_cut=false}）</b>：外形和 MTR 的普通吊板（{@code mtr:block/psd_top_left_base}）
- *       是同一套——6px 厚、整块高（y 0..16，从天花板吊下来）、底面一圈 1px 台阶 + 22.5° 倒角；我们把它拉满整格宽，
- *       并在前面挖一个 <b>1.6px 深的插屏凹槽</b>（y 1.5..8.5，见 {@code models/block/psd_lcd_xiamen.json}）；</li>
+ *   <li><b>吊板（整块，{@code half_cut=false}）</b>：外形就是用户给的 Blockbench 模型（{@code mornal} 组）
+ *       搬进我们的坐标系：6px 厚、整块高（y 0..16，从天花板吊下来）、底面一圈 1px 台阶 +
+ *       两段 22.5° 倒角、正面挖一个 <b>0.2px 深的插屏凹槽</b>（窗口 y 1.5..8.5，
+ *       见 {@code models/block/psd_lcd_xiamen.json} 与 {@code tools/psd-lcd-models.js}）；</li>
  *   <li><b>吊板（剪过，{@code half_cut=true}）</b>：<b>只剩上半格</b>——剪刀剪掉板子下半截，
  *       板子只占 y 7.5..16，屏幕口跟着上移到 y 9..16（见 {@code models/block/psd_lcd_xiamen_half.json}，
- *       逐字来自用户给的 half 组）。注意这<b>不是</b>「沿宽度切一半」：宽度永远是整格；</li>
- *   <li><b>屏幕</b>：LCD 画面由 BER 画在凹槽底那张面上（离方块外面 10.484px，
+ *       就是用户 json 的 {@code half} 组）。注意这<b>不是</b>「沿宽度切一半」：宽度永远是整格；</li>
+ *   <li><b>屏幕</b>：LCD 画面由 BER 画在凹槽底那张面上（离方块外面 10.184px，
  *       {@link PsdLcdLayout#WINDOW_DEPTH_BLOCKS}），碰撞箱是空的，框选就是那块板
  *       （{@link #outline} 两个档各一份）;</li>
  *   <li><b>四向</b>：{@code FACING} = 屏幕的<b>法线</b>，放置时固定取「玩家朝向的反方向」，

@@ -42,7 +42,7 @@ import net.fabricmc.loader.api.FabricLoader;
  * 这份开关只在 1.20.1 的 PIDS 渲染里读，所以放在本包自己的文件里：
  * <pre>{@code
  *   config/lte_xiamen_pids.json
- *   { "localTime": true, "arriving": true, "advertisements": true,
+ *   { "localTime": true, "arriving": true, "advertisements": true, "lineStrip": true,
  *     "adOverride": "mtrlte:advertisements/scenery1.png" }
  * }</pre>
  * {@code adOverride} 缺省 / 空串 = 不覆盖。存的是<b>图片 id</b>而不是下标：资源包换了、广告表顺序变了
@@ -72,6 +72,14 @@ public final class PidsXiamenSettings {
 
     /** 画广告（轮播 + 手动切换）。 */
     private static volatile boolean advertisements = true;
+
+    /**
+     * PSD-LCD 吊板下沿那条**线路色带**画不画（默认开）。
+     *
+     * <p>只影响 {@code mtrlte:psd_lcd_xiamen} 挂板（见 {@link PsdLcdStrip}）：
+     * 开着 = 按这个站台经过的线路色画一条 0.5px 高的带子；关掉 = 板子就是模型原样。
+     */
+    private static volatile boolean lineStrip = true;
 
     /**
      * 全局广告覆盖：选中的那张图的 id（{@code null} = 不覆盖）。
@@ -119,6 +127,17 @@ public final class PidsXiamenSettings {
 
     public static void setAdvertisements(final boolean on) {
         advertisements = on;
+        save();
+    }
+
+    /** PSD-LCD 下沿的线路色带画不画（默认 {@code true}）。 */
+    public static boolean lineStrip() {
+        load();
+        return lineStrip;
+    }
+
+    public static void setLineStrip(final boolean on) {
+        lineStrip = on;
         save();
     }
 
@@ -194,11 +213,12 @@ public final class PidsXiamenSettings {
                 localTime = bool(json, "localTime", localTime);
                 arriving = bool(json, "arriving", arriving);
                 advertisements = bool(json, "advertisements", advertisements);
+                lineStrip = bool(json, "lineStrip", lineStrip);
                 adOverride = string(json, "adOverride", adOverride);
             }
-            LteLog.LOGGER.info("[lte] xiamen pids settings: localTime={} arriving={} ads={} adOverride={}",
+            LteLog.LOGGER.info("[lte] xiamen pids settings: localTime={} arriving={} ads={} lineStrip={} adOverride={}",
                     Boolean.valueOf(localTime), Boolean.valueOf(arriving), Boolean.valueOf(advertisements),
-                    adOverride == null ? "-" : adOverride);
+                    Boolean.valueOf(lineStrip), adOverride == null ? "-" : adOverride);
         } catch (Throwable t) {
             // 文件写坏 / 没权限：保持默认值，别把屏幕拖垮。
             LteLog.LOGGER.warn("[lte] xiamen pids settings: could not read {}", FILE_NAME, t);
@@ -241,6 +261,7 @@ public final class PidsXiamenSettings {
             json.addProperty("localTime", localTime);
             json.addProperty("arriving", arriving);
             json.addProperty("advertisements", advertisements);
+            json.addProperty("lineStrip", lineStrip);
             if (adOverride != null && !adOverride.isBlank()) {
                 json.addProperty("adOverride", adOverride);
             }

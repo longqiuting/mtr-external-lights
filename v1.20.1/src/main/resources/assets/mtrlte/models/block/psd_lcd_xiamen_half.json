@@ -1,414 +1,88 @@
 {
 	"format_version": "1.9.0",
-	"credit": "LTE - Xiamen PSD-LCD hanging board, HALF-CUT variant (only the upper band is left after the shears). Elements are the user-supplied half group (psd_lcd_xiamen.json elements 8..14) copied verbatim - no numbers retyped: BottomBand y 8.5..9, Body / ScreenPlane y 9..16, top skin at y=16, BottomStep y 7.5..8.5 and the two 22.5 deg chamfers at y 7.5..8.5, so the screen window band is y 9..16 and the screen plane sits at z 10.5. Same texture set as psd_lcd_xiamen.json.",
+	"credit": "LTE - Xiamen PSD-LCD hanging board. Converted from the user's Blockbench export (psd_lcd_xiamen.json) by tools/psd-lcd-models.js: bake each element's own rotation (Rz*Ry*Rx about its origin), then mirror z (z -> 16 - z). No coordinate was typed by hand.",
 	"textures": {
-		"particle": "mtrlte:block/psd_top",
-		"panel": "mtrlte:block/psd_top",
-		"screen": "mtrlte:block/psd_lcd_screen"
+		"particle": "mtrlte:block/psd_top"
 	},
 	"elements": [
 		{
-			"name": "BottomBand",
-			"from": [
-				0,
-				8.5,
-				10
-			],
-			"to": [
-				16,
-				9,
-				16
-			],
-			"rotation": {
-				"angle": 0,
-				"axis": "y",
-				"origin": [
-					0,
-					7.5,
-					10
-				]
-			},
+			"name": "Main particle",
+			"from": [0, 8.5, 10],
+			"to": [16, 9, 15],
 			"faces": {
-				"north": {
-					"uv": [
-						0,
-						0,
-						16,
-						0.5
-					],
-					"texture": "#panel"
-				},
-				"east": {
-					"uv": [
-						0,
-						0,
-						6,
-						0.5
-					],
-					"texture": "#panel"
-				},
-				"south": {
-					"uv": [
-						0,
-						0,
-						16,
-						0.5
-					],
-					"texture": "#panel",
-					"cullface": "south"
-				},
-				"west": {
-					"uv": [
-						0,
-						0,
-						6,
-						0.5
-					],
-					"texture": "#panel"
-				},
-				"up": {
-					"uv": [
-						0,
-						0,
-						16,
-						6
-					],
-					"texture": "#panel"
-				},
-				"down": {
-					"uv": [
-						0,
-						0,
-						16,
-						6
-					],
-					"texture": "#panel"
-				}
+				"east": {"uv": [10, 0, 0, 6.75], "texture": "#particle"},
+				"north": {"uv": [13.75, 0, 0, 6.25], "texture": "#particle"},
+				"west": {"uv": [13.25, 0, 6, 6], "texture": "#particle"},
+				"south": {"uv": [12.25, 0, 0, 6.25], "texture": "#particle", "cullface": "south"},
+				"up": {"uv": [0, 4.75, 4.75, 0], "texture": "#particle", "cullface": "up"}
 			}
 		},
 		{
-			"name": "Body",
-			"from": [
-				0,
-				9,
-				10.2
-			],
-			"to": [
-				16,
-				16,
-				16
-			],
-			"rotation": {
-				"angle": 0,
-				"axis": "y",
-				"origin": [
-					0,
-					7.5,
-					10
-				]
-			},
+			"name": "Bottom part",
+			"from": [0, 7.5, 11],
+			"to": [16, 8.5, 16],
 			"faces": {
-				"east": {
-					"uv": [
-						0.5,
-						0.5,
-						6,
-						14.5
-					],
-					"texture": "#panel"
-				},
-				"south": {
-					"uv": [
-						0,
-						0,
-						16,
-						14
-					],
-					"texture": "#panel",
-					"cullface": "south"
-				},
-				"west": {
-					"uv": [
-						0.5,
-						0.5,
-						6,
-						14.5
-					],
-					"texture": "#panel"
-				},
-				"up": {
-					"uv": [
-						0,
-						0,
-						16,
-						4.4
-					],
-					"texture": "#panel"
-				}
+				"east": {"uv": [5, 15, 0, 16], "texture": "#particle"},
+				"west": {"uv": [16, 15, 11, 16], "texture": "#particle"},
+				"south": {"uv": [16, 15, 0, 16], "texture": "#particle", "cullface": "south"},
+				"down": {"uv": [0, 16, 5, 13], "texture": "#particle"}
 			}
 		},
 		{
-			"name": "ScreenPlane",
-			"from": [
-				0,
-				9,
-				10.5
-			],
-			"to": [
-				16,
-				16,
-				10.5
-			],
-			"rotation": {
-				"angle": 0,
-				"axis": "y",
-				"origin": [
-					0,
-					7.5,
-					10
-				]
-			},
+			"name": "Bottom curve lower",
+			"from": [0, 7.5, 10.2346],
+			"to": [16, 8.5, 11],
+			"rotation": {"angle": 22.5, "axis": "x", "origin": [0, 7.5, 11]},
 			"faces": {
-				"north": {
-					"uv": [
-						0,
-						0,
-						16,
-						7
-					],
-					"texture": "#screen"
-				}
+				"east": {"uv": [5.7654, 15, 5, 16], "texture": "#particle"},
+				"west": {"uv": [11, 15, 10.2346, 16], "texture": "#particle"},
+				"down": {"uv": [5, 5.5, 8.2654, 0], "texture": "#particle"}
 			}
 		},
 		{
-			"name": "FrontSkinUpper",
-			"from": [
-				0,
-				16,
-				10
-			],
-			"to": [
-				16,
-				16,
-				10.5
-			],
-			"rotation": {
-				"angle": 0,
-				"axis": "y",
-				"origin": [
-					0,
-					7.5,
-					10
-				]
-			},
+			"name": "Bottom curve upper",
+			"from": [0, 7.7346, 10],
+			"to": [16, 8.5, 11],
+			"rotation": {"angle": -22.5, "axis": "x", "origin": [0, 8.5, 10]},
 			"faces": {
-				"north": {
-					"uv": [
-						0,
-						0.5,
-						16,
-						7.5
-					],
-					"texture": "#panel"
-				},
-				"east": {
-					"uv": [
-						0,
-						0,
-						1.6,
-						7
-					],
-					"texture": "#panel"
-				},
-				"west": {
-					"uv": [
-						0,
-						0,
-						1.6,
-						7
-					],
-					"texture": "#panel"
-				},
-				"down": {
-					"uv": [
-						0,
-						0,
-						16,
-						1.6
-					],
-					"texture": "#panel"
-				}
+				"east": {"uv": [6, 15, 5, 15.7654], "texture": "#particle"},
+				"north": {"uv": [16, 15, 0, 15.7654], "texture": "#particle"},
+				"west": {"uv": [11, 15, 10, 15.7654], "texture": "#particle"}
 			}
 		},
 		{
-			"name": "BottomStep",
-			"from": [
-				0,
-				7.5,
-				11
-			],
-			"to": [
-				16,
-				8.5,
-				16
-			],
-			"rotation": {
-				"angle": 0,
-				"axis": "y",
-				"origin": [
-					0,
-					7.5,
-					10
-				]
-			},
+			"name": "Main particle",
+			"from": [0, 8.5, 10.2],
+			"to": [16, 16, 16],
 			"faces": {
-				"north": {
-					"uv": [
-						0,
-						0,
-						16,
-						1
-					],
-					"texture": "#panel"
-				},
-				"east": {
-					"uv": [
-						1,
-						0,
-						6,
-						1
-					],
-					"texture": "#panel"
-				},
-				"west": {
-					"uv": [
-						1,
-						0,
-						6,
-						1
-					],
-					"texture": "#panel"
-				},
-				"down": {
-					"uv": [
-						0,
-						0,
-						16,
-						5
-					],
-					"texture": "#panel"
-				}
+				"east": {"uv": [6, 7.5, 0, 15], "texture": "#particle"},
+				"north": {"uv": [16, 7.5, 0, 15], "texture": "#particle"},
+				"west": {"uv": [16, 7.5, 10, 15], "texture": "#particle"},
+				"south": {"uv": [16, 7.5, 0, 15], "texture": "#particle", "cullface": "south"},
+				"up": {"uv": [0, 4.75, 4.75, 0], "texture": "#particle", "cullface": "up"}
 			}
 		},
 		{
-			"name": "BevelLower",
-			"from": [
-				0,
-				7.5,
-				10.2346
-			],
-			"to": [
-				16,
-				8.5,
-				11
-			],
-			"rotation": {
-				"angle": 22.5,
-				"axis": "x",
-				"origin": [
-					0,
-					7.5,
-					11
-				]
-			},
+			"name": "Main particle",
+			"from": [0, 8.5, 10.2],
+			"to": [16, 16, 10.2],
 			"faces": {
-				"north": {
-					"uv": [
-						0,
-						0,
-						16,
-						1
-					],
-					"texture": "#panel"
-				},
-				"east": {
-					"uv": [
-						0,
-						0,
-						1,
-						1
-					],
-					"texture": "#panel"
-				},
-				"west": {
-					"uv": [
-						0,
-						0,
-						1,
-						1
-					],
-					"texture": "#panel"
-				},
-				"down": {
-					"uv": [
-						0,
-						0,
-						16,
-						1
-					],
-					"texture": "#panel"
-				}
+				"east": {"uv": [6, 7.5, 6, 15], "texture": "#particle"},
+				"north": {"uv": [16, 7.5, 0, 15], "texture": "#particle"},
+				"west": {"uv": [10, 7.5, 10, 15], "texture": "#particle"},
+				"south": {"uv": [16, 7.5, 0, 15], "texture": "#particle", "cullface": "south"},
+				"up": {"uv": [4.75, 4.75, 4.75, 0], "texture": "#particle", "cullface": "up"}
 			}
 		},
 		{
-			"name": "BevelUpper",
-			"from": [
-				0,
-				7.7346,
-				10
-			],
-			"to": [
-				16,
-				8.5,
-				11
-			],
-			"rotation": {
-				"angle": -22.5,
-				"axis": "x",
-				"origin": [
-					0,
-					8.5,
-					10
-				]
-			},
+			"name": "Bottom part",
+			"from": [0, 16, 10],
+			"to": [16, 16, 11],
 			"faces": {
-				"north": {
-					"uv": [
-						0,
-						0,
-						16,
-						1
-					],
-					"texture": "#panel"
-				},
-				"east": {
-					"uv": [
-						0,
-						0,
-						1,
-						1
-					],
-					"texture": "#panel"
-				},
-				"west": {
-					"uv": [
-						0,
-						0,
-						1,
-						1
-					],
-					"texture": "#panel"
-				}
+				"east": {"uv": [5, 15, 0, 16], "texture": "#particle"},
+				"west": {"uv": [16, 15, 11, 16], "texture": "#particle"},
+				"south": {"uv": [16, 15, 0, 16], "texture": "#particle", "cullface": "south"},
+				"down": {"uv": [0, 16, 5, 13], "texture": "#particle"}
 			}
 		}
 	]
