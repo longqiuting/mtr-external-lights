@@ -76,6 +76,15 @@ public final class PidsXiamenTicker {
     public static final float DEFAULT_GAP = 48.0F;
 
     /**
+     * 滚速的**基准字高**（px）：厦门地铁 PIDS 的标语框 28px 高 × {@code sizeRatio 0.52}。
+     *
+     * <p>{@link #DEFAULT_SPEED} 那 40 px/s 就是在这一档字高下量的。别的屏（PSD-LCD 的标语字
+     * 高得多）不能直接照抄 40 px/s，否则字越大滚得越慢 —— 按自己的字高等比换算，观感才是同一个速度。
+     * 换算只有一个函数：{@link #pxPerTick(float)}（PIDS 与本模组的 PSD-LCD 吊板共用，别再写第二份）。
+     */
+    public static final float REF_FONT_PX = 14.56F;
+
+    /**
      * 一条标语。
      *
      * @param text  已解析好的显示文字（语言键在该解析的时候就换掉了）
@@ -126,6 +135,28 @@ public final class PidsXiamenTicker {
     /** 两条之间的空隙（像素）。 */
     public static float gap() {
         return gap;
+    }
+
+    // ------------------------------------------------------------------ 速度（全模组唯一一份）
+
+    /**
+     * 滚动速度：**像素 / 秒**，在「字高 = {@code fontPx}」的那块屏上。
+     *
+     * <p>{@code speedPxPerSecond} 是按 {@link #REF_FONT_PX} 那一档量出来的值（JSON 里的
+     * {@code speed}、或某条标语自己的 {@code speed}）；这里按字高等比放大 —— 字比 PIDS 大 2.4 倍，
+     * 每 tick 也就走 2.4 倍像素，观感才是「同一条标语在两块屏上一样快」。
+     */
+    public static float pxPerSecond(final float speedPxPerSecond, final float fontPx) {
+        return Math.max(1.0F, speedPxPerSecond) * Math.max(1.0F, fontPx) / REF_FONT_PX;
+    }
+
+    /**
+     * 标语每 tick 滚多少像素 —— <b>PIDS 与 PSD-LCD 吊板共用这一个函数</b>（别在别处再写一份）。
+     *
+     * @param fontPx 这块屏上标语的字高（px）
+     */
+    public static float pxPerTick(final float fontPx) {
+        return pxPerSecond(speed, fontPx) / 20.0F;
     }
 
     /**
@@ -241,11 +272,11 @@ public final class PidsXiamenTicker {
             final Message message = list.get(i);
             final float natural = Math.max(1.0F, PidsXiamenText.width(textRenderer, message.text(), sizePx));
             width[i] = natural;
-            final float own = message.speed() > 0.0F ? message.speed() : speed;
-            final float pxPerSecond = Math.max(1.0F, own);
+            // 这条自己的 speed 也按同一档字高换算（{@link #pxPerSecond}），与 PSD-LCD 共用同一份速度
+            final float rate = pxPerSecond(message.speed() > 0.0F ? message.speed() : speed, sizePx);
             // 从右边缘滑到「整条出左边缘」= 条宽 + 字宽
-            scroll[i] = (innerWidth + width[i]) / pxPerSecond;
-            idle[i] = Math.max(0.0F, gap) / pxPerSecond;
+            scroll[i] = (innerWidth + width[i]) / rate;
+            idle[i] = Math.max(0.0F, gap) / rate;
             cycle += scroll[i] + idle[i];
             span += scroll[i] + (i < count - 1 ? idle[i] : 0.0D);
         }

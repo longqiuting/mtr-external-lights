@@ -39,6 +39,8 @@ final class PsdLcdTextures {
         int height;
         String hash = "";
         BufferedImage last;
+        /** 滚动标语那张小贴图上一帧画到第几像素（用它决定「这一帧要不要重画 / 重传」）。 */
+        int lastPhasePx = Integer.MIN_VALUE;
         long lastUse;
     }
 
@@ -124,6 +126,19 @@ final class PsdLcdTextures {
             return client != null && client.getTextureManager().getTexture(entry.id) == entry.texture;
         } catch (final Throwable ignored) {
             return false;
+        }
+    }
+
+    /**
+     * 内容变了（换了广告 / 换了标语）：滚动小贴图必须重画一次。
+     *
+     * <p>为什么需要它：小贴图平时靠「相位像素变了」才重画，换了标语但相位恰好没变
+     * （例如都停在 phase≈0）时就会继续显示上一句。
+     */
+    static void invalidateTicker(final String key) {
+        final Entry entry = ENTRIES.get(key + "|ticker");
+        if (entry != null) {
+            entry.lastPhasePx = Integer.MIN_VALUE;
         }
     }
 

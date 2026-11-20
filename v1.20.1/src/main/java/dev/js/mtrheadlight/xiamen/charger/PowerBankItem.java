@@ -59,6 +59,15 @@ public class PowerBankItem extends Item {
      */
     public static final String NBT_OVERDUE_SETTLED = "expiredFine";
 
+    /**
+     * NBT 键：<b>已损坏</b>（布尔）—— 玩家把它当投掷物扔出去过。
+     *
+     * <p>语义：机器永久拒收（不可归还）、也不会再被计费（扔出去那一刻已经按买断价扣过钱，
+     * 见 {@code PowerBankProjectileEntity#detonate}）。与 {@code expiredFine} 分开记：
+     * 一个说「买断、归你」，一个说「这块物理上已经废了」，提示语不一样。
+     */
+    public static final String NBT_DAMAGED = "damaged";
+
     /** 免费时长：前 5 分钟一分不扣。 */
     public static final int GRACE_MINUTES = 5;
 
@@ -170,6 +179,17 @@ public class PowerBankItem extends Item {
         stack.getOrCreateNbt().putBoolean(NBT_OVERDUE_SETTLED, true);
     }
 
+    /** 这块是不是「扔出去过」的（{@value #NBT_DAMAGED}）：已损坏 → 不可归还、不再计费。 */
+    public static boolean isDamaged(final ItemStack stack) {
+        return stack != null && !stack.isEmpty() && stack.hasNbt()
+                && stack.getNbt().getBoolean(NBT_DAMAGED);
+    }
+
+    /** 记下「已损坏」：投掷出去的那一刻盖的章，之后机器永久拒收。 */
+    public static void markDamaged(final ItemStack stack) {
+        stack.getOrCreateNbt().putBoolean(NBT_DAMAGED, true);
+    }
+
     // ------------------------------------------------------------------ 投掷
 
     @Override
@@ -179,7 +199,15 @@ public class PowerBankItem extends Item {
                 SoundCategory.NEUTRAL, 0.5F, 0.4F / (world.getRandom().nextFloat() * 0.4F + 0.8F));
         if (!world.isClient) {
             final PowerBankProjectileEntity projectile = new PowerBankProjectileEntity(world, user);
-            projectile.setItem(stack);
+            // 「当投掷物扔出去」= 这块充电宝从这一刻起就是**损坏**的：不可归还，命中时按买断价扣款
+            // （见 PowerBankProjectileEntity#detonate）。这里先盖在飞出去的那一份上 —— 它带着
+            // rentedAt 一起飞，落地时才知道该向谁收钱；创造模式手上那份也一起盖（不扣物品）。
+            final ItemStack thrown = stack.copyWithCount(1);
+            PowerBankItem.markDamaged(thrown);
+            if (user.getAbilities().creativeMode) {
+                PowerBankItem.markDamaged(stack);
+            }
+            projectile.setItem(thrown);
             // 与 Items.SNOWBALL#use 完全一致：速度 1.5、散布 1.0。
             projectile.setVelocity(user, user.getPitch(), user.getYaw(), 0.0F, 1.5F, 1.0F);
             world.spawnEntity(projectile);
@@ -196,11 +224,17 @@ public class PowerBankItem extends Item {
     public void appendTooltip(final ItemStack stack, @Nullable final World world,
                               final List<Text> tooltip, final TooltipContext context) {
         tooltip.add(Text.translatable("tooltip.mtrlte.power_bank.rent").formatted(Formatting.GRAY));
+        tooltip.add(Text.translatable("tooltip.mtrlte.power_bank.buyout").formatted(Formatting.GRAY));
         tooltip.add(Text.translatable("tooltip.mtrlte.power_bank.throw").formatted(Formatting.GRAY));
         if (isRented(stack)) {
             // 客户端时钟足够：这里只显示「已持有多久」的近似值，计费永远在服务端。
             tooltip.add(Text.translatable("tooltip.mtrlte.power_bank.held",
                     heldMinutes(stack, System.currentTimeMillis())).formatted(Formatting.AQUA));
+        }
+        if (isDamaged(stack)) {
+            tooltip.add(Text.translatable("tooltip.mtrlte.power_bank.damaged").formatted(Formatting.RED));
+        } else if (isOverdueSettled(stack)) {
+            tooltip.add(Text.translatable("tooltip.mtrlte.power_bank.owned").formatted(Formatting.GOLD));
         }
         // 最下面那行红色小字（用户要求：无 3C 认证提醒）
         tooltip.add(Text.translatable("tooltip.mtrlte.power_bank.warning").formatted(Formatting.RED));

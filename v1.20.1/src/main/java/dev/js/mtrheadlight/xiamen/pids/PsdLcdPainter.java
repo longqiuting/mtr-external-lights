@@ -140,8 +140,19 @@ public final class PsdLcdPainter {
 
     // ---- 编组行：车头 + N 节卡片（右缘对齐 CAR_ROW_X1，车头往左独立占位）
     private static final float CAR_ROW_X1 = 0.6894F;
-    /** 编组行最左能到哪（占屏宽）：再往左就压到「分钟 / min」那一列了。 */
+    /** 编组行最左能到哪（占屏宽）：设计稿量到的行槽左缘（**含**第二行的数字「17」那一列）。 */
     private static final float CAR_ROW_X0 = 0.3158F;
+    /**
+     * 编组行的**有效**左界（占屏宽）：{@link #CAR_ROW_X0} 与「分钟 / min」列右缘取大者。
+     *
+     * <p>为什么必须有这一条：第二行的「分钟 / min」（y = {@code ROW1_CY + ROW_DY + UNITZH_TOP}
+     * ≈ 0.66…0.74）正好落在编组行的 y 带（0.449…0.687）里，而单位列的左缘只有
+     * {@link #UNIT_X} = 0.366 —— 行槽从 0.3158 起就<strong>一定会</strong>压到「分钟」。
+     * 这一列最宽的是中文「分钟」：0.043h 的墨迹高、两个全角字 ⇒ 右缘 ≈ 0.379（屏宽的 0.366 + 0.013）。
+     * 取 0.388 = 0.379 + 一个描边级余量，两块就不会再相交（{@code tools/psd-lcd-fit-check.js} 里
+     * 有「编组行 × 分钟列」的包围盒断言 + 位图左缘的像素断言）。
+     */
+    private static final float CAR_ROW_GUARD_X = 0.3880F;
     private static final float CAR_Y0 = 0.4492F;
     private static final float CAR_Y1 = 0.6870F;
     /** 卡片自然宽（h）。设计稿 4 节卡片是 0.0656 屏宽 = 0.453h，素材比例同一档。 */
@@ -208,12 +219,15 @@ public final class PsdLcdPainter {
      *
      * @param carNumbers 车厢编号（1 2 3 4），长度 = 画几张卡片
      * @param carNote    编组行下面那行小字（空 = 不画）
-     * @param tickerText 标语条文字（画进位图；空 = 连标语框都不画）
+     * @param tickerText 标语条文字（长句会滚，见 {@link #paintTickerStrip}；空 = 连标语框都不画）
+     * @param unitZh2/unitEn2 第二行的单位（第一行是 {@code unitZh/unitEn}）—— **两行各带各的**，
+     *                        以前共用一个字段，第二行的「分钟 / min」就会跟着第一行一起空掉
      */
     public record Content(String date, String weekdayZh, String weekdayEn, String clock,
                           String boundLabel, String boundSub, String dest1, String dest1En, String count1,
                           String nextLabel, String nextSub, String dest2, String dest2En, String count2,
                           String unitZh, String unitEn,
+                          String unitZh2, String unitEn2,
                           String lineZh, String lineEn, int lineColor,
                           String stationZh, String stationEn,
                           List<String> carNumbers, String carNote,
@@ -268,6 +282,20 @@ public final class PsdLcdPainter {
     /** 同上，另带一张广告图（广告区铺这张图；{@code null} = 洋红占位块）。 */
     public static BufferedImage paint(final Content c, final Assets assets, final BufferedImage ad,
                                       final int width, final int height) {
+        return paint(c, assets, ad, width, height, null);
+    }
+
+    /**
+     * 同上，另外把「标语滚到 {@code tickerPhase}」的那一帧一起烘进位图。
+     *
+     * <p><b>只有离线预览会用这个重载</b>（{@code tools/psd-lcd/PsdLcdPreview}）：游戏里长句标语
+     * 是渲染器每 tick 单独画到一张小贴图上的（{@link #paintTickerStrip}），不能烘进整屏位图 ——
+     * 整屏位图只在内容变化时重画，烘进去就等于「滚动标语又不滚了」。
+     *
+     * @param tickerPhase 0…1 的滚动进度；{@code null} = 不画长句（短句仍然居中画）
+     */
+    public static BufferedImage paint(final Content c, final Assets assets, final BufferedImage ad,
+                                      final int width, final int height, final Float tickerPhase) {
         final BufferedImage image = new BufferedImage(Math.max(1, width), Math.max(1, height),
                 BufferedImage.TYPE_INT_ARGB);
         final Graphics2D g = image.createGraphics();
@@ -279,7 +307,7 @@ public final class PsdLcdPainter {
             g.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON);
             // 素材（2144×1024 的卡片）缩到屏幕尺寸：双线性 + drawScaled 的逐级减半，不用最近邻
             g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            paintInto(g, c, assets, ad, width, height);
+            paintInto(g, c, assets, ad, width, height, tickerPhase);
         } finally {
             g.dispose();
         }
@@ -289,12 +317,19 @@ public final class PsdLcdPainter {
     /** 画到现成的画布上（预览工具拼多张图 / 渲染器复用一个 BufferedImage 时用）。 */
     public static void paintInto(final Graphics2D g, final Content c, final Assets assets,
                                  final float width, final float height) {
-        paintInto(g, c, assets, null, width, height);
+        paintInto(g, c, assets, null, width, height, null);
     }
 
     /** 画到现成的画布上，另带广告图。 */
     public static void paintInto(final Graphics2D g, final Content c, final Assets assets,
                                  final BufferedImage ad, final float width, final float height) {
+        paintInto(g, c, assets, ad, width, height, null);
+    }
+
+    /** 画到现成的画布上，另带广告图与标语滚动进度（{@code null} = 长句不画）。 */
+    public static void paintInto(final Graphics2D g, final Content c, final Assets assets,
+                                 final BufferedImage ad, final float width, final float height,
+                                 final Float tickerPhase) {
         if (g == null || c == null) {
             return;
         }
@@ -325,15 +360,15 @@ public final class PsdLcdPainter {
             row(g, c, assets, width, h, ROW1_CY, c.boundLabel(), c.boundSub(),
                     c.dest1(), c.dest1En(), c.count1(), c.unitZh(), c.unitEn());
             row(g, c, assets, width, h, ROW1_CY + ROW_DY, c.nextLabel(), c.nextSub(),
-                    c.dest2(), c.dest2En(), c.count2(), c.unitZh(), c.unitEn());
+                    c.dest2(), c.dest2En(), c.count2(), c.unitZh2(), c.unitEn2());
 
             // ---- 右侧一组
             badge(g, c, assets, width, h);
             station(g, c, assets, width, h);
             cars(g, c, assets, width, h);
 
-            // ---- 标语条：框 + 字都在位图里
-            paintTicker(g, c, assets, width, h);
+            // ---- 标语条：框永远画；短句（≤ 框宽）居中画进位图，长句由渲染器滚动（预览时按 tickerPhase 烘进来）
+            paintTicker(g, c, assets, width, height, tickerPhase);
         } finally {
             g.setTransform(savedTransform);
         }
@@ -534,14 +569,23 @@ public final class PsdLcdPainter {
     /**
      * 编组行：车头（行首独立占位）+ N 节卡片，节距均匀，整行**右缘**对齐 {@link #CAR_ROW_X1}。
      *
-     * <p>宽度规则（设计稿 4 节量出来 0.0656 屏宽 / 节距 0.0727）：
+     * <h2>压缩规则（用户定的：只压宽，不整体等比缩）</h2>
+     * <p>节数多的时候，<b>卡片高度、车头宽高、车上的编号字号一律不动</b>，只把「卡片宽 + 卡片间隙」
+     * 压窄（卡片因此被横向压扁一点，这是允许的）。以前是 {@code ch = cw × 素材宽高比}，
+     * 卡片一变窄就整体缩小 —— 8 节时车头和字都缩成一条线，认不出来。
+     *
      * <pre>
-     *   naturalW = 0.469h（实拍卡片宽）；ch = naturalW × 1024/2144（卡片高）
-     *   ch 上限 = 行高（CAR_Y1 − CAR_Y0）—— 卡片不许高过行
-     *   avail    = 行槽宽 − 车头占地 − 一个间隙
-     *   cardW    = min(naturalW, avail / (n + (n−1) × gapRatio))
+     *   ch   = min(CAR_W·h·(1024/2144), 行高)           ← 固定，与节数 n 无关
+     *   cw₀  = ch / (1024/2144)                          ← 「高度不缩」对应的自然宽度
+     *   gap  = cw × CAR_GAP_RATIO                        ← 间隙与卡片同比例缩
+     *   槽宽 = 右缘 − max(CAR_ROW_X0, CAR_ROW_GUARD_X) − 车头宽
+     *   整行 = 车头 + gap + n·cw + (n−1)·gap = 车头 + n·cw·(1+gapRatio)
+     *   ⇒ cw = min(cw₀, 槽宽 / (n × (1 + CAR_GAP_RATIO)))
      * </pre>
-     * 节数多时<b>只缩卡片宽</b>：车头尺寸固定（按自然卡片高算），所以车头不会被压成一条线。
+     *
+     * <p>上式里 {@code cw = 槽宽 / (n·(1+gapRatio))} 时整行宽度正好等于槽宽 ⇒ 车头左缘落在
+     * 槽的左界上、卡片右缘落在 {@link #CAR_ROW_X1}，<b>任何节数都不会越界</b>。
+     * 左界取 {@link #CAR_ROW_GUARD_X}（「分钟 / min」列的右缘），免得第二行的单位被编组压住。
      */
     private static void cars(final Graphics2D g, final Content c, final Assets assets,
                              final float w, final float h) {
@@ -557,38 +601,31 @@ public final class PsdLcdPainter {
         final float rowTop = CAR_Y1 * h;
         final float rowH = rowTop - rowBottom;
         final float right = CAR_ROW_X1 * w;
-        final float left = CAR_ROW_X0 * w;
+        final float left = Math.max(CAR_ROW_X0, CAR_ROW_GUARD_X) * w;
 
-        final float naturalW = CAR_W * h;
         final float ratio = CARD_PX_H / CARD_PX_W;
-        // 高度不许超过行高：卡片宽也跟着这条上限
-        final float capW = Math.min(naturalW, rowH / ratio);
+        // 卡片高度 = 自然高（只受行高上限约束），**不随节数变小**
+        final float ch = Math.max(1.0F, Math.min(CAR_W * h * ratio, rowH));
+        // 高度定了，自然宽度也就定了；压缩只发生在宽度方向上
+        final float naturalW = ch / ratio;
 
-        // 车头：按**自然**卡片高算，不跟着缩
-        final float naturalCh = naturalW * ratio;
-        final float noseH = naturalCh * NOSE_H_RATIO;
+        // 车头：按同一份固定高度算，节数再多也不缩
+        final float noseH = ch * NOSE_H_RATIO;
         final float noseW = assets.nose == null ? 0.0F
                 : noseH * (assets.nose.getWidth() / (float) assets.nose.getHeight());
 
-        // 节距与卡片宽同比例（设计稿 0.0068 屏宽 ÷ 0.0656 卡片宽 = 0.104），所以卡片缩窄时间隙跟着缩 ——
-        // 否则 13 节时「固定的间隙 + 缩窄的卡片」会把整行撑回左边的「分钟」列上去。
-        //   行宽 = 车头 + 车头间隙 + n 张卡 + (n−1) 个间隙
-        //        = noseW + cw·gapRatio + n·cw + (n−1)·cw·gapRatio
-        //   ⇒ cw = (槽宽 − noseW) / (n + (2n−1)·gapRatio)
-        final float avail = Math.max(capW, right - left - noseW);
-        final float per = avail / (n + (2 * n - 1) * CAR_GAP_RATIO);
-        final float cw = Math.min(capW, per);
-        final float ch = cw * ratio;
+        final float avail = Math.max(1.0F, right - left - noseW);
+        final float cw = Math.min(naturalW, avail / (n * (1.0F + CAR_GAP_RATIO)));
         final float gap = cw * CAR_GAP_RATIO;
 
-        // 竖直：整行在行槽里居中
+        // 竖直：整行在行槽里居中（高度不缩，所以 y0 与节数无关）
         final float y0 = rowBottom + (rowH - ch) * 0.5F;
-        // 水平：卡片右缘对齐 right，车头挂在首卡左边（车头自己那一格宽度固定，不跟着缩）
+        // 水平：卡片右缘对齐 right，车头挂在首卡左边（车头宽度固定，不跟着缩）
         final float cardsW = n * cw + (n - 1) * gap;
         final float x0 = right - cardsW;
 
         if (assets.nose != null && noseW > 0.0F) {
-            // 车头（线路前进方向）：紧贴第一节车卡的左边，高度不缩
+            // 车头（线路前进方向）：紧贴第一节车卡的左边，尺寸不缩
             drawScaled(g, assets.nose, x0 - gap - noseW, y0 + (ch - noseH) * 0.5F, noseW, noseH);
         }
 
@@ -597,13 +634,15 @@ public final class PsdLcdPainter {
             final BufferedImage card = (i == 0 || i == n - 1) ? assets.carEnd : assets.carMiddle;
             final float cx = x0 + i * (cw + gap);
             if (card != null) {
+                // 宽度可压、高度不变 ⇒ 卡片被横向压扁（用户允许）
                 drawScaled(g, card, cx, y0, cw, ch);
             }
-            // 车号：素材上只有「车 ❄」，编号由这里补在「车」的左边（字号跟着压缩后的卡片走）
+            // 车号：素材上只有「车 ❄」，编号由这里补在「车」的左边。
+            // 字号按**固定**的片高算（CAR_TEXT_INK_H），不跟卡片宽走 —— 节数再多编号也一样大。
             final String number = numbers.get(i);
             if (number != null && !number.isEmpty()) {
                 final float inkH = ch * CAR_TEXT_INK_H;
-                final float textRight = cx + cw * CAR_TEXT_LEFT - cw * 0.025F;
+                final float textRight = Math.max(cx + cw * 0.02F, cx + cw * CAR_TEXT_LEFT - cw * 0.025F);
                 final float inkCy = y0 + ch * CAR_TEXT_CY;
                 line(g, number, assets.cjk(), "1", inkCy - inkH * 0.5F, inkH,
                         textRight, Align.RIGHT, 0.0F, COLOR_WHITE);
@@ -622,18 +661,152 @@ public final class PsdLcdPainter {
                 NOTE_INK * h, NOTE_X * w, Align.LEFT, (CAR_ROW_X1 - NOTE_X) * w, COLOR_WHITE);
     }
 
-    /** 标语条：胶囊框 + 一句字（超宽就截断，不画到框外）。 */
+    // ================================================================ 标语条（滚动）
+
+    /**
+     * 标语条（胶囊）在位图里的矩形：{@code {x0, y0, x1, y1}}。
+     *
+     * <p>已经算上「窄屏（1~2 段）按设计稿比例收窄后上下居中」的那条 {@code offY}，
+     * 所以渲染器拿它算四边形和拿它画位图是同一套坐标。
+     */
+    public static float[] tickerBar(final float width, final float height) {
+        final float h = layoutHeight(width, height);
+        final float offY = (height - h) * 0.5F;
+        return new float[]{TICK_X0 * width, offY + TICK_Y0 * h, TICK_X1 * width, offY + TICK_Y1 * h};
+    }
+
+    /** 标语条里**能放字**的矩形（扣掉描边 + 一圈余量）：{@code {x0, y0, x1, y1}}。 */
+    public static float[] tickerInner(final float width, final float height) {
+        final float[] bar = tickerBar(width, height);
+        final float h = layoutHeight(width, height);
+        final float inset = Math.max(1.0F, TICK_SW * h) * 1.5F;
+        return new float[]{bar[0] + inset, bar[1] + inset, bar[2] - inset, bar[3] - inset};
+    }
+
+    /** 标语字高（位图像素）= 条高 × {@link #TICK_SIZE_RATIO}。滚速按它换算，见 {@code PidsXiamenTicker#pxPerTick}。 */
+    public static float tickerFontPx(final float width, final float height) {
+        final float[] bar = tickerBar(width, height);
+        return Math.max(1.0F, (bar[3] - bar[1]) * TICK_SIZE_RATIO);
+    }
+
+    /** 标语文字的自然宽度（位图像素；空文字 = 0）。和 {@link #tickerInner} 的宽比较就知道滚不滚。 */
+    public static float tickerTextWidth(final Content c, final Assets assets,
+                                        final float width, final float height) {
+        return tickerTextWidthFor(c == null ? null : c.tickerText(), assets, width, height);
+    }
+
+    /** 同上，直接给字符串（渲染器算「滚一轮多少 tick」时用，不用先造一个 Content）。 */
+    public static float tickerTextWidthFor(final String text, final Assets assets,
+                                           final float width, final float height) {
+        if (text == null || text.isBlank()) {
+            return 0.0F;
+        }
+        final float inkH = tickerFontPx(width, height);
+        // 一行字的墨迹宽要现算字形轮廓（GlyphVector），而渲染器每帧都会问一次 ——
+        // 缓存最近一次（渲染线程单线程访问，一条 volatile 足够）。
+        final String fontKey = assets == null ? "logic" : String.valueOf(System.identityHashCode(assets.cjk));
+        if (text.equals(widthCacheText) && Math.abs(inkH - widthCacheInk) < 1.0E-4F
+                && fontKey.equals(widthCacheFont)) {
+            return widthCacheWidth;
+        }
+        final Font font = fit(assets == null ? null : assets.cjk(), text, inkH);
+        final float ink = inkWidth(font, text);
+        widthCacheText = text;
+        widthCacheInk = inkH;
+        widthCacheFont = fontKey;
+        widthCacheWidth = ink;
+        return ink;
+    }
+
+    /** 上一帧量过的标语（字 + 字高 + 字体）。 */
+    private static String widthCacheText = "";
+    private static String widthCacheFont = "";
+    private static float widthCacheInk = -1.0F;
+    private static float widthCacheWidth = 0.0F;
+
+    /** 滚动小贴图的宽（位图像素）：就是 {@link #tickerInner} 的宽，四舍五入。 */
+    public static int tickerStripWidth(final float width, final float height) {
+        final float[] inner = tickerInner(width, height);
+        return Math.max(1, Math.round(inner[2] - inner[0]));
+    }
+
+    /** 滚动小贴图的高（位图像素）。 */
+    public static int tickerStripHeight(final float width, final float height) {
+        final float[] inner = tickerInner(width, height);
+        return Math.max(1, Math.round(inner[3] - inner[1]));
+    }
+
+    /** 一句话滚完一轮要走多少像素 = 框内宽 + 字宽（右缘进 → 左缘出）。 */
+    public static float tickerScrollSpanPx(final Content c, final Assets assets,
+                                           final float width, final float height) {
+        final float[] inner = tickerInner(width, height);
+        return (inner[2] - inner[0]) + tickerTextWidth(c, assets, width, height);
+    }
+
+    /**
+     * 只画标语条里的那段字：<b>透明底</b>的小位图（{@code tickerStripWidth × tickerStripHeight}）。
+     *
+     * <p>为什么单独一张：整屏位图只在「内容变了」时重画（时钟 / 倒计时是分钟级），
+     * 滚动标语每 tick 都要动 —— 把相位算进整屏的内容哈希就等于每 tick 重画 3000×455 的位图。
+     * 所以长句只画进这张「条内小贴图」，渲染器每 tick 上传它，短句（≤ 框宽）仍然居中烘在整屏位图里。
+     *
+     * <p>落点与 PIDS 一致：{@code x = 框内右缘 − phase × (框内宽 + 字宽)} —— phase=0 时整句
+     * 刚好在框外右侧，phase=1 时整句从左缘出去；跨过边缘的字被位图边界直接切掉（半字），
+     * 不是整字消失。速度由 {@code PidsXiamenTicker#pxPerTick} 换算（和 PIDS 同一份）。
+     */
+    public static BufferedImage paintTickerStrip(final Content c, final Assets assets,
+                                                 final float width, final float height,
+                                                 final float phase) {
+        final int sw = tickerStripWidth(width, height);
+        final int sh = tickerStripHeight(width, height);
+        final BufferedImage image = new BufferedImage(sw, sh, BufferedImage.TYPE_INT_ARGB);
+        final String text = c == null ? null : c.tickerText();
+        if (text == null || text.isBlank()) {
+            return image;
+        }
+        final Graphics2D g = image.createGraphics();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+            g.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON);
+            final float inkH = tickerFontPx(width, height);
+            final float span = tickerScrollSpanPx(c, assets, width, height);
+            final float p = Math.max(0.0F, Math.min(1.0F, phase));
+            // 相对「条内左缘」的 x：phase=0 → 框内右缘（整句在框外），phase=1 → 左缘 − 字宽
+            final float x = sw - p * span;
+            line(g, text, assets == null ? null : assets.cjk(), text,
+                    sh * 0.5F - inkH * 0.5F, inkH, x, Align.LEFT, 0.0F, COLOR_WHITE);
+        } finally {
+            g.dispose();
+        }
+        return image;
+    }
+
+    /**
+     * 标语条：<b>胶囊框永远画</b>（有字才画），字按「滚不滚」分两路：
+     * <ul>
+     *   <li>字宽 ≤ 框内宽 → 居中画进位图（静止，不滚）；</li>
+     *   <li>字宽 &gt; 框内宽 → 位图里<b>不画字</b>（游戏里由渲染器每 tick 画小贴图滚动；
+     *       离线预览把 {@code tickerPhase} 传进来时，这里把那一帧合成就来，方便看图）。</li>
+     * </ul>
+     */
     private static void paintTicker(final Graphics2D g, final Content c, final Assets assets,
-                                    final float w, final float h) {
+                                    final float width, final float height,
+                                    final Float tickerPhase) {
         final String text = c.tickerText();
         if (text == null || text.isBlank()) {
             // 没有标语就不画框：空胶囊看着像没画完
             return;
         }
-        final float tx0 = TICK_X0 * w;
-        final float tx1 = TICK_X1 * w;
-        final float ty0 = TICK_Y0 * h;
-        final float ty1 = TICK_Y1 * h;
+        final float[] bar = tickerBar(width, height);
+        final float h = layoutHeight(width, height);
+        // paintInto 已经把画布按 offY 平移过了，这里是「排版高 h」里的坐标 → 减掉 offY 才是当前画布坐标
+        final float offY = (height - h) * 0.5F;
+        final float tx0 = bar[0];
+        final float tx1 = bar[2];
+        final float ty0 = bar[1] - offY;
+        final float ty1 = bar[3] - offY;
         final float radius = (ty1 - ty0) * 0.5F;
         g.setColor(argb(COLOR_TICK_STROKE));
         g.setStroke(new BasicStroke(Math.max(1.0F, TICK_SW * h), BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND));
@@ -641,18 +814,24 @@ public final class PsdLcdPainter {
                 (tx1 - tx0) - TICK_SW * h, (ty1 - ty0) - TICK_SW * h, radius * 2.0F, radius * 2.0F));
         g.setStroke(new BasicStroke(1.0F));
 
-        final Shape old = g.getClip();
-        g.clip(new RoundRectangle2D.Float(tx0 + TICK_SW * h, ty0 + TICK_SW * h,
-                (tx1 - tx0) - TICK_SW * h * 2.0F, (ty1 - ty0) - TICK_SW * h * 2.0F,
-                radius * 2.0F, radius * 2.0F));
-        try {
-            final float inkH = (ty1 - ty0) * TICK_SIZE_RATIO;
+        final float[] inner = tickerInner(width, height);
+        final float innerW = inner[2] - inner[0];
+        final float textW = tickerTextWidth(c, assets, width, height);
+        if (textW <= innerW) {
+            // 短句：居中静止（这一档与以前逐像素一致）
+            final float inkH = tickerFontPx(width, height);
             line(g, text, assets == null ? null : assets.cjk(), text,
                     (ty0 + ty1) * 0.5F - inkH * 0.5F, inkH,
-                    (tx0 + tx1) * 0.5F, Align.CENTER, (tx1 - tx0) - 0.07F * h, COLOR_WHITE);
-        } finally {
-            g.setClip(old);
+                    (tx0 + tx1) * 0.5F, Align.CENTER, innerW, COLOR_WHITE);
+            return;
         }
+        if (tickerPhase == null) {
+            // 游戏路径：长句由渲染器滚动，位图里不烘字
+            return;
+        }
+        // 预览路径：把「滚到 tickerPhase」那一帧合成就来
+        final BufferedImage strip = paintTickerStrip(c, assets, width, height, tickerPhase);
+        g.drawImage(strip, Math.round(inner[0]), Math.round(inner[1] - offY), null);
     }
 
     /**

@@ -397,6 +397,34 @@ public final class PsdLcdLayout {
         return new float[]{f.dx, 0.0F, f.dz};
     }
 
+    /**
+     * 位图的**子矩形** → 世界四点（左上 → 左下 → 右下 → 右上），顶点顺序与
+     * {@link #windowQuad(Face, float, float, boolean)} 完全一致。
+     *
+     * <p>给「压在屏幕面上的第二条内容」用（滚动标语那张小贴图）：它占位图里的一块矩形，
+     * 必须落在同一个平面上，而且和窗口四边形的铺开轴 / 朝向翻转走同一份算术 —— 否则大屏、
+     * 半格、四个 facing 里总有一档会画偏。
+     *
+     * @param totalPx 整条链在阅读轴上的总宽（16 分之格，= 段数 × 16）
+     * @param fx0/fx1 子矩形在整块位图上的横向比例（0 = 左缘、1 = 右缘）
+     * @param fy0/fy1 纵向比例（0 = 上缘、1 = 下缘；位图 v 从上到下）
+     * @param cut     这一格剪过没有（决定 y 带是 1.5…8.5 还是 9…16）
+     * @param liftPx  再沿法线往外推多少（16 分之格），只为了「压在屏幕面上」时别共面
+     */
+    public static float[][] bandQuad(final Face facing, final float totalPx,
+                                     final float fx0, final float fx1,
+                                     final float fy0, final float fy1,
+                                     final boolean cut, final float liftPx) {
+        final float[] band = windowBandPx(cut);
+        final float startPx = Math.min(fx0, fx1) * totalPx;
+        final float endPx = Math.max(fx0, fx1) * totalPx;
+        final float span = band[1] - band[0];
+        final float top = band[1] - Math.min(fy0, fy1) * span;
+        final float bottom = band[1] - Math.max(fy0, fy1) * span;
+        return planeQuad(facing, startPx, endPx, bottom, top,
+                (SCREEN_FACE_Z_PX - FACE_GAP_PX - liftPx) / 16.0F);
+    }
+
     // ================================================================ 一块面板上的四边形
 
     /**

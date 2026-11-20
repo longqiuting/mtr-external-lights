@@ -215,10 +215,14 @@ const previews = [
   { name: '13to1', seg: null, ratio: 13, label: '13:1（设计稿比例）' },
 ];
 
+/** 预览用的 classpath：第 4 节编好之后给第 9~11 节复用（null = 没编）。 */
+let previewClasses = null;
+
 if (process.argv.includes('--no-preview') || !javac || !javaBin) {
   notes.push(javac && javaBin ? '--no-preview：跳过实际出图'
     : '找不到 javac / java（设 JAVA_HOME 或加进 PATH）：跳过实际出图');
   console.log(`\n== 4. 预览出图（跳过：${notes[notes.length - 1]}）==`);
+  console.log('\n== 9~11. 像素级断言（跳过：同上）==');
 } else {
   console.log('\n== 4. 预览出图（PNG 尺寸从字节里读，不看代码算的数）==');
   const classes = path.join(REPO, 'temp/psd-lcd-fit-classes');
@@ -233,6 +237,7 @@ if (process.argv.includes('--no-preview') || !javac || !javaBin) {
   execFileSync(javac, ['-d', classes, '-encoding', 'UTF-8', ...sources], {
     cwd: REPO, stdio: 'inherit',
   });
+  previewClasses = classes;
 
   for (const p of previews) {
     const out = path.join(OUT_DIR, `${p.name}.png`);
@@ -345,7 +350,13 @@ ok(P('CAR_ROW_X1') < P('AD_X0'), '编组行右缘在广告区左边', `${f(P('CA
 ok(P('TICK_X1') < P('AD_X0'), '标语条右缘在广告区左边', `${f(P('TICK_X1'), 4)} < ${f(P('AD_X0'), 4)}`);
 
 // 编组行 / 当前站 两块矩形不能相交（上一轮就是这里压住了「董任」）
-const carsBox = { x0: P('CAR_ROW_X0'), x1: P('CAR_ROW_X1'), y0: P('CAR_Y0'), y1: P('CAR_Y1') };
+// 编组行的**有效**左界 = max(CAR_ROW_X0, CAR_ROW_GUARD_X)：只有这样才能既留在设计稿区域里、
+// 又不压到行 2 的「分钟 / min」（行 2 的单位正好落在编组行的 y 带里）。
+const guardX = P('CAR_ROW_GUARD_X');
+const carsBox = {
+  x0: Math.max(P('CAR_ROW_X0'), guardX), x1: P('CAR_ROW_X1'),
+  y0: P('CAR_Y0'), y1: P('CAR_Y1'),
+};
 const staBox = {
   x0: P('STA_CX') - 0.06, x1: P('STA_CX') + 0.06,
   y0: P('STA_ZH_TOP'), y1: P('STA_EN_TOP') + P('STA_EN_INK'),
@@ -354,6 +365,77 @@ const xOverlap = carsBox.x0 < staBox.x1 && staBox.x0 < carsBox.x1;
 const yOverlap = carsBox.y0 < staBox.y1 && staBox.y0 < carsBox.y1;
 ok(!(xOverlap && yOverlap), '编组行与「当前站」那一列不重叠',
   `车 y ${f(carsBox.y0, 4)}…${f(carsBox.y1, 4)} vs 站 y ${f(staBox.y0, 4)}…${f(staBox.y1, 4)}`);
+
+// ---------------------------------------------------------------- 7b. 编组行 × 分钟列
+
+console.log('\n== 7b. 编组行 vs 「分钟 / min」列（包围盒不相交 + 压缩公式）==');
+
+/**
+ * 「分钟 / min」那一列的包围盒（占屏宽 / 占排版高）。
+ *
+ * 中文「分钟」两个全角字：墨迹宽 ≈ 2 × 墨迹高 = 2 × UNITZH_INK（h）⇒ 换成屏宽要 ÷ DESIGN_W；
+ * 英文「min」按 1.9 × 墨迹高算（m/i/n 的墨迹宽窄相差不大，1.9 是实测值）。
+ * 行 1 / 行 2 各一份（行 2 = ROW1_CY + ROW_DY）。
+ */
+function unitBox(rowCy) {
+  const zhW = 2.0 * P('UNITZH_INK') / P('DESIGN_W');
+  const enW = 1.9 * P('UNITEN_INK') / P('DESIGN_W');
+  const w = Math.max(zhW, enW) + 0.002;
+  return {
+    x0: P('UNIT_X'),
+    x1: P('UNIT_X') + w,
+    y0: rowCy + P('UNITZH_TOP'),
+    y1: rowCy + P('ROW_DY') * 0 + P('UNITEN_TOP') + P('UNITEN_INK'),
+  };
+}
+const unit1 = unitBox(P('ROW1_CY'));
+const unit2 = unitBox(P('ROW1_CY') + P('ROW_DY'));
+console.log(`  分钟列 行1  x ${f(unit1.x0, 4)}…${f(unit1.x1, 4)}  y ${f(unit1.y0, 4)}…${f(unit1.y1, 4)}`);
+console.log(`  分钟列 行2  x ${f(unit2.x0, 4)}…${f(unit2.x1, 4)}  y ${f(unit2.y0, 4)}…${f(unit2.y1, 4)}`);
+
+// 编组行的**有效**左界 = max(CAR_ROW_X0, CAR_ROW_GUARD_X)；只有这样才能既留在设计稿区域里、
+// 又不压到行 2 的「分钟 / min」（行 2 的单位正好落在编组行的 y 带里）。
+ok(Number.isFinite(guardX), '代码里有 CAR_ROW_GUARD_X（编组行的「分钟列」守卫线）', `${f(guardX, 4)}`);
+ok(guardX > P('CAR_ROW_X0') && guardX < P('CAR_ROW_X1'),
+  '守卫线在编组区域内部（CAR_ROW_X0 < 守卫 < CAR_ROW_X1）',
+  `${f(P('CAR_ROW_X0'), 4)} < ${f(guardX, 4)} < ${f(P('CAR_ROW_X1'), 4)}`);
+for (const [name, u] of [['行1', unit1], ['行2', unit2]]) {
+  ok(guardX >= u.x1 + 0.004, `守卫线在「分钟 / min」${name} 右缘右侧（留 ≥ 0.004 空档）`,
+    `守卫 ${f(guardX, 4)} vs 单位右缘 ${f(u.x1, 4)}`);
+}
+
+const carsEff = carsBox;
+for (const [name, u] of [['行1', unit1], ['行2', unit2]]) {
+  const xOv = carsEff.x0 < u.x1 && u.x0 < carsEff.x1;
+  const yOv = carsEff.y0 < u.y1 && u.y0 < carsEff.y1;
+  ok(!(xOv && yOv), `编组行（有效区）与「分钟 / min」${name} 包围盒不相交`,
+    `车 x ${f(carsEff.x0, 4)}…${f(carsEff.x1, 4)} vs 单位 x ${f(u.x0, 4)}…${f(u.x1, 4)}；`
+    + `车 y ${f(carsEff.y0, 4)}…${f(carsEff.y1, 4)} vs 单位 y ${f(u.y0, 4)}…${f(u.y1, 4)}`);
+}
+
+// 压缩公式：高度不随节数缩，只有宽度 / 间隙被压
+{
+  const ratio = P('CARD_PX_H') / P('CARD_PX_W');
+  const naturalCh = P('CAR_W') * ratio;                 // h
+  const rowH = P('CAR_Y1') - P('CAR_Y0');
+  ok(naturalCh <= rowH + 1e-6, '卡片自然高 ≤ 行高（高度不被行槽挤压）',
+    `${f(naturalCh, 4)}h ≤ ${f(rowH, 4)}h`);
+  // 行槽宽（屏宽）= CAR_ROW_X1 − 守卫线；车头宽 = 自然高 × 1.035 × (74/180) ÷ DESIGN_W
+  const noseW = naturalCh * P('NOSE_H_RATIO') * (74 / 180) / P('DESIGN_W');
+  const avail = P('CAR_ROW_X1') - Math.max(P('CAR_ROW_X0'), guardX) - noseW;
+  const table = [];
+  for (const n of [4, 6, 8, 13, 16]) {
+    const used = Math.min(P('CAR_W') / P('DESIGN_W'), avail / (n * (1 + P('CAR_GAP_RATIO'))));
+    const rowW = n * used * (1 + P('CAR_GAP_RATIO')) + noseW;   // 屏宽
+    const usedH = used * P('DESIGN_W');                          // 换成 h（和 CAR_W 同单位）
+    table.push(`${n} 节 cw=${f(usedH, 3)}h (${f(usedH / P('CAR_W') * 100, 1)}%)`);
+    ok(rowW <= avail + noseW + 1e-9, `${n} 节：整行（车头 + 卡 + 间隙）不超过行槽宽`,
+      `行宽 ${f(rowW - noseW, 4)} ≤ 槽 ${f(avail, 4)}`);
+    // 高度固定 ⇒ 与 n 无关
+    ok(Math.abs(naturalCh - P('CAR_W') * ratio) < 1e-9, `${n} 节：卡片高仍是 ${f(naturalCh, 4)}h（不随节数缩）`);
+  }
+  console.log('  压缩表：' + table.join('  |  '));
+}
 
 // ---------------------------------------------------------------- 8. 版式落到位图上（读像素）
 
@@ -422,6 +504,201 @@ if (rendered.length > 0) {
     }
     ok(dirty === 0, `${r.label} 当前站与编组行之间是空的（两行不再叠在一起）`, `脏像素 ${dirty}`);
   }
+}
+
+// ---------------------------------------------------------------- 9~11. 像素级断言
+
+/** 调一次预览（同一份 PsdLcdPainter），返回解好的 PNG。 */
+function renderPreview(name, opts = {}) {
+  const ratio = opts.ratio === undefined ? DESIGN_RATIO : opts.ratio;
+  const height = opts.height === undefined ? previewHeight : opts.height;
+  const cars = opts.cars === undefined ? 4 : opts.cars;
+  const out = path.join(OUT_DIR, `${name}.png`);
+  const args = ['-cp', previewClasses, 'dev.js.mtrheadlight.xiamen.pids.PsdLcdPreview',
+    out, String(ratio), String(height), '-', String(cars)];
+  // 预览工具是**位置参数**（count1 count2 unitZh unitEn phase ticker），所以只要动了后面任何一个，
+  // 前面几个就必须按默认值补齐 —— 少补一个就会把 phase 当成 count1 传进去（这里踩过一次）。
+  if (opts.count1 !== undefined || opts.phase !== undefined || opts.ticker !== undefined) {
+    args.push(String(opts.count1 === undefined ? '7' : opts.count1),
+      String(opts.count2 === undefined ? '17' : opts.count2),
+      String(opts.unitZh === undefined ? '分钟' : opts.unitZh),
+      String(opts.unitEn === undefined ? 'min' : opts.unitEn),
+      String(opts.phase === undefined ? 0.5 : opts.phase));
+  }
+  if (opts.ticker !== undefined) {
+    args.push(opts.ticker);
+  }
+  execFileSync(javaBin, args, { cwd: REPO, stdio: 'pipe' });
+  return decodePng(out);
+}
+
+const DESIGN_RATIO = 6.910;
+
+/** 纯白（= 文字本体；胶囊描边是 0xE6EAFF，r 只有 230，不会被算进来）。 */
+function isText(c) {
+  return c.r >= 245 && c.g >= 245 && c.b >= 245;
+}
+
+/** 一块矩形里有多少「文字像素」。 */
+function inkIn(png, x0, y0, x1, y1) {
+  let n = 0;
+  for (let y = Math.max(0, y0); y <= Math.min(png.height - 1, y1); y++) {
+    for (let x = Math.max(0, x0); x <= Math.min(png.width - 1, x1); x++) {
+      if (isText(png.px(x, y))) n++;
+    }
+  }
+  return n;
+}
+
+/** 编组行（车头 + 卡片）在这张位图上的包围盒：从「分钟列右侧」扫到 CAR_ROW_X1 右边一点。 */
+function carsRowOf(png) {
+  const W = png.width;
+  const H = png.height;
+  const y0 = Math.round(carsBox.y0 * H) + 3;
+  const y1 = Math.round(carsBox.y1 * H) - 3;
+  const xFrom = Math.round((unit1.x1 + 0.002) * W);
+  const xTo = Math.min(W - 1, Math.round((carsBox.x1 + 0.006) * W));
+  let minX = -1;
+  let maxX = -1;
+  let minY = H;
+  let maxY = -1;
+  for (let x = xFrom; x <= xTo; x++) {
+    let hit = false;
+    for (let y = y0; y <= y1; y++) {
+      if (!isBg(png.px(x, y))) {
+        hit = true;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    if (hit) {
+      if (minX < 0) minX = x;
+      maxX = x;
+    }
+  }
+  return { minX, maxX, minY, maxY, height: maxY - minY + 1 };
+}
+
+if (previewClasses) {
+  // ---- 9. 编组行：只压宽，不整体缩；任何节数都不越界、不压「分钟」
+  console.log('\n== 9. 编组行压缩（4 / 8 / 13 / 16 节真画一遍，量像素）==');
+  const heights = {};
+  for (const n of [4, 8, 13, 16]) {
+    const png = renderPreview(`cars-${n}`, { cars: n });
+    const row = carsRowOf(png);
+    heights[n] = row.height;
+    const leftNorm = row.minX / png.width;
+    const rightNorm = row.maxX / png.width;
+    ok(row.minX > 0 && row.maxX > row.minX, `${n} 节：编组行画出来了`, `x ${row.minX}…${row.maxX}`);
+    ok(leftNorm >= guardX - 0.001, `${n} 节：编组行左缘不越过守卫线 ${f(guardX, 4)}（不压「分钟 / min」）`,
+      `实际 ${f(leftNorm, 4)}`);
+    ok(rightNorm <= carsBox.x1 + 0.004, `${n} 节：编组行右缘 ≈ ${f(carsBox.x1, 4)}（在广告区左边）`,
+      `实际 ${f(rightNorm, 4)}`);
+    ok(rightNorm <= 0.78, `${n} 节：编组行右缘 ≤ 0.78`, `实际 ${f(rightNorm, 4)}`);
+
+    // 「分钟列右缘 … 守卫线」之间那条缝必须是空的（编组行没有压过去）
+    let dirty = 0;
+    for (let x = Math.round(unit1.x1 * png.width) + 1; x < Math.round(guardX * png.width) - 1; x++) {
+      for (let y = Math.round(carsBox.y0 * png.height) + 2; y <= Math.round(carsBox.y1 * png.height) - 2; y++) {
+        if (!isBg(png.px(x, y))) dirty++;
+      }
+    }
+    ok(dirty === 0, `${n} 节：编组行与「分钟 / min」之间那条缝是空的（两块不相交）`, `脏像素 ${dirty}`);
+  }
+  const refH = heights[4];
+  for (const n of [8, 13, 16]) {
+    ok(Math.abs(heights[n] - refH) <= 2, `${n} 节：卡片高度与 4 节一致（只压宽，不整体缩小）`,
+      `${n} 节 ${heights[n]}px vs 4 节 ${refH}px`);
+  }
+  const naturalPx = Math.round(P('CAR_W') * (P('CARD_PX_H') / P('CARD_PX_W')) * previewHeight);
+  ok(Math.abs(refH - naturalPx) <= 6, `卡片高度 ≈ 自然高 ${naturalPx}px（没有缩成一条线）`, `实际 ${refH}px`);
+  ok(refH >= 0.20 * previewHeight, `卡片高度 ≥ 0.20 × 屏高（长编组也认得出是车厢）`,
+    `${refH}px ≥ ${Math.round(0.20 * previewHeight)}px`);
+
+  // ---- 10. 「分钟 / min」在 0/1/2/17/99 与中英文下都必须显示（两行都要）
+  console.log('\n== 10. 「分钟 / min」存在性（0/1/2/17/99 × 中英文 × 两行，真读像素）==');
+  const rowsCy = [P('ROW1_CY'), P('ROW1_CY') + P('ROW_DY')];
+  for (const value of ['0', '1', '2', '17', '99']) {
+    const png = renderPreview(`count-${value}`, {
+      count1: value, count2: value, unitZh: '分钟', unitEn: 'min',
+    });
+    const W = png.width;
+    const H = png.height;
+    const x0 = Math.round(P('UNIT_X') * W) - 2;
+    const x1 = Math.round((P('UNIT_X') + 0.020) * W);
+    rowsCy.forEach((cy, i) => {
+      const zhY0 = Math.round((cy + P('UNITZH_TOP') - 0.004) * H);
+      const zhY1 = Math.round((cy + P('UNITZH_TOP') + P('UNITZH_INK') + 0.004) * H);
+      const enY0 = Math.round((cy + P('UNITEN_TOP') - 0.004) * H);
+      const enY1 = Math.round((cy + P('UNITEN_TOP') + P('UNITEN_INK') + 0.004) * H);
+      const zh = inkIn(png, x0, zhY0, x1, zhY1);
+      const en = inkIn(png, x0, enY0, x1, enY1);
+      ok(zh >= 15, `数字 ${value} 行 ${i + 1}：「分钟」画出来了`, `${zh} 个文字像素`);
+      ok(en >= 10, `数字 ${value} 行 ${i + 1}：「min」画出来了`, `${en} 个文字像素`);
+    });
+  }
+
+  // ---- 11. 标语条：短句居中静止，长句真滚动（从右进、从左出、边缘切字）
+  console.log('\n== 11. 标语条滚动（短句静止 / 长句滚动，真读像素）==');
+  const SHORT_TEXT = '欢迎乘坐厦门地铁';
+  const LONG_TEXT = '厦门地铁提醒您：列车即将进站，请站在黄线以内候车，先下后上，注意站台间隙，'
+    + '照顾好老人和小孩，谢谢配合，祝您旅途愉快。厦门地铁提醒您：请勿在站台上追逐打闹，注意脚下安全。';
+
+  /** 标语框内的文字墨迹范围（纯白像素）。 */
+  const tickerInk = (png) => {
+    const W = png.width;
+    const H = png.height;
+    const x0 = Math.round(P('TICK_X0') * W) + 3;
+    const x1 = Math.round(P('TICK_X1') * W) - 3;
+    const y0 = Math.round(P('TICK_Y0') * H) + 3;
+    const y1 = Math.round(P('TICK_Y1') * H) - 3;
+    let minX = -1;
+    let maxX = -1;
+    let n = 0;
+    for (let x = x0; x <= x1; x++) {
+      for (let y = y0; y <= y1; y++) {
+        if (isText(png.px(x, y))) {
+          n++;
+          if (minX < 0) minX = x;
+          maxX = x;
+        }
+      }
+    }
+    return { minX, maxX, count: n, box: { x0, x1 } };
+  };
+
+  const shortA = tickerInk(renderPreview('ticker-short-a', { ticker: SHORT_TEXT, phase: 0.0 }));
+  const shortB = tickerInk(renderPreview('ticker-short-b', { ticker: SHORT_TEXT, phase: 0.42 }));
+  ok(shortA.count > 50, '短句标语画出来了', `${shortA.count} 个文字像素`);
+  ok(Math.abs(shortA.minX - shortB.minX) <= 1 && Math.abs(shortA.maxX - shortB.maxX) <= 1,
+    '短句（字宽 ≤ 框宽）不动：两个相位画在同一处（居中静止，不滚）',
+    `相位 0 → x ${shortA.minX}…${shortA.maxX}，相位 0.42 → x ${shortB.minX}…${shortB.maxX}`);
+  const barMid = (shortA.box.x0 + shortA.box.x1) / 2;
+  const inkMid = (shortA.minX + shortA.maxX) / 2;
+  ok(Math.abs(inkMid - barMid) <= 0.05 * (shortA.box.x1 - shortA.box.x0),
+    '短句居中（墨迹中心 ≈ 标语框中心）', `墨迹中心 ${Math.round(inkMid)} vs 框中心 ${Math.round(barMid)}`);
+
+  const phases = [0.0, 0.2, 0.5, 0.85];
+  const frames = phases.map((p) => ({ p, ink: tickerInk(renderPreview(`ticker-long-${p}`, { ticker: LONG_TEXT, phase: p })) }));
+  ok(frames[0].ink.count <= 5, '长句 phase=0：整句还在框外右侧（框内没有字）', `${frames[0].ink.count} 个文字像素`);
+  ok(frames[1].ink.count > 100, '长句 phase 0.2：整句已经进入框内（从右侧进来）',
+    `${frames[1].ink.count} 个文字像素`);
+  // 从左缘看「整体在往左走」：0.2 → 0.5 → 0.85 左缘必须一路变小
+  // （右缘在「还没完全进入」的那两帧都被框右缘夹住，拿它比会误判）
+  for (let i = 2; i < frames.length; i++) {
+    ok(frames[i].ink.minX < frames[i - 1].ink.minX,
+      `长句 phase ${phases[i - 1]} → ${phases[i]}：文字整体向左移动`,
+      `左缘 ${frames[i - 1].ink.minX} → ${frames[i].ink.minX}`);
+  }
+  const enter = frames[1].ink;
+  ok(enter.maxX >= enter.box.x1 - 6, '长句 phase 0.2：字从右边缘被切掉（贴住框右缘）',
+    `墨迹右缘 ${enter.maxX} vs 框右缘 ${enter.box.x1}`);
+  const leave = frames[3].ink;
+  ok(leave.minX <= leave.box.x0 + 6, '长句 phase 0.85：字从左边缘被切掉（贴住框左缘）',
+    `墨迹左缘 ${leave.minX} vs 框左缘 ${leave.box.x0}`);
+  ok(frames[2].ink.maxX - frames[2].ink.minX >= 0.5 * (frames[2].ink.box.x1 - frames[2].ink.box.x0),
+    '长句 mid-phase：字是原字号滚过去的（没有被整体缩小塞进框里）',
+    `墨迹宽 ${frames[2].ink.maxX - frames[2].ink.minX} ≥ 半个框宽`);
 }
 
 // ---------------------------------------------------------------- 结果

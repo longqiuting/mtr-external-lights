@@ -12,15 +12,20 @@ import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.projectile.thrown.ThrownEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.particle.ParticleTypes;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
+import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
+
+import dev.js.mtrheadlight.bind.MtrBalance;
 
 /**
  * 投掷出去的充电宝 {@code mtrlte:power_bank_projectile}。
@@ -124,6 +129,8 @@ public class PowerBankProjectileEntity extends ThrownEntity implements FlyingIte
         final Vec3d at = this.getPos();
 
         if (world instanceof ServerWorld server) {
+            // 先结算「投掷损坏」（服务端权威；见 settleThrow），再放粒子 / 伤害。
+            settleThrow(server);
             // 小范围爆炸的观感：一团 EXPLOSION 烟 + 落点火焰 + 一点余烟。
             server.spawnParticles(ParticleTypes.EXPLOSION, at.x, at.y, at.z, 1, 0.0D, 0.0D, 0.0D, 0.0D);
             server.spawnParticles(ParticleTypes.FLAME, at.x, at.y + 0.05D, at.z, 20, 0.4D, 0.15D, 0.4D, 0.02D);
@@ -152,6 +159,57 @@ public class PowerBankProjectileEntity extends ThrownEntity implements FlyingIte
         }
 
         this.discard();
+    }
+
+    // ------------------------------------------------------------------ 投掷损坏结算
+
+    /**
+     * 「把充电宝当投掷物扔出去」的结算（<b>服务端权威</b>，命中 / 落地那一刻只做一次）。
+     *
+     * <p>规则（用户定的「扔出去 = 损坏 + 按买断价扣款」）：
+     * <ol>
+     *   <li>飞出去的那一份在 {@code PowerBankItem#use} 里已经盖了 {@code damaged}：
+     *       <b>从此不可归还</b>（机器拒收），也永远不会再按租期计费；</li>
+     *   <li>本来就没有租借记录（创造模式拿的 / 刷出来的）→ 不收钱；</li>
+     *   <li>已经买断过（{@code expiredFine}）→ 不收第二次；</li>
+     *   <li>租借中 → 按 {@link PowerBankItem#OVERDUE_FEE}（= 24h 买断价 100）扣一次，
+     *       扣成功再盖 {@code expiredFine}；</li>
+     *   <li><b>余额不足 / 扣款失败 → 一分不扣，只提示</b>（绝不把余额扣成负数；
+     *       租借机的「余额为负不能租借」前提也不会被投掷破坏）。</li>
+     * </ol>
+     *
+     * <p>投掷者拿不到（发射器 / 主人已下线）时同样只标记损坏、不扣钱 —— 没有账户就没有收款方。
+     */
+    private void settleThrow(final ServerWorld server) {
+        final ItemStack stack = this.stack;
+        if (stack.isEmpty() || !(stack.getItem() instanceof PowerBankItem)) {
+            return;
+        }
+        // 盖一次「损坏」章是幂等的；这里再盖一次，防止老存档里飞在半路的投掷物没有这个标记。
+        PowerBankItem.markDamaged(stack);
+        if (!PowerBankItem.isRented(stack) || PowerBankItem.isOverdueSettled(stack)) {
+            return;
+        }
+        final Entity owner = this.getOwner();
+        if (!(owner instanceof ServerPlayerEntity player)) {
+            return;
+        }
+        final int fee = PowerBankItem.OVERDUE_FEE;
+        final int before = MtrBalance.get(server, player);
+        if (before < fee) {
+            player.sendMessage(Text.translatable("message.mtrlte.charger.thrown_no_money", fee, before)
+                    .formatted(Formatting.RED), false);
+            return;
+        }
+        final int after = MtrBalance.add(server, player, -fee);
+        if (after != before - fee) {
+            player.sendMessage(Text.translatable("message.mtrlte.charger.thrown_no_money", fee, before)
+                    .formatted(Formatting.RED), false);
+            return;
+        }
+        PowerBankItem.markOverdueSettled(stack);
+        player.sendMessage(Text.translatable("message.mtrlte.charger.thrown_damaged", fee, after)
+                .formatted(Formatting.RED), false);
     }
 
     // ------------------------------------------------------------------ 点火

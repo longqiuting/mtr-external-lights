@@ -73,6 +73,14 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
     private static final int AD_ROTATE_TICKS = 200;
 
     /**
+     * 滚动标语那条四边形沿法线再外推多少（16 分之格）：1/32 格 = 0.5px 的 1/32。
+     *
+     * <p>beacon 渲染层不写深度，「谁在上」其实只由绘制顺序决定；这个外推只是让它在
+     * 任何深度精度下都不会和整屏四边形共面（两者差 0.001px 就已经足够）。
+     */
+    private static final float TICKER_LIFT_PX = 0.032F;
+
+    /**
      * 每块屏自己的广告轮播状态（{@code world|anchor} → 播到第几张、这一张播到哪个 tick）。
      *
      * <p>为什么不是全局一个 index：广告集的起点是每块屏自己的 {@code advertisementIndex}，
@@ -90,7 +98,9 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         int count;
         /** 现在播的是第几张（已经 {@code floorMod} 过的下标）。 */
         int slot;
-        /** 这一张播到哪个世界 tick 算「标语滚完一轮」。 */
+        /** 这一张的标语<b>开始</b>滚的时刻（世界 tick）—— 标语相位从这里算起。 */
+        long passStart;
+        /** 这一张的标语滚完一轮的时刻（世界 tick）= 换下一张的时刻。 */
         long passEnd;
     }
 
@@ -187,22 +197,26 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         final boolean[] cuts = cutsOf(world, chain, state);
         final float extent = Math.max(1, chain.size()) * 16.0F;
 
-        final Content content = contentOf(entity, world, anchor, extent);
         final int bitmapW = PsdLcdLayout.bitmapWidthFor(extent);
         // 位图高度跟着窗口高度走（整块 7px、剪后 9…16 也是 7px ⇒ 455px，两条一样）。
         final int bitmapH = PsdLcdLayout.bitmapHeight(anyCut(cuts));
+
+        final Content content = contentOf(entity, world, anchor, extent, bitmapW, bitmapH);
         final String shapeKey = shapeKey(cuts);
         final String key = world.getRegistryKey().getValue() + "|" + anchor.asLong() + "|" + shapeKey;
         final PsdLcdTextures.Entry texture = PsdLcdTextures.acquire(key, bitmapW, bitmapH);
         if (texture == null) {
             return;
         }
-        // 内容变了才重画（时钟 / 倒计时是分钟级，一般一分钟一次）
+        // 内容变了才重画（时钟 / 倒计时是分钟级，一般一分钟一次）。
+        // 标语滚动相位**不**在哈希里：滚动标语走下面那张小贴图，不重画整屏。
         if (!content.hash().equals(texture.hash)) {
             final BufferedImage image = PsdLcdPainter.paint(content.content(), PsdLcdAssets.get(),
                     content.ad(), bitmapW, bitmapH);
             texture.hash = content.hash();
             PsdLcdTextures.upload(texture, image);
+            // 换了广告 / 换了标语：滚动小贴图下一帧要重画（它的触发条件是「相位像素变了」）
+            PsdLcdTextures.invalidateTicker(key);
         }
 
         final float[] normal = PsdLcdLayout.screenNormal(face);
@@ -240,6 +254,9 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                 vertex(vc, matrix, normalMatrix, quad[2][0], quad[2][1], quad[2][2], u1, 1.0F, normal);
                 vertex(vc, matrix, normalMatrix, quad[3][0], quad[3][1], quad[3][2], u1, 0.0F, normal);
             }
+            // ---- 滚动标语：压在屏幕面上的一条小贴图（长句才画，短句已经居中烘在整屏位图里）
+            drawTicker(content, cuts, extent, bitmapW, bitmapH, key, face,
+                    matrix, normalMatrix, normal, immediate);
             // ---- 线路色带（MTR 式）：板子下沿那条 0.5px 的前脸（白图 × 顶点色，受世界光照）
             if (PidsXiamenSettings.lineStrip()) {
                 drawStrip(entity, world, matrix, normalMatrix, normal, face, cuts, chain, immediate);
@@ -426,14 +443,94 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         }
     }
 
+    // ------------------------------------------------------------------ 滚动标语
+
+    /**
+     * 滚动标语那条四边形（压在屏幕面上）。
+     *
+     * <p>位置 = 标语条「框内」矩形（{@link PsdLcdPainter#tickerInner}）在位图里的那一块，
+     * 用 {@link PsdLcdLayout#bandQuad} 换算到世界坐标 —— 和窗口四边形同一份铺开轴 / 朝向翻转算术。
+     * 贴图是一张<b>透明底</b>的小位图（{@link PsdLcdPainter#paintTickerStrip}），每 tick 只重画、
+     * 重传这一块，整屏位图完全不参与滚动。
+     *
+     * <p>渲染层用 {@code getLight(id, true)}（beacon 层 + <b>半透明</b>）：小贴图除了字全是透明的，
+     * 不开混合会画成一整条黑底。深度：beacon 层不写深度，也就是「后发的压在上面」——
+     * 整屏四边形先发、这条后发，所以它在前（{@link PsdLcdLayout#bandQuad} 再沿法线推
+     * {@value #TICKER_LIFT_PX} 个 1/16 px 只是保险）。
+     *
+     * <p>一格一段地发（和整屏四边形一样），因为每格的 y 带可能不同（剪过 9…16 / 没剪 1.5…8.5）。
+     */
+    private static void drawTicker(final Content content, final boolean[] cuts, final float extent,
+                                   final int bitmapW, final int bitmapH, final String key,
+                                   final PsdLcdLayout.Face face, final Matrix4f matrix,
+                                   final Matrix3f normalMatrix, final float[] normal,
+                                   final VertexConsumerProvider.Immediate immediate) {
+        if (content.tickerPhase() < 0.0F || bitmapW < 2 || bitmapH < 2) {
+            return;
+        }
+        final PsdLcdPainter.Content c = content.content();
+        final PsdLcdPainter.Assets assets = PsdLcdAssets.get();
+        final int sw = PsdLcdPainter.tickerStripWidth(bitmapW, bitmapH);
+        final int sh = PsdLcdPainter.tickerStripHeight(bitmapW, bitmapH);
+        if (sw < 4 || sh < 4) {
+            return;
+        }
+        final PsdLcdTextures.Entry strip = PsdLcdTextures.acquire(key + "|ticker", sw, sh);
+        if (strip == null) {
+            return;
+        }
+        // 只在「滚到下一个像素」时才重画 / 重传：paintTickerStrip 是 Java2D 画一行字，很便宜，
+        // 但每帧都做也没意义 —— 20 tick/秒 × 2~4 px，实际最多每 tick 一次。
+        final int phasePx = Math.round(content.tickerPhase()
+                * PsdLcdPainter.tickerScrollSpanPx(c, assets, bitmapW, bitmapH));
+        if (phasePx != strip.lastPhasePx) {
+            strip.lastPhasePx = phasePx;
+            PsdLcdTextures.upload(strip,
+                    PsdLcdPainter.paintTickerStrip(c, assets, bitmapW, bitmapH, content.tickerPhase()));
+        }
+
+        final float[] inner = PsdLcdPainter.tickerInner(bitmapW, bitmapH);
+        final float fx0 = inner[0] / bitmapW;
+        final float fx1 = inner[2] / bitmapW;
+        final float fy0 = inner[1] / bitmapH;
+        final float fy1 = inner[3] / bitmapH;
+        if (fx1 - fx0 < 1.0E-4F || fy1 - fy0 < 1.0E-4F) {
+            return;
+        }
+        final VertexConsumer vc = immediate.getBuffer(MoreRenderLayers.getLight(strip.id, true));
+        final int segments = Math.max(1, cuts.length);
+        for (int i = 0; i < segments; i++) {
+            final float cell0 = (float) i / segments;
+            final float cell1 = (float) (i + 1) / segments;
+            final float a = Math.max(fx0, cell0);
+            final float b = Math.min(fx1, cell1);
+            if (b - a < 1.0E-5F) {
+                continue;
+            }
+            final float[][] quad = PsdLcdLayout.bandQuad(face, extent, a, b, fy0, fy1,
+                    i < cuts.length && cuts[i], TICKER_LIFT_PX);
+            final float u0 = (a - fx0) / (fx1 - fx0);
+            final float u1 = (b - fx0) / (fx1 - fx0);
+            vertex(vc, matrix, normalMatrix, quad[0][0], quad[0][1], quad[0][2], u0, 0.0F, normal);
+            vertex(vc, matrix, normalMatrix, quad[1][0], quad[1][1], quad[1][2], u0, 1.0F, normal);
+            vertex(vc, matrix, normalMatrix, quad[2][0], quad[2][1], quad[2][2], u1, 1.0F, normal);
+            vertex(vc, matrix, normalMatrix, quad[3][0], quad[3][1], quad[3][2], u1, 0.0F, normal);
+        }
+    }
+
     // ------------------------------------------------------------------ 内容
 
-    /** 一帧的内容 + 用来判断「要不要重画位图」的哈希。 */
-    private record Content(PsdLcdPainter.Content content, BufferedImage ad, String hash) {
+    /** 一帧的内容 + 用来判断「要不要重画位图」的哈希 + 标语滚动相位。 */
+    private record Content(PsdLcdPainter.Content content, BufferedImage ad, String hash,
+                           float tickerPhase, int tickerSpanTicks) {
+    }
+
+    /** 这一帧播的是哪张广告，以及它这一轮的起点 / 终点（广告轮播与标语滚动共用同一条时间线）。 */
+    private record AdSlot(PidsXiamenAds.Ad ad, long passStart, long passEnd) {
     }
 
     private static Content contentOf(final PsdLcdBlockEntity entity, final World world, final BlockPos pos,
-                                     final float spanPx) {
+                                     final float spanPx, final int bitmapW, final int bitmapH) {
         final List<ScheduleEntry> schedules = PidsXiamenRenderer.schedulesFor(entity, pos);
         final int page = Math.max(0, entity.getDisplayPage());
 
@@ -461,9 +558,13 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                 ? new PidsXiamenRenderer.Countdown("", "") : PidsXiamenRenderer.countdown(first);
         final PidsXiamenRenderer.Countdown count2 = second == null
                 ? new PidsXiamenRenderer.Countdown("", "") : PidsXiamenRenderer.countdown(second);
-        // 单位：分钟 / min（数字为空时单位也留空，屏上不会出现孤零零的「分钟」）
-        final String unitZh = count1.number().isEmpty() ? "" : unitOf(count1.unit(), true);
-        final String unitEn = count1.number().isEmpty() ? "" : unitOf(count1.unit(), false);
+        // 单位：**两行各算各的**（以前两行共用 count1 算出来的那一份，第一行没数字时
+        // 第二行的「分钟 / min」就一起消失了 —— 用户报的「分钟有时不显示」有一半是这个）；
+        // 数字在、单位却是空的时候退回「分钟 / min」，屏上不会出现「17」后面没有单位。
+        final String unitZh = unitOf(count1, true);
+        final String unitEn = unitOf(count1, false);
+        final String unitZh2 = unitOf(count2, true);
+        final String unitEn2 = unitOf(count2, false);
 
         // ---- 线路徽标（取第一班的线路色）
         final String lineZh;
@@ -516,11 +617,11 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
             carNumbers.add(String.valueOf(i));
         }
 
-        // ---- 标语条的文字：**画进位图**（静态），不再走 MC 文字层。
+        // ---- 标语条的文字：**画进位图 + 渲染器每 tick 滚动**（见 drawTicker）。
         // 广告区画的是同一张广告（有图就铺图，没图就洋红占位块 + 「广告位」）。
-        final PidsXiamenAds.Ad ad = adOf(entity, world);
-        final BufferedImage adImage = ad == null ? null : PsdLcdAssets.ad(ad.image());
-        final String ticker = ad == null || ad.text() == null ? "" : ad.text().getString();
+        final AdSlot slot = adOf(entity, world, bitmapW, bitmapH);
+        final BufferedImage adImage = slot.ad == null ? null : PsdLcdAssets.ad(slot.ad.image());
+        final String ticker = slot.ad == null || slot.ad.text() == null ? "" : slot.ad.text().getString();
 
         final PsdLcdPainter.Content content = new PsdLcdPainter.Content(
                 dateText, weekdayZh, weekdayEn, clock,
@@ -531,6 +632,7 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                 Text.translatable("gui.mtrlte.pids.next_train_sub").getString(),
                 dest2[0], dest2[1], count2.number(),
                 unitZh, unitEn,
+                unitZh2, unitEn2,
                 lineZh, lineEn, lineColor,
                 stationZh, stationEn,
                 carNumbers,
@@ -538,44 +640,66 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                 ticker,
                 Text.translatable("gui.mtrlte.psd_lcd.place_ad").getString());
 
+        // ---- 标语滚动：字宽 > 框宽才滚；一轮的 tick 数与广告轮播共用同一个数
+        final PsdLcdPainter.Assets assets = PsdLcdAssets.get();
+        final float fontPx = PsdLcdPainter.tickerFontPx(bitmapW, bitmapH);
+        final float textW = PsdLcdPainter.tickerTextWidth(content, assets, bitmapW, bitmapH);
+        final float innerW = PsdLcdPainter.tickerInner(bitmapW, bitmapH)[2]
+                - PsdLcdPainter.tickerInner(bitmapW, bitmapH)[0];
+        final float spanPxOfText = innerW + textW;
+        final int spanTicks = textW > innerW ? Math.max(1, Math.round(
+                spanPxOfText / PidsXiamenTicker.pxPerTick(fontPx))) : 0;
+        final float phase;
+        if (spanTicks <= 0) {
+            // 字比框短：居中静止，不滚（广告轮播退回 AD_ROTATE_TICKS）
+            phase = -1.0F;
+        } else if (slot.passEnd > slot.passStart) {
+            // 广告轮播在走：相位就是「这一张已经播了多少」，滚完那一刻正好换图
+            final long now = world.getTime();
+            phase = Math.max(0.0F, Math.min(0.9999F,
+                    (float) ((now - slot.passStart) / (double) (slot.passEnd - slot.passStart))));
+        } else {
+            // 没有广告轮播（广告集关着 / 只有一张）：自己按世界时间循环
+            final long now = world.getTime();
+            phase = (float) (Math.floorMod(now, (long) spanTicks) / (double) spanTicks);
+        }
+
         // 哈希：只有这些变了才需要重画位图（广告图换了也要重画，所以把图片 id 也带上；
-        // 接 / 拆一格以后宽度变了也重画 —— 位图宽度跟着 spanPx 走，不能拿旧宽度的位图拉伸）
-        final String adKey = ad == null || ad.image() == null ? "-" : ad.image().toString();
+        // 接 / 拆一格以后宽度变了也重画 —— 位图宽度跟着 spanPx 走，不能拿旧宽度的位图拉伸）。
+        // **滚动相位不进哈希**：滚动标语是单独一张小贴图，整屏位图不参与。
+        final String adKey = slot.ad == null || slot.ad.image() == null ? "-" : slot.ad.image().toString();
         return new Content(content, adImage,
-                content + "|" + Math.round(spanPx) + "|" + adKey);
+                content + "|" + Math.round(spanPx) + "|" + adKey, phase, spanTicks);
     }
 
     /**
      * 这块屏当前要显示的广告（和厦门 PIDS 同一套优先级：全局广告集 → 全局单张覆盖 →
      * 这块屏自己勾的分类，见 {@link PidsXiamenSettings#applyAdOverride(List)}）。
-     * 广告关掉 / 表是空的 → {@code null}。
+     * 广告关掉 / 表是空的 → {@code ad == null}。
      *
      * <h2>换图节奏：标语滚完一轮（不是定时）</h2>
      * <p>广告集生效时，换图触发点与厦门 PIDS 完全一致：<b>这一张的标语滚完一轮</b>才 +1。
-     * 时长直接复用 PIDS 那条时间线的算法 —— {@link PidsXiamenTicker#scrollSpanTicks}
-     * （标语条宽度 + 这条字的宽度）/ 滚动速度，也就是 {@code PidsXiamenRenderer#slideOf}
-     * 算 {@code dwell[i]} 用的同一个函数。PSD-LCD 的标语条是静态画的（整句居中，不滚），
-     * 所以这里把「滚完一轮」当成这一张广告的<b>停留时长</b>：字多的广告停得久，字少的换得勤，
-     * 和 PIDS 的观感一致。
+     * 时长用的是 PSD-LCD 自己那条标语框的几何 —— 框内宽 + 这条字的宽度，除以
+     * {@link PidsXiamenTicker#pxPerTick(float)}（与 PIDS <b>同一份</b>速度换算）：
+     * 也就是屏上那句字正好滚出左缘的那一刻换图，不会「字滚到一半突然换广告」。
+     * 短句（字宽 ≤ 框宽，居中静止）没有「滚完」可言，退回 {@link #AD_ROTATE_TICKS}。
      *
-     * <p>每块屏各记各的（{@link #ROTATIONS}）：起点是这块屏自己的
-     * {@code advertisementIndex}，滚完一轮就 {@code (slot + 1) mod n}，别人的屏不受影响。
-     *
-     * <p><b>兜底</b>：这张广告没有 {@code text}（标语条没字，算不出「滚完」要多久）时，
-     * 回落到 {@link #AD_ROTATE_TICKS}（10 秒一张）。
+     * <p>返回的 {@code passStart/passEnd} 同时是标语滚动的相位基准（{@code contentOf} 里用），
+     * 所以「滚到哪」和「什么时候换图」永远是同一对数。
      *
      * <p>广告集关着 / 空 / 图都不在了（{@link PidsAdSetCache#activeAds()} 为 {@code null}）时，
-     * 完全保持老行为：只按 {@code advertisementIndex} 取一张，不随时间变（单张覆盖 /
-     * 各屏自己的分类都不轮播）。
+     * 完全保持老行为：只按 {@code advertisementIndex} 取一张，不随时间变（{@code passStart == passEnd}
+     * = 没有轮播时间线，标语自己按世界时间循环滚）。
      */
-    private static PidsXiamenAds.Ad adOf(final PsdLcdBlockEntity entity, final World world) {
+    private static AdSlot adOf(final PsdLcdBlockEntity entity, final World world,
+                               final int bitmapW, final int bitmapH) {
         try {
             if (!PidsXiamenSettings.advertisements()) {
-                return null;
+                return new AdSlot(null, 0L, 0L);
             }
             final List<PidsXiamenAds.Ad> ads = PidsXiamenSettings.applyAdOverride(entity.getAds());
             if (ads == null || ads.isEmpty()) {
-                return null;
+                return new AdSlot(null, 0L, 0L);
             }
             final List<PidsXiamenAds.Ad> set = PidsAdSetCache.activeAds();
             if (set == null || set.isEmpty()) {
@@ -586,11 +710,13 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                         ROTATIONS.remove(key);
                     }
                 }
-                return ads.get(Math.floorMod(entity.getAdvertisementIndex(), ads.size()));
+                return new AdSlot(ads.get(Math.floorMod(entity.getAdvertisementIndex(), ads.size())),
+                        0L, 0L);
             }
             final String key = rotationKey(entity, world);
             if (key == null) {
-                return set.get(Math.floorMod(entity.getAdvertisementIndex(), set.size()));
+                return new AdSlot(set.get(Math.floorMod(entity.getAdvertisementIndex(), set.size())),
+                        0L, 0L);
             }
             final long now = world.getTime();
             synchronized (ROTATIONS) {
@@ -601,18 +727,20 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
                     state.setRef = set;
                     state.count = set.size();
                     state.slot = Math.floorMod(entity.getAdvertisementIndex(), state.count);
-                    state.passEnd = now + passTicks(set.get(state.slot));
+                    state.passStart = now;
+                    state.passEnd = now + passTicks(set.get(state.slot), bitmapW, bitmapH);
                     ROTATIONS.put(key, state);
                 } else if (now >= state.passEnd) {
                     // 标语滚完一轮 → 下一张。就算中间隔了很久（区块卸载后重进）也只前进一步，
                     // 不会一次跳过好几张。
                     state.slot = (state.slot + 1) % state.count;
-                    state.passEnd = now + passTicks(set.get(state.slot));
+                    state.passStart = now;
+                    state.passEnd = now + passTicks(set.get(state.slot), bitmapW, bitmapH);
                 }
-                return set.get(state.slot);
+                return new AdSlot(set.get(state.slot), state.passStart, state.passEnd);
             }
         } catch (final Throwable ignored) {
-            return null;
+            return new AdSlot(null, 0L, 0L);
         }
     }
 
@@ -630,29 +758,33 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
     }
 
     /**
-     * 这张广告「标语滚完一轮」要多少 tick —— 直接问 PIDS 那条时间线的同一个函数
-     * （{@link PidsXiamenTicker#scrollSpanTicks}）。
+     * 这张广告「标语滚完一轮」要多少 tick。
      *
-     * <p><b>为什么用 PIDS 地铁那条标语框当度量基准</b>：PSD-LCD 的位图是按 <b>520 px/格 × 2</b>
-     * 渲染的（3 段 = 3120 px 宽），直接拿位图像素去量，「滚一遍」会被放大成一分多钟；而实际
-     * 观感该跟 PIDS 一样 —— 一句标语滚完就换。所以量的是 PIDS 地铁那条 {@code 323×28} 的
-     * 标语框（字号 0.52），也就是<b>同一条广告在 PIDS 上会停多久，这里就停多久</b>。
+     * <p><b>用的是屏上那条标语自己的几何</b>：{@link PsdLcdPainter#tickerScrollSpanPx}
+     * （框内宽 + 字宽）除以 {@link PidsXiamenTicker#pxPerTick(float)} ——
+     * 后面这个函数的参数是这块屏的字高 {@link PsdLcdPainter#tickerFontPx}，
+     * 所以「滚完」的时刻和 {@link #drawTicker} 画出来的滚动<b>逐像素同一套</b>
+     * （PIDS 那边也是用同一个函数换算，只是字高不同）。
      *
-     * <p>算不出来（没字 / 没客户端 / 条太窄）返回 {@link #AD_ROTATE_TICKS}。
+     * <p>字比框短（居中静止，不滚）→ {@link #AD_ROTATE_TICKS}；算不出来也一样。
      */
-    private static int passTicks(final PidsXiamenAds.Ad ad) {
+    private static int passTicks(final PidsXiamenAds.Ad ad, final int bitmapW, final int bitmapH) {
         try {
             if (ad == null || ad.text() == null || ad.text().getString().isBlank()) {
                 return AD_ROTATE_TICKS;
             }
-            final net.minecraft.client.MinecraftClient client =
-                    net.minecraft.client.MinecraftClient.getInstance();
-            if (client == null || client.textRenderer == null) {
+            final PsdLcdPainter.Assets assets = PsdLcdAssets.get();
+            final float textW = PsdLcdPainter.tickerTextWidthFor(ad.text().getString(), assets,
+                    bitmapW, bitmapH);
+            final float innerW = PsdLcdPainter.tickerInner(bitmapW, bitmapH)[2]
+                    - PsdLcdPainter.tickerInner(bitmapW, bitmapH)[0];
+            if (textW <= innerW) {
+                // 短句不滚：没有「滚完」这个时刻，按固定停留
                 return AD_ROTATE_TICKS;
             }
-            final PidsXiamenLayout.Metro ref = PidsXiamenLayout.METRO;
-            final int ticks = PidsXiamenTicker.scrollSpanTicks(client.textRenderer,
-                    PidsXiamenRenderer.captionOf(ad), ref.ticker(), ref.tickerText().sizeRatio());
+            final float pxPerTick = PidsXiamenTicker.pxPerTick(
+                    PsdLcdPainter.tickerFontPx(bitmapW, bitmapH));
+            final int ticks = Math.round((innerW + textW) / Math.max(0.01F, pxPerTick));
             return ticks > 0 ? ticks : AD_ROTATE_TICKS;
         } catch (final Throwable ignored) {
             return AD_ROTATE_TICKS;
@@ -712,6 +844,39 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
     /** 两个 Station 是不是同一个（按 id；任一为 null 就是 false）。 */
     private static boolean sameStation(final Station a, final Station b) {
         return a != null && b != null && a.id == b.id;
+    }
+
+    /**
+     * 倒计时单位：中文写「分钟 / 秒」，英文写「min / s」。
+     *
+     * <h2>为什么改成吃整个 {@link PidsXiamenRenderer.Countdown}</h2>
+     * <p>「分钟 / min 有时候不显示」的根因就在这个函数的调用方：
+     * <ol>
+     *   <li><b>两行共用一个单位</b>：以前只拿第一行的 {@code count1} 算，第二行（「下一趟开往」）
+     *       永远跟着第一行走 —— 第一行是「即将进站」（没有数字 / 没有单位）时，第二行明明有
+     *       「17」，单位却是空的；</li>
+     *   <li><b>数字在、单位空</b>：{@code countdown()} 在「一分钟以内」那条分支返回
+     *       {@code ("即将进站", "")}，未知单位又落到 {@code chinese ? unit : ""}，英文侧直接
+     *       变成空串 —— 于是中文有「秒」、英文什么都没有。</li>
+     * </ol>
+     * 现在：数字为空 → 单位留空（不出现孤零零的「分钟」）；数字是纯数字却没解析出单位 →
+     * 退回「分钟 / min」（宁可写错单位，也不能让「17」后面空着）。这两条在
+     * {@code tools/psd-lcd-fit-check.js} 里有 0/1/2/17/99 × 中英文的像素级断言。
+     */
+    private static String unitOf(final PidsXiamenRenderer.Countdown countdown, final boolean chinese) {
+        if (countdown == null || countdown.number() == null || countdown.number().isEmpty()) {
+            return "";
+        }
+        final String unit = unitOf(countdown.unit(), chinese);
+        if (!unit.isEmpty()) {
+            return unit;
+        }
+        if (!countdown.number().codePoints().allMatch(Character::isDigit)) {
+            // 「即将进站 / 已到站」这种文字状态：本来就没有单位，别硬塞一个
+            return "";
+        }
+        return Text.translatable(chinese
+                ? "gui.mtrlte.pids.minute" : "gui.mtrlte.psd_lcd.min_en").getString();
     }
 
     /** 倒计时单位：中文写「分钟 / 秒」，英文写「min / s」。 */

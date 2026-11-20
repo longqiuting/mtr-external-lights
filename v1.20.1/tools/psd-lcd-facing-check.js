@@ -365,6 +365,77 @@ for (const face of FACES) {
   }
 }
 
+// ---------------------------------------------------------------- 3c. 子矩形四边形（滚动标语）
+
+/**
+ * PsdLcdLayout#bandQuad 的同一份算法：**位图子矩形 → 世界四点**（左上 → 左下 → 右下 → 右上）。
+ *
+ * <p>渲染器的滚动标语四边形用它（标语条那一块压在屏幕面上），所以这里和 {@link windowQuad}
+ * 逐点对一遍：取满整块必须与窗口四边形完全重合，取子块必须严格落在窗口之内、只沿法线外推。
+ */
+function bandQuad(facing, totalPx, fx0, fx1, fy0, fy1, cut, liftPx = 0) {
+  const f = VEC[facing];
+  const right = VEC[RIGHT[facing]];
+  const band = BANDS[String(!!cut)];
+  const from = Math.min(fx0, fx1) * totalPx / 16;
+  const to = Math.max(fx0, fx1) * totalPx / 16;
+  const span = band[1] - band[0];
+  const topPx = band[1] - Math.min(fy0, fy1) * span;
+  const bottomPx = band[1] - Math.max(fy0, fy1) * span;
+  const y0 = bottomPx / 16;
+  const y1 = topPx / 16;
+  const plane = (f[0] < 0 || f[2] < 0) ? (BER_Z - liftPx) / 16 : 1 - (BER_Z - liftPx) / 16;
+  const startX = 0.5 - right[0] * 0.5;
+  const startZ = 0.5 - right[2] * 0.5;
+  if (right[0] !== 0) {
+    const x0 = startX + right[0] * from;
+    const x1 = startX + right[0] * to;
+    return [[x0, y1, plane], [x0, y0, plane], [x1, y0, plane], [x1, y1, plane]];
+  }
+  const z0 = startZ + right[2] * from;
+  const z1 = startZ + right[2] * to;
+  return [[plane, y1, z0], [plane, y0, z0], [plane, y0, z1], [plane, y1, z1]];
+}
+
+console.log('\n== 3c. 滚动标语的「位图子矩形」四边形 ↔ 窗口四边形（同一套算术）==');
+for (const face of FACES) {
+  for (const state of models.STATES) {
+    const total = 48;      // = 3 段 × 16px
+    const band = BANDS[String(state.cut)];
+    const win = windowQuad(face, 0, total, state.cut);
+    const full = bandQuad(face, total, 0, 1, 0, 1, state.cut, 0);
+    const identical = full.every((p, i) => p.every((v, j) => Math.abs(v - win[i][j]) < 1e-9));
+    ok(identical, `facing=${face},half_cut=${state.cut}：子矩形取满整块 = 窗口四边形（逐点重合）`);
+
+    const sub = bandQuad(face, total, 0.10, 0.60, 0.20, 0.80, state.cut, 0);
+    const ys = sub.map((p) => p[1] * 16);
+    ok(Math.min(...ys) >= band[0] - 1e-6 && Math.max(...ys) <= band[1] + 1e-6,
+      `facing=${face},half_cut=${state.cut}：子矩形的 y 带落在窗口 ${band[0]}…${band[1]}px 内`,
+      `${Math.min(...ys).toFixed(3)} … ${Math.max(...ys).toFixed(3)}`);
+    ok(Math.abs((Math.max(...ys) - Math.min(...ys)) - 0.60 * (band[1] - band[0])) < 1e-6,
+      `facing=${face},half_cut=${state.cut}：子矩形高度 = fy 比例 × 窗口高（0.6 档）`);
+
+    const spreadAxis = (face === 'NORTH' || face === 'SOUTH') ? 0 : 2;
+    const planeAxis = spreadAxis === 0 ? 2 : 0;
+    const winSpread = win.map((p) => p[spreadAxis] * 16);
+    const subSpread = sub.map((p) => p[spreadAxis] * 16);
+    ok(Math.min(...subSpread) >= Math.min(...winSpread) - 1e-6
+      && Math.max(...subSpread) <= Math.max(...winSpread) + 1e-6,
+    `facing=${face},half_cut=${state.cut}：子矩形在铺开轴上落在窗口之内`,
+    `${Math.min(...subSpread).toFixed(2)}…${Math.max(...subSpread).toFixed(2)}`
+    + ` ⊂ ${Math.min(...winSpread).toFixed(2)}…${Math.max(...winSpread).toFixed(2)}`);
+
+    // 沿法线外推（lift）必须朝外：位移 = lift × 法线分量
+    const lift = 0.032;
+    const lifted = bandQuad(face, total, 0.10, 0.60, 0.20, 0.80, state.cut, lift);
+    const d0 = (lifted[0][planeAxis] - sub[0][planeAxis]) * 16;
+    const expect = lift * VEC[face][planeAxis];
+    ok(Math.abs(d0 - expect) < 1e-6,
+      `facing=${face},half_cut=${state.cut}：lift ${lift}px 沿法线朝外（位移 = ${expect.toFixed(3)}px）`,
+      `实际 ${d0.toFixed(4)}px`);
+  }
+}
+
 // ---------------------------------------------------------------- 4. 方块：属性 / 轮廓 / 剪刀
 
 console.log('\n== 4. PsdLcdBlock：half_cut 属性 / 两个轮廓 / 剪刀不损工具 ==');

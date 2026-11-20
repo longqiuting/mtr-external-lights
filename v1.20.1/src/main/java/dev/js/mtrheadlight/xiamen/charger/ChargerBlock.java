@@ -58,13 +58,18 @@ import net.minecraft.world.World;
  * <h2>右键（只有上半部分）</h2>
  * <ol>
  *   <li><b>空手</b> → 租出一个充电宝（{@code rentedAt} 写进物品 NBT，服务端权威）。
- *       余额为负时拒绝租借；已经有一个没还的则走下面那条「两下买断」，不再发「先归还」提示；</li>
- *   <li><b>空手连点两下</b>（≤ 5 秒、同一台机器）→ <b>强制买断</b>身上那块未归还的充电宝：
- *       按 {@link PowerBankItem#OVERDUE_FEE}（与 24h 超时买断同一个常量）扣一次钱，
- *       成功则把它从背包 / 手上移除（见 {@link #armBuyout} / {@link #forceBuyout}）；</li>
+ *       余额为负时拒绝租借；已经有一个没还的会提示「先归还」；</li>
+ *   <li><b>手持充电宝 + Shift + 右键</b> → <b>强制买断</b>：按
+ *       {@link PowerBankItem#OVERDUE_FEE}（与 24h 超时买断同一个常量）扣一次钱，
+ *       成功后把「已买断」写进物品 NBT（{@code expiredFine}），这块充电宝从此归玩家、
+ *       机器永久拒收。余额不足只红字、不扣不收。以前那套「空手右键两下买断」已取消
+ *       （误触多，还要一张每人一条的全局状态表）；</li>
  *   <li><b>手持充电宝</b> → 归还：按<a href="#fee">持有时间</a>扣费（MTR 余额，见 {@link MtrBalance}）；</li>
  *   <li><b>手持别的东西</b> → 一句提示，不误触。</li>
  * </ol>
+ * <p>「投掷」是另一条独立的线（不算归还）：见 {@code PowerBankItem#use} 与
+ * {@link PowerBankProjectileEntity} —— 扔出去的充电宝在命中 / 落地时判定<b>损坏</b>并按买断价扣款，
+ * 这块充电宝之后再也不能归还。
  * <p>下半部分 {@code charger_bottom} <b>没有任何交互</b>：它的 {@code onUse} 直接
  * {@link ActionResult#PASS}（原版默认值），等于一个普通方块 —— 空手右键没反应，
  * 手里拿着方块就照常放着对方块。没有提示消息、不读余额、不碰 NBT。
@@ -103,35 +108,6 @@ public class ChargerBlock extends HorizontalFacingBlock implements BlockEntityPr
 
     /** 模型读不到时的兜底包围盒（模型空间 0..16）：x 3..13、整格高、z 3..13。 */
     private static final float[] FALLBACK_BOX = {3.0F, 0.0F, 3.0F, 13.0F, 16.0F, 13.0F};
-
-    /**
-     * 「空手右键两下 = 强制买断」的两下窗口（毫秒）。第一下只记时间，第二下（≤ 5 秒、同一个人、
-     * 同一台机器）才真的扣钱。
-     */
-    private static final long BUYOUT_WINDOW_MILLIS = 5_000L;
-
-    /**
-     * 买断窗口的服务端记账：<b>每个玩家一条</b>。只在服务端 {@link #onUse} 里读写，客户端碰不到
-     * （所以扣钱永远是服务端权威的）。
-     *
-     * <p>条目里存的是 {@link net.minecraft.server.network.ServerPlayerEntity} <b>实例本身</b>而不是只存
-     * UUID：玩家登出再进来是一个新实例，上一条窗口自然对不上（等于「登出即清」）；
-     * 维度也记一份，换维度后同一个坐标不算「同一台机器」。剩下的一次性条目由 {@link #armBuyout}
-     * 每次右键顺手清（过期 + 非本人），表最多几个元素。
-     */
-    private static final java.util.Map<java.util.UUID, BuyoutArm> BUYOUT_ARMS = new java.util.HashMap<>();
-
-    /** 一次「已经点过第一下」的记录。 */
-    private static final class BuyoutArm {
-        /** 第一下点的是谁（实例身份；换存档 / 重新登录就是另一个对象）。 */
-        PlayerEntity player;
-        /** 机器坐标（{@link BlockPos#asLong()}）。 */
-        long pos;
-        /** 维度 id（{@code minecraft:overworld} 这种）。 */
-        String dimension;
-        /** 过期时间（epoch 毫秒）。 */
-        long expiresAt;
-    }
 
     /** 是不是上半部分（只有它右键有交互）。 */
     private final boolean top;
@@ -271,87 +247,59 @@ public class ChargerBlock extends HorizontalFacingBlock implements BlockEntityPr
 
         final ItemStack held = player.getStackInHand(hand);
         if (held.getItem() instanceof PowerBankItem) {
-            returnPowerBank(world, pos, player, held);
+            if (player.isSneaking()) {
+                // 手持充电宝 + Shift + 右键 = **强制买断**（以前是「空手右键两下」，误触多、还留一张
+                // 全局状态表，已经撤掉）。价格复用 24h 超时那一档（{@link PowerBankItem#OVERDUE_FEE}）。
+                forceBuyout(world, pos, player, held);
+            } else {
+                returnPowerBank(world, pos, player, held);
+            }
             return ActionResult.SUCCESS;
         }
         if (!held.isEmpty()) {
             player.sendMessage(Text.translatable("message.mtrlte.charger.hand_not_empty"), true);
             return ActionResult.SUCCESS;
         }
-        // ---- 空手：身上还有未归还的充电宝 → 「两下买断」；没有 → 租一个。
-        //
-        // 为什么需要这条：超过 24h 机器本来就拒收（只能扣 100 买断费、充电宝归玩家），
-        // 但玩家要是把充电宝丢进了虚空 / 卡在拿不回来的地方，就彻底没有「结束这次租借」的出口。
-        // 现在空手连点两下 = 强制买断：价格与 24h 超时买断<b>同一个常量</b>
-        // （{@link PowerBankItem#OVERDUE_FEE}），服务端扣钱，成功后把这块充电宝收走。
-        final ItemStack rented = findRented(player);
-        if (rented == null) {
-            rentPowerBank(world, pos, player);
-            return ActionResult.SUCCESS;
-        }
-        if (!armBuyout(world, player, pos)) {
-            // 第一下：只记窗口，不扣钱、不动物品。提示写「再点一下」和价格，避免误触。
-            player.sendMessage(Text.translatable("message.mtrlte.charger.buyout_arm",
-                    PowerBankItem.OVERDUE_FEE).formatted(Formatting.YELLOW), true);
-            return ActionResult.SUCCESS;
-        }
-        forceBuyout(world, pos, player, rented);
+        // ---- 空手：租一个（身上还有没还的会由 rentPowerBank 给出「先归还」提示）。
+        // 买断改成「手持充电宝 + Shift + 右键」，空手这条路只剩租借，不再需要任何状态表。
+        rentPowerBank(world, pos, player);
         return ActionResult.SUCCESS;
     }
 
     /**
-     * 「空手右键两下」的第二下判定（服务端权威）。
-     *
-     * <p>第一下只往 {@link #BUYOUT_ARMS} 写一条「这个玩家 5 秒内在这台机器上点过一次」；
-     * 第二次调用时，同一个人（{@link BuyoutArm#player 实例相同}）、同一台机器（坐标 + 维度都一致）、
-     * 并且还没过期 → 消费掉这条记录并返回 {@code true}，调用方这才扣钱。
-     *
-     * <p>不放在客户端：客户端连「哪只手是空的」都不该决定钱的事，这里只由服务端的
-     * {@code onUse} 调用，客户端那一侧永远走不到。
-     *
-     * @return {@code false} = 这是第一下（窗口已记下）；{@code true} = 这是第二下，可以买断
-     */
-    private static boolean armBuyout(final World world, final PlayerEntity player, final BlockPos pos) {
-        final long now = System.currentTimeMillis();
-        final String dimension = world.getRegistryKey().getValue().toString();
-        final long posLong = pos.asLong();
-        synchronized (BUYOUT_ARMS) {
-            // 顺手清：过期的。其余条目属于别的玩家 —— 服务端所有玩家共用这张表，
-            // 不能在这里动别人的窗口（否则别人正在等的第二下会被清掉）。
-            BUYOUT_ARMS.entrySet().removeIf(entry ->
-                    entry.getValue() == null || entry.getValue().expiresAt <= now);
-            final BuyoutArm armed = BUYOUT_ARMS.get(player.getUuid());
-            // 同一个 UUID 但实例换了（登出再进来）/ 换了维度：上一条窗口作废，当第一次点。
-            if (armed != null && armed.player == player && armed.pos == posLong
-                    && dimension.equals(armed.dimension) && armed.expiresAt > now) {
-                // 第二下：先把窗口消费掉，再交给调用方扣钱 —— 扣失败也不会「一直点一直试」。
-                BUYOUT_ARMS.remove(player.getUuid());
-                return true;
-            }
-            final BuyoutArm fresh = new BuyoutArm();
-            fresh.player = player;
-            fresh.pos = posLong;
-            fresh.dimension = dimension;
-            fresh.expiresAt = now + BUYOUT_WINDOW_MILLIS;
-            BUYOUT_ARMS.put(player.getUuid(), fresh);
-            return false;
-        }
-    }
-
-    /**
-     * 强制买断：按 24h 超时那一档的价格（{@link PowerBankItem#OVERDUE_FEE}）扣一次钱，
-     * 成功则把这块充电宝从身上移除。
+     * 强制买断（手持充电宝 + Shift + 右键，服务端权威）：按 24h 超时那一档的价格
+     * （{@link PowerBankItem#OVERDUE_FEE}）扣一次钱，然后把这块充电宝藏进物品自己的 NBT
+     * （{@code expiredFine}）—— 从此机器永久拒收（和「超过 24 小时」那条路径的终态完全一样：
+     * <b>充电宝归玩家</b>，只是提前付了买断价）。
      *
      * <ul>
-     *   <li><b>余额不足</b>：红字提示，<b>不扣、不盖章、不动物品</b>；</li>
+     *   <li><b>余额不足</b>：红字提示，<b>不扣、不盖章、物品不动</b>（用户要求：余额不足只红字不扣）；</li>
      *   <li><b>写不进账本</b>（MTR 记分板缺失等）：同样红字、不盖章，下次再试 —— 与
      *       {@link #rejectOverdue} 的判定逐字一致（{@code after != before - fee} 说明没写成功）；</li>
-     *   <li><b>成功</b>：先盖「已买断」章（{@code expiredFine}）再把物品移除，所以哪怕背包里
-     *       有同一份 NBT 的副本，它对机器也已经永久失效（{@link #findRented} 会跳过它）。</li>
+     *   <li><b>已经买断过 / 已经损坏</b>：一声提示，不重复扣钱。</li>
      * </ul>
+     *
+     * <p>创造模式拿的、没有 {@code rentedAt} 的充电宝也照收：本来就没有租期，直接当「已经买断」，
+     * 不收钱（没有租借记录就没有可买断的东西）。
      */
     private static void forceBuyout(final World world, final BlockPos pos, final PlayerEntity player,
-                                    final ItemStack rented) {
+                                    final ItemStack held) {
+        if (PowerBankItem.isDamaged(held)) {
+            player.sendMessage(Text.translatable("message.mtrlte.charger.damaged_not_returnable")
+                    .formatted(Formatting.RED), true);
+            return;
+        }
+        if (!PowerBankItem.isRented(held)) {
+            player.sendMessage(Text.translatable("message.mtrlte.charger.returned_free",
+                    MtrBalance.get(world, player)), true);
+            return;
+        }
+        if (PowerBankItem.isOverdueSettled(held)) {
+            player.sendMessage(Text.translatable("message.mtrlte.charger.overdue_again",
+                    PowerBankItem.heldHours(held, System.currentTimeMillis()),
+                    PowerBankItem.OVERDUE_FEE).formatted(Formatting.RED), false);
+            return;
+        }
         final int fee = PowerBankItem.OVERDUE_FEE;
         final int before = MtrBalance.get(world, player);
         if (before < fee) {
@@ -365,11 +313,9 @@ public class ChargerBlock extends HorizontalFacingBlock implements BlockEntityPr
                     fee).formatted(Formatting.RED), false);
             return;
         }
-        PowerBankItem.markOverdueSettled(rented);
-        rented.decrement(1);
+        PowerBankItem.markOverdueSettled(held);
         ding(world, pos);
-        player.sendMessage(Text.translatable("message.mtrlte.charger.bought_out",
-                fee, after), false);
+        player.sendMessage(Text.translatable("message.mtrlte.charger.bought_out", fee, after), false);
     }
 
     /** 空手右键上半部分：租出一个。 */
@@ -409,6 +355,12 @@ public class ChargerBlock extends HorizontalFacingBlock implements BlockEntityPr
      */
     private static void returnPowerBank(final World world, final BlockPos pos, final PlayerEntity player,
                                         final ItemStack held) {
+        if (PowerBankItem.isDamaged(held)) {
+            // 投掷过的充电宝已经判定「损坏」并按买断价扣过款了 —— 机器永久拒收，也不能再计费。
+            player.sendMessage(Text.translatable("message.mtrlte.charger.damaged_not_returnable")
+                    .formatted(Formatting.RED), true);
+            return;
+        }
         if (!PowerBankItem.isRented(held)) {
             // 没有租借记录（创造模式拿的 / 刷出来的）：照收，不计费。
             held.decrement(1);
@@ -481,26 +433,30 @@ public class ChargerBlock extends HorizontalFacingBlock implements BlockEntityPr
     /**
      * 背包里有没有一件「还欠着」的充电宝（副手也算）。
      *
-     * <p>已经买断的（{@code expiredFine}）不算：那是玩家的东西，机器永远拒收，
-     * 再拿它去挡新租借等于永久封号 —— 所以跳过。
+     * <p>已经买断的（{@code expiredFine}）与已经损坏的（{@code damaged}，投掷过）都不算：
+     * 那是玩家的东西，机器永远拒收，再拿它去挡新租借等于永久封号 —— 所以跳过。
      *
      * <p>副手单列一次：1.20.1 的 {@code PlayerInventory#size()} 只数主背包 36 格，
      * 护甲 / 副手不在里面（主手那一路由 {@code onUse} 的「手持充电宝」分支处理）。
      */
     private static ItemStack findRented(final PlayerEntity player) {
         final ItemStack offHand = player.getOffHandStack();
-        if (offHand.getItem() instanceof PowerBankItem && PowerBankItem.isRented(offHand)
-                && !PowerBankItem.isOverdueSettled(offHand)) {
+        if (isOwing(offHand)) {
             return offHand;
         }
         for (int slot = 0; slot < player.getInventory().size(); slot++) {
             final ItemStack stack = player.getInventory().getStack(slot);
-            if (stack.getItem() instanceof PowerBankItem && PowerBankItem.isRented(stack)
-                    && !PowerBankItem.isOverdueSettled(stack)) {
+            if (isOwing(stack)) {
                 return stack;
             }
         }
         return null;
+    }
+
+    /** 这一件是不是「还欠着」：租借中、没买断、没损坏。 */
+    private static boolean isOwing(final ItemStack stack) {
+        return stack.getItem() instanceof PowerBankItem && PowerBankItem.isRented(stack)
+                && !PowerBankItem.isOverdueSettled(stack) && !PowerBankItem.isDamaged(stack);
     }
 
     // ------------------------------------------------------------------ 提示
