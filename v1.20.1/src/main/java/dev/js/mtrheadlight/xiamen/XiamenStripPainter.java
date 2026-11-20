@@ -251,6 +251,17 @@ public final class XiamenStripPainter {
     /** 45° 斜排时的投影系数。 */
     private static final double DIAG = 1.0 / Math.sqrt(2.0);
 
+    /**
+     * 45° 站名的旋转角（AWT 屏幕坐标，y 轴向下：负数 = 视觉逆时针）。
+     *
+     * <p>{@code -45°} 画出来就是实拍的「从圆圈往右上」那一撇。<b>全线所有站共用一个角</b>，
+     * 包括画面最右那一站（终点站）—— v11 那个终点站专用的镜像角（{@code +Math.PI/4}）已撤销。</p>
+     */
+    private static final double NAME_ROTATION = -Math.PI / 4;
+
+    /** 同一个角的<b>视觉</b>度数（报给断言 / 日志用：+45 = 往右上，与普通站一致）。 */
+    public static final float NAME_ROTATION_DEG = 45f;
+
     /** 相邻站名之间允许占用的站距比例。 */
     private static final float NAME_GAP = 0.92f;
 
@@ -278,19 +289,27 @@ public final class XiamenStripPainter {
     /** v10：本次从尾部截掉的总数（0 = 全画下了）。 */
     public static volatile int lastBadgeDropped;
     /**
-     * v11：画面最右那一站（终点站 / 镜像后的起点站）站名的锚点 x。
+     * v11：画面最右那一站（终点站 / 反向时的起点站）站名的锚点 x。
      *
      * <ul>
-     *   <li><b>45° 镜像排版</b>（{@link #lastNameMirrored}）：= <b>圆心</b>，站名末端压在自己的圆圈上；</li>
-     *   <li><b>正排（namesBelow）</b>：= 站名<b>中心</b>（正常就等于圆心，夹边时会被推回来）；</li>
-     *   <li><b>45° 未镜像</b>：= 文字起点（等于圆心；被右边夹过就是夹回来的那个 x）。</li>
+     *   <li><b>45° 斜排</b>：= <b>文字起点</b>（v12 起正常就等于自己的圆心 —— 端头留白已经把位置让出来了）；</li>
+     *   <li><b>正排（namesBelow）</b>：= 站名<b>中心</b>（正常就等于圆心，夹边时会被推回来）。</li>
      * </ul>
      *
      * <p>0 = 这次没画站名。</p>
      */
     public static volatile int lastNameAnchorX;
-    /** v11：终点站站名这次是不是走了「往左上」的镜像排版（45° 斜排、右侧放不下时）。 */
-    public static volatile boolean lastNameMirrored;
+    /**
+     * v12：45° 站名的旋转角（<b>视觉角度</b>，度；+45 = 往右上，与普通站完全同一方向；正排 = 0）。
+     *
+     * <p>AWT 的 {@code rotate()} 在屏幕坐标里顺时针为正，所以代码里写的是 {@code -45°}，
+     * 画出来正好是视觉上的 +45°。v11 的「终点站名镜像」（视觉 -45°）已撤销。</p>
+     */
+    public static volatile float lastNameRotationDeg;
+    /** v12：本次给最右那站站名让出的端头留白（px；0 = 不用让位）。 */
+    public static volatile int lastNameReserve;
+    /** v12：本次实际画出来的站点圆心 x（长度 = 站数；离线断言 / 报告用，验证站距是否均匀）。 */
+    public static volatile int[] lastStationXs = new int[0];
     /** 终点站圆环直径 / 终点箭头长度（日志 / 报告用）。 */
     public static volatile int lastTerminalRing;
     public static volatile int lastTerminalArrow;
@@ -551,7 +570,8 @@ public final class XiamenStripPainter {
             lastBadgeScale = 1f;
             lastBadgeDropped = 0;
             lastNameAnchorX = 0;
-            lastNameMirrored = false;
+            lastNameRotationDeg = 0f;
+            lastNameReserve = 0;
 
             final int count = model.names.length;
             // v7：唯一的镜像规则 —— 方向 1 / 2 / 3 都是“列车朝左”，整条图一起镜像（含终点三角）。
@@ -606,30 +626,58 @@ public final class XiamenStripPainter {
             final float circle = Math.max(bandH * 0.09f,
                     Math.min(bandH * CIRCLE_RATIO, stepGuess * 0.62f));
             final int radius = Math.round(circle / 2f);
+            // v7：当前站 = 一个红色实心圆；v9：换乘站 = 整圈箭头环 —— 两者的可见外缘都走 markOuterRadius。
+            final int ixRingD = Math.max(14, Math.round(bandH * IX_RING_RATIO));
+            final float curD = circle + Math.max(1.2f, circle * RING_RATIO);
+            // 站名可用的纵向范围 / 字号上限（v12：提到站点几何之前 —— 端头留白要先量站名占多宽）
+            final int nameTop = Math.max(2, Math.round(height * NAME_AREA_TOP_RATIO));
+            final int nameCap = Math.max(9, Math.round(height * NAME_MAX_RATIO));
+
             final int xFirst = padLeft + radius;
-            final int xLast = Math.max(xFirst + 1, rightEdge - radius);
+            final int nominalXLast = Math.max(xFirst + 1, rightEdge - radius);
+            // ---- v12：端头留白（最右那站站名的 45° 水平投影）------------------------------
+            // 站名一律 45° 往右上走，最右那一站的名字必然伸出线路条右沿。老办法是「终点站名镜像成
+            // 往左上」或「把整条名字往左推一个 projected」—— 前者文字方向反了、后者名字离自己的圆圈
+            // 空出一整个字宽，两条用户都不接受。
+            // 现在改成：先按常规几何量出这个名字从**自己的圆心**往右还要占多少（= reserve），
+            // 把可用线长缩短同样多，再用**统一的站距**重排整条线 —— 所有站距一起等比缩（绝不单独压
+            // 最后一格），站名照样从自己的圆心长出来、和其他站同一个 45°。
+            final float tailR = markOuterRadius(circle, curD, ixRingD, swaps[count - 1] != null);
+            int xLast = nominalXLast;
+            float reserve = 0f;
+            for (int iter = 0; iter < 6; iter++) {
+                final float stepTry = (float) (xLast - xFirst) / (count - 1);
+                final float need = namesBelow ? 0f
+                        : tailNameReserve(g, names, namesEn, tailR, currentIndex, stepTry, nameTop,
+                                lineY, rightEdge, padLeft, nameCap);
+                final int wanted = namesBelow ? nominalXLast : (int) Math.floor(rightEdge - 6 - need);
+                // 兜底：留白最多吃掉 40% 线长；再长就交给站名的逐站缩字 / 裁字兜底，别把线压死。
+                final int minXLast = xFirst + Math.max(1, Math.round((nominalXLast - xFirst) * 0.60f));
+                final int target = Math.max(minXLast, Math.min(nominalXLast, wanted));
+                final boolean settled = target == xLast && Math.abs(need - reserve) <= 0.5f;
+                xLast = target;
+                reserve = need;
+                if (settled) {
+                    break;
+                }
+            }
+            // 统一站距：首站 → 末站按同一个 step 分布，站距不变形（只有整条线一起缩）。
             final float step = (float) (xLast - xFirst) / (count - 1);
             final int[] xs = new int[count];
             for (int i = 0; i < count; i++) {
                 xs[i] = Math.round(xFirst + step * i);
             }
             final int contentX = padLeft;
+            lastNameReserve = Math.round(reserve);
+            lastStationXs = xs.clone();
 
             // ---- 每个站标记的“可见外缘半径”：站名让位 / 终点三角 / 主线两端都按它算 ----
-            final int ixRingD = Math.max(14, Math.round(bandH * IX_RING_RATIO));
             // v7：当前站 = 一个红色实心圆，直径和普通站圆环的「可见外缘」完全一样（不放大、不套环）。
-            final float curD = circle + Math.max(1.2f, circle * RING_RATIO);
             // v9：当前站同时是换乘站时，标记仍是完整的追逐箭头环（只是上半圈变红，见 drawInterchange），
             //     所以它的可见半径和普通换乘站一样 —— 不再按 curD 算。
             final float[] visR = new float[count];
             for (int i = 0; i < count; i++) {
-                if (swaps[i] != null) {
-                    visR[i] = Math.max(circle, ixRingD) / 2f;
-                } else {
-                    // 普通站是空心环、描边居中描 → 外缘 = 半径 + 半个描边厚度；
-                    // 当前站是实心圆、没有描边 → 外缘 = 半径。两者都正好等于 curD / 2。
-                    visR[i] = curD / 2f;
-                }
+                visR[i] = markOuterRadius(circle, curD, ixRingD, swaps[i] != null);
             }
             float maxVisR = 0f;
             for (final float r : visR) {
@@ -682,9 +730,6 @@ public final class XiamenStripPainter {
             final int marginV = Math.max(0, (height - bandH) / 2);
             final int plateFloorY = bandBottom + Math.round(marginV * 0.55f)
                     - Math.max(1, Math.round(height * 0.010f));
-            // 站名可用的纵向范围：顶部只留 NAME_AREA_TOP_RATIO 的白边（不再受内容区顶边限制）。
-            final int nameTop = Math.max(2, Math.round(height * NAME_AREA_TOP_RATIO));
-            final int nameCap = Math.max(9, Math.round(height * NAME_MAX_RATIO));
             int swapDrawn = 0;
             int plateBottomMax = 0;
             for (int i = 0; i < count; i++) {
@@ -1279,10 +1324,13 @@ public final class XiamenStripPainter {
      *   <li>下限 {@link #NAME_MIN_SCALE}×基准（且不低于 {@link #NAME_FLOOR}px），
      *       缩到下限还放不下就按字宽<b>裁字加 “…”</b>（LCD 的兜底做法）——
      *       <b>最长站名也不会越出面板</b>。</li>
-     *   <li><b>终点站（画面里最后一个站）</b>：45° 往右上一定放不下 → 改成<b>往左上的镜像排版</b>，
-     *       墨迹末端压在自己的圆心（{@link #drawRotatedNameEnd}）。老做法是把整条站名往左平移
-     *       {@code projected} 像素，站名离自己的圆圈空出一整个字宽（实拍里“终点站名整体左移”）。</li>
      * </ul>
+     *
+     * <h3>v12：终点站名不再镜像，改由「端头留白 + 整体内移」让位</h3>
+     * <p>所有站名（含画面最右那一站）走<b>同一个</b> {@link #NAME_ROTATION}（视觉 +45°，往右上），
+     * 从自己的圆心长出来。最右那站的名字会伸出线路条右沿 —— 那块位置由 {@code paint()} 在排版阶段
+     * 预先让出来（{@link #tailNameReserve}）：整条线按<b>统一的站距</b>一起缩，绝不单独压最后一格，
+     * 所以这里的 {@code xs[i]} 已经保证 {@code xs[最后一站] + projected <= rightEdge - 6}。</p>
      */
     private static float drawNames(final Graphics2D g, final String[] names, final String[] ens, final int[] xs,
                                    final float[] radii, final int currentIndex, final boolean[] passed,
@@ -1295,11 +1343,7 @@ public final class XiamenStripPainter {
         for (final float r : radii) {
             maxR = Math.max(maxR, r);
         }
-        final float roomTop = namesBelow
-                ? bandBottom - lineY - maxR - NAME_CLEARANCE_MIN - belowExtra - 3f
-                // 斜排时文字沿 45° 往上走，顶部只留 nameTop 的白边。
-                : lineY - maxR - NAME_CLEARANCE_MIN - nameTop;
-        if (roomTop < NAME_FLOOR) {
+        if (roomTop(namesBelow, bandBottom, lineY, maxR, nameTop, belowExtra) < NAME_FLOOR) {
             return 0f;
         }
 
@@ -1307,54 +1351,13 @@ public final class XiamenStripPainter {
         final Font ref100 = base.deriveFont(Font.BOLD, 100f);
         final FontMetrics fm100 = g.getFontMetrics(ref100);
         final FontRenderContext frc = new FontRenderContext(new AffineTransform(), true, true);
-        final float asc100 = Math.max(1f, fm100.getAscent());
-        final float desc100 = Math.max(0f, fm100.getDescent());
-
-        double maxW100 = 0;
-        for (final String name : names) {
-            if (name != null && !name.isEmpty()) {
-                maxW100 = Math.max(maxW100, ref100.getStringBounds(name, frc).getWidth());
-            }
-        }
-        if (maxW100 <= 0) {
+        final NamePlan plan = planNames(ref100, frc, fm100, names, ens, step, nameCap, namesBelow);
+        if (!plan.ok) {
             return 0f;
         }
-
-        // ---- 基准字号（全线统一）：只由站距 + 上限决定，纵向交给下面的逐站反解 ----
-        final double footprint = namesBelow ? maxW100 : maxW100 * DIAG;
-        int stride = 1;
-        float size = 0f;
-        for (int attempt = 0; attempt < 4; attempt++) {
-            size = (float) (100.0 * step * stride * NAME_GAP / footprint);
-            size = Math.min(size, nameCap);
-            if (size >= NAME_FLOOR) {
-                break;
-            }
-            stride++;
-        }
-        if (size < NAME_FLOOR) {
-            return 0f;
-        }
-
-        // 英文行：字号最多是中文的 EN_RATIO，且必须塞进同一段站距；塞不下就不写英文（整条线统一）。
-        float enScale = 0f;
-        if (ens != null && hasEnglish(ens)) {
-            int maxEn100 = 0;
-            for (final String en : ens) {
-                if (en != null && !en.isEmpty()) {
-                    maxEn100 = Math.max(maxEn100, fm100.stringWidth(en));
-                }
-            }
-            if (maxEn100 > 0) {
-                final double limit = step * stride * NAME_GAP;
-                final double maxEnSize = limit / (maxEn100 / 100.0 * (namesBelow ? 1.0 : DIAG));
-                enScale = (float) Math.min(EN_RATIO, maxEnSize / Math.max(1f, size));
-                if (enScale < 0.30f) {
-                    enScale = 0f;
-                }
-            }
-        }
-        final float minSize = Math.max(NAME_FLOOR, size * NAME_MIN_SCALE);
+        final NameCtx ctx = new NameCtx(ref100, frc, Math.max(1f, fm100.getAscent()),
+                Math.max(0f, fm100.getDescent()), plan, namesBelow, nameTop, lineY, bandBottom,
+                rightEdge, firstTextX, belowExtra);
 
         final Shape clip = namesBelow
                 ? new Rectangle(Math.max(0, firstTextX), Math.round(lineY + maxR) + 1,
@@ -1366,83 +1369,33 @@ public final class XiamenStripPainter {
         int clipped = 0;
         final Shape oldClip = g.getClip();
         g.setClip(clip);
-        for (int i = 0; i < count; i += stride) {
+        for (int i = 0; i < count; i += plan.stride) {
             final String raw = names[i];
             if (raw == null || raw.isEmpty()) {
                 continue;
             }
             final boolean isCurrent = i == currentIndex;
-            final String rawEn = enScale > 0f && ens != null && i < ens.length ? ens[i] : null;
-            final boolean hasEn = rawEn != null && !rawEn.isEmpty();
-            final float boost = isCurrent ? 1.06f : 1f;
+            final String rawEn = plan.enScale > 0f && ens != null && i < ens.length ? ens[i] : null;
 
             // ---- 逐站反解字号：45° 下字宽和字高都要投影，按这个站真实剩下的空间解 ----
-            final double wCjk = ref100.getStringBounds(raw, frc).getWidth();
-            final double wEnRaw = hasEn ? ref100.getStringBounds(rawEn, frc).getWidth() : 0.0;
-            final double wEn = wEnRaw * enScale;
-            final float clr0 = Math.max(NAME_CLEARANCE_MIN, Math.min(NAME_CLEARANCE_MAX, size * 0.35f));
-            final float enStep0 = (float) (size * enScale * 1.30f);
-            final float availV = namesBelow
-                    ? bandBottom - lineY - radii[i] - belowExtra - clr0 - 2f
-                    : lineY - radii[i] - clr0 - size * 0.20f - enStep0 - nameTop;
-            final float availH = rightEdge - 6f - firstTextX;
-            final double needV = namesBelow
-                    ? (asc100 + desc100 + 130.0 * enScale) * boost
-                    : DIAG * (wCjk + asc100) * boost;
-            final double needH = namesBelow
-                    ? Math.max(wCjk, wEn) * boost + 4.0
-                    : DIAG * Math.max(wCjk, wEn) * boost + 2.0;
-            float s = (float) Math.min(size, Math.min(100.0 * Math.max(1f, availV) / Math.max(1.0, needV),
-                    100.0 * Math.max(1f, availH) / Math.max(1.0, needH)));
-            s = Math.max(minSize, Math.min(size, s));
-            if (s < size - 0.4f) {
+            //      算式和端头留白预演（{@link #tailNameReserve}）共用 {@link #fitName}，量出来的就是画出来的。
+            final NameFit fit = fitName(ctx, raw, rawEn, radii[i], isCurrent);
+            final float s = fit.s;
+            final float boost = fit.boost;
+            final float enStep = fit.enStep;
+            final float enOffset = fit.enOffset;
+            final float clr = fit.clr;
+            final String label = fit.label;
+            final String en = fit.en;
+            if (fit.shrunk) {
                 shrunk++;
             }
-
-            final float clr = Math.max(NAME_CLEARANCE_MIN, Math.min(NAME_CLEARANCE_MAX, s * 0.35f));
-            // “文字方向”上的可用长度：垂直投影和水平投影取小的那个。
-            final float runAvailV = namesBelow ? Float.MAX_VALUE
-                    : (lineY - radii[i] - clr - s * 0.20f - nameTop) / (float) DIAG;
-            final float runAvailH = namesBelow ? (rightEdge - 6f - firstTextX)
-                    : (rightEdge - 6f - firstTextX) / (float) DIAG;
-            final float runAll = Math.min(runAvailV, runAvailH);
-
-            // 英文行：先按中文缩小，再按“剩下的长度”自己收 —— 宁可小也不裁字
-            //（v4 是直接画出去，被面板边界切掉半句话）。
-            boolean showEn = hasEn;
-            float enSize = hasEn ? s * enScale : 0f;
-            float enStep = enSize * 1.30f;
-            if (hasEn && wEnRaw > 0) {
-                for (int k = 0; k < 3; k++) {
-                    final float avail = runAll - enStep;
-                    if (avail <= 4f) {
-                        break;
-                    }
-                    final float fit = (float) (100.0 * avail / wEnRaw);
-                    if (fit >= enSize - 0.2f) {
-                        break;
-                    }
-                    enSize = Math.max(4f, fit);
-                    enStep = enSize * 1.30f;
-                }
-                if (enSize < 4.5f) {
-                    showEn = false;
-                    enSize = 0f;
-                    enStep = 0f;
-                }
-            }
-            final float enOffset = showEn ? enStep : 0f;
-            // 缩到下限还放不下（极端长的站名）→ 裁字加 “…”（LCD 的兜底做法）。
-            final String label = clipToWidth(ref100, frc, raw, s * boost, runAll - enOffset);
-            final String en = showEn
-                    ? clipToWidth(ref100, frc, rawEn, enSize, Math.max(4f, runAll - enStep))
-                    : null;
-            if (!label.equals(raw) || (showEn && en != null && !en.equals(rawEn))) {
+            if (fit.clipped) {
                 clipped++;
             }
 
             final Font cjkFont = base.deriveFont(Font.BOLD, s * boost);
-            final Font enFont = base.deriveFont(Font.PLAIN, Math.max(1f, enSize));
+            final Font enFont = base.deriveFont(Font.PLAIN, Math.max(1f, fit.enSize));
             // v6：当前站 = 固定红；已过站 = 灰；其余站名按原规则（正排非当前站 65% 灰 / 斜排近黑）。
             final boolean isPassed = passed != null && i < passed.length && passed[i];
             final int textRgb = isCurrent
@@ -1465,6 +1418,7 @@ public final class XiamenStripPainter {
                 x = Math.max(x, 2);
                 if (i == count - 1) {
                     lastNameAnchorX = x + textW / 2;
+                    lastNameRotationDeg = 0f;
                 }
                 final float baseline = lineY + radii[i] + belowExtra + clr
                         + g.getFontMetrics().getAscent();
@@ -1477,43 +1431,27 @@ public final class XiamenStripPainter {
                             baseline + enOffset);
                 }
             } else {
-                final int textW = g.getFontMetrics(cjkFont).stringWidth(label);
-                final int enW = en == null ? 0 : g.getFontMetrics(enFont).stringWidth(en);
-                // 45° 下的水平占用 = max(中文宽, 英文宽) x cos45；英文画在第二行，还要再加一个行距的
-                // 斜向投影，否则贴右沿时英文尾部会出画。最后留 3 px 余量（字形右侧还有 bearing）。
-                final int projected = (int) Math.ceil(Math.max(textW, enW) * DIAG)
-                        + (en == null ? 0 : (int) Math.ceil(enOffset * DIAG)) + 4;
+                // 45° 下的水平占用：从文字起点往右还要多少像素（{@link #projectedWidth}）。
+                final int projected = projectedWidth(g, cjkFont, enFont, label, en, enStep);
                 final int baseY = Math.round(lineY - radii[i] - clr - s * 0.20f) - Math.round(enOffset);
-                // ★ 终点站（画面里最后一个站）：45° 往右上走必定伸出面板右边，于是以前是把整条站名
-                //   **往左平移 projected 像素**（= 墨迹右上角贴面板右边），结果站名离自己的圆圈隔了
-                //   一整个字宽 —— 用户实拍里终点站名“整体左移”，和别的站不一个规矩。
-                //   v11 改成**镜像排版**：同样 45°，但文字往左上走、**墨迹末端压在自己的圆心**上。
-                //   横向占用还是 projected 像素（一个像素都没多），所以既不会越出面板、也不会比原来
-                //   多压到左边那一格；跟“这个站挂了几条换乘”完全无关（换乘只影响线下的线路牌）。
-                final boolean mirrorEnd = i == count - 1
-                        && xs[i] + projected > rightEdge - 6        // 往右上放不下
-                        && xs[i] - projected >= firstTextX;         // 往左上放得下
-                if (mirrorEnd) {
-                    lastNameMirrored = true;
-                    lastNameAnchorX = xs[i];
-                    drawRotatedNameEnd(g, label, en, textW, enW, xs[i], baseY, cjkFont, enFont, enStep,
-                            enColor);
-                } else {
-                    int x = xs[i];
-                    if (x + projected > rightEdge - 6) {
-                        x = Math.max(firstTextX, rightEdge - 6 - projected);
-                    }
-                    if (i == count - 1) {
-                        lastNameAnchorX = x;
-                    }
-                    drawRotatedName(g, label, en, x, baseY, cjkFont, enFont, enStep, enColor);
+                int x = xs[i];
+                // v12：终点站名不再镜像、也不再整体左移 —— 端头留白已经在排版阶段把位置让出来了
+                // （xs[最后一站] + projected <= rightEdge - 6），所以这里正常不会夹；这条只是兜底
+                // （极端长站名把 40% 线长都吃满时）。
+                if (x + projected > rightEdge - 6) {
+                    x = Math.max(firstTextX, rightEdge - 6 - projected);
                 }
+                if (i == count - 1) {
+                    lastNameAnchorX = x;
+                    lastNameRotationDeg = NAME_ROTATION_DEG;
+                }
+                drawRotatedName(g, label, en, x, baseY, cjkFont, enFont, enStep, enColor);
             }
         }
         g.setClip(oldClip);
         lastNameShrunk = shrunk;
         lastNameClipped = clipped;
-        return size;
+        return plan.size;
     }
 
     /**
@@ -1555,12 +1493,18 @@ public final class XiamenStripPainter {
         return false;
     }
 
-    /** 45° 斜排两行：中文（粗）+ 英文（细，贴在中文行下方）。 */
+    /**
+     * 45° 斜排两行：中文（粗）+ 英文（细，贴在中文行下方）。
+     *
+     * <p>旋转角固定 {@link #NAME_ROTATION}（屏幕坐标 -45° = 视觉 +45°，文字从锚点<b>往右上</b>走）——
+     * <b>全线所有站（含终点站）都走这一个函数、这一个角度</b>。v11 那个「终点站名镜像成往左上」的
+     * {@code drawRotatedNameEnd} 已经撤销（用户：文字方向反了）。</p>
+     */
     private static void drawRotatedName(final Graphics2D g, final String cjk, final String en, final int x,
                                         final int baseY, final Font cjkFont, final Font enFont,
                                         final float lineStep, final Color enColor) {
         final AffineTransform old = g.getTransform();
-        g.rotate(-Math.PI / 4, x, baseY);
+        g.rotate(NAME_ROTATION, x, baseY);
         g.setFont(cjkFont);
         g.drawString(cjk, x, baseY);
         if (en != null && !en.isEmpty()) {
@@ -1572,36 +1516,275 @@ public final class XiamenStripPainter {
     }
 
     /**
-     * 终点站站名的<b>镜像 45°</b>排版（v11）：同样 45°，但文字<b>往左上走</b>，墨迹末端
-     * （最后一个字的下沿）压在 {@code (x, baseY)} —— 也就是压在自己的圆圈上。
+     * 45° 斜排站名的<b>水平占用</b>：从文字起点往右还要多少像素。
      *
-     * <p>为什么不直接把整条往左平移（老做法）：45° 站名往右上走会伸出面板，老做法把整条
-     * 往左推 {@code projected} 像素，于是站名和它自己的圆圈之间空出一整个字宽，看起来就是
-     * “终点站名整体左移”。镜像排版横向占用一个像素没变，但末端咬住圆心，与普通站同一套
-     * “站名从自己的圆圈长出来”的规矩。</p>
+     * <p>= max(中文宽, 英文宽) × cos45（45° 的斜向长度投影到横轴），英文画在第二行还要再加一个
+     * 行距的斜向投影（否则贴右沿时英文尾部会出画），最后留 4px 给字形右侧的 bearing。</p>
      *
-     * <p>字形<b>不镜像</b>（照样能读）：只是把基线方向从「右下 → 右上」换成「左上 → 右下」，
-     * 文字按阅读方向仍然是正着的 45°。</p>
-     *
-     * @param cjkW 中文行宽（px，paint 里量好的）
-     * @param enW  英文行宽（px，没有英文传 0）
+     * <p>排版阶段（{@link #tailNameReserve}）和真正绘制用的是<b>同一个</b>函数 —— 留白留出来的
+     * 宽度就是这里量出来的宽度。</p>
      */
-    private static void drawRotatedNameEnd(final Graphics2D g, final String cjk, final String en,
-                                           final int cjkW, final int enW, final int x, final int baseY,
-                                           final Font cjkFont, final Font enFont, final float lineStep,
-                                           final Color enColor) {
-        final AffineTransform old = g.getTransform();
-        g.translate(x, baseY);
-        g.rotate(Math.PI / 4);
-        g.setFont(cjkFont);
-        // 从 x = -宽 画到 x = 0：墨迹末端正好落在锚点（自己的圆心）上。
-        g.drawString(cjk, -cjkW, 0);
-        if (en != null && !en.isEmpty()) {
-            g.setFont(enFont);
-            g.setColor(enColor);
-            g.drawString(en, -enW, lineStep);
+    private static int projectedWidth(final Graphics2D g, final Font cjkFont, final Font enFont,
+                                      final String label, final String en, final float enStep) {
+        final int textW = g.getFontMetrics(cjkFont).stringWidth(label);
+        final int enW = en == null ? 0 : g.getFontMetrics(enFont).stringWidth(en);
+        return (int) Math.ceil(Math.max(textW, enW) * DIAG)
+                + (en == null ? 0 : (int) Math.ceil(enStep * DIAG)) + 4;
+    }
+
+    /**
+     * 某站标记的<b>可见外缘半径</b>：站名让位 / 终点三角 / 主线两端都按它算。
+     *
+     * <ul>
+     *   <li>换乘站（或当前站同时是换乘站）= 整圈箭头环 → 取 {@code max(圆环直径, 换乘环直径)/2}；</li>
+     *   <li>普通站是空心环、描边居中描 → 外缘 = 半径 + 半个描边厚度；</li>
+     *   <li>当前站是实心圆、没有描边 → 外缘 = 半径。后两者都正好等于 {@code curD / 2}。</li>
+     * </ul>
+     */
+    private static float markOuterRadius(final float circle, final float curD, final float ixRingD,
+                                         final boolean interchange) {
+        return interchange ? Math.max(circle, ixRingD) / 2f : curD / 2f;
+    }
+
+    /** 站名可用的纵向高度（小于 {@link #NAME_FLOOR} 就干脆不画站名）。 */
+    private static float roomTop(final boolean namesBelow, final int bandBottom, final int lineY,
+                                 final float maxR, final int nameTop, final float belowExtra) {
+        return namesBelow
+                ? bandBottom - lineY - maxR - NAME_CLEARANCE_MIN - belowExtra - 3f
+                // 斜排时文字沿 45° 往上走，顶部只留 nameTop 的白边。
+                : lineY - maxR - NAME_CLEARANCE_MIN - nameTop;
+    }
+
+    /**
+     * 站名<b>基准字号方案</b>（全线统一）：只由站距 + 上限决定，纵向交给逐站反解。
+     *
+     * <p>v12 起把这段算式抽出来，是为了让「排版阶段量端头留白」和「真正绘制」用的<b>是同一份</b>
+     * 方案 —— 否则留白会量偏，站名又会被右边夹回来（= 名字离开自己的圆圈）。</p>
+     */
+    private static final class NamePlan {
+        int stride = 1;
+        float size;
+        float enScale;
+        float minSize;
+        boolean ok;
+    }
+
+    private static NamePlan planNames(final Font ref100, final FontRenderContext frc, final FontMetrics fm100,
+                                      final String[] names, final String[] ens, final float step,
+                                      final int nameCap, final boolean namesBelow) {
+        final NamePlan plan = new NamePlan();
+        double maxW100 = 0;
+        for (final String name : names) {
+            if (name != null && !name.isEmpty()) {
+                maxW100 = Math.max(maxW100, ref100.getStringBounds(name, frc).getWidth());
+            }
         }
-        g.setTransform(old);
+        if (maxW100 <= 0) {
+            return plan;
+        }
+        // 站距塞不下就隔站画（stride 2、3…）；45° 斜排时字宽要按 cos45 投影。
+        final double footprint = namesBelow ? maxW100 : maxW100 * DIAG;
+        float size = 0f;
+        for (int attempt = 0; attempt < 4; attempt++) {
+            size = (float) (100.0 * step * plan.stride * NAME_GAP / footprint);
+            size = Math.min(size, nameCap);
+            if (size >= NAME_FLOOR) {
+                break;
+            }
+            plan.stride++;
+        }
+        if (size < NAME_FLOOR) {
+            return plan;
+        }
+        // 英文行：字号最多是中文的 EN_RATIO，且必须塞进同一段站距；塞不下就不写英文（整条线统一）。
+        float enScale = 0f;
+        if (ens != null && hasEnglish(ens)) {
+            int maxEn100 = 0;
+            for (final String en : ens) {
+                if (en != null && !en.isEmpty()) {
+                    maxEn100 = Math.max(maxEn100, fm100.stringWidth(en));
+                }
+            }
+            if (maxEn100 > 0) {
+                final double limit = step * plan.stride * NAME_GAP;
+                final double maxEnSize = limit / (maxEn100 / 100.0 * (namesBelow ? 1.0 : DIAG));
+                enScale = (float) Math.min(EN_RATIO, maxEnSize / Math.max(1f, size));
+                if (enScale < 0.30f) {
+                    enScale = 0f;
+                }
+            }
+        }
+        plan.size = size;
+        plan.enScale = enScale;
+        plan.minSize = Math.max(NAME_FLOOR, size * NAME_MIN_SCALE);
+        plan.ok = true;
+        return plan;
+    }
+
+    /** 一次绘制用的测量上下文（字体 + 版面边界），{@link #fitName} 只读它。 */
+    private static final class NameCtx {
+        final Font ref100;
+        final FontRenderContext frc;
+        final float asc100;
+        final float desc100;
+        final NamePlan plan;
+        final boolean namesBelow;
+        final float nameTop;
+        final float lineY;
+        final float bandBottom;
+        final int rightEdge;
+        final int firstTextX;
+        final float belowExtra;
+
+        NameCtx(final Font ref100, final FontRenderContext frc, final float asc100, final float desc100,
+                final NamePlan plan, final boolean namesBelow, final int nameTop, final int lineY,
+                final int bandBottom, final int rightEdge, final int firstTextX, final float belowExtra) {
+            this.ref100 = ref100;
+            this.frc = frc;
+            this.asc100 = asc100;
+            this.desc100 = desc100;
+            this.plan = plan;
+            this.namesBelow = namesBelow;
+            this.nameTop = nameTop;
+            this.lineY = lineY;
+            this.bandBottom = bandBottom;
+            this.rightEdge = rightEdge;
+            this.firstTextX = firstTextX;
+            this.belowExtra = belowExtra;
+        }
+    }
+
+    /** 单站站名解出来的结果（纯计算，不画）；{@link #drawNames} 照着它画。 */
+    private static final class NameFit {
+        String label;
+        String en;
+        float s;
+        float boost;
+        float enSize;
+        float enStep;
+        float enOffset;
+        float clr;
+        boolean shrunk;
+        boolean clipped;
+    }
+
+    /**
+     * 逐站反解字号：45° 下字宽和字高都要投影，按这个站真实剩下的空间解。
+     *
+     * <p>缩到下限（{@link #NAME_MIN_SCALE}×基准，且不低于 {@link #NAME_FLOOR}）还放不下就按字宽
+     * 裁字加 “…”（LCD 的兜底做法），所以最长站名也不会越出面板。</p>
+     */
+    private static NameFit fitName(final NameCtx c, final String raw, final String rawEn,
+                                   final float radius, final boolean isCurrent) {
+        final NameFit f = new NameFit();
+        final float size = c.plan.size;
+        final boolean hasEn = rawEn != null && !rawEn.isEmpty();
+        f.boost = isCurrent ? 1.06f : 1f;
+        final double wCjk = c.ref100.getStringBounds(raw, c.frc).getWidth();
+        final double wEnRaw = hasEn ? c.ref100.getStringBounds(rawEn, c.frc).getWidth() : 0.0;
+        final double wEn = wEnRaw * c.plan.enScale;
+        final float clr0 = Math.max(NAME_CLEARANCE_MIN, Math.min(NAME_CLEARANCE_MAX, size * 0.35f));
+        final float enStep0 = (float) (size * c.plan.enScale * 1.30f);
+        final float availV = c.namesBelow
+                ? c.bandBottom - c.lineY - radius - c.belowExtra - clr0 - 2f
+                : c.lineY - radius - clr0 - size * 0.20f - enStep0 - c.nameTop;
+        final float availH = c.rightEdge - 6f - c.firstTextX;
+        final double needV = c.namesBelow
+                ? (c.asc100 + c.desc100 + 130.0 * c.plan.enScale) * f.boost
+                : DIAG * (wCjk + c.asc100) * f.boost;
+        final double needH = c.namesBelow
+                ? Math.max(wCjk, wEn) * f.boost + 4.0
+                : DIAG * Math.max(wCjk, wEn) * f.boost + 2.0;
+        float s = (float) Math.min(size, Math.min(100.0 * Math.max(1f, availV) / Math.max(1.0, needV),
+                100.0 * Math.max(1f, availH) / Math.max(1.0, needH)));
+        s = Math.max(c.plan.minSize, Math.min(size, s));
+        f.shrunk = s < size - 0.4f;
+        f.s = s;
+
+        final float clr = Math.max(NAME_CLEARANCE_MIN, Math.min(NAME_CLEARANCE_MAX, s * 0.35f));
+        f.clr = clr;
+        // “文字方向”上的可用长度：垂直投影和水平投影取小的那个。
+        final float runAvailV = c.namesBelow ? Float.MAX_VALUE
+                : (c.lineY - radius - clr - s * 0.20f - c.nameTop) / (float) DIAG;
+        final float runAvailH = c.namesBelow ? (c.rightEdge - 6f - c.firstTextX)
+                : (c.rightEdge - 6f - c.firstTextX) / (float) DIAG;
+        final float runAll = Math.min(runAvailV, runAvailH);
+
+        // 英文行：先按中文缩小，再按“剩下的长度”自己收 —— 宁可小也不裁字
+        //（v4 是直接画出去，被面板边界切掉半句话）。
+        boolean showEn = hasEn;
+        float enSize = hasEn ? s * c.plan.enScale : 0f;
+        float enStep = enSize * 1.30f;
+        if (hasEn && wEnRaw > 0) {
+            for (int k = 0; k < 3; k++) {
+                final float avail = runAll - enStep;
+                if (avail <= 4f) {
+                    break;
+                }
+                final float fit = (float) (100.0 * avail / wEnRaw);
+                if (fit >= enSize - 0.2f) {
+                    break;
+                }
+                enSize = Math.max(4f, fit);
+                enStep = enSize * 1.30f;
+            }
+            if (enSize < 4.5f) {
+                showEn = false;
+                enSize = 0f;
+                enStep = 0f;
+            }
+        }
+        f.enSize = enSize;
+        f.enStep = enStep;
+        f.enOffset = showEn ? enStep : 0f;
+        // 缩到下限还放不下（极端长的站名）→ 裁字加 “…”（LCD 的兜底做法）。
+        f.label = clipToWidth(c.ref100, c.frc, raw, s * f.boost, runAll - f.enOffset);
+        f.en = showEn ? clipToWidth(c.ref100, c.frc, rawEn, enSize, Math.max(4f, runAll - enStep)) : null;
+        f.clipped = !f.label.equals(raw) || (showEn && f.en != null && !f.en.equals(rawEn));
+        return f;
+    }
+
+    /**
+     * 端头留白：画面最右那一站（{@code index = count-1}）的站名在 45° 下从<b>自己的圆心</b>
+     * 往右还要占多少像素。
+     *
+     * <p>v12 的新做法就是靠这个数：{@code paint()} 把可用线长缩短同样多，整条线按<b>统一的站距</b>
+     * 一起缩（所有站距等比、绝不单独压最后一格），于是站名可以照样 45° 往右上、照样从自己的圆圈
+     * 长出来，只是整张线路图往倾斜的反方向内移了一点。</p>
+     *
+     * <p>和真正绘制用同一套 {@link #planNames} / {@link #fitName} / {@link #projectedWidth}，
+     * 所以「量出来的留白」= 「画出来占的宽度」。0 = 不需要留白（正排 / 站名根本不画 / 隔站画时
+     * 末站没有站名）。</p>
+     */
+    private static float tailNameReserve(final Graphics2D g, final String[] names, final String[] ens,
+                                         final float tailRadius, final int currentIndex, final float step,
+                                         final int nameTop, final int lineY, final int rightEdge,
+                                         final int firstTextX, final int nameCap) {
+        final int count = names.length;
+        final int i = count - 1;
+        if (names[i] == null || names[i].isEmpty()) {
+            return 0f;
+        }
+        if (roomTop(false, 0, lineY, tailRadius, nameTop, 0f) < NAME_FLOOR) {
+            return 0f;
+        }
+        final Font base = font();
+        final Font ref100 = base.deriveFont(Font.BOLD, 100f);
+        final FontMetrics fm100 = g.getFontMetrics(ref100);
+        final FontRenderContext frc = new FontRenderContext(new AffineTransform(), true, true);
+        final NamePlan plan = planNames(ref100, frc, fm100, names, ens, step, nameCap, false);
+        if (!plan.ok || i % plan.stride != 0) {
+            // 隔站画时末站根本没有站名 → 不需要留白。
+            return 0f;
+        }
+        final NameCtx ctx = new NameCtx(ref100, frc, Math.max(1f, fm100.getAscent()),
+                Math.max(0f, fm100.getDescent()), plan, false, nameTop, lineY, lineY, rightEdge,
+                firstTextX, 0f);
+        final String rawEn = plan.enScale > 0f && ens != null && i < ens.length ? ens[i] : null;
+        final NameFit fit = fitName(ctx, names[i], rawEn, tailRadius, i == currentIndex);
+        final Font cjkFont = base.deriveFont(Font.BOLD, fit.s * fit.boost);
+        final Font enFont = base.deriveFont(Font.PLAIN, Math.max(1f, fit.enSize));
+        return projectedWidth(g, cjkFont, enFont, fit.label, fit.en, fit.enStep);
     }
 
     // ------------------------------------------------------------------------------------------
