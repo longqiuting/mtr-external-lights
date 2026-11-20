@@ -2,22 +2,22 @@
  * 厦门 PIDS 编组条叠加层的离线预览（不开游戏、不进 Gradle）
  * ======================================================
  *
- * 直接调 {@code PidsXiamenConsist#paint} + {@code #layout}（游戏里渲染器调的就是这两个），
- * 所以**预览对得上就等于游戏里对得上**。输出：
+ * 直接调 {@code PidsXiamenConsist#paint} / {@code #layout} / {@code #contentWidth} /
+ * {@code #bandX0}（游戏里渲染器调的就是同一份），所以**预览对得上就等于游戏里对得上**。输出：
  *
- *   1. `consist_overlay_<n>.png`  —— 2 / 4 / 6 / 8 / 13 节五档叠加层（1332×132，4×，
+ *   1. `consist_overlay_<n>.png`  —— 2 / 4 / 6 / 8 / 13 节五档叠加层（1332×132，4×，透明底，
  *                                    只有图形：底带 + 卡片 + 雪花，没有任何文字）
- *   2. `consist_compare.png`      —— 五档 + 底图原条放同一张图里，**并把这五个「N车」按
- *                                    布局摆上去**（AWT 模拟 MC 的 TextRenderer 位置），
- *                                    这样一眼能看出文字有没有、压在哪儿
- *   3. `consist_compare_1x.png`   —— 同一像素尺寸（1:1，333×33）：底图原条 / 我们的 6 节
- *   4. `consist_card_1to1.png`    —— <b>1:1 像素对比</b>：左边「底图原卡 8× 最近邻放大」，
- *                                    右边「我们叠加层第 1 张卡 2× 最近邻放大」（同为 8× 观感），
- *                                    并打印逐像素一致率 —— 证明切片没被缩放、没插值、没绿竖条
- *   5. `consist_layout_debug.png` —— 只给**看位置**用：在叠加层上框出每张卡片的文字盒
+ *   2. `consist_compare.png`      —— 每档「底图条区 + 我们的叠加层 + N车」压成一张（= 游戏里就是这么叠的），
+ *                                    最后一行是 cars = 0（读不到编组）—— 应该只剩底图的青蓝色
+ *   3. `consist_compare_1x.png`   —— 1:1 像素（333×33）：底图原条区 / 我们 6 节 / 我们 2 节
+ *   4. `consist_layout_debug.png` —— 只给**看位置**用：在叠加层上框出每张卡片的文字盒
  *
  * 另外打印：条区矩形（像素 + 归一化）、各档卡片几何（步长 / 重叠 / 文字锚点）、
- * 底带三段宽度、切片矩形、垂直布局数值，以及**越界断言**（卡片 / 雪花 / 文字是否都在带内）。
+ * 底带三段宽度、内容宽 / 居中左右余量，以及断言：
+ *   · 底带以外**一个非透明像素都没有**（条区里只有带子和卡片，其余透出底图）；
+ *   · 整段左右余量相等（水平居中），内容宽不得超过条区宽；
+ *   · 合成后条区里底带以外的像素与底图**逐字节相同**（背景恒青蓝、无拼缝）；
+ *   · cars = 0 时叠加层全透明（编组条留空）。
  *
  * 用法：
  *   ./tools/pids-xiamen/preview.sh            # 输出到 v1.20.1/temp/
@@ -28,18 +28,16 @@ package dev.js.mtrheadlight.xiamen.pids;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics2D;
-import java.awt.Image;
 import java.awt.RenderingHints;
 import java.awt.Shape;
 import java.awt.font.FontRenderContext;
-import java.awt.font.GlyphVector;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 
 import javax.imageio.ImageIO;
 
-/** 编组条叠加层的离线预览 + 与原图的 1:1 像素对比。 */
+/** 编组条叠加层的离线预览 + 居中 / 透明 / 背景不变的断言。 */
 public final class XiamenConsistPreview {
 
     private static final int[] CARS = {2, 4, 6, 8, 13};
@@ -63,86 +61,44 @@ public final class XiamenConsistPreview {
         final BufferedImage card = ImageIO.read(new File(texDir, "gui/pids/consist_card.png"));
         final BufferedImage flake = ImageIO.read(new File(texDir, "gui/pids/consist_flake.png"));
         if (panel == null || band == null || card == null || flake == null) {
-            throw new IOException("素材缺失（panel / consist_band / consist_card / consist_flake）"
-                    + " —— 先跑 node tools/pids-xiamen/scan-consist-strip.js --emit");
+            throw new IOException("素材缺失（panel / consist_band / consist_card / consist_flake）");
         }
 
-        System.out.println("== 编组条几何 ==");
+        System.out.println("== 条区几何 ==");
         final float[] strip = PidsXiamenConsist.strip();
         final float[] norm = PidsXiamenConsist.stripNormalized();
         System.out.printf("  矩形(px)      x %.0f..%.0f  y %.0f..%.0f   (%.0f × %.0f)%n",
                 strip[0], strip[0] + strip[2], strip[1], strip[1] + strip[3], strip[2], strip[3]);
         System.out.printf("  归一化        x %.4f..%.4f  y %.4f..%.4f%n",
                 norm[0], norm[0] + norm[2], norm[1], norm[1] + norm[3]);
-        System.out.printf("  叠加层分辨率  %d × %d  (%d×)%n",
+        System.out.printf("  叠加层分辨率  %d × %d  (%d×)   叠在底图同一块矩形上，其余像素透明%n",
                 PidsXiamenConsist.overlayWidth(), PidsXiamenConsist.overlayHeight(),
                 PidsXiamenConsist.SCALE);
-
-        System.out.println();
-        System.out.println("== 切片（像素级切自底图，原尺寸不缩放）==");
-        System.out.printf("  卡片  consist_card.png   %d × %d   底图 x %d..%d  y %d..%d%n",
-                card.getWidth(), card.getHeight(),
-                PidsXiamenConsist.CARD_SRC_X,
-                PidsXiamenConsist.CARD_SRC_X + PidsXiamenConsist.CARD_SRC_W - 1,
-                PidsXiamenConsist.CARD_SRC_Y,
-                PidsXiamenConsist.CARD_SRC_Y + PidsXiamenConsist.CARD_SRC_H - 1);
-        System.out.printf("  雪花  consist_flake.png  %d × %d   底图 x %d..%d  y %d..%d%n",
-                flake.getWidth(), flake.getHeight(),
-                PidsXiamenConsist.FLAKE_SRC_X,
-                PidsXiamenConsist.FLAKE_SRC_X + PidsXiamenConsist.FLAKE_SRC_W - 1,
-                PidsXiamenConsist.FLAKE_SRC_Y,
-                PidsXiamenConsist.FLAKE_SRC_Y + PidsXiamenConsist.FLAKE_SRC_H - 1);
-        System.out.printf("  4× 后：卡片 %d × %d，雪花 %d × %d（块复制，不插值）%n",
-                PidsXiamenConsist.CARD_SRC_W * PidsXiamenConsist.SCALE,
-                PidsXiamenConsist.CARD_SRC_H * PidsXiamenConsist.SCALE,
-                PidsXiamenConsist.FLAKE_SRC_W * PidsXiamenConsist.SCALE,
-                PidsXiamenConsist.FLAKE_SRC_H * PidsXiamenConsist.SCALE);
-
-        System.out.println();
-        System.out.println("== 垂直布局（面板 px；底带 0..32，内圈深蓝 2..31）==");
-        System.out.printf("  卡片      y %.0f..%.0f  (%d 行)   → 4× 设备像素 y %d..%d%n",
-                PidsXiamenConsist.CARD_TOP,
-                PidsXiamenConsist.CARD_TOP + PidsXiamenConsist.CARD_H - 1,
-                (int) PidsXiamenConsist.CARD_H,
-                Math.round(PidsXiamenConsist.CARD_TOP * 4),
-                Math.round((PidsXiamenConsist.CARD_TOP + PidsXiamenConsist.CARD_H) * 4));
-        System.out.printf("  雪花      y %.0f..%.0f  (%d 行)   → 4× 设备像素 y %d..%d%n",
-                PidsXiamenConsist.FLAKE_TOP,
-                PidsXiamenConsist.FLAKE_TOP + PidsXiamenConsist.FLAKE_SRC_H - 1,
-                PidsXiamenConsist.FLAKE_SRC_H,
-                Math.round(PidsXiamenConsist.FLAKE_TOP * 4),
-                Math.round((PidsXiamenConsist.FLAKE_TOP + PidsXiamenConsist.FLAKE_SRC_H) * 4));
-        System.out.printf("  「N车」    y %.0f..%.0f  (%d 行)   → 4× 设备像素 y %d..%d（基线在带内）%n",
-                PidsXiamenConsist.CAR_TEXT_TOP,
-                PidsXiamenConsist.CAR_TEXT_TOP + PidsXiamenConsist.CAR_TEXT_INK_H,
-                (int) PidsXiamenConsist.CAR_TEXT_INK_H,
-                Math.round(PidsXiamenConsist.CAR_TEXT_TOP * 4),
-                Math.round((PidsXiamenConsist.CAR_TEXT_TOP + PidsXiamenConsist.CAR_TEXT_INK_H) * 4));
+        System.out.printf("  底图条区颜色  (44,242,255) 一类的青蓝 —— 叠加层不铺任何底色，一律透出来%n");
 
         final int[] seg = PidsXiamenConsist.bandSegments(band);
         final int bodyW = PidsXiamenConsist.bandBodyWidth(band);
-        System.out.printf("%n  底带素材      %d × %d（三段铺）  左 %d / 中 %d（拉伸）/ 收边 %d"
-                        + "   合计 = 带体 %d 列%n",
+        System.out.printf("%n  底带素材      %d × %d（三段铺）  左 %d / 中 %d（拉伸）/ 收边 %d   合计 = 带体 %d 列%n",
                 band.getWidth(), band.getHeight(), seg[0], seg[1], seg[2], bodyW);
-        System.out.printf("  带体右缘      素材 x %d（带子能画到的最远处）；素材 x %d..%d 那 %d 列是青色光晕 → 不画%n",
+        System.out.printf("  青色余边      带体右缘 = 素材 x %d；素材 x %d..%d 那 %d 列青色 → **不画**（底图透出来）%n",
                 bodyW - 1, bodyW, band.getWidth() - 1, band.getWidth() - bodyW);
-        System.out.printf("  带外底色      PANEL_BG = 0x%08X = RGB(%d,%d,%d)%n",
-                PidsXiamenConsist.PANEL_BG,
-                (PidsXiamenConsist.PANEL_BG >> 16) & 0xFF,
-                (PidsXiamenConsist.PANEL_BG >> 8) & 0xFF,
-                PidsXiamenConsist.PANEL_BG & 0xFF);
+        System.out.printf("  墨迹左内边    素材 x 0..%d 全是青色 → 画的时候透明，**不算进带子长度**"
+                        + "（居中要减掉它，否则带子整体右移 %.1fpx）%n",
+                PidsXiamenConsist.bandInkInset() - 1, PidsXiamenConsist.bandInkInset() * 0.5F);
+        System.out.printf("  卡片行起点    带左缘 + %d px（= 墨迹左边 + %dpx）"
+                        + "   尾段 tailPad = %.0fpx（与左边等宽 → 卡片行在墨迹里居中）%n",
+                PidsXiamenConsist.ROW_INSET,
+                PidsXiamenConsist.ROW_INSET - PidsXiamenConsist.bandInkInset(),
+                PidsXiamenConsist.tailPad());
+        System.out.printf("  卡片行可用宽  %.0f px（条区宽 %d − 左内边 %d − 尾段 %.0f）%n",
+                PidsXiamenConsist.rowAvail(), PidsXiamenConsist.STRIP_W,
+                PidsXiamenConsist.ROW_INSET, PidsXiamenConsist.tailPad());
 
         System.out.println();
-        System.out.println("== 排版（行左对齐 210，长编组只压 x 宽度，不重叠 / 不越界）==");
-        System.out.printf("  行区 %.0f..%.0f（%d px）  卡片自然 %d×%d  宽下限 %.0f  gap %.1f→%.0f/%.0f%n",
-                PidsXiamenConsist.ROW_X0, PidsXiamenConsist.ROW_X1,
-                (int) PidsXiamenConsist.ROW_W, (int) PidsXiamenConsist.CARD_W,
-                (int) PidsXiamenConsist.CARD_H, PidsXiamenConsist.MIN_CARD_W,
-                PidsXiamenConsist.GAP, PidsXiamenConsist.GAP_MIN,
-                PidsXiamenConsist.GAP_HARD_MIN);
+        System.out.println("== 居中（基准 = 条区矩形 179..512；量的是**带子墨迹**的左右余量）==");
+        boolean allCentered = true;
         boolean allInside = true;
         boolean allNoOverlap = true;
-        boolean allLeftAligned = true;
         boolean allFlakeSemantics = true;
         for (final int cars : CARS) {
             final PidsXiamenConsist.Card[] cards = PidsXiamenConsist.layout(cars);
@@ -151,6 +107,12 @@ public final class XiamenConsistPreview {
             final PidsXiamenConsist.Card mid = cards[cards.length / 2];
             final float cw = first.w();
             final float gap = cards.length > 1 ? cards[1].x0() - first.x1() : 0.0F;
+            final float contentW = PidsXiamenConsist.contentWidth(cars);
+            final float x0 = PidsXiamenConsist.bandX0(cars);
+            final float[] margins = PidsXiamenConsist.bandMargins(cars);
+            final float leftPad = margins[0];
+            final float rightPad = margins[1];
+            final float inkW = contentW - PidsXiamenConsist.bandInkInset();
             boolean inside = true;
             boolean noOverlap = true;
             boolean flakeSemantics = true;
@@ -159,7 +121,6 @@ public final class XiamenConsistPreview {
                 if (i > 0) {
                     noOverlap &= cards[i].x0() >= cards[i - 1].x1() - 0.001F;
                 }
-                // 首 / 尾车 1 颗，中间车永远 2 颗；雪花组整块在自己的格子里
                 final int want = (i == 0 || i == cards.length - 1) ? 1 : 2;
                 flakeSemantics &= cards[i].flakes() == want;
                 flakeSemantics &= cards[i].flakeW() >= PidsXiamenConsist.FLAKE_MIN_W
@@ -167,57 +128,31 @@ public final class XiamenConsistPreview {
                 flakeSemantics &= cards[i].flakeX0() >= cards[i].x0()
                         && cards[i].flakeX0() + cards[i].snowW() <= cards[i].x1() + 0.001F;
             }
-            final boolean leftAligned = Math.abs(first.x0() - PidsXiamenConsist.ROW_X0) < 0.001F;
+            final boolean centered = Math.abs(leftPad - rightPad) <= 1.0F
+                    && contentW <= PidsXiamenConsist.STRIP_W + 1.0e-4F;
+            allCentered &= centered;
             allInside &= inside;
             allNoOverlap &= noOverlap;
-            allLeftAligned &= leftAligned;
             allFlakeSemantics &= flakeSemantics;
-            System.out.printf("  %2d 节：%2d 张  cw %5.2f × %.0f  gap %4.2f  首卡 x %.1f  末卡右缘 %.1f"
-                            + "（行 210..483，右侧余 %4.1f）  重叠 %s  越界 %s%n",
-                    cars, cards.length, cw, PidsXiamenConsist.CARD_H, gap,
-                    first.x0(), last.x1(), PidsXiamenConsist.ROW_X1 + 1.0F - last.x1(),
+            System.out.printf("  %2d 节：%2d 张  cw %5.2f × %.0f  gap %4.2f  内容宽 %5.1f（墨迹 %5.1f）  x0 %.1f"
+                            + "   左余 %4.1f / 右余 %4.1f（差 %4.1f）  居中 %s  重叠 %s  越界 %s%n",
+                    cars, cards.length, cw, PidsXiamenConsist.CARD_H, gap, contentW, inkW, x0,
+                    leftPad, rightPad, Math.abs(leftPad - rightPad), centered ? "是" : "否！",
                     noOverlap ? "无" : "有！", inside ? "无" : "有！");
-            System.out.printf("        雪花 首 %d 颗 @%.0fpx  中 %d 颗 @%.0fpx  尾 %d 颗 @%.0fpx"
-                            + "   文字宽 首 %.1f / 中 %.1f px   颗数语义 %s%n",
+            System.out.printf("        首卡 x %.1f  末卡右缘 %.1f  卡行中心 %.1f（条区中心 %.1f）"
+                            + "  雪花 首 %d 颗 @%.0fpx / 中 %d 颗 @%.0fpx   颗数语义 %s%n",
+                    first.x0(), last.x1(), (first.x0() + last.x1()) * 0.5F,
+                    PidsXiamenConsist.STRIP_X0 + PidsXiamenConsist.STRIP_W * 0.5F,
                     first.flakes(), first.flakeW(), mid.flakes(), mid.flakeW(),
-                    last.flakes(), last.flakeW(), first.textW(), mid.textW(),
                     flakeSemantics ? "通过" : "失败！");
         }
-        System.out.println("  断言：左对齐=" + (allLeftAligned ? "通过" : "失败")
-                + "  无重叠=" + (allNoOverlap ? "通过" : "失败")
-                + "  无越界=" + (allInside ? "通过（卡片 / 雪花 / 文字都在底带内）" : "失败")
-                + "  雪花语义=" + (allFlakeSemantics ? "通过（首尾 1 颗 / 中间 2 颗，尺寸 7→4 缩，不越界、不压字）"
-                : "失败！"));
+        System.out.println("  断言：水平居中（|左余 − 右余| ≤ 1px）=" + (allCentered ? "通过" : "失败！")
+                + "  无重叠=" + (allNoOverlap ? "通过" : "失败！")
+                + "  无越界=" + (allInside ? "通过（卡片 / 雪花 / 文字都在条区内）" : "失败！")
+                + "  雪花语义=" + (allFlakeSemantics ? "通过" : "失败！"));
 
-        // ---- 底带伸缩：右端必须包住最后一张卡、又不越出行区；2 节明显短于 13 节
-        System.out.println();
-        System.out.println("== 底带伸缩（右端 = 最后一张卡 + 收边 + 留白）==");
-        boolean bandOk = true;
-        float bandW2 = 0.0F;
-        float bandW13 = 0.0F;
-        for (final int cars : CARS) {
-            final PidsXiamenConsist.Card[] row = PidsXiamenConsist.layout(cars);
-            final float lastRight = row[row.length - 1].x1();
-            final float bandW = PidsXiamenConsist.bandWidth(band, cars);
-            final float bandRight = PidsXiamenConsist.bandRight(band, cars);
-            final boolean covers = bandRight >= lastRight - 1.0e-4F;
-            final boolean inside = bandRight <= PidsXiamenConsist.STRIP_X0 + PidsXiamenConsist.STRIP_W;
-            bandOk &= covers && inside;
-            if (cars == 2) {
-                bandW2 = bandW;
-            }
-            if (cars == 13) {
-                bandW13 = bandW;
-            }
-            System.out.printf("  %2d 节：底带 %6.1f px  右缘 x %.1f  末卡右缘 %.1f  余量 %+5.1f"
-                            + "  行区右界 511  包住 %s  不越界 %s%n",
-                    cars, bandW, bandRight, lastRight, bandRight - lastRight,
-                    covers ? "是" : "否！", inside ? "是" : "否！");
-        }
-        System.out.printf("  2 节 %.1f px < 13 节 %.1f px：%s（差 %.1f px）%n",
-                bandW2, bandW13, bandW2 < bandW13 ? "通过" : "失败！", bandW13 - bandW2);
-        System.out.println("  断言：底带长度随节数 = " + (bandOk && bandW2 < bandW13 ? "通过" : "失败！"));
 
+        // ---------------------------------------------------------------- 画叠加层
         final BufferedImage[] overlays = new BufferedImage[CARS.length];
         for (int i = 0; i < CARS.length; i++) {
             overlays[i] = PidsXiamenConsist.paint(band, card, flake, CARS[i]);
@@ -227,86 +162,104 @@ public final class XiamenConsistPreview {
             write(new File(out, "consist_overlay_" + CARS[i] + ".png"), overlays[i]);
         }
         final BufferedImage none = PidsXiamenConsist.paint(band, card, flake, 0);
-        boolean noneBlank = none != null;
-        if (none != null) {
-            for (int yy = 0; yy < none.getHeight(); yy += 16) {
-                for (int xx = 0; xx < none.getWidth(); xx += 97) {
-                    noneBlank &= none.getRGB(xx, yy) == PidsXiamenConsist.PANEL_BG;
-                }
-            }
-            write(new File(out, "consist_overlay_0.png"), none);
+        if (none == null) {
+            throw new IllegalStateException("0 节：叠加层没画出来（paint 返回 null）");
         }
-        System.out.println("  读不到编组(0) → " + (noneBlank
-                ? "整条行区只有面板底色（无编组条 / 无卡片 / 无雪花 / 无车号）"
-                : "画了别的东西（错！）"));
+        write(new File(out, "consist_overlay_0.png"), none);
 
-        // ---- 底带右缘：bandWidth 右边一个青色像素都不许有，且必须逐字节 = PANEL_BG
-        System.out.println();
-        System.out.println("== 底带右缘（不许有青色块）/ 带外底色（必须 = 底图底色）==");
-        boolean edgeOk = true;
-        for (int i = 0; i < CARS.length; i++) {
-            final int cars = CARS[i];
-            final int bandDev = Math.round(PidsXiamenConsist.bandWidth(band, cars) * PidsXiamenConsist.SCALE);
-            int cyan = 0;
-            int other = 0;
-            for (int yy = 0; yy < overlays[i].getHeight(); yy++) {
-                for (int xx = Math.min(bandDev, overlays[i].getWidth()); xx < overlays[i].getWidth(); xx++) {
-                    final int argb = overlays[i].getRGB(xx, yy);
-                    final int r = (argb >> 16) & 0xFF;
-                    final int g2 = (argb >> 8) & 0xFF;
-                    final int b2 = argb & 0xFF;
-                    if (r < 110 && g2 > 150 && b2 > 150) {
-                        cyan++;
-                    } else if (argb != PidsXiamenConsist.PANEL_BG) {
-                        other++;
-                    }
-                }
-            }
-            final boolean ok = cyan == 0 && other == 0;
-            edgeOk &= ok;
-            System.out.printf("  %2d 节：底带右缘 %.1f px（设备 x %d）  右侧青色像素 %d（必须 0）"
-                            + "  非面板底色像素 %d（必须 0）  %s%n",
-                    cars, PidsXiamenConsist.bandWidth(band, cars), bandDev, cyan, other,
-                    ok ? "通过" : "失败！");
-        }
-        if (none != null) {
-            int leftOver = 0;
-            for (int yy = 0; yy < none.getHeight(); yy++) {
-                for (int xx = 0; xx < none.getWidth(); xx++) {
-                    if (none.getRGB(xx, yy) != PidsXiamenConsist.PANEL_BG) {
-                        leftOver++;
-                    }
-                }
-            }
-            edgeOk &= leftOver == 0;
-            System.out.printf("   0 节：整条 1332×132 里非面板底色像素 %d（必须 0）  %s%n",
-                    leftOver, leftOver == 0 ? "通过" : "失败！");
-        }
-
-        // 底图同一行（底带左边紧邻的 3 列 × 全部 33 行）逐像素核对 PANEL_BG
-        // —— 证明这块色是从底图采出来的，叠加层带外那块和周围面板像素一模一样
-        int bgMismatch = 0;
-        for (int yy = PidsXiamenConsist.STRIP_Y0; yy < PidsXiamenConsist.STRIP_Y0 + PidsXiamenConsist.STRIP_H; yy++) {
-            for (int xx = PidsXiamenConsist.STRIP_X0 - 3; xx < PidsXiamenConsist.STRIP_X0; xx++) {
-                if ((panel.getRGB(xx, yy) | 0xFF000000) != PidsXiamenConsist.PANEL_BG) {
-                    bgMismatch++;
-                }
-            }
-        }
-        System.out.printf("  底图 x %d..%d × y %d..%d 逐像素核对 PANEL_BG：不一致 %d 个（必须 0）  %s%n",
-                PidsXiamenConsist.STRIP_X0 - 3, PidsXiamenConsist.STRIP_X0 - 1,
-                PidsXiamenConsist.STRIP_Y0, PidsXiamenConsist.STRIP_Y0 + PidsXiamenConsist.STRIP_H - 1,
-                bgMismatch, bgMismatch == 0 ? "通过" : "失败！");
-        System.out.println("  断言：底带右缘无青色块 + 带外 = 底图底色 = "
-                + (edgeOk && bgMismatch == 0 ? "通过" : "失败！"));
-
-        // 底图里那块（1:1 裁切），做对比参照
-        final BufferedImage original = copy(panel.getSubimage(
+        final BufferedImage stripCrop = copy(panel.getSubimage(
                 PidsXiamenConsist.STRIP_X0, PidsXiamenConsist.STRIP_Y0,
                 PidsXiamenConsist.STRIP_W, PidsXiamenConsist.STRIP_H));
 
-        // ---- 五档放同一张图：最上面是底图原条，下面每档都是「底图原条 + 我们的叠加层压上去」
-        //      （= 游戏里就是这么叠的；右边那截没有底带的空行一眼能看出来）
+        // ---------------------------------------------------------------- 垂直 / 透明 / 背景不变
+        System.out.println();
+        System.out.println("== 不透明区域：墨迹边界 / 垂直不溢出 / 带外透明 + 背景逐字节不变 ==");
+        boolean transparentOk = true;
+        boolean bgOk = true;
+        boolean verticalOk = true;
+        boolean centeredPx = true;
+        for (int i = 0; i < CARS.length; i++) {
+            final int cars = CARS[i];
+            final BufferedImage o = overlays[i];
+            // 期望的墨迹列（设备 px，含）：bandX0 + 墨迹内边 … bandX0 + 内容宽 − 1
+            final int inkL = Math.round((PidsXiamenConsist.bandX0(cars) - PidsXiamenConsist.STRIP_X0
+                    + PidsXiamenConsist.bandInkInset()) * PidsXiamenConsist.SCALE);
+            final int inkR = Math.round((PidsXiamenConsist.bandX0(cars) - PidsXiamenConsist.STRIP_X0
+                    + PidsXiamenConsist.contentWidth(cars)) * PidsXiamenConsist.SCALE) - 1;
+            int minX = Integer.MAX_VALUE;
+            int maxX = -1;
+            int maxY = -1;
+            int opaque = 0;
+            for (int yy = 0; yy < o.getHeight(); yy++) {
+                for (int xx = 0; xx < o.getWidth(); xx++) {
+                    if (((o.getRGB(xx, yy) >>> 24) & 0xFF) == 0) {
+                        continue;
+                    }
+                    opaque++;
+                    if (xx < minX) {
+                        minX = xx;
+                    }
+                    if (xx > maxX) {
+                        maxX = xx;
+                    }
+                    if (yy > maxY) {
+                        maxY = yy;
+                    }
+                }
+            }
+            final int below = PidsXiamenConsist.opaqueBelowStrip(o);
+            final float lm = minX / (float) PidsXiamenConsist.SCALE;
+            final float rm = (o.getWidth() - 1 - maxX) / (float) PidsXiamenConsist.SCALE;
+            final float bandBottom = (maxY + 1) / (float) PidsXiamenConsist.SCALE;
+            final boolean edges = Math.abs(minX - inkL) <= 1 && Math.abs(maxX - inkR) <= 1;
+            final boolean centered = Math.abs(lm - rm) <= 1.0F;
+            final boolean vert = below == 0
+                    && maxY <= PidsXiamenConsist.STRIP_H * PidsXiamenConsist.SCALE - 1
+                    && bandBottom <= PidsXiamenConsist.STRIP_H;
+            // 合成：底图条区 + 叠加层（alpha over）。墨迹以外的像素必须和底图逐字节相同。
+            final BufferedImage comp = composite(stripCrop, o);
+            final BufferedImage base4x = upscaleNearest(stripCrop, comp.getWidth(), comp.getHeight());
+            int bgDiff = 0;
+            for (int yy = 0; yy < comp.getHeight(); yy++) {
+                for (int xx = 0; xx < comp.getWidth(); xx++) {
+                    if (xx >= minX && xx <= maxX) {
+                        continue;               // 墨迹内不比对（带子盖住了底图）
+                    }
+                    if ((comp.getRGB(xx, yy) & 0xFFFFFF) != (base4x.getRGB(xx, yy) & 0xFFFFFF)) {
+                        bgDiff++;
+                    }
+                }
+            }
+            transparentOk &= bgDiff == 0 && opaque > 0;
+            bgOk &= bgDiff == 0;
+            verticalOk &= vert;
+            centeredPx &= centered && edges;
+            System.out.printf("  %2d 节：墨迹 x %d..%d（%.2f..%.2f 面板 px）  左右余量 %.2f / %.2f（差 %.2f）"
+                            + "  带底 y %.2f（条区底 %d）  带底以下不透明 %d%n",
+                    cars, minX, maxX, minX / (double) PidsXiamenConsist.SCALE,
+                    maxX / (double) PidsXiamenConsist.SCALE, lm, rm, Math.abs(lm - rm),
+                    bandBottom, PidsXiamenConsist.STRIP_H, below);
+            System.out.printf("        不透明 %d px  墨迹边界对得上 %s  左右对称 %s  垂直不溢出 %s"
+                            + "  合成后墨迹外与底图不同 %d（必须 0）%n",
+                    opaque, edges ? "是" : "否！", centered ? "是" : "否！",
+                    vert ? "是" : "否！", bgDiff);
+        }
+        int noneOpaque = 0;
+        for (int yy = 0; yy < none.getHeight(); yy++) {
+            for (int xx = 0; xx < none.getWidth(); xx++) {
+                if ((none.getRGB(xx, yy) >>> 24) != 0) {
+                    noneOpaque++;
+                }
+            }
+        }
+        System.out.printf("   0 节（读不到编组）：整条 1332×132 里不透明像素 %d（必须 0）  %s%n",
+                noneOpaque, noneOpaque == 0 ? "通过（编组条整块留空，底图青蓝色透出）" : "失败！");
+        System.out.println("  断言：墨迹外全透明=" + (transparentOk && noneOpaque == 0 ? "通过" : "失败！")
+                + "  合成后背景 = 底图=" + (bgOk ? "通过" : "失败！")
+                + "  垂直不溢出（y ≥ 33 不透明 = 0）=" + (verticalOk ? "通过" : "失败！")
+                + "  墨迹居中（|左余 − 右余| ≤ 1px）=" + (centeredPx ? "通过" : "失败！"));
+
+        // ---------------------------------------------------------------- 拼成对比图
         final int w = PidsXiamenConsist.overlayWidth();
         final int h = PidsXiamenConsist.overlayHeight();
         final int rows = CARS.length + 2;
@@ -324,8 +277,8 @@ public final class XiamenConsistPreview {
 
             int y = 4;
             g.setColor(new Color(0xFF, 0xC8, 0x60));
-            g.drawString("底图里烘死的原条（4× 最近邻放大，参照：6 节，卡片 = 我们要切的那张）", 4, y + 13);
-            g.drawImage(original, 4, y + 16, w, h, null);
+            g.drawString("底图条区（4× 最近邻放大，参照：纯青蓝色，没有烘死的卡片）", 4, y + 13);
+            g.drawImage(stripCrop, 4, y + 16, w, h, null);
             y += h + 18;
 
             for (int i = 0; i < CARS.length; i++) {
@@ -333,36 +286,38 @@ public final class XiamenConsistPreview {
                 final float cw = row[0].w();
                 final float gap = row.length > 1 ? row[1].x0() - row[0].x1() : 0.0F;
                 g.setColor(Color.WHITE);
-                g.drawString("我们的叠加层 · " + CARS[i] + " 节" + (i == 2 ? "（卡片行 = 原条那张）" : "")
-                        + String.format("   底带 %.0fpx（右缘 x %.0f / 行区右界 511）  cw %.1f（%s）gap %.1f",
-                        PidsXiamenConsist.bandWidth(band, CARS[i]),
-                        PidsXiamenConsist.bandRight(band, CARS[i]),
-                        cw, cw >= PidsXiamenConsist.CARD_W - 0.01F ? "原宽" : "x 压缩", gap)
-                        + "  右端以外不画", 4, y + 13);
-                // 底图原条打底（游戏里底图在下面），再压我们的叠加层 + 「N车」
-                g.drawImage(original, 4, y + 16, w, h, null);
+                g.drawString("我们的叠加层 · " + CARS[i] + " 节"
+                                + String.format("   内容宽 %.0fpx（左余 %.1f / 右余 %.1f，居中）"
+                                        + "  cw %.1f（%s）gap %.1f   带外透明",
+                                PidsXiamenConsist.contentWidth(CARS[i]),
+                                PidsXiamenConsist.bandX0(CARS[i]) - PidsXiamenConsist.STRIP_X0,
+                                PidsXiamenConsist.STRIP_X0 + PidsXiamenConsist.STRIP_W
+                                        - PidsXiamenConsist.bandRight(CARS[i]),
+                                cw, cw >= PidsXiamenConsist.CARD_W - 0.01F ? "原宽" : "x 压缩", gap),
+                        4, y + 13);
+                // 底图条区打底（游戏里底图在下面），再压我们的叠加层 + 「N车」
+                g.drawImage(stripCrop, 4, y + 16, w, h, null);
                 g.drawImage(withCarLabels(overlays[i], CARS[i]), 4, y + 16, null);
                 y += h + 18;
             }
 
             g.setColor(new Color(0xFF, 0x90, 0x90));
-            g.drawString("读不到编组（cars = 0）→ 编组条整块空着：底带 / 卡片 / 雪花 / 车号一个都不画", 4, y + 13);
-            g.drawImage(original, 4, y + 16, w, h, null);
-            if (none != null) {
-                g.drawImage(none, 4, y + 16, null);
-            }
+            g.drawString("读不到编组（cars = 0）→ 编组条整块留空：底带 / 卡片 / 雪花 / 车号一个都不画，"
+                    + "底图青蓝色原样", 4, y + 13);
+            g.drawImage(stripCrop, 4, y + 16, w, h, null);
         } finally {
             g.dispose();
         }
         write(new File(out, "consist_compare.png"), compare);
 
-        // ---- 1:1 同尺寸并排（底图原条 / 我们的 6 节）
-        final BufferedImage six = overlays[2];
-        final BufferedImage ourOneToOne = downscale(withCarLabels(six, 6),
+        // ---------------------------------------------------------------- 1:1
+        final BufferedImage ourSix = downscale(withCarLabels(overlays[2], 6),
+                PidsXiamenConsist.STRIP_W, PidsXiamenConsist.STRIP_H);
+        final BufferedImage ourTwo = downscale(withCarLabels(overlays[0], 2),
                 PidsXiamenConsist.STRIP_W, PidsXiamenConsist.STRIP_H);
         final int bw = PidsXiamenConsist.STRIP_W;
         final int bh = PidsXiamenConsist.STRIP_H;
-        final BufferedImage compare1x = new BufferedImage(bw + 8, bh * 2 + 56,
+        final BufferedImage compare1x = new BufferedImage(bw + 8, bh * 3 + 82,
                 BufferedImage.TYPE_INT_RGB);
         final Graphics2D g1 = compare1x.createGraphics();
         try {
@@ -372,46 +327,100 @@ public final class XiamenConsistPreview {
             g1.fillRect(0, 0, compare1x.getWidth(), compare1x.getHeight());
             g1.setFont(LABEL);
             g1.setColor(Color.WHITE);
-            g1.drawString("底图原条 1:1（带烘死的卡片和车号）", 4, 15);
-            g1.drawImage(original, 4, 19, null);
-            g1.drawString("我们的叠加层 6 节 1:1（4× 位图按区域平均降到 1:1，文字另画）", 4, bh + 33);
-            g1.drawImage(ourOneToOne, 4, bh + 37, null);
+            g1.drawString("底图条区 1:1（纯青蓝）", 4, 15);
+            g1.drawImage(stripCrop, 4, 19, null);
+            g1.drawString("我们的叠加层 6 节 1:1（居中，底带以外透出底图）", 4, bh + 37);
+            g1.drawImage(ourSix, 4, bh + 41, null);
+            g1.drawString("我们的叠加层 2 节 1:1（底带更短、整体仍在正中）", 4, bh * 2 + 59);
+            g1.drawImage(ourTwo, 4, bh * 2 + 63, null);
         } finally {
             g1.dispose();
         }
         write(new File(out, "consist_compare_1x.png"), compare1x);
 
-        // ---- 1:1 像素对比：底图原卡 vs 我们画出来的第 1 张卡
-        final int[] identity = cardIdentity(panel, six);
-        write(new File(out, "consist_card_1to1.png"), cardCompare(panel, six, identity));
+        // ---------------------------------------------------------------- 整屏（512×235 → 4×）
+        // 底图 + 我们的叠加层（放在条区真实位置）+ 车号：一眼能看出「条区青蓝不变、带子居中」。
+        for (int i = 0; i <= CARS.length; i++) {
+            final int cars = i == CARS.length ? 0 : CARS[i];
+            final BufferedImage overlayWithLabels = cars > 0 ? withCarLabels(overlays[i], cars) : none;
+            write(new File(out, "pids_panel_" + cars + ".png"), fullPanel(panel, overlayWithLabels));
+        }
 
-        // ---- 位置自检（只在预览里用 AWT 画字，游戏里是 TextRenderer）
-        write(new File(out, "consist_layout_debug.png"), layoutDebug(six, 6));
-
-        // ---- 锐度：1:1 下平均 |Laplacian|（越高越锐）
-        final double sharpOriginal = sharpness(original);
-        final double sharpOurs = sharpness(ourOneToOne);
+        // ---------------------------------------------------------------- 整屏 png 的真实像素测量
+        // 不信任计算的坐标：把刚写出来的 pids_panel_*.png 读回来，逐像素和「底图 4×」比，
+        // 量出带子的左缘 / 右缘 / 带底，并断言带底以下一个像素都没被改（= 不溢出到面板蓝底）。
         System.out.println();
-        System.out.println("== 1:1 像素对比（我们的第 1 张卡 vs 底图原卡）==");
-        System.out.printf("  逐像素一致：%d / %d  (%.1f%%)   最大通道差 %d%n",
-                identity[0], identity[1], 100.0 * identity[0] / Math.max(1, identity[1]), identity[2]);
-        System.out.println(identity[0] == identity[1]
-                ? "  → 完全一致：切片没被缩放 / 插值，也没有绿竖条"
-                : "  → 有差异！检查切片矩形与块复制路径");
+        System.out.println("== 整屏 png 实测（读回 pids_panel_*.png，和底图 4× 逐像素比）==");
+        boolean panelOk = true;
+        for (final int cars : new int[]{2, 4, 6}) {
+            final BufferedImage shot = ImageIO.read(new File(out, "pids_panel_" + cars + ".png"));
+            if (shot == null) {
+                throw new IOException("pids_panel_" + cars + ".png 读不回来");
+            }
+            final int s = PidsXiamenConsist.SCALE;
+            final BufferedImage base = upscaleNearest(panel, panel.getWidth() * s, panel.getHeight() * s);
+            final int stripL = PidsXiamenConsist.STRIP_X0 * s;
+            final int stripB = (PidsXiamenConsist.STRIP_Y0 + PidsXiamenConsist.STRIP_H) * s;
+            int minX = Integer.MAX_VALUE;
+            int maxX = -1;
+            int maxY = -1;
+            int below = 0;
+            int leftOfStrip = 0;
+            int rightOfStrip = 0;
+            for (int yy = 0; yy < shot.getHeight(); yy++) {
+                for (int xx = 0; xx < shot.getWidth(); xx++) {
+                    if ((shot.getRGB(xx, yy) & 0xFFFFFF) == (base.getRGB(xx, yy) & 0xFFFFFF)) {
+                        continue;                        // 和底图一样 = 没被叠加层碰过
+                    }
+                    if (yy >= stripB) {
+                        below++;                          // ← 条区底下被改的像素（必须 0）
+                        continue;
+                    }
+                    if (xx < stripL) {
+                        leftOfStrip++;                    // ← 条区左边被改的像素（必须 0）
+                        continue;
+                    }
+                    if (xx < minX) {
+                        minX = xx;
+                    }
+                    if (xx > maxX) {
+                        maxX = xx;
+                    }
+                    if (yy > maxY) {
+                        maxY = yy;
+                    }
+                }
+            }
+            if (maxX < 0) {
+                throw new IllegalStateException(cars + " 节：整屏里找不到叠加层的像素");
+            }
+            final double lm = (minX - stripL) / (double) s;
+            final double rm = ((PidsXiamenConsist.STRIP_X0 + PidsXiamenConsist.STRIP_W) * s - 1 - maxX)
+                    / (double) s;
+            final double bandBottom = (maxY + 1) / (double) s;
+            final boolean ok = below == 0 && leftOfStrip == 0 && rightOfStrip == 0
+                    && Math.abs(lm - rm) <= 1.0 && bandBottom <= PidsXiamenConsist.STRIP_H;
+            panelOk &= ok;
+            System.out.printf("  %d 节：带左缘 x %d（设备）/ %.2f（面板，条区左缘 +%.2f）"
+                            + "   带右缘 x %d / %.2f（条区右缘 −%.2f）%n",
+                    cars, minX, minX / (double) s, lm, maxX, (maxX + 1) / (double) s, rm);
+            System.out.printf("        带底 y %.2f（设备 %d 行结束；条区底 %.0f / 设备 %d）"
+                            + "   左右余量差 %.2f px   条区下被改像素 %d、条区左被改像素 %d  %s%n",
+                    bandBottom, maxY + 1, (double) PidsXiamenConsist.STRIP_H, stripB,
+                    Math.abs(lm - rm), below, leftOfStrip, ok ? "通过" : "失败！");
+        }
+        System.out.println("  断言：整屏 png 带宽 = 条区高（带底 ≤ 33、条区下被改像素 = 0）且左右余量差 ≤ 1px="
+                + (panelOk ? "通过" : "失败！"));
 
-        System.out.println();
-        System.out.println("== 锐度（1:1，平均 |Laplacian|）==");
-        System.out.printf("  底图原条      %.2f%n", sharpOriginal);
-        System.out.printf("  我们的 6 节   %.2f   (%.0f%% of 原图)%n",
-                sharpOurs, sharpOriginal > 0.01 ? sharpOurs / sharpOriginal * 100.0 : 0.0);
-        System.out.println(sharpOurs >= sharpOriginal * 0.85
-                ? "  → 不比原图软（阈值 85%）"
-                : "  → 偏软！需要提高分辨率或改缩放路径");
+        // ---------------------------------------------------------------- 位置自检
+        write(new File(out, "consist_layout_debug.png"), layoutDebug(overlays[2], 6));
 
         System.out.println();
         System.out.println("预览：");
         final String[] names = {"consist_compare.png", "consist_compare_1x.png",
-                "consist_card_1to1.png", "consist_layout_debug.png",
+                "consist_layout_debug.png",
+                "pids_panel_2.png", "pids_panel_4.png", "pids_panel_6.png",
+                "pids_panel_8.png", "pids_panel_13.png", "pids_panel_0.png",
                 "consist_overlay_0.png",
                 "consist_overlay_2.png", "consist_overlay_4.png", "consist_overlay_6.png",
                 "consist_overlay_8.png", "consist_overlay_13.png"};
@@ -421,6 +430,27 @@ public final class XiamenConsistPreview {
                 System.out.println("  " + file.getPath());
             }
         }
+    }
+
+    /**
+     * 整屏预览：底图（4× 最近邻放大）+ 叠加层贴回条区真实位置（{@link PidsXiamenConsist#strip()}）。
+     * <p>游戏里就是这样叠的：底图在下面，叠加层只盖住条区那一块，透明像素露出底图的青蓝色。
+     */
+    private static BufferedImage fullPanel(final BufferedImage panel, final BufferedImage overlay) {
+        final int scale = PidsXiamenConsist.SCALE;
+        final BufferedImage out = new BufferedImage(panel.getWidth() * scale,
+                panel.getHeight() * scale, BufferedImage.TYPE_INT_RGB);
+        final Graphics2D g = out.createGraphics();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+            g.drawImage(panel, 0, 0, out.getWidth(), out.getHeight(), null);
+            g.drawImage(overlay, PidsXiamenConsist.STRIP_X0 * scale,
+                    PidsXiamenConsist.STRIP_Y0 * scale, null);
+        } finally {
+            g.dispose();
+        }
+        return out;
     }
 
     /**
@@ -446,7 +476,6 @@ public final class XiamenConsistPreview {
                 Font font = fitted(new Font(Font.SANS_SERIF, Font.PLAIN, 100), text, size);
                 Shape ink = outline(font, text);
                 final float inkW = (float) ink.getBounds2D().getWidth();
-                // 超宽就等比缩（和 drawRun 的 maxWidth 语义一致）
                 final float maxW = card.textW() * PidsXiamenConsist.SCALE;
                 if (inkW > maxW && maxW > 1.0F) {
                     size *= maxW / inkW;
@@ -481,17 +510,25 @@ public final class XiamenConsistPreview {
                         * PidsXiamenConsist.SCALE;
                 final float top = (PidsXiamenConsist.CAR_TEXT_TOP - PidsXiamenConsist.STRIP_Y0)
                         * PidsXiamenConsist.SCALE;
-                // 文字盒（红）
                 g.setColor(new Color(0xFF, 0x60, 0x60, 0xA0));
                 g.drawRect(Math.round(left), Math.round(top),
                         Math.round(card.textW() * PidsXiamenConsist.SCALE), Math.round(inkH));
-                // 卡片可见格（青）
                 g.setColor(new Color(0x60, 0xE0, 0xFF, 0x70));
                 g.drawRect(Math.round(left), Math.round(PidsXiamenConsist.CARD_TOP
                                 * PidsXiamenConsist.SCALE),
                         Math.round(card.w() * PidsXiamenConsist.SCALE) - 1,
                         Math.round(PidsXiamenConsist.CARD_H * PidsXiamenConsist.SCALE) - 1);
             }
+            // 内容宽左右两条界线（黄）：整段应当关于条区中心对称
+            final float x0 = (PidsXiamenConsist.bandX0(cars) - PidsXiamenConsist.STRIP_X0)
+                    * PidsXiamenConsist.SCALE;
+            final float x1 = x0 + PidsXiamenConsist.contentWidth(cars) * PidsXiamenConsist.SCALE;
+            g.setColor(new Color(0xFF, 0xE0, 0x40, 0xC0));
+            g.drawLine(Math.round(x0), 0, Math.round(x0), out.getHeight());
+            g.drawLine(Math.round(x1), 0, Math.round(x1), out.getHeight());
+            // 条区中心线（洋红）
+            g.setColor(new Color(0xFF, 0x40, 0xFF, 0xC0));
+            g.drawLine(out.getWidth() / 2, 0, out.getWidth() / 2, out.getHeight());
             // 底带上下内界线（绿）：y 2 / y 31
             g.setColor(new Color(0x60, 0xFF, 0x60, 0x90));
             g.drawLine(0, 2 * PidsXiamenConsist.SCALE, out.getWidth(),
@@ -504,103 +541,63 @@ public final class XiamenConsistPreview {
         return out;
     }
 
-    // ---------------------------------------------------------------- 1:1 像素对比
-
-    /**
-     * 逐像素比对：底图原卡的 41×20 与我们在叠加层上画出来的第 1 张卡（4× 块的中心像素）。
-     *
-     * <p>只比「不透明」的像素（切片里 {@code max(r,g) ≥ 96} 的那些 —— 底带深蓝被 keying
-     * 成透明的边缘不算），那些必须<b>字节完全相等</b>。
-     *
-     * @return {@code {一致数, 参与比对数, 最大通道差}}
-     */
-    private static int[] cardIdentity(final BufferedImage panel, final BufferedImage overlay) {
-        final int scale = PidsXiamenConsist.SCALE;
-        final int cx = Math.round(PidsXiamenConsist.CARD_SRC_X - PidsXiamenConsist.STRIP_X0) * scale;
-        final int cy = Math.round(PidsXiamenConsist.CARD_SRC_Y - PidsXiamenConsist.STRIP_Y0) * scale;
-        int same = 0;
-        int total = 0;
-        int maxDelta = 0;
-        for (int y = 0; y < PidsXiamenConsist.CARD_SRC_H; y++) {
-            for (int x = 0; x < PidsXiamenConsist.CARD_SRC_W; x++) {
-                final int src = panel.getRGB(
-                        PidsXiamenConsist.CARD_SRC_X + x, PidsXiamenConsist.CARD_SRC_Y + y);
-                final int sr = (src >> 16) & 0xFF;
-                final int sg = (src >> 8) & 0xFF;
-                if (Math.max(sr, sg) < 96) {
-                    continue;                       // 深蓝底 / 抗锯齿外沿：keying 成透明，不参与比对
-                }
-                final int ours = overlay.getRGB(cx + x * scale + scale / 2,
-                        cy + y * scale + scale / 2);
-                final int d = Math.max(Math.abs(((ours >> 16) & 0xFF) - sr),
-                        Math.max(Math.abs(((ours >> 8) & 0xFF) - sg),
-                                Math.abs((ours & 0xFF) - (src & 0xFF))));
-                total++;
-                if (d == 0) {
-                    same++;
-                }
-                maxDelta = Math.max(maxDelta, d);
-            }
-        }
-        return new int[]{same, total, maxDelta};
-    }
-
-    /**
-     * 1:1 像素对比图：左 = 底图原卡（8× 最近邻），右 = 我们画出来的第 1 张卡
-     * （4× 位图再 2× 最近邻 → 同为 8× 观感，像素块对得上），逐块标注一致与否。
-     */
-    private static BufferedImage cardCompare(final BufferedImage panel, final BufferedImage overlay,
-                                             final int[] identity) {
-        final int scale = 8;
-        final int cw = PidsXiamenConsist.CARD_SRC_W;
-        final int ch = PidsXiamenConsist.CARD_SRC_H;
-        final int pad = 12;
-        final int imgW = cw * scale;
-        final int imgH = ch * scale;
-        final BufferedImage out = new BufferedImage(imgW * 2 + pad * 3, imgH + 60,
-                BufferedImage.TYPE_INT_RGB);
+    /** alpha over 合成：底（不透明）+ 叠加层（可能带 alpha）→ 新的 4× 位图。 */
+    private static BufferedImage composite(final BufferedImage base, final BufferedImage over) {
+        final BufferedImage out = new BufferedImage(base.getWidth() * PidsXiamenConsist.SCALE,
+                base.getHeight() * PidsXiamenConsist.SCALE, BufferedImage.TYPE_INT_RGB);
         final Graphics2D g = out.createGraphics();
         try {
             g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
                     RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
-                    RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-            g.setColor(new Color(0x18, 0x18, 0x20));
-            g.fillRect(0, 0, out.getWidth(), out.getHeight());
-            g.setFont(LABEL);
-            g.setColor(new Color(0xFF, 0xC8, 0x60));
-            g.drawString("底图原卡  x 210..250  y 3..22  (41 × 20)，8× 最近邻", pad, 16);
-
-            final BufferedImage src = panel.getSubimage(PidsXiamenConsist.CARD_SRC_X,
-                    PidsXiamenConsist.CARD_SRC_Y, cw, ch);
-            g.drawImage(src, pad, 24, imgW, imgH, null);
-
-            g.setColor(Color.WHITE);
-            g.drawString("我们的第 1 张卡（叠加层 4× 块 → 2× 最近邻，同为 8×）", imgW + pad * 2, 16);
-            final int ox = Math.round(PidsXiamenConsist.CARD_SRC_X - PidsXiamenConsist.STRIP_X0)
-                    * PidsXiamenConsist.SCALE;
-            final int oy = Math.round(PidsXiamenConsist.CARD_SRC_Y - PidsXiamenConsist.STRIP_Y0)
-                    * PidsXiamenConsist.SCALE;
-            final BufferedImage tile = overlay.getSubimage(ox, oy,
-                    cw * PidsXiamenConsist.SCALE, ch * PidsXiamenConsist.SCALE);
-            g.drawImage(tile, imgW + pad * 2, 24, imgW, imgH, null);
-
-            g.setColor(identity[0] == identity[1] ? new Color(0x80, 0xFF, 0x80)
-                    : new Color(0xFF, 0x80, 0x80));
-            g.drawString("逐像素一致 " + identity[0] + " / " + identity[1]
-                    + "（不透明像素字节相等；" + cw + "×" + ch + " = " + (cw * ch) + "）",
-                    pad, imgH + 48);
+            g.setRenderingHint(RenderingHints.KEY_ALPHA_INTERPOLATION,
+                    RenderingHints.VALUE_ALPHA_INTERPOLATION_QUALITY);
+            g.drawImage(base, 0, 0, out.getWidth(), out.getHeight(), null);
+            g.drawImage(over, 0, 0, null);
         } finally {
             g.dispose();
         }
         return out;
     }
 
-    private static void write(final File file, final BufferedImage image) throws IOException {
-        ImageIO.write(image, "PNG", file);
+    /** 最近邻放大（只用于把底图条区升到 4× 做逐像素比对）。 */
+    private static BufferedImage upscaleNearest(final BufferedImage src, final int w, final int h) {
+        final BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        final Graphics2D g = out.createGraphics();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+            g.drawImage(src, 0, 0, w, h, null);
+        } finally {
+            g.dispose();
+        }
+        return out;
     }
 
-    /** 独立拷贝（{@code getSubimage} 共享栅格）。 */
+    /** 区域平均降到 1:1（只给 1:1 对比图看）。 */
+    private static BufferedImage downscale(final BufferedImage src, final int w, final int h) {
+        final BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        final Graphics2D g = out.createGraphics();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.drawImage(src, 0, 0, w, h, null);
+        } finally {
+            g.dispose();
+        }
+        return out;
+    }
+
+    private static Font fitted(final Font base, final String text, final float inkH) {
+        final Font probe = base.deriveFont(100.0F);
+        final Shape s = outline(probe, text);
+        final float ih = s == null ? 0.0F : (float) s.getBounds2D().getHeight();
+        return ih < 0.5F ? probe : base.deriveFont(Math.max(1.0F, 100.0F * inkH / ih));
+    }
+
+    private static Shape outline(final Font font, final String text) {
+        return font.createGlyphVector(FRC, text).getOutline(0.0F, 0.0F);
+    }
+
     private static BufferedImage copy(final BufferedImage src) {
         final BufferedImage out = new BufferedImage(src.getWidth(), src.getHeight(),
                 BufferedImage.TYPE_INT_ARGB);
@@ -613,55 +610,7 @@ public final class XiamenConsistPreview {
         return out;
     }
 
-    /** 区域平均降到 1:1（模拟屏上 1 面板像素 ≈ 1 屏像素时的观感）。 */
-    private static BufferedImage downscale(final BufferedImage src, final int w, final int h) {
-        final Image scaled = src.getScaledInstance(w, h, Image.SCALE_AREA_AVERAGING);
-        final BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
-        final Graphics2D g = out.createGraphics();
-        try {
-            g.drawImage(scaled, 0, 0, null);
-        } finally {
-            g.dispose();
-        }
-        return out;
-    }
-
-    /** 平均 |Laplacian|（亮度），只算内部像素。 */
-    private static double sharpness(final BufferedImage img) {
-        final int w = img.getWidth();
-        final int h = img.getHeight();
-        double sum = 0.0;
-        int count = 0;
-        for (int y = 1; y < h - 1; y++) {
-            for (int x = 1; x < w - 1; x++) {
-                final double c = luma(img.getRGB(x, y));
-                final double lap = 4 * c
-                        - luma(img.getRGB(x - 1, y)) - luma(img.getRGB(x + 1, y))
-                        - luma(img.getRGB(x, y - 1)) - luma(img.getRGB(x, y + 1));
-                sum += Math.abs(lap);
-                count++;
-            }
-        }
-        return count == 0 ? 0.0 : sum / count;
-    }
-
-    private static double luma(final int argb) {
-        final int r = (argb >> 16) & 0xFF;
-        final int g = (argb >> 8) & 0xFF;
-        final int b = argb & 0xFF;
-        return 0.299 * r + 0.587 * g + 0.114 * b;
-    }
-
-    private static Shape outline(final Font font, final String text) {
-        final GlyphVector gv = font.createGlyphVector(FRC, text);
-        return gv.getOutline(0.0F, 0.0F);
-    }
-
-    private static Font fitted(final Font base, final String ref, final float inkH) {
-        final float ih = (float) outline(base.deriveFont(100.0F), ref).getBounds2D().getHeight();
-        if (ih < 0.5F) {
-            return base.deriveFont(100.0F);
-        }
-        return base.deriveFont(Math.max(1.0F, 100.0F * inkH / ih));
+    private static void write(final File file, final BufferedImage image) throws IOException {
+        ImageIO.write(image, "png", file);
     }
 }

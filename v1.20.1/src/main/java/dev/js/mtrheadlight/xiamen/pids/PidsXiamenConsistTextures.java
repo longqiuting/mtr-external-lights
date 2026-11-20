@@ -72,8 +72,8 @@ final class PidsXiamenConsistTextures {
     /**
      * 取（必要时画一张新的）这个节数对应的叠加层贴图。
      *
-     * @param cars 实际车厢数；{@code <= 0} = 读不到编组 → 一张<b>只有面板底色</b>的贴图
-     *             （编组条整块空着，同时也盖住底图里烘死的旧静态条）
+     * @param cars 实际车厢数；{@code <= 0} = 读不到编组 → 一张<b>全透明</b>的贴图
+     *             （编组条整块空着，底图的青蓝条区原样透出）
      * @return 贴图 id，或 {@code null}（素材缺失 / 不在客户端线程 / GL 没就绪）
      */
     static Identifier texture(final int cars) {

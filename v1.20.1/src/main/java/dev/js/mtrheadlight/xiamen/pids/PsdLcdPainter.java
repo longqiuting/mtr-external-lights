@@ -188,10 +188,8 @@ public final class PsdLcdPainter {
     /** 标语字高 ÷ 条高。 */
     private static final float TICK_SIZE_RATIO = 0.52F;
 
-    // ---- 广告区：0.7197 屏宽 → 右边缘，整屏高，独立一块（设计稿的洋红块）
+    // ---- 广告区：0.7197 屏宽 → 右边缘，整屏高；没有广告图时整块留空（不画占位块）
     private static final float AD_X0 = 0.7197F;
-    private static final float AD_CY = 0.4936F;
-    private static final float AD_TEXT_INK = 0.0757F;
 
     // ================================================================ 颜色
 
@@ -199,8 +197,6 @@ public final class PsdLcdPainter {
     public static final int COLOR_WHITE = 0xFFFFFFFF;
     public static final int COLOR_CARD_STROKE = 0xFFF4F6FF;
     public static final int COLOR_TICK_STROKE = 0xFFE6EAFF;
-    /** 广告位底色（设计稿取色：rgb(e600c3)）。 */
-    public static final int COLOR_AD = 0xFFE600C3;
 
     /** 量字用的 FRC：关掉抗锯齿量墨迹，得到的是「这个字号下字形的真实轮廓」。 */
     private static final FontRenderContext FRC = new FontRenderContext(null, true, true);
@@ -220,6 +216,9 @@ public final class PsdLcdPainter {
      * @param carNumbers 车厢编号（1 2 3 4），长度 = 画几张卡片（空 = 编组行整块不画）
      * @param carNote    编组行下面那行小字（空 = 不画）
      * @param tickerText 标语条文字（<b>一律滚动</b>，见 {@link #paintTickerStrip}；空 = 连标语框都不画）
+     * @param adLabel    广告位的占位字 —— <b>已经不用了</b>（没有广告图时广告区整块留空，
+     *                   不画占位色块也不画占位文字）；字段留着只为不改动构造函数签名
+
      * @param unitZh2/unitEn2 第二行的单位（第一行是 {@code unitZh/unitEn}）—— **两行各带各的**，
      *                        以前共用一个字段，第二行的「分钟 / min」就会跟着第一行一起空掉
      */
@@ -394,11 +393,11 @@ public final class PsdLcdPainter {
     /**
      * 广告区：{@link #AD_X0}（0.7197 屏宽）→ 右边缘，整屏高。
      *
-     * <p>设计稿里它就是**独立的一块**（洋红），和左边蓝色内容区之间没有留白 —— 这一格一旦省掉，
-     * 整块屏就变成「一片蓝到底」，和设计稿对不上（上一轮就是这么错的）。
+     * <p>内容铺厦门 PIDS 那套广告图（{@code PidsXiamenAds} 给的那张，按 cover 铺满、超出部分裁掉）。
      *
-     * <p>内容优先铺厦门 PIDS 那套广告图（{@code PidsXiamenAds} 给的那张，按 cover 铺满、
-     * 超出部分裁掉）；没有图就画洋红底 + 居中「广告位」。
+     * <p><b>没有广告图 → 整块留空</b>（不画洋红占位块、也不画「广告位」文字）：拿不到内容的那块
+     * 就什么都不画，和 PIDS 那边「没广告 = 只留底图空白」一致。以前画的是设计稿里那块洋红
+     * —— 那是稿子上的标注，不是屏上内容。
      */
     private static void adBlock(final Graphics2D g, final Content c, final Assets assets,
                                 final BufferedImage ad, final float width, final float height,
@@ -408,29 +407,21 @@ public final class PsdLcdPainter {
         if (x1 - x0 < 1.0F) {
             return;
         }
-        g.setColor(argb(COLOR_AD));
-        g.fill(new Rectangle2D.Float(x0, 0.0F, x1 - x0, height));
-
-        if (ad != null && ad.getWidth() > 0 && ad.getHeight() > 0) {
-            // cover：按大的一边铺满，另一边居中溢出后被裁掉（不拉伸变形、不留边）
-            final float scale = Math.max((x1 - x0) / ad.getWidth(), height / ad.getHeight());
-            final float dw = ad.getWidth() * scale;
-            final float dh = ad.getHeight() * scale;
-            final Shape old = g.getClip();
-            g.clip(new Rectangle2D.Float(x0, 0.0F, x1 - x0, height));
-            try {
-                drawScaled(g, ad, x0 + ((x1 - x0) - dw) * 0.5F, (height - dh) * 0.5F, dw, dh);
-            } finally {
-                g.setClip(old);
-            }
+        if (ad == null || ad.getWidth() <= 0 || ad.getHeight() <= 0) {
+            // 没有广告图 → 整块留空（背景透出，不画占位色块 / 占位文字）
             return;
         }
-
-        // 占位：洋红块 + 居中「广告位」（字高按排版高，位置跟着排版区走）
-        final String label = c.adLabel() == null || c.adLabel().isBlank() ? "广告位" : c.adLabel();
-        line(g, label, assets == null ? null : assets.cjk(), "广告位",
-                offY + (AD_CY - AD_TEXT_INK * 0.5F) * h, AD_TEXT_INK * h,
-                (x0 + x1) * 0.5F, Align.CENTER, (x1 - x0) * 0.8F, COLOR_WHITE);
+        // cover：按大的一边铺满，另一边居中溢出后被裁掉（不拉伸变形、不留边）
+        final float scale = Math.max((x1 - x0) / ad.getWidth(), height / ad.getHeight());
+        final float dw = ad.getWidth() * scale;
+        final float dh = ad.getHeight() * scale;
+        final Shape old = g.getClip();
+        g.clip(new Rectangle2D.Float(x0, 0.0F, x1 - x0, height));
+        try {
+            drawScaled(g, ad, x0 + ((x1 - x0) - dw) * 0.5F, (height - dh) * 0.5F, dw, dh);
+        } finally {
+            g.setClip(old);
+        }
     }
 
     // ================================================================ 左卡片
@@ -509,6 +500,13 @@ public final class PsdLcdPainter {
         final float cy = cyH * h;
         final int white = COLOR_WHITE;
 
+        // 这一行取不到到站（没有排班 / 线路表还没同步）→ **整行留空**：连「开往 / Bound for」
+        // 标签也不画，那块就是底图的蓝色（不摆占位字）。
+        if ((dest == null || dest.isBlank()) && (destEn == null || destEn.isBlank())
+                && (count == null || count.isBlank())) {
+            return;
+        }
+
         final float labelX = LBL_X * w;
         line(g, label, cjk, "开往", cy + LBLZH_TOP * h, LBLZH_INK * h,
                 labelX, Align.LEFT, 0.10F * w, white);
@@ -535,13 +533,28 @@ public final class PsdLcdPainter {
 
     // ================================================================ 右侧一组
 
+    /**
+     * 线路徽标（徐标）：一个色块 + 两行字。
+     *
+     * <p><b>取不到就整块不画</b>：没有线路名（{@code lineZh / lineEn} 都空）或者拿不到线路色
+     * （{@code lineColor} 的 alpha = 0）时直接返回 —— 那块保持底图的蓝色，<b>不画占位文字、
+     * 也不画默认色块</b>。以前 route 拿不到时会画一块 {@code 0xFF2B36C8} 的深蓝圆角块，
+     * 看着像「有个来历不明的色块」，这一版去掉了。
+     */
     private static void badge(final Graphics2D g, final Content c, final Assets assets,
                               final float w, final float h) {
+        final boolean hasLine = (c.lineZh() != null && !c.lineZh().isBlank())
+                || (c.lineEn() != null && !c.lineEn().isBlank());
+        final int color = c.lineColor();
+        if (!hasLine || ((color >>> 24) & 0xFF) == 0) {
+            // 没有线路 / 没有线路色 → 徐标整块留空（背景透出）
+            return;
+        }
         final float x0 = BADGE_X0 * w;
         final float x1 = BADGE_X1 * w;
         final float y0 = BADGE_Y0 * h;
         final float y1 = BADGE_Y1 * h;
-        g.setColor(new Color(c.lineColor(), true));
+        g.setColor(new Color(color, true));
         g.fill(new RoundRectangle2D.Float(x0, y0, x1 - x0, y1 - y0, BADGE_R * h * 2.0F, BADGE_R * h * 2.0F));
 
         final Font cjk = assets == null ? null : assets.cjk();

@@ -568,9 +568,11 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         final String lineEn;
         final int lineColor;
         if (route == null) {
+            // 取不到线路：名字留空、色也留空（alpha = 0）—— 画家那边据此把徐标整块不画，
+            // 不再画一块默认色的占位块。
             lineZh = "";
             lineEn = "";
-            lineColor = 0xFF2B36C8;
+            lineColor = 0;
         } else {
             final String raw = PidsXiamenRenderer.firstPart(route.name);
             lineZh = raw;
@@ -598,14 +600,8 @@ public class PsdLcdRenderer extends BlockEntityRendererMapper<PsdLcdBlockEntity>
         } catch (final Throwable ignored) {
             // 车站表还没同步：站名留空，其余照画。
         }
-        // 没有站名数据时退回示意里的占位字「当前站 / This station」——
-        // 这样空站也不会在那一格留一片空白（有数据时显示真实站名，和实拍一致）。
-        if (stationZh.isEmpty()) {
-            stationZh = Text.translatable("gui.mtrlte.psd_lcd.this_station_zh").getString();
-        }
-        if (stationEn.isEmpty()) {
-            stationEn = Text.translatable("gui.mtrlte.psd_lcd.this_station_en").getString();
-        }
+        // 没有站名数据（车站表还没同步 / 方块不在任何站）→ **留空**：不画占位字。
+        // 以前这里退回示意稿上的「当前站 / This station」，屏上会有两行假站名。
 
         // ---- 编组：按 MTR 里「这一站 / 这条线」正在跑的那列车读实际节数（拿不到就不画编组行）
         final int cars = consistOf(station, first == null ? 0L : first.routeId);

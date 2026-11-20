@@ -1,28 +1,31 @@
-// 厦门 PIDS（地铁）顶部编组条的**动态叠加层**：只重画那条编组，面板其余像素不动。
+// 厦门 PIDS（地铁）顶部编组条的**动态叠加层**：只重画那条编组，面板其余像素一个都不动。
 //
-// 背景（2026-11 第二版）：`pids_xiamen_metro.png` 顶部那条编组（青色带 + 深蓝「车头」抽象
-// 形状 + 一排 1车..6车 卡片）**是烘死在底图里的静态像素**，节数永远是 6。这一版把它换成
-// 「底图照旧 + 在这块矩形上再贴一张小贴图 + 车号仍然走 TextRenderer」：
+// 背景（2026-11 第三版）：底图换成新的一张 —— 顶部条区只有纯青蓝色（**没有**烘死的卡片），
+// 编组条整块交给叠加层画：「底图照旧 + 在这块矩形上再贴一张小贴图 + 车号仍然走 TextRenderer」：
 //
 //   <b>贴图层（这里，4× 位图）只放图形，一个字的文字都没有：</b>
 //   ① 底带 = 用户单独给的 `consist_band.png`（333×33，纯底带：深蓝圆角带 + 左端斜车头 +
-//      四周一圈青色余边，**不带卡片也不带字**），按<b>三段</b>铺（{@link #paintBand}）：
+//      两侧一圈青色余边，**不带卡片也不带字**），按<b>三段</b>铺（{@link #paintBand}）：
 //      左段（斜车头，35px）与右段（收边，2px 暗边线）只按比例放大、绝不横向拉伸，
 //      中段（276px 纯色）横向拉伸 —— 所以 2 节到 16 节车头形状都不变形、也没有接缝。
-//      <b>总长跟着节数伸缩</b>（{@link #bandWidth}）：右端 = 最后一张卡 + 收边 + 3px 留白，
-//      2 节短、6 节以上顶到带体右缘；右端以外<b>什么都不画</b>（铺面板底色 {@link #PANEL_BG}，
-//      既盖掉底图里那排烘死的旧静态卡片，又不会在小编组时留一个空盒子）；
-//      素材右侧那圈青色余边（{@link #bandBodyWidth} 之外的列）<b>不画</b> —— 那是底图里
-//      「带子铺满整行」时露出来的光晕，带子一收短就会变成一块孤零零的青色方块；
-//   ② 卡片 = <b>从底图里像素级切出来的那一张</b>（`gui/pids/consist_card.png`，41×20，
-//      底图坐标 x 210..250 / y 3..22）**按原尺寸平铺 N 次** —— 4× 时是逐像素块复制
+//      <b>总长跟着节数伸缩</b>（{@link #contentWidth}）：右端 = 最后一张卡 + 与左边对称的尾段，
+//      2 节短、7 节以上顶到条区上限；
+//      <b>整段在条区里水平居中</b>（{@link #bandX0}）：<b>居中量的是底带的墨迹，不是素材矩形</b> ——
+//      素材 x 0..15 那圈青色光晕画的时候是透明的（让底图青蓝透出来），把它算进长度里会让
+//      看得见的带子整体右移 8px（2026-11 修的就是这个：2 节时带左缘余量 120 / 右缘 104）。
+//      现在 {@code x0 = 条区中心 − (墨迹内边 + 内容宽)/2}，而卡片行在墨迹里左右等宽
+//      （各 {@code ROW_INSET − 墨迹内边} = 15px），所以<b>带子、卡片、车号三者的中心都压在条区中心上</b>；
+//      <b>底带以外的像素一律透明</b> —— 条区里没铺到的地方 alpha = 0，底图那条青蓝色原样透出
+//      （素材两侧那圈青色余边也不画：那是条区自己的颜色，底图里就有）；
+//   ② 卡片 = <b>从旧底图里像素级切出来的那一张</b>（`gui/pids/consist_card.png`，41×20，
+//      旧底图坐标 x 210..250 / y 3..22）**按原尺寸平铺 N 次** —— 4× 时是逐像素块复制
 //      （最近邻、不插值、不重采样），所以卡片和底图里烘死的那排一模一样锐，
 //      不会再有「缩放取样带进来的绿竖条」。
-//      <b>长编组只压 x 方向</b>：n·41 + (n−1)·5.6 &gt; 274 时 {@code cw = (274 − (n−1)·gap)/n}
+//      <b>长编组只压 x 方向</b>：n·41 + (n−1)·5.6 &gt; 297 时 {@code cw = (297 − (n−1)·gap)/n}
 //      把卡片横向压窄（高度永远是 20，最近邻不插值），<b>绝不重叠、绝不越界</b>；
-//      整行<b>左对齐</b>到 x=210，排完剩下的空留在右侧（见 {@link #layout}）
-//   ③ 雪花 = 同样从底图标签区切出来的那一颗（`gui/pids/consist_flake.png`，7×7，
-//      底图坐标 x 228..234 / y 23..29），首 / 尾车 1 颗、中间车<b>永远 2 颗</b>
+//      卡片行整体跟着底带居中（见 {@link #layout}）
+//   ③ 雪花 = 同样从旧底图标签区切出来的那一颗（`gui/pids/consist_flake.png`，7×7，
+//      旧底图坐标 x 228..234 / y 23..29），首 / 尾车 1 颗、中间车<b>永远 2 颗</b>
 //      （编组图的语义：2 颗 = 中间车）。格子窄了就<b>缩雪花尺寸</b>而不是减颗数：
 //      边长按 7 → 6 → 5 → 4 面板像素依次试，4× 后是 28 / 24 / 20 / 16 设备像素，
 //      仍是最近邻块复制、不插值（见 {@code flakeSizeFor}）。
@@ -38,17 +41,23 @@
 // 没有任何一步是「画小再放大」，也没有任何一步是插值。贴图上传时过滤器显式设成 NEAREST
 // （见 {@code PidsXiamenConsistTextures}），不会被线性插值抹糊。
 //
-// <h2>量出来的数（脚本：{@code v1.20.1/tools/pids-xiamen/scan-consist-strip.js}）</h2>
+// <h2>量出来的数（脚本：{@code v1.20.1/tools/pids-xiamen/probe-new-panel.js}）</h2>
 // <pre>
-//   编组带        x 179..511   y 0..32     = 333 × 33 px     ← 叠加层就贴这块矩形
+//   条区（底图顶部那条青蓝色）  x 179..511   y 0..32     = 333 × 33 px   ← 叠加层就贴这块矩形
 //                归一化 x 0.3496..1.0000    y 0.0000..0.1404（÷512 / ÷235）
-//   底图里烘死的：6 张卡片 x 210..483、每张 41 宽、间隙 5..6（平均 5.6）；
-//                卡片 y 3..22（20 行）——  雪花/车号在它下面 y 23..29 那 7 行
-//   切片矩形      卡片 (210, 3, 41, 20)      雪花 (228, 23, 7, 7)
+//                颜色 (44,242,255) 一类的青蓝，左缘 6 列是圆角渐变
+//   底带素材     consist_band.png 333×33：青色光晕 0..15（**不画**）/ 车头斜边 16..34 /
+//                带体中段 35..310 / 收边 311..312 / 右侧青色余边 313..332（**不画**）
+//                → 墨迹 = x 16..312（297 列）、y 2..32，所以 bandInkInset() = 16
+//   旧底图切出来的切片  卡片 (210, 3, 41, 20)      雪花 (228, 23, 7, 7)
+//   内容宽       2 节 133.6px / 6 节 320px / 7 节起 333px（= 条区宽，上限）
+//   墨迹余量     2 节 107.7 / 107.7   4 节 53.2 / 53.2   6 节 14.5 / 14.5（左右恒等）
 // </pre>
 //
-// <h2>垂直布局（面板 px，底带 0..32、内圈深蓝 2..31）</h2>
+// <h2>垂直布局（面板 px，带子 0..32、内圈深蓝 2..31）</h2>
 // <pre>
+//   底带       y 0..32   —— 和条区**逐行等高**：叠加层高 132 = 33×4，最后一行设备像素就是 y 32，
+//              y ≥ 33 一个不透明像素都没有（素材底部的暗边就在第 33 行里，不会再往下多出一行）
 //   卡片      y 3..22   （20 行）→ 4× 设备像素 y 12..92    上下都留余量，绝不越出底带
 //   雪花      y 23..29  （7 行） → 4× 设备像素 y 92..120
 //   「N车」    y 24..30  （6 行） → 4× 设备像素 y 96..120   基线与雪花齐平
@@ -67,11 +76,15 @@ import java.awt.image.BufferedImage;
  * {@link #STRIP} 那个矩形上，再用 {@code PidsXiamenText} 把车号写在
  * {@link #layout(int)} 给出的位置上。
  *
- * <p><b>底带长度跟着节数走</b>（{@link #bandWidth}）：右端 = 最后一张卡右缘 + 右端收边 +
- * {@link #BAND_PAD}，节数少底带就短，最长到带体右缘（{@link #bandBodyWidth}，素材那圈青色光晕
- * <b>不画</b>）；底带右端以外的行区铺 {@link #PANEL_BG}（= 从底图同一行采样的面板底色，
- * 与周围像素逐字节相同，所以看不出拼缝），同时把底图里烘死的旧静态编组条盖住。
- * {@code cars <= 0}（读不到编组）时整条行区只剩那块面板底色 → <b>编组条整块空着</b>。
+ * <p><b>底带长度跟着节数走、整段居中</b>（{@link #contentWidth}）：右端 = 最后一张卡右缘 +
+ * 与带左侧对称的尾段（{@link #tailPad}），节数少底带就短，最长到<b>整条条区</b>（{@link #STRIP_W}）。
+ * 底带画多长由内容宽度定，<b>条区里剩下的像素一律透明</b>（alpha = 0）：底图那条青蓝色永远是背景，
+ * 叠加层只往上叠「深蓝底带 + 卡片 + 雪花」，不再自己铺一块底色。
+ * <b>居中基准 = 条区矩形本身</b>（{@link #STRIP_X0}..{@code STRIP_X0 + STRIP_W}），而且量的是
+ * <b>带子的墨迹</b>：素材左边那圈青色光晕（{@link #bandInkInset} 列）画的时候透明，
+ * 不算进长度 —— 所以看得见的带子左右余量恒等（见 {@link #bandMargins}），
+ * 卡片行在墨迹里也是左右等宽，整条编组看着才是真的在条区正中。
+ * {@code cars <= 0}（读不到编组）时整张叠加层全透明 → <b>编组条整块空着</b>，底图青蓝色原样透出。
  */
 public final class PidsXiamenConsist {
 
@@ -87,27 +100,62 @@ public final class PidsXiamenConsist {
     public static final int STRIP_H = 33;
 
     /**
-     * 底带右端在「最后一张卡右缘 + 右端收边」之外再留的空白（面板 px）。
-     * <p>底带总长 = 左段（斜车头，{@link #bandSegments} 量出来的） + 卡片行 + 右段（收边） + 这点留白，
-     * 见 {@link #bandWidth}：<b>节数少就短、节数多就长</b>，最长到带体右缘（{@link #bandBodyWidth}）。
+     * <b>兜底用的</b>「带子墨迹左内边」（面板 px）= 底带素材左边那圈青色光晕的列数。
+     * <p>素材 {@code consist_band.png} 的 x 0..15 全是条区自己的青蓝色（画的时候按
+     * {@link #isCyan} 跳过 → <b>透明</b>），墨迹从 x 16 才开始 —— 所以「带子画多长」
+     * 不能从素材 x0 数起，否则看得见的带子会整体右移 8px。
+     * <p>运行期以 {@link #bandInkInset} 从素材像素量出来的值为准，这里只是文档 / 预览的兜底。
+     */
+    public static final int BAND_INK_X0_DEFAULT = 16;
+
+    /**
+     * 底带右端在「最后一张卡右缘」之外<b>至少</b>再留的空白（面板 px）。
+     * <p>实际尾段取 {@link #tailPad} = {@code max(收边 + 1, ROW_INSET − 墨迹内边)}，
+     * 默认素材下是 {@code max(3, 15) = 15} —— 和左边那 15px（{@code ROW_INSET − 墨迹内边}）
+     * 等宽，卡片行因此在墨迹里左右对称。{@link #BAND_PAD} 只是这条尾巴的下限
+     * （换一份「墨迹贴边」的素材时仍然留得出收边）。
      */
     public static final float BAND_PAD = 3.0F;
 
     /**
-     * 底带以外那块区域的面板底色 —— <b>从底图 {@code pids_xiamen_metro.png} 采样得到的</b>
-     * {@code RGB(0, 0, 230)} = {@code 0xFF0000E6}。
+     * 卡片行左缘到<b>带左缘（素材 x0，不是墨迹）</b>的距离（面板 px）。
      *
-     * <p>采样点（{@code scan-consist-strip.js} 的「带外底色」一节，同一行上取众数）：
-     * 编组带矩形<b>左边紧邻</b>的 x 176..178 与<b>正下方</b> y 34..36，
-     * 覆盖 y 0..32 全部 33 行 / x 176..511 全部列 —— 底图里这两处都是纯面板底色，
-     * 逐字节 {@code (0,0,230)}，一列不例外。底带矩形<b>里面</b>不能拿来采样：
-     * 那里全是青色光晕 + 深蓝带体。
-     *
-     * <p>叠加层里 {@code x > bandWidth} 的像素一律就是这块颜色 —— 和周围面板像素
-     * <b>逐字节相同</b>，所以带子收短以后看不出任何「拼缝」（不会出现比底图亮/暗一档的盒子）。
-     * 换底图就重跑脚本，脚本会核对这个常量并打出来。
+     * <p>量自底带素材 {@code consist_band.png}：x 0..15 是条区里的青色光晕（这部分绘制时
+     * <b>透明</b>，让底图的青蓝色透出来），x 16..34 是斜车头，所以第一张卡从带左缘 +31 起 ——
+     * 这就是旧版底图里 {@code ROW_X0(210) − STRIP_X0(179) = 31}。
+     * <p>卡片行到墨迹左缘还差 {@code ROW_INSET − 墨迹内边} = 15px，{@link #tailPad} 就是
+     * 按这个数给右边也留同样多 —— 两边的量对上，带子和卡片才会一起居中。
      */
-    public static final int PANEL_BG = 0xFF0000E6;
+    public static final int ROW_INSET = 31;
+
+    /**
+     * 底带素材里「右端收边」（那条压暗的边线）的<b>默认</b>列数 —— 仓库里那份 {@code consist_band.png}
+     * 实测 2 列。运行期以 {@link #segments} 量出来的值为准（换资源包会跟着变），这里只是文档 / 预览用的兜底。
+     */
+    public static final int BAND_CAP_DEFAULT = 2;
+
+    /**
+     * 卡片行能用多宽（面板 px）= 条区宽 − {@link #ROW_INSET} − {@link #tailPad}。
+     *
+     * <p>默认素材下是 {@code 333 − 31 − 15 = 287}。6 节时卡片仍是原宽 41、间隙 5.6（总共 274，
+     * 和旧底图逐像素一致，因为 {@code cw} 被夹在 {@link #CARD_W}）；<b>7 节起顶到 287</b>
+     * → 内容宽 = 条区宽 333（居中的上限就是条区宽）。
+     */
+    public static float rowAvail() {
+        return STRIP_W - ROW_INSET - tailPad();
+    }
+
+    /**
+     * 卡片行右缘到<b>带右缘</b>的尾段长度（面板 px）= {@code max(BAND_PAD + 收边, ROW_INSET − 墨迹内边)}。
+     *
+     * <p>默认素材下 = {@code max(5, 31 − 16) = 15}：和卡片行左边那段（带左缘到第一张卡）在墨迹里
+     * 正好等宽 15px（{@code ROW_INSET − 墨迹内边}），所以卡片行在墨迹里左右对称 ——
+     * 墨迹再在条区里居中，卡片行的中心也就压在条区中心上。
+     */
+    public static float tailPad() {
+        return Math.max(BAND_PAD + Math.max(1, GEOM_CAP), ROW_INSET - bandInkInset());
+    }
+
 
     /** 卡片切片在底图上的矩形（像素级切，来自 scan-consist-strip.js --emit）。 */
     public static final int CARD_SRC_X = 210;
@@ -128,15 +176,10 @@ public final class PidsXiamenConsist {
     /** 卡片行顶（面板像素）—— 底图里烘死卡片的顶行 y=3。 */
     public static final float CARD_TOP = CARD_SRC_Y;
 
-    /** 卡片之间的自然间隙（面板像素）= 底图实测 5..6（平均 5.6）。 */
+    /**
+     * 卡片之间的自然间隙（面板像素）= 底图实测 5..6（平均 5.6）。
+     */
     public static final float GAP = 5.6F;
-
-    /** 卡片左 / 右的可排范围（面板像素）：底图里烘死的 6 张卡片就是 210..483。 */
-    public static final float ROW_X0 = 210.0F;
-    public static final float ROW_X1 = 483.0F;
-
-    /** 行宽（面板 px）= ROW_X1 − ROW_X0 + 1 = <b>274</b> —— 整行从这里起、到 483 止。 */
-    public static final float ROW_W = ROW_X1 - ROW_X0 + 1.0F;
 
     /**
      * 长编组里卡片能被<b>横向</b>压到的最小宽度（面板 px）。
@@ -193,13 +236,55 @@ public final class PidsXiamenConsist {
     public static final int MAX_CARS = 16;
 
     /**
+     * 断言用：叠加层在<b>条区底部以下</b>（{@code y >= STRIP_H × SCALE = 132}）的不透明像素数 ——
+     * <b>必须 0</b>。
+     *
+     * <p>叠加层的高度本身就是 {@link #overlayHeight()} = 132（= 条区高 33 × 4），所以底带、
+     * 卡片、雪花<b>在结构上就出不去</b>；这个函数是给预览 / 单测留的一条硬断言：
+     * 「底带绝不比条区高、绝不溢出到下方面板蓝底上」。
+     *
+     * @param overlay {@link #paint} 出来的位图（可以是 {@code null}）
+     * @return 条区底部以下几行里的不透明像素数（应当恒为 0）
+     */
+    public static int opaqueBelowStrip(final BufferedImage overlay) {
+        if (overlay == null) {
+            return 0;
+        }
+        final int from = Math.min(overlay.getHeight(), STRIP_H * SCALE);
+        int count = 0;
+        for (int y = from; y < overlay.getHeight(); y++) {
+            for (int x = 0; x < overlay.getWidth(); x++) {
+                if (((overlay.getRGB(x, y) >>> 24) & 0xFF) != 0) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    /**
      * 内容版本：改了绘制逻辑就 +1 —— 渲染器用它和节数一起算内容哈希，
      * 哈希没变就不重传贴图（见 {@code PidsXiamenConsistTextures}）。
+     * <p>8：居中基准改成「底带墨迹」（{@link #bandInkInset}），尾段与左侧等宽（{@link #tailPad}）。
      */
-    public static final int CONTENT_VERSION = 6;
+    public static final int CONTENT_VERSION = 8;
 
     /** 切片 keying（把深蓝底变成透明）时，alpha 到这个亮度就满不透明。 */
     private static final int KEY_FULL = 96;
+
+    // ---------------------------------------------------------------- 运行期量出来的几何
+
+    /**
+     * 底带素材量出来的三段与带体（源像素）：左段 / 右端收边 / 带体右缘。
+     * <p>只在素材实例换了（F3+T / 换包）时重量一次（{@link #segments}）；量不到素材时用仓库里
+     * {@code consist_band.png} 的实测值兜底，所以 {@link #layout(int)} 不依赖「素材已经加载」。
+     */
+    private static int GEOM_LEFT = 35;
+    private static int GEOM_CAP = BAND_CAP_DEFAULT;
+    private static int GEOM_BODY = 313;
+    /** 墨迹左内边（源列）：素材左侧全是青色的那几列 —— 默认素材 = 16。 */
+    private static int GEOM_INK_X0 = BAND_INK_X0_DEFAULT;
+    private static BufferedImage GEOM_FOR;
 
     private PidsXiamenConsist() {
     }
@@ -229,73 +314,118 @@ public final class PidsXiamenConsist {
 
     /**
      * 底带三段的宽度（源像素）：{@code 左（斜车头）, 中（纯色，横向拉伸）, 收边（右端暗边线）}。
-     * <p>三段加起来 = {@link #bandBodyWidth}（带体宽度）—— 素材右边那圈青色余边不在里面：
-     * 它是底图里「带子铺满整行」时露出来的光晕，带子一收短就会变成一块孤零零的青色方块，
-     * 所以<b>不画</b>（见 {@link #paintBand}）。报告 / 预览用，游戏里走的是同一套量法。
+     * <p>三段加起来 = 带体宽度（{@link #bandBodyWidth}）—— 素材两侧那圈青色余边不在里面：
+     * 那是条区自己的青蓝色（底图里就有），叠加层里一律<b>透明</b>（见 {@link #paintBand}），
+     * 所以底带收短 / 拉长都不会在它后面多出一块青色方块。报告 / 预览用，游戏里走的是同一套量法。
      */
     public static int[] bandSegments(final BufferedImage band) {
         if (band == null) {
-            return new int[]{0, 0, 0};
+            return new int[]{GEOM_LEFT, Math.max(1, GEOM_BODY - GEOM_LEFT - GEOM_CAP), GEOM_CAP};
         }
         segments(band);
-        final int bodyW = CACHED_BODY_RIGHT + 1;
-        final int left = Math.min(bodyW - 2, CACHED_LEFT_W);
-        final int cap = Math.max(1, Math.min(bodyW - left - 1, CACHED_CAP_W));
+        final int bodyW = GEOM_BODY;
+        final int left = Math.min(bodyW - 2, GEOM_LEFT);
+        final int cap = Math.max(1, Math.min(bodyW - left - 1, GEOM_CAP));
         return new int[]{left, Math.max(1, bodyW - left - cap), cap};
     }
 
     /**
      * <b>带体宽度</b>（源像素）= 底带素材里深蓝那一截的右缘 + 1 —— <b>底带能画到的最远处</b>。
      * <pre>
-     *   consist_band.png  333 列 = 左 19 列青色光晕 + 带体 295 列（x 18..312）+ 右 20 列青色光晕
-     *   → bandBodyWidth() = 313，素材的 x 313..332 <b>不画</b>
+     *   consist_band.png  333 列 = 左 34 列青色/车头 + 带体 296 列（x 17..312）+ 右 21 列青色
+     *   → bandBodyWidth() = 313
      * </pre>
-     * 带体右缘由像素量出来（{@link #bodyRight}），换底带不用改代码。
+     * 带体右缘由像素量出来（{@link #bodyRight}），换底带不用改代码；素材缺失时用实测值兜底。
      */
     public static int bandBodyWidth(final BufferedImage band) {
-        if (band == null) {
-            return 0;
+        if (band != null) {
+            segments(band);
         }
-        segments(band);
-        return CACHED_BODY_RIGHT + 1;
+        return GEOM_BODY;
     }
 
     /**
-     * <b>底带总长</b>（面板 px，从 {@link #STRIP_X0} 起算）—— 跟着节数伸缩。
+     * <b><code>内容宽度</code></b>（面板 px）= 底带要画的长度 —— 跟着节数伸缩，<b>整段按它居中</b>。
      *
      * <pre>
-     *   右缘 = 最后一张卡右缘 + 收边（{@link #bandSegments} 的第 3 段）+ {@link #BAND_PAD}
-     *   最小 = 左段（斜车头，35px）+ 一张卡 + 收边       ← 只挂 1 节也包得住
-     *   上限 = {@link #bandBodyWidth}                  ← 带体右缘，再往右只有青色余边（不画）
+     *   内容宽 = ROW_INSET（卡片行到带左缘）+ 卡片行总宽 + 尾段 tailPad()
+     *   尾段   = ROW_INSET − 墨迹内边（= 15）        ← 让卡片行在带子墨迹里左右等宽
+     *   最小   = ROW_INSET + 一张卡 + 尾段（= 87）   ← 只挂 1 节也包得住
+     *   上限   = STRIP_W（条区宽 333）               ← 到这儿不再变长（居中上限）
      * </pre>
      *
-     * <p>2 节 ≈ 124px、6 节以上 310px（顶到带体右缘）：节数越多底带越长，右端永远压在最后一张卡之后
-     * 一点点，剩下的行区（{@code bandWidth()..333}）用 {@link #PANEL_BG} 铺底 = 什么都不画。
-     * <b>绝不再把素材右边那圈青色余边画上去</b> —— 那正是收短以后「带子后面多出一块青色矩形」的来源。
+     * <p>2 节 133.6px、6 节 320px（卡片仍是原宽，和旧底图一致）、<b>7 节起 333px 顶到上限</b>：
+     * 节数越多底带越长，右端永远压在最后一张卡之后一点点；条区里剩下的像素
+     * <b>一律透明</b> —— 底图那条青蓝色原样透出，不需要再铺任何底色。
      *
-     * @return 面板 px；{@code cars <= 0} 或底带素材缺失 → 0
+     * @return 面板 px；{@code cars <= 0} → 0
      */
-    public static float bandWidth(final BufferedImage band, final int cars) {
-        if (cars <= 0 || band == null) {
-            return 0.0F;
-        }
+    public static float contentWidth(final int cars) {
         final Card[] cards = layout(cars);
         if (cards.length == 0) {
             return 0.0F;
         }
-        segments(band);
-        final int left = CACHED_LEFT_W;
-        final int cap = CACHED_CAP_W;
-        final float lastRight = cards[cards.length - 1].x1() - STRIP_X0;
-        final float natural = lastRight + cap + BAND_PAD;
-        final float minimal = left + CARD_W + cap;
-        final float max = CACHED_BODY_RIGHT + 1;       // 带体右缘：再往右只有青色余边，不画
-        return Math.min(max, Math.max(minimal, natural));
+        return contentWidthOf(cards.length, cards[0].w(),
+                cards.length > 1 ? cards[1].x0() - cards[0].x1() : 0.0F);
     }
 
-    /** 底带右缘的底图 x 坐标（面板 px）= {@code STRIP_X0 + bandWidth()}；{@code cars <= 0} → {@code STRIP_X0}。 */
-    public static float bandRight(final BufferedImage band, final int cars) {
-        return STRIP_X0 + bandWidth(band, cars);
+    /** {@link #contentWidth(int)} 的内核：卡片数 + 单卡宽 + 间隙 → 内容宽（面板 px）。 */
+    private static float contentWidthOf(final int n, final float cw, final float gap) {
+        if (n <= 0) {
+            return 0.0F;
+        }
+        final float span = n * cw + (n - 1) * gap;
+        final float tail = tailPad();
+        final float natural = ROW_INSET + span + tail;
+        final float minimal = ROW_INSET + CARD_W + tail;        // 一节的底带也包得住，而且左右对称
+        return Math.min(STRIP_W, Math.max(minimal, natural));
+    }
+
+    /**
+     * <b>带子墨迹的左内边</b>（面板 px）= 底带素材左侧那圈青色光晕的列数（默认素材 = 16）。
+     * <p>这几个列画的时候是<b>透明</b>的（{@link #isCyan} 跳过，让底图青蓝透出来），所以
+     * 「看得见的带子」从 {@code bandX0 + bandInkInset()} 开始 —— 居中的公式必须减掉它，
+     * 否则带子会整体右移半个内边（默认素材下 8px）。
+     */
+    public static int bandInkInset() {
+        return Math.max(0, Math.min(Math.max(0, GEOM_BODY - 2), GEOM_INK_X0));
+    }
+
+    /**
+     * <b>整段的左缘</b>（面板 px，= 底带素材 x0 落在哪儿）—— 水平居中的公式：
+     * <pre>
+     *   bandX0 = 条区中心 − (墨迹内边 + 内容宽) / 2
+     *          = STRIP_X0 + (STRIP_W − bandInkInset() − contentWidth) / 2
+     * </pre>
+     * 底部 + 卡片 + 车号 + 雪花都按这条 x0 排。<b>居中量的是墨迹</b>：{@code bandInkInset()} 那几列
+     * 青色光晕是透明的，把它们算进去就会把看得见的带子推向右边。
+     * 内容宽顶到 {@link #STRIP_W} 时两端各留半个内边的青色（左右仍然相等）。
+     * {@code cars <= 0} → 条区中心，画不出东西。
+     */
+    public static float bandX0(final int cars) {
+        return bandX0Of(contentWidth(cars));
+    }
+
+    /** {@link #bandX0(int)} 的内核：内容宽 → 带左缘（面板 px）。 */
+    private static float bandX0Of(final float contentW) {
+        return STRIP_X0 + (STRIP_W - bandInkInset() - contentW) * 0.5F;
+    }
+
+    /**
+     * 带子墨迹在条区里的<b>左右余量</b>（面板 px，{@code {左, 右}}）—— 居中断言用。
+     * <p>墨迹 = {@code [bandX0 + bandInkInset(), bandX0 + contentWidth)}，也就是叠加层里
+     * <b>真正不透明的那些列</b>；两边的余量必须相等（差 ≤ 1px），带子看上去才不偏。
+     */
+    public static float[] bandMargins(final int cars) {
+        final float x0 = bandX0(cars);
+        final float inkLeft = x0 + bandInkInset();
+        final float inkRight = x0 + contentWidth(cars);
+        return new float[]{inkLeft - STRIP_X0, (STRIP_X0 + STRIP_W) - inkRight};
+    }
+
+    /** 底带右缘的底图 x 坐标（面板 px）= {@code bandX0 + contentWidth}；{@code cars <= 0} → 条区中心。 */
+    public static float bandRight(final int cars) {
+        return bandX0(cars) + contentWidth(cars);
     }
 
     /**
@@ -328,28 +458,30 @@ public final class PidsXiamenConsist {
     }
 
     /**
-     * 一排卡片的排版（节数 → 每张卡片的几何）。<b>整行左对齐</b>到 {@link #ROW_X0}
-     * （底图里第一张卡的左缘 x=210），排完剩下的空留在右边。
+     * 一排卡片的排版（节数 → 每张卡片的几何）。<b>整行跟着带子墨迹一起在条区里水平居中</b>。
      *
      * <pre>
-     *   avail = ROW_W = 274                     ← 行区 210..483
+     *   avail = rowAvail() = 条区宽 − ROW_INSET − tailPad()   ← 默认 287
      *   gap   = 5.6（自然）→ 需要时往下收，下限 2、硬下限 1
-     *   cw    = 41（切片原宽）；只有 n·41 + (n−1)·gap &gt; 274 时才压 x：
-     *           cw = (274 − (n−1)·gap) / n     ← 只压宽、不压高（仍是 20px）
-     *   总宽  = n·cw + (n−1)·gap ≤ 274          ← 永不出界，卡片永不重叠
-     *   x(i)  = ROW_X0 + i·(cw + gap)           ← 左对齐，空在右侧
+     *   cw    = 41（切片原宽）；只有 n·41 + (n−1)·gap &gt; 287 时才压 x：
+     *           cw = (287 − (n−1)·gap) / n     ← 只压宽、不压高（仍是 20px）
+     *   总宽  = n·cw + (n−1)·gap ≤ 287          ← 永不出界，卡片永不重叠
+     *   内容宽 = ROW_INSET + 总宽 + tailPad()   ← 底带要画多长（见 {@link #contentWidth}）
+     *   x(i)  = bandX0 + ROW_INSET + i·(cw + gap)   ← bandX0 让带子墨迹居于条区正中
      *   雪花  = 首 / 尾车 1 颗、中间车 2 颗；边长 7 → 6 → 5 → 4 挑第一个塞得下的
      *           预算 = cw − 留白 1 − 文字间隙 1 − 文字最小宽 5（见 {@link #flakeSizeFor}）
      *           右对齐到卡片右缘 −1px；两颗之间 2px
      *   文字  = 右对齐到雪花左边 −1px，宽度 = 那一段（超宽就缩字号，永不与雪花重叠）
      * </pre>
      *
-     * <p>6 节时 {@code gap = 5.6}、{@code cw = 41}，画出来和底图里那排同位置同大小；
-     * 8 节 {@code cw ≈ 29.4}（雪花仍是 7px）、10 节 6px、11 节 5px、12 节起 4px，
-     * 13 节 {@code gap ≈ 3.3 / cw ≈ 18}（雪花 4px、文字缩到 5.5px 宽）——
+     * <p>6 节时 {@code gap = 5.6}、{@code cw = 41}，卡片行本身 274px 宽 —— 和旧底图里那排卡片
+     * 逐像素同尺寸，位置换到条区正中（不再是贴着左缘 210 起）；7 节起卡片行顶到 287、
+     * 内容宽到条区上限 333。8 节 {@code cw ≈ 30}、13 节 {@code cw ≈ 18}——
      * 卡片只是变窄，<b>不会</b>再互相覆盖成一条链。
-     * 压到 {@link #MIN_CARD_W} 还放不下时先收 gap
-     * （不低于 {@link #GAP_MIN}，再不行 {@link #GAP_HARD_MIN}），最后才允许 cw 比 18 更窄。
+     *
+     * <p><b>卡片行在墨迹里左右等宽</b>：左边 {@code ROW_INSET − 墨迹内边} = 15px、
+     * 右边 {@link #tailPad} = 15px，所以居中的墨迹一摆正，卡片行（和车号）的中心也就压在
+     * 条区中心上 —— 这是 2026-11 那次「整体略偏右」的修法。
      *
      * <p><b>颗数不随宽度变化</b>：中间车永远是 2 颗 —— 格子窄就缩雪花（最小 4px），
      * 这样 8 节 / 13 节仍然一眼看得出「中间车 = 2 颗」。
@@ -361,6 +493,7 @@ public final class PidsXiamenConsist {
             return new Card[0];
         }
         final int n = Math.min(MAX_CARS, cars);
+        final float avail = rowAvail();
 
         // ① 先按自然间隙试：cw 可能 > 41（节数少），下面统一夹到 41（绝不拉伸素材）
         float gap = GAP;
@@ -379,12 +512,14 @@ public final class PidsXiamenConsist {
         }
         cw = Math.min(CARD_W, cw);
         // 浮点防呆：算出 cw 后若总宽还差一丝，按比例把 cw 收回来（永不出界）
-        if (n > 1 && n * cw + (n - 1) * gap > ROW_W) {
-            cw = Math.max(1.0F, (ROW_W - (n - 1) * gap) / n);
+        if (n > 1 && n * cw + (n - 1) * gap > avail) {
+            cw = Math.max(1.0F, (avail - (n - 1) * gap) / n);
         }
 
         final float step = cw + gap;
-        final float x0 = ROW_X0;                       // ← 左对齐：空留在右侧
+        // ← 水平居中：内容宽定下来以后，带子墨迹（含卡片 + 车号 + 雪花）落在条区正中
+        final float contentW = contentWidthOf(n, cw, gap);
+        final float x0 = bandX0Of(contentW) + ROW_INSET;
 
         final Card[] out = new Card[n];
         for (int i = 0; i < n; i++) {
@@ -432,18 +567,18 @@ public final class PidsXiamenConsist {
 
     /** {@code n} 节、间隙 {@code gap} 时卡片能有多宽（面板 px，可能 &gt; 41，调用方夹）。 */
     private static float widthFor(final int n, final float gap) {
-        return n <= 0 ? CARD_W : (ROW_W - (n - 1) * gap) / n;
+        return n <= 0 ? CARD_W : (rowAvail() - (n - 1) * gap) / n;
     }
 
     /** 反解：想让 {@code n} 节每张卡都至少 {@code w} 宽，间隙最多能有多大（面板 px）。 */
     private static float gapFor(final int n, final float w) {
-        return n <= 1 ? GAP : (ROW_W - n * w) / (n - 1);
+        return n <= 1 ? GAP : (rowAvail() - n * w) / (n - 1);
     }
 
     /**
-     * 卡片 / 雪花是否整块落在底带内圈里（面板 px）—— 预览和单测拿它做断言。
+     * 卡片 / 雪花 / 车号是否整块落在<b>底带内圈</b>里（面板 px）—— 预览和单测拿它做断言。
      *
-     * @return {@code true} = 卡片、雪花组、车号字形盒都在 y 2..31、x 0..332 之内
+     * @return {@code true} = 卡片、雪花组、车号字形盒都在 y 2..31、x 条区左右界之内
      */
     public static boolean insideBand(final Card card) {
         final boolean cardOk = CARD_TOP >= 2.0F && CARD_TOP + CARD_H <= 31.0F
@@ -479,14 +614,15 @@ public final class PidsXiamenConsist {
     /**
      * 画整条编组叠加层（{@code 1332 × 132}）—— <b>只有图形，没有文字</b>。
      *
-     * <p>行区里除了「伸缩底带 + 卡片 + 雪花」以外一律铺 {@link #PANEL_BG}（面板底色）：
-     * 底带右端到行区右边界那一段因此<b>什么都没有</b>，而底图里烘死的旧 6 节静态条也被盖住。
-     * {@code cars <= 0}（读不到编组）时画出来的就是一块纯面板底色 —— 编组条整块空着。
+     * <p>位图默认<b>全透明</b>，只有「底带 + 卡片 + 雪花」盖住的像素才有颜色。所以条区里
+     * 底带没铺到的地方 alpha = 0 —— 底图那条青蓝色原样透出来，叠加层不铺任何底色。
+     * {@code cars <= 0}（读不到编组）→ 整张位图全透明：<b>编组条整块空着</b>（底带 / 卡片 /
+     * 雪花 / 车号一个都不画），底图的青蓝条区不受影响。
      *
      * @param band   底带素材（{@code consist_band.png}，333×33，纯底带，不带卡片与文字）
      * @param card   卡片切片（{@code consist_card.png}，41×20，从底图像素级切出来）
      * @param flake  雪花切片（{@code consist_flake.png}，7×7）
-     * @param cars   实际车厢数；{@code <= 0} = 读不到编组 → 只画面板底色（编组条空着）
+     * @param cars   实际车厢数；{@code <= 0} = 读不到编组 → 全透明（编组条空着）
      * @return 4× 的 ARGB 位图；{@code cars > 0} 但素材缺失 → {@code null}
      */
     public static BufferedImage paint(final BufferedImage band, final BufferedImage card,
@@ -512,13 +648,14 @@ public final class PidsXiamenConsist {
         final int h = overlayHeight();
         final int[] pixels = new int[w * h];
 
-        // ① 整条行区先铺面板底色：底带右端以外「什么都不画」= 透出底图本来的底色。
-        //    这一铺同时把底图里烘死的旧静态编组条盖掉（否则 2 节屏右边还挂着 3..6 车）。
-        java.util.Arrays.fill(pixels, PANEL_BG);
+        // ① 整张叠加层从「全透明」开始：底图那条青蓝色就是背景，叠加层只往上叠带子和卡片。
+        //    这样底带收短 / 节数读不到时都不会出现一块自铺的底色（也就没有拼缝可言）。
+        java.util.Arrays.fill(pixels, 0);
 
         if (cars > 0) {
-            // ② 底带：长度跟着节数走（右端 = 最后一张卡 + 收边 + 留白）
-            paintBand(pixels, band, Math.round(bandWidth(band, cars) * SCALE));
+            // ② 底带：长度跟着节数走，整段在条区里居中（见 bandX0 / contentWidth）
+            paintBand(pixels, band, dev(bandX0(cars) - STRIP_X0),
+                    Math.round(contentWidth(cars) * SCALE));
 
             final BufferedImage cardKeyed = keyed(card, true);
             final BufferedImage flakeKeyed = keyed(flake, false);
@@ -600,29 +737,48 @@ public final class PidsXiamenConsist {
 
     // ================================================================ 底带
 
-    /** 底带三段（源像素）的量法缓存：只在素材实例换了（F3+T / 换包）时重量一次。 */
-    private static int CACHED_LEFT_W = -1;
-    private static int CACHED_CAP_W = -1;
-    private static int CACHED_BODY_RIGHT = -1;
-    private static BufferedImage CACHED_BAND_FOR_SEG;
-
-    /** 量一次三段（左段 / 收边 / 带体右缘），按素材实例缓存。 */
+    /**
+     * 量一次三段（左段 / 收边 / 带体右缘）写进 {@link #GEOM_LEFT} 等，按素材实例缓存。
+     * <p>{@link #layout(int)} / {@link #contentWidth(int)} 也读这几个值，所以「量不到素材」时
+     * 用的是仓库里那份 {@code consist_band.png} 的实测兜底（35 / 2 / 313）—— 排版不依赖加载顺序。
+     */
     private static void segments(final BufferedImage band) {
-        if (CACHED_BAND_FOR_SEG == band && CACHED_LEFT_W > 0) {
+        if (GEOM_FOR == band && GEOM_LEFT > 0) {
             return;
         }
         final int left = leftSegment(band);
         final int bodyRightCol = Math.max(left + 1, bodyRight(band));
         final int span = Math.max(2, bodyRightCol + 1 - left);
-        CACHED_LEFT_W = left;
-        CACHED_BODY_RIGHT = bodyRightCol;
+        GEOM_LEFT = left;
+        GEOM_BODY = bodyRightCol + 1;
         // 收边 = 带体右缘那条压暗的边线（+1 是把最右那一列本身也包进来）
-        CACHED_CAP_W = Math.max(1, Math.min(Math.min(8, span - 1), edgeRun(band, bodyRightCol) + 1));
-        CACHED_BAND_FOR_SEG = band;
+        GEOM_CAP = Math.max(1, Math.min(Math.min(8, span - 1), edgeRun(band, bodyRightCol) + 1));
+        // 墨迹左内边 = 素材最左边那几列「整列都是青色」的列数（画的时候透明，不算长度）
+        GEOM_INK_X0 = Math.max(0, Math.min(GEOM_LEFT - 1, inkX0(band)));
+        GEOM_FOR = band;
     }
 
     /**
-     * 底带按<b>三段</b>铺（9-slice 的横向版），只铺 {@code 0..dstBandW}：
+     * 素材最左边那几列「整列都是青色」的列数 —— 也就是<b>看得见的带子</b>前面有多少列是透明的。
+     * <p>默认素材 {@code consist_band.png} 量出来是 16（x 0..15 全是条区青蓝）。
+     * 逐行取「第一个不是青色的列」，再取所有行里的最小值 —— 车头斜边只要有一行提前开始，
+     * 那列就算墨迹，宁可把带子算宽一点，也不能让它看起来偏。
+     */
+    private static int inkX0(final BufferedImage band) {
+        int first = band.getWidth();
+        for (int y = 0; y < band.getHeight() && first > 0; y++) {
+            for (int x = 0; x < first; x++) {
+                if (!isCyan(band.getRGB(x, y))) {
+                    first = x;
+                    break;
+                }
+            }
+        }
+        return first >= band.getWidth() ? 0 : first;
+    }
+
+    /**
+     * 底带按<b>三段</b>铺（9-slice 的横向版），从叠加层的 {@code dstX0} 起铺 {@code dstBandW} 宽：
      * <pre>
      *   左段  x 0..leftW-1                  含斜车头（和它左边那点青色光晕），等比放大，绝不横向拉伸
      *   中段  leftW..bodyRight-capW         纯深蓝 + 上下那两条浅色边，横向拉伸填满剩余宽度
@@ -631,30 +787,29 @@ public final class PidsXiamenConsist {
      * 三段用<b>同一个</b>缩放比（= 目标高 ÷ 底带高，这里正好 4），所以接缝处的行高、颜色完全对齐，
      * 2 节到 16 节都看不出接缝；车头形状在任何节数下都是原样。
      *
-     * <p><b>只画到带体右缘</b>（{@link #bandBodyWidth}）：素材 x 313..332 那 20 列是青色光晕 ——
-     * 底图里带子铺满整行时它在最右边，看不出来；带子一收短再把它画上去，就是
-     * 「底带后面多出一块青色矩形」。所以收边段取的是<b>带体自己的</b>暗边线，
-     * 到 {@code dstBandW} 为止一个青色像素都不画，右边直接接 {@link #PANEL_BG}（= 底图底色）。
+     * <p><b>青色像素一律透明</b>（{@link #isCyan}）：素材两侧那圈青色是「条区自己的颜色」，
+     * 底图里本来就有 —— 跳过它，底图的青蓝色就从叠加层下面透出来，条区颜色因此<b>恒定为底图那一档</b>，
+     * 带子收短 / 拉长都不可能出现「带子后面多出一块青色矩形」或比底图亮一档的拼缝。
      *
-     * <p><b>总长跟着节数走</b>：{@code dstBandW} 来自 {@link #bandWidth}（最后一张卡 + 收边 + 留白），
-     * 不是整条行区 —— 节数少底带就短，剩下的行区保持 {@link #PANEL_BG}（= 什么都不画）。
+     * <p><b>从 dstX0 起</b>：整段在条区里水平居中（{@link #bandX0}），所以底带不再固定贴左缘。
      *
      * <p>采样一律最近邻（放大时就是 4×4 块复制）——底带是纯色块，插值只会把它抹软。
      */
-    private static void paintBand(final int[] pixels, final BufferedImage band, final int dstBandW) {
+    private static void paintBand(final int[] pixels, final BufferedImage band,
+                                  final int dstX0, final int dstBandW) {
         final int dstW = overlayWidth();
         final int dstH = overlayHeight();
-        final int target = Math.min(dstW, dstBandW);
-        if (target <= 0) {
+        final int target = Math.min(dstW - dstX0, dstBandW);
+        if (target <= 0 || dstX0 >= dstW) {
             return;
         }
         final int srcH = band.getHeight();
         final float scale = dstH / (float) srcH;
 
         segments(band);
-        final int leftW = CACHED_LEFT_W;
-        final int capW = CACHED_CAP_W;
-        final int bodyW = CACHED_BODY_RIGHT + 1;          // ← 带体右缘：青色余边不算
+        final int leftW = GEOM_LEFT;
+        final int capW = GEOM_CAP;
+        final int bodyW = GEOM_BODY;                      // ← 带体右缘：青色余边不算
         final int midSrc = Math.max(1, bodyW - leftW - capW);
         final int capSrcX0 = bodyW - capW;
 
@@ -678,7 +833,16 @@ public final class PidsXiamenConsist {
                     sx = leftW + Math.min(midSrc - 1,
                             (int) ((x - dstLeft) * (float) midSrc / dstMid));
                 }
-                pixels[row + x] = band.getRGB(sx, sy);
+                final int argb = band.getRGB(sx, sy);
+                if (isCyan(argb)) {
+                    // 条区自己的青蓝色：不画，让底图那层透出来
+                    continue;
+                }
+                final int px = dstX0 + x;
+                if (px < 0 || px >= dstW) {
+                    continue;
+                }
+                pixels[row + px] = argb | 0xFF000000;
             }
         }
     }

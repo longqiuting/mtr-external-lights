@@ -186,8 +186,21 @@ for (const r of runs) {
   if (last && r[0] - last[1] <= 2) last[1] = r[1];
   else cards.push([r[0], r[1]]);
 }
-const cardsX0 = cards[0][0];
-const cardsX1 = cards[cards.length - 1][1];
+const cardsX0 = cards.length ? cards[0][0] : -1;
+const cardsX1 = cards.length ? cards[cards.length - 1][1] : -1;
+
+// 第三版底图（2026-11）顶部条区是**纯青蓝色**，没有烘死的卡片 —— 这时脚本只报量出来的
+// 条区矩形 / 条区颜色，切片与「带外底色」那几节直接跳过（那些常量已经删了：
+// 现在的叠加层是透明的，条区颜色由底图自己给）。
+if (cards.length === 0) {
+  console.log('=== 厦门 PIDS 地铁底图：顶部条区 ===');
+  console.log(`面板 ${W}×${H}，底色 (${png.rgb(3, H - 3).slice(0, 3).join(',')})`);
+  console.log(`[1] 条区（青蓝色） x ${sx0}..${sx1}  y ${sy0}..${sy1}   (${sx1 - sx0 + 1} × ${sy1 - sy0 + 1})`);
+  console.log('    底图里**没有烘死的卡片**（第三版底图）—— 编组条整块由叠加层画，');
+  console.log('    叠加层里底带以外一律透明，条区颜色就是这张底图的青蓝色。');
+  console.log('    切片 / 带外底色 / 三段这些量法已不再需要；要量底带素材请跑 probe-band.js。');
+  process.exit(0);
+}
 
 // ---- 4) 文字行带：卡片行带**下方**、卡片 x 区间内还有墨迹的行（= 烘死的「N车 ❄」）
 const textRows = [];

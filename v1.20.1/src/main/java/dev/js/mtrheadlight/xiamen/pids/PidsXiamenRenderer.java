@@ -196,7 +196,7 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         // 广告表先问全局覆盖：全局配置 → 其他 →「厦门 PIDS」里选了某一张，就所有屏都只播它
         // （单张 = 不轮播）；没选则用这块屏自己勾的分类（PidsXiamenBlockEntity#getAds）。
         final List<PidsXiamenAds.Ad> ads = PidsXiamenSettings.applyAdOverride(entity.getAds());
-        // 编组节数（只有地铁版式有那条编组带；读不到 = 0 → 不画叠加层，底图的静态画留着）。
+        // 编组节数（只有地铁版式有那条编组带；读不到 = 0 → 叠加层整张透明，条区只剩底图的青蓝色）。
         final int cars = kind == PidsXiamenBlock.Kind.METRO
                 ? consistOf(resolveStation(pos), schedules.isEmpty() ? 0L : schedules.get(0).routeId)
                 : 0;
@@ -370,12 +370,14 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
      * 编组条叠加层：贴在底图顶部那块矩形上的一张动态贴图（4×，见 {@link PidsXiamenConsist}）。
      *
      * <p>只有地铁版式有那条编组带（BRT 底图没有 → 这里直接不画）。
-     * 贴图本身<b>不含任何文字</b>；节数读不到（{@code cars <= 0}）时贴图是一块
-     * <b>纯面板底色</b> —— 编组条整块空着（底带 / 卡片 / 雪花一个都不画），
+     * 贴图本身<b>不含任何文字</b>，条区里没铺到的地方<b>透明</b>（底图那条青蓝色透出来）；
+     * 节数读不到（{@code cars <= 0}）时整张贴图透明 —— 编组条整块空着（底带 / 卡片 / 雪花一个都不画）。
      * 同时把底图里烘死的旧 6 节静态条盖掉，屏上不会剩一排对不上的车号。
      *
-     * <p>底带长度跟着节数走（{@link PidsXiamenConsist#bandWidth}）：2 节短、13 节长，
-     * 右端以外什么都不画。
+     * <p>底带长度跟着节数走（{@link PidsXiamenConsist#contentWidth}）：2 节短、7 节起顶到条区上限，
+     * 右端以外什么都不画；<b>居中量的是带子墨迹</b>（{@link PidsXiamenConsist#bandMargins}），
+     * 所以看得见的带子左右余量恒等，卡片行在墨迹里也是左右等宽 ——
+     * 带子 / 卡片 / 车号的中心都压在条区中心上。
      *
      * <p>渲染层和底图相同（{@code MoreRenderLayers.getLight}）→ 亮度一致，不会出现
      * 「编组条比面板亮/暗一档」。
@@ -476,14 +478,16 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
             final ScheduleEntry entry = entryAt(screen, i);
             final Route route = entry == null ? null : ClientData.DATA_CACHE.routeIdMap.get(entry.routeId);
 
+            // 读不到到站（没有排班 / 线路表还没同步）→ **整行留空**：连左边的「开往 / 下一班开往」
+            // 标签也不画 —— 卡片框里就是底图的空白，不摆占位字。
+            if (entry == null || route == null) {
+                continue;
+            }
+
             // 左列：开往 / 下一班开往 / 第三班开往（+ 英文小字）
             drawFlow(matrices, textRenderer, immediate, card, row.padRatio(), row.gapRatio(),
                     line(row.label(), card, Text.translatable(labelKey(i)).getString()),
                     line(row.labelSub(), card, Text.translatable(labelSubKey(i)).getString()));
-
-            if (entry == null || route == null) {
-                continue;
-            }
 
             final String[] destination = destinations(route, entry);
             final Countdown countdown = countdown(entry);
