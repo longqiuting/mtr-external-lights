@@ -2,19 +2,7 @@
 package dev.js.mtrheadlight.xiamen.pids;
 
 /**
- * 厦门 PIDS（{@code mtrlte:pids_xiamen_metro} / {@code pids_xiamen_brt}）的<b>屏幕几何</b>常量。
- *
- * <h2>2026-11-20 起：文字排版搬到 {@link PidsXiamenPainter}</h2>
- * <p>整屏现在是 Java2D 画的（底图只当面板背景），<b>真正生效的文字 / 编组 / 标语版式常量在
- * {@link PidsXiamenPainter} 里</b>。本类现在只管三件事：
- * <ol>
- *   <li>屏幕在方块上的变换（{@link #ANCHOR_OUT} / {@link #ANCHOR_ALONG} / {@link #ANCHOR_Y} /
- *       {@link #SCREEN_TILT_X} / {@link #SCREEN_SCALE_DIVISOR}）—— 渲染器用它摆四边形；</li>
- *   <li>屏上有几行到站（{@link #rowsOf}）、满亮度（{@link #FULL_LIGHT}）；</li>
- *   <li>老接口兼容：{@link Rect} / {@link HAlign} / {@link #TICKER_INSET} 还给
- *       {@link PidsXiamenTicker} 的废弃方法用着，{@link #METRO} / {@link #BRT} 里的
- *       {@code TextStyle} 只是<b>历史值</b>（都不再参与绘制，别照它改数字）。</li>
- * </ol>
+ * 厦门 PIDS（{@code mtrlte:pids_xiamen_metro} / {@code pids_xiamen_brt}）的<b>全部</b>排版常量。
  *
  * <h2>两套排版，各一张参考图</h2>
  * <p>地铁与 BRT 的版式完全不同（框的数量、内容、字号都不一样），所以这里<b>一块屏一套</b>，

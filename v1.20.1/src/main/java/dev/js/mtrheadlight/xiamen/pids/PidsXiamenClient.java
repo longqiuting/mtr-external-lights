@@ -133,13 +133,6 @@ public final class PidsXiamenClient implements ClientModInitializer {
                 LteLog.LOGGER.warn("[lte] xiamen pids ticker: could not invalidate the cache", t);
             }
             try {
-                // 厦门 PIDS 的整屏是 Java2D 画的：底图 / M 标志 / 编组卡片按 id 缓存成 BufferedImage，
-                // 换资源包（F3+T）要跟着重读，否则底图改了屏上还是旧的
-                PidsXiamenAssets.invalidate();
-            } catch (Throwable t) {
-                LteLog.LOGGER.warn("[lte] xiamen pids: could not invalidate the texture cache", t);
-            }
-            try {
                 // PSD-LCD 广告区是 Java2D 画的，广告图按 id 缓存在这里，换包后要跟着清
                 PsdLcdAssets.invalidateAds();
             } catch (Throwable t) {

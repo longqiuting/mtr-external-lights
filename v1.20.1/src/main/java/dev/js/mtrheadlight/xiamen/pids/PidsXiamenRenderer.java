@@ -1,47 +1,12 @@
-// 厦门 PIDS 的屏幕渲染器：整屏交给 Java2D 画成一张动态贴图（PidsXiamenPainter），本类只负责
-// 「取数据 → 拼内容 → 上传贴图 → 发四边形」。
-//
-// ## 为什么改成函数绘制
-// 老路子是底图里**烘好文字**（pids_xiamen_metro.png 自带「开往 / 终点站 / 分钟」），
-// 换一句话就要重导 PNG，而且中文字走资源包字体 —— 缺字时整行直接不显示。
-// 现在底图只是**纯版式底板**（只有色块 / 描边框，见用户给的两张新图），
-// 文字 / 数字 / 广告 / 编组卡片全部由 PidsXiamenPainter 画进位图，
-// 沿用 PSD-LCD 吊板那一套：内容哈希去重 + 动态贴图 + F3+T 失效重建 + 30 秒 TTL 回收
-// （{@link PsdLcdTextures}，两个屏幕共用同一个缓存）。
-//
-// ## 一帧画什么
-// <ol>
-//   <li><b>整屏四边形</b>：512×235 的动态贴图（底图 + 标志 + 日期时间 + 到站行 + 编组 + 广告）。
-//       内容没变就不重画、不上传。</li>
-//   <li><b>滚动标语四边形</b>：标语条「框内」那一小块**透明底**小贴图，每 tick 只在滚过一个像素时
-//       重画 / 重传。速度走 {@link PidsXiamenTicker#pxPerTick(float)}（全模组唯一一份换算），
-//       所以字大的屏滚得也快。</li>
-// </ol>
-// 广告图**烘进位图**（不再是单独一层 quad）：它本来就是一张 PNG（{@link PidsXiamenAds.Ad#image()}），
-// 由 {@link PsdLcdAssets#ad(Identifier)} 读成 BufferedImage 再画进去 —— 于是屏上只有一个绘制层，
-// 不会再出现「广告 / 文字两层各自深度不一样」的老问题。
-//
-// ## 屏幕坐标系（改这里之前先读这段）
-// 底图就是 512×235 px 的矩形平面，局部坐标「GUI 风格」：+X = 屏幕向右、+Y = 屏幕向下、
-// +Z = 扎进屏幕里；原点 = 屏幕左上角。变换链见 {@link #applyScreenTransform}。
-//
-// ## 两面都画
-// 模型是 V 形双面屏：第一面朝 {@code facing.rotateYClockwise()}，画在本格；第二面朝反方向，
-// 画在 partner 格。只有「存数据的那一半」（{@code facing ∈ {SOUTH, WEST}}）才会走到这里，
-// 否则同一块屏会被画两遍（而且镜像）—— 见 {@link PidsXiamenBlock#canStoreData}。
-//
-// ## 渲染状态：一个全局 GL 状态都不碰
-// 矩阵 push/pop 都在 try/finally 里；不调 enableCull / depthMask 之类的「复位」
-// （上一版那样做会把下一个 BER 正在依赖的状态按默认值覆盖掉，看着就是「PIDS 周围的方块变透明」）。
+// 厦门 PIDS 的屏幕渲染器：底图 + 只往里写文字（框/标志/徽章条都在底图里）。
 package dev.js.mtrheadlight.xiamen.pids;
 
-import java.awt.image.BufferedImage;
+import dev.js.mtrheadlight.client.RenderDistance;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -58,12 +23,12 @@ import mtr.data.RailwayData;
 import mtr.data.Route;
 import mtr.data.ScheduleEntry;
 import mtr.data.Station;
-import mtr.data.TrainClient;
 import mtr.mappings.BlockEntityRendererMapper;
-import mtr.render.MoreRenderLayers;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.HorizontalFacingBlock;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.font.TextRenderer;
+import mtr.render.MoreRenderLayers;
 import net.minecraft.client.render.OverlayTexture;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
@@ -71,14 +36,71 @@ import net.minecraft.client.render.block.entity.BlockEntityRendererFactory;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.state.property.Property;
 import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.RotationAxis;
 import net.minecraft.world.World;
 
-/** 厦门 PIDS（地铁 {@code mtrlte:pids_xiamen_metro} / BRT {@code mtrlte:pids_xiamen_brt}）的渲染器。 */
+/**
+ * 厦门 PIDS 的屏幕渲染器（地铁 / BRT 共用，版式各一套）。
+ *
+ * <h2>这里只画两种东西</h2>
+ * <ol>
+ *   <li><b>一块底图</b>：{@code pids_xiamen_metro.png} / {@code pids_xiamen_brt.png}，512×235；
+ *       框线、圆角、M 标志、右上角线路徽章条、底部标语框<b>全都已经画在底图里</b>，
+ *       渲染器一个矩形都不画（上一版自己描框，结果和底图的框错位）。</li>
+ *   <li><b>文字</b>：按 {@link PidsXiamenLayout} 里量好的框往写。
+ *       走 {@code TextRenderer.draw}（1px=1px），不用 MTR 的 {@code drawStringWithFont}。</li>
+ * </ol>
+ * 广告图是第三样东西，但它本来就是「贴一张图」，见 {@link #drawAdvertisement}（和底图同一个
+ * beacon 层 → 同一个满亮；换图时机是标语滚完，见 {@link #slideOf}）。
+ * 屏幕本身按满亮度画（自发光层），<b>没有</b>外围光晕（上一版的 {@code drawGlow} 已删掉）。
+ *
+ * <h2>屏幕坐标系（改这里之前先读这段）</h2>
+ * <p>底图是一次 {@code drawQuad} 画出来的 <b>512×235 px</b> 的矩形平面，局部坐标系是
+ * 「GUI 风格」：<b>+X = 屏幕向右、+Y = 屏幕向下、+Z = 扎进屏幕里</b>；
+ * 原点 = 屏幕<b>左上角</b>（= 底图左上角）。
+ *
+ * <h2>变换链（逐条对应 MTR 的 {@code RenderPIDS}，但换成我们的模型）</h2>
+ * <pre>
+ *   matrices.translate(anchor)                                       // 屏幕左上角，世界/方块坐标
+ *   matrices.multiply(rotY(90 − facing.asRotation()))                // +X = facing（屏长方向）
+ *   matrices.multiply(rotZ(180))                                     // ← 必须是 Z 轴 180°
+ *   matrices.multiply(rotX(+SCREEN_TILT_X))                          // 绕屏长轴倾 22.5°，贴合斜面
+ *   matrices.scale(1 / 261.1, …)                                     // 512×235 px → 1.96×0.90 格
+ * </pre>
+ * {@code rotZ(180)} 不能写 {@code rotY(180)}：后者只镜像左右，还会让 +Y 朝上（文字上下颠倒）。
+ * 锚点不能用天津的 {@code (0.5,0.85,0.5)−0.48}（那是它自己那块平板的数），我们的是按
+ * {@code pids_xiamen.json} 里 ±22.5° 斜面的几何算出来的（见 {@link PidsXiamenLayout#ANCHOR_OUT}）。
+ *
+ * <h2>两面都画</h2>
+ * <p>模型是 V 形双面屏：第一面朝 {@code facing.rotateYClockwise()}，画在本格；第二面朝反方向，
+ * 画在 partner 格。整块屏横跨两格，所以第二面的锚点用 partner 格中心算。
+ * 只有「存数据的那一半」（{@code facing ∈ {SOUTH, WEST}}）才会走到这里，
+ * 否则同一块屏会被画两遍（而且镜像）—— 见 {@link PidsXiamenBlock#canStoreData}。
+ * 帧内重复绘制的计数见 {@link #countDraw}。
+ *
+ * <h2>渲染状态：一个全局 GL 状态都不碰</h2>
+ * <p>{@code RenderLayer} / {@code TextRenderer} 各自 start/end，矩阵的 push/pop 都在
+ * {@code try/finally} 里。上一版在收尾调 {@code enableCull()/depthMask(true)}「复位」，
+ * 实际是把下一个 BER 正在依赖的状态按默认值覆盖掉（{@code RenderLayer} 里 cull 是靠继承的），
+ * 于是后面那些四边形全被当背面剔掉 —— 看着就是「PIDS 周围的方块变透明」。
+ *
+ * <p>底图和广告走<b>同一个</b> {@link MoreRenderLayers#getLight}（beacon 层：贴图原色、
+ * <b>不过光照贴图</b>、写深度）—— 两张图因此是同一个亮度基准，广告不会比底图暗一档
+ * （天津的广告也是 {@code getLight(advertisement.image(), false)} + {@code FULL_LIGHT}）。
+ * <ul>
+ *   <li>底图在 z=0，广告在 −0.35px（更靠近观察者）：都写深度，{@code LEQUAL} 下广告赢，
+ *       底图后画也盖不住它；0.35px ≈ 1.3mm，视觉上贴面；</li>
+ *   <li>文字用 text 层（不写深度）再往前 0.7px，压在广告上不会被广告挡住。</li>
+ * </ul>
+ */
 public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBlockEntity> {
+
+    @Override
+    public boolean isInRenderDistance(final PidsXiamenBlockEntity entity, final net.minecraft.util.math.Vec3d cameraPos) {
+        return RenderDistance.inRange(entity, cameraPos);
+    }
 
     /** 日期 / 时间的世界起点：MC 第 0 天 = 2024-01-01（星期一），于是「星期」可以从天数直接算。 */
     private static final LocalDate EPOCH = LocalDate.of(2024, 1, 1);
@@ -92,24 +114,8 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
     /** 诊断日志间隔（tick）。 */
     private static final long LOG_INTERVAL_TICKS = 200L;
 
-    /**
-     * 滚动标语四边形相对整屏再往观察者方向推多少（px）。
-     * 0.35px ≈ 1.3mm：标语贴面，不会像上一版那样「浮」在屏幕外面。
-     */
-    private static final float TICKER_LIFT_PX = 0.35F;
-
-    /** 没有实时编组时的示意节数（和 PSD-LCD 吊板一致）。 */
-    private static final int DEFAULT_CARS = 4;
-
-    /** 单位：中文写「分钟 / 秒」，英文写「min / s」—— 两条**同时**画在屏上（设计稿就是这样）。 */
-    private static final String UNIT_MIN_ZH = "分钟";
-    private static final String UNIT_SEC_ZH = "秒";
-    private static final String UNIT_MIN_EN = "min";
-    private static final String UNIT_SEC_EN = "s";
-
     private static boolean warned;
     private static boolean warnedDouble;
-    private static boolean carsWarned;
     private static long nextLogTick;
     private static long countedTick = -1L;
 
@@ -120,49 +126,21 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
     private static final Set<PidsXiamenBlock.Kind> AD_LOGGED =
             java.util.EnumSet.noneOf(PidsXiamenBlock.Kind.class);
 
-    /**
-     * 标语时间表缓存（键 = 版式 + 字高 + 全部文案）。
-     * <p>为什么要缓存：一张广告停多久 = 它自己那条标语滚完的时间，这段算的是 Java2D 的
-     * 墨迹宽度（每条约 4 次字形轮廓），一帧算 3 张广告 × 2 面屏就有点贵了。
-     */
-    private static final Map<String, PidsXiamenPainter.TickerPlan> PLANS =
-            new LinkedHashMap<String, PidsXiamenPainter.TickerPlan>(8, 0.75F, true) {
-                @Override
-                protected boolean removeEldestEntry(
-                        final Map.Entry<String, PidsXiamenPainter.TickerPlan> eldest) {
-                    return size() > 12;
-                }
-            };
-
-    private long lastSweep;
+    /** 一行文字（渲染器内部的排版单元）。 */
+    private record Line(PidsXiamenText.Segment[] segments, float height,
+                        float x, PidsXiamenLayout.HAlign align, float maxWidth) {
+    }
 
     public PidsXiamenRenderer(final BlockEntityRendererFactory.Context context) {
         super(context.getRenderDispatcher());
     }
 
     @Override
-    public boolean isInRenderDistance(final PidsXiamenBlockEntity entity,
-                                      final net.minecraft.util.math.Vec3d cameraPos) {
-        return dev.js.mtrheadlight.client.RenderDistance.inRange(entity, cameraPos);
-    }
-
-    @Override
-    public boolean rendersOutsideBoundingBox(final PidsXiamenBlockEntity entity) {
-        return true;
-    }
-
-    @Override
-    public int getRenderDistance() {
-        return 64;
-    }
-
-    @Override
-    public void render(final PidsXiamenBlockEntity entity, final float tickDelta,
-                       final MatrixStack matrices, final VertexConsumerProvider vertexConsumers,
-                       final int light, final int overlay) {
+    public void render(final PidsXiamenBlockEntity entity, final float tickDelta, final MatrixStack matrices,
+                       final VertexConsumerProvider vertexConsumers, final int light, final int overlay) {
         try {
             renderSafe(entity, matrices, vertexConsumers);
-        } catch (final Throwable t) {
+        } catch (Throwable t) {
             // 渲染线程上抛异常 = 整块屏不画（甚至整个 BER 链断掉），只记一次。
             if (!warned) {
                 warned = true;
@@ -171,7 +149,7 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         }
     }
 
-    // ------------------------------------------------------------------ 入口
+    // ------------------------------------------------------------------ 一面屏
 
     private void renderSafe(final PidsXiamenBlockEntity entity, final MatrixStack matrices,
                             final VertexConsumerProvider vertexConsumers) {
@@ -179,7 +157,6 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         if (world == null) {
             return;
         }
-        this.sweep();
         final BlockPos pos = entity.getPos();
         final BlockState state = world.getBlockState(pos);
         if (!(state.getBlock() instanceof PidsXiamenBlock block)) {
@@ -193,112 +170,107 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
             return;
         }
         final MinecraftClient client = MinecraftClient.getInstance();
-        if (client == null) {
+        if (client == null || client.textRenderer == null) {
             return;
         }
-        // MTR 有时递过来的不是 Immediate（它自己的队列）：退回客户端的实体缓冲区并自己 flush。
-        final VertexConsumerProvider.Immediate immediate;
-        final boolean flush;
-        if (vertexConsumers instanceof VertexConsumerProvider.Immediate direct) {
-            immediate = direct;
-            flush = false;
+
+        // 文字用 Immediate：优先用调度器递进来的那个（一帧结束由它自己 flush）。
+        final VertexConsumerProvider.Immediate textConsumers;
+        final boolean flushText;
+        if (vertexConsumers instanceof VertexConsumerProvider.Immediate immediate) {
+            textConsumers = immediate;
+            flushText = false;
         } else {
-            immediate = client.getBufferBuilders().getEntityVertexConsumers();
-            flush = true;
+            textConsumers = client.getBufferBuilders().getEntityVertexConsumers();
+            flushText = true;
         }
 
         final PidsXiamenBlock.Kind kind = block.kind();
-        final boolean partner = world.getBlockState(pos.offset(facing)).getBlock()
-                instanceof PidsXiamenBlock;
+        final boolean partner = world.getBlockState(pos.offset(facing)).getBlock() instanceof PidsXiamenBlock;
 
-        // ---- 数据（两面共用，一帧只算一次）
+        // 到站 / 时钟 / 日期 / 广告：两面共用，一帧只算一次。
         final List<ScheduleEntry> schedules = schedulesFor(entity, pos);
         final long gameTick = (long) MTRClient.getGameTick();
         // 广告表先问全局覆盖：全局配置 → 其他 →「厦门 PIDS」里选了某一张，就所有屏都只播它
+        // （单张 = 不轮播）；没选则用这块屏自己勾的分类（PidsXiamenBlockEntity#getAds）。
         final List<PidsXiamenAds.Ad> ads = PidsXiamenSettings.applyAdOverride(entity.getAds());
-        final Slide slide = slideOf(kind, gameTick, entity.getAdvertisementIndex(), ads);
-        final Station station = resolveStation(pos);
-
-        final PidsXiamenPainter.Content content = contentOf(kind, entity, world, schedules, station);
-        final BufferedImage adImage = slide.ad() == null ? null : PsdLcdAssets.ad(slide.ad().image());
-        final String hash = hashOf(content, adImage, slide);
-
-        // ---- 整屏贴图
-        final String key = world.getRegistryKey().getValue() + "|" + pos.asLong();
-        final PsdLcdTextures.Entry texture = PsdLcdTextures.acquire(key,
-                Math.round(PidsXiamenPainter.SCREEN_W), Math.round(PidsXiamenPainter.SCREEN_H));
-        if (texture == null) {
-            return;
-        }
-        if (!hash.equals(texture.hash)) {
-            final BufferedImage image = PidsXiamenPainter.paint(content, PidsXiamenAssets.get(),
-                    adImage, painterKind(kind), Math.round(PidsXiamenPainter.SCREEN_W),
-                    Math.round(PidsXiamenPainter.SCREEN_H));
-            texture.hash = hash;
-            PsdLcdTextures.upload(texture, image);
-            if (AD_LOGGED.add(kind)) {
-                final float[] box = PidsXiamenPainter.adRect(painterKind(kind));
-                LteLog.LOGGER.info("[lte] pids ad: kind={} box=({},{}..{},{}) index={}/{} tick={}",
-                        kind, box[0], box[1], box[2], box[3], slide.index(), slide.count(),
-                        slide.tick());
-            }
-        }
+        final Screen screen = new Screen(kind, schedules, entity.getDisplayPage(),
+                slideOf(client.textRenderer, kind, gameTick, entity.getAdvertisementIndex(), ads),
+                gameTick, formatTime(world), formatIsoDate(world), formatBrtDate(world));
 
         countDraw(pos, kind, facing, partner);
 
-        // ---- 滚动标语（两面共用一张小贴图）
-        final List<PidsXiamenTicker.Message> caption = captionOf(slide.ad());
-        final PidsXiamenPainter.TickerPlan plan = planFor(kind, caption);
-        final long tickerTick = slide.ad() == null ? gameTick : slide.tick();
-        final PsdLcdTextures.Entry strip = tickerStrip(key, kind, plan, tickerTick);
-        final Identifier stripId = strip == null ? null : strip.id;
-
-        // ---- 两面
-        matrices.push();
         try {
-            renderFace(matrices, immediate, kind, facing, 0.0F, 0.0F, texture.id, stripId);
+            // 第一面：本格，屏幕朝 facing.rotateYClockwise()。
+            renderFace(matrices, vertexConsumers, textConsumers, kind, client.textRenderer,
+                    facing, 0, 0, screen);
+            // 第二面：partner 格（pos.offset(facing)），屏幕朝反方向。
             if (partner) {
-                renderFace(matrices, immediate, kind, facing.getOpposite(),
-                        facing.getOffsetX(), facing.getOffsetZ(), texture.id, stripId);
+                renderFace(matrices, vertexConsumers, textConsumers, kind, client.textRenderer,
+                        facing.getOpposite(), facing.getOffsetX(), facing.getOffsetZ(), screen);
             }
         } finally {
-            matrices.pop();
-            if (flush) {
-                immediate.draw();
+            if (flushText) {
+                textConsumers.draw();
             }
         }
     }
 
-    /** 版式选择：方块类型 → 画家类型（两个枚举各管各的：一个带 MC 贴图，一个纯 AWT）。 */
-    private static PidsXiamenPainter.Kind painterKind(final PidsXiamenBlock.Kind kind) {
-        return kind == PidsXiamenBlock.Kind.BRT
-                ? PidsXiamenPainter.Kind.BRT : PidsXiamenPainter.Kind.METRO;
-    }
-
-    // ------------------------------------------------------------------ 一面屏
-
-    /** 画「一面」屏：整屏四边形 + 标语小四边形。 */
-    private static void renderFace(final MatrixStack matrices,
-                                   final VertexConsumerProvider.Immediate immediate,
-                                   final PidsXiamenBlock.Kind kind, final Direction screenFacing,
-                                   final float cellDx, final float cellDz,
-                                   final Identifier screenTexture, final Identifier stripId) {
+    /** 画「一面」屏：底图 → 广告 → 时钟 → 到站 → 标语。 */
+    private void renderFace(final MatrixStack matrices, final VertexConsumerProvider vertexConsumers,
+                            final VertexConsumerProvider.Immediate textConsumers,
+                            final PidsXiamenBlock.Kind kind, final TextRenderer textRenderer,
+                            final Direction screenFacing, final float cellDx, final float cellDz,
+                            final Screen screen) {
         matrices.push();
         try {
             applyScreenTransform(matrices, screenFacing, cellDx, cellDz);
-            final Matrix4f m = matrices.peek().getPositionMatrix();
-            final Matrix3f n = matrices.peek().getNormalMatrix();
 
-            // 1) 整屏（底图 + 文字 + 编组 + 广告全在这一张里）
-            quad(immediate.getBuffer(MoreRenderLayers.getLight(screenTexture, false)), m, n,
-                    0.0F, 0.0F, PidsXiamenPainter.SCREEN_W, PidsXiamenPainter.SCREEN_H, 0.0F);
+            // 1) 底图（框、标志、徽章条都在里面）
+            step("base", () -> drawQuad(matrices,
+                    vertexConsumers.getBuffer(MoreRenderLayers.getLight(kind.screenTexture(), false)),
+                    0.0F, 0.0F, PidsXiamenLayout.SCREEN_WIDTH, PidsXiamenLayout.SCREEN_HEIGHT));
 
-            // 2) 滚动标语：压在屏面上的一小块**半透明**贴图（字之外全透明）
-            if (stripId != null) {
-                final float[] inner = PidsXiamenPainter.tickerInner(painterKind(kind));
-                quad(immediate.getBuffer(MoreRenderLayers.getLight(stripId, true)), m, n,
-                        inner[0], inner[1], inner[2], inner[3], -TICKER_LIFT_PX);
-            }
+            // 文字层往观察者方向推一点，避免和底图共面
+            matrices.translate(0.0F, 0.0F, PidsXiamenLayout.TEXT_LAYER_Z);
+
+            // 2) 广告（在文字之前：它是张图，不该盖住字）。
+            // 广告和底图走同一个 beacon 层 → 同一个亮度（满亮、不过光照贴图），
+            // 只靠 -0.35px 的深度差压在底图上面（见类注释）。
+            step("ad", () -> {
+                final Slide slide = screen.slide();
+                if (slide.ad() == null) {
+                    return;
+                }
+                matrices.push();
+                try {
+                    matrices.translate(0.0F, 0.0F, PidsXiamenLayout.AD_LAYER_Z);
+                    drawAdvertisement(matrices, vertexConsumers, kind, slide);
+                } finally {
+                    matrices.pop();
+                }
+            });
+
+            // 3) 左上角的日期 / 时间
+            step("clock", () -> renderClock(matrices, textRenderer, textConsumers, kind, screen));
+
+            // 4) 到站行
+            step("rows", () -> renderArrivals(matrices, textRenderer, textConsumers, kind, screen));
+
+            // 5) 底部滚动标语：广告开着就用这张广告的 text（天津的语义），否则用资源包那套。
+            step("ticker", () -> {
+                final PidsXiamenLayout.Rect bar = tickerOf(kind);
+                final float sizeRatio = tickerTextOf(kind).sizeRatio();
+                final Slide slide = screen.slide();
+                final List<PidsXiamenTicker.Message> caption = captionOf(slide.ad());
+                // 有广告时，标语的相位从「这张广告开始播」的那一刻算起 —— 广告换图的时机
+                // 就是这个相位把整套标语滚完的时刻（{@link PidsXiamenTicker#scrollSpanTicks}），
+                // 所以标语的最后半个字出左边缘 = 下一张广告进来，和天津 nextSlide 一致。
+                // 没广告时回落到连续的世界时间。
+                final long tickerTick = slide.ad() == null ? screen.gameTick() : slide.tick();
+                PidsXiamenTicker.draw(matrices, textRenderer, textConsumers, bar, sizeRatio,
+                        tickerTick, caption);
+            });
         } finally {
             matrices.pop();
         }
@@ -333,151 +305,185 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
     }
 
     /**
-     * 一块整张 uv 的矩形（屏幕坐标系，+Y 向下，{@code x1/y1} 为右下角）。
+     * 画一块整张 uv 的矩形（+Y 向下的屏幕空间）。
      *
-     * <p>顶点顺序「左上→左下→右下→右上」使法线朝 −Z（= 朝观察者）；这一层不剔除，
-     * 所以两面都看得见。亮度取 {@link PidsXiamenLayout#FULL_LIGHT}（自发光屏幕）。
+     * <p>底图和广告都走 {@link MoreRenderLayers#getLight}（= {@code RenderLayer.getBeaconBeam}，
+     * 顶点格式 {@code POSITION_COLOR_TEXTURE_LIGHT_NORMAL}），所以这里多给的
+     * {@code overlay} 元素会被 {@code BufferBuilder} 忽略；文字那条层仍然靠
+     * {@link OverlayTexture#DEFAULT_UV} 兜底。
+     *
+     * <p>这一层<b>不剔除</b>，所以顺时针逆时针都看得见；仍然按「左上→左下→右下→右上」发顶点，
+     * 使法线朝 −Z（= 朝观察者）。
      */
-    private static void quad(final VertexConsumer buffer, final Matrix4f m, final Matrix3f n,
-                             final float x0, final float y0, final float x1, final float y1,
-                             final float z) {
-        buffer.vertex(m, x0, y0, z).color(255, 255, 255, 255).texture(0.0F, 0.0F)
-                .overlay(OverlayTexture.DEFAULT_UV).light(PidsXiamenLayout.FULL_LIGHT)
-                .normal(n, 0.0F, 0.0F, -1.0F).next();
-        buffer.vertex(m, x0, y1, z).color(255, 255, 255, 255).texture(0.0F, 1.0F)
-                .overlay(OverlayTexture.DEFAULT_UV).light(PidsXiamenLayout.FULL_LIGHT)
-                .normal(n, 0.0F, 0.0F, -1.0F).next();
-        buffer.vertex(m, x1, y1, z).color(255, 255, 255, 255).texture(1.0F, 1.0F)
-                .overlay(OverlayTexture.DEFAULT_UV).light(PidsXiamenLayout.FULL_LIGHT)
-                .normal(n, 0.0F, 0.0F, -1.0F).next();
-        buffer.vertex(m, x1, y0, z).color(255, 255, 255, 255).texture(1.0F, 0.0F)
-                .overlay(OverlayTexture.DEFAULT_UV).light(PidsXiamenLayout.FULL_LIGHT)
-                .normal(n, 0.0F, 0.0F, -1.0F).next();
+    private static void drawQuad(final MatrixStack matrices, final VertexConsumer buffer,
+                                 final float x, final float y, final float width, final float height) {
+        final MatrixStack.Entry entry = matrices.peek();
+        final Matrix4f position = entry.getPositionMatrix();
+        final Matrix3f normal = entry.getNormalMatrix();
+        vertex(buffer, position, normal, x, y, 0.0F, 0.0F);                       // 左上
+        vertex(buffer, position, normal, x, y + height, 0.0F, 1.0F);              // 左下
+        vertex(buffer, position, normal, x + width, y + height, 1.0F, 1.0F);      // 右下
+        vertex(buffer, position, normal, x + width, y, 1.0F, 0.0F);               // 右上
     }
 
-    private void sweep() {
-        final long now = System.currentTimeMillis();
-        if (now - this.lastSweep > 5_000L) {
-            this.lastSweep = now;
-            PsdLcdTextures.sweep();
-        }
+    private static void vertex(final VertexConsumer buffer, final Matrix4f position, final Matrix3f normal,
+                               final float x, final float y, final float u, final float v) {
+        buffer.vertex(position, x, y, 0.0F)
+                .color(255, 255, 255, 255)
+                .texture(u, v)
+                .overlay(OverlayTexture.DEFAULT_UV)
+                .light(PidsXiamenLayout.FULL_LIGHT)
+                .normal(normal, 0.0F, 0.0F, -1.0F)
+                .next();
     }
 
-    // ------------------------------------------------------------------ 内容
+    // ------------------------------------------------------------------ 日期 / 时间
 
-    /**
-     * 这一帧的整屏内容（全部解析成字符串 —— 排版不认识 MTR）。
-     *
-     * <p>拿不到数据时<b>不是黑屏</b>：标签照画，终点站位置写「暂无列车信息」
-     * （{@link PidsXiamenPainter.Content#placeholder()}），编组条退回
-     * {@value #DEFAULT_CARS} 节 —— 屏看起来还是块屏，只是没车。
-     */
-    private static PidsXiamenPainter.Content contentOf(final PidsXiamenBlock.Kind kind,
-                                                       final PidsXiamenBlockEntity entity,
-                                                       final World world,
-                                                       final List<ScheduleEntry> schedules,
-                                                       final Station station) {
-        final int page = Math.max(0, entity.getDisplayPage());
-        final List<PidsXiamenPainter.Row> rows = new ArrayList<>();
+    /** 左上角：日期 + 时间，写进 M 标志右边那块空白（不额外加背景）。 */
+    private void renderClock(final MatrixStack matrices, final TextRenderer textRenderer,
+                             final VertexConsumerProvider.Immediate immediate,
+                             final PidsXiamenBlock.Kind kind, final Screen screen) {
+        final PidsXiamenLayout.Clock clock = clockOf(kind);
+        final PidsXiamenLayout.Rect card = clock.card();
+        final PidsXiamenLayout.TextStyle date = clock.date();
+        final PidsXiamenLayout.TextStyle time = clock.time();
+        drawFlow(matrices, textRenderer, immediate, card, clock.padRatio(), clock.gapRatio(),
+                line(date, card, kind == PidsXiamenBlock.Kind.BRT ? screen.dateBrt() : screen.dateIso()),
+                line(time, card, screen.clock()));
+    }
+
+    // ------------------------------------------------------------------ 到站
+
+    /** 到站行：地铁三行、BRT 两行，版式由 {@link PidsXiamenLayout} 定。 */
+    private void renderArrivals(final MatrixStack matrices, final TextRenderer textRenderer,
+                                final VertexConsumerProvider.Immediate immediate,
+                                final PidsXiamenBlock.Kind kind, final Screen screen) {
         if (kind == PidsXiamenBlock.Kind.BRT) {
-            for (int i = 0; i < PidsXiamenLayout.BRT.rows().length; i++) {
-                rows.add(brtRow(entryAt(schedules, page * PidsXiamenLayout.BRT.rows().length + i)));
-            }
+            renderBrtRows(matrices, textRenderer, immediate, screen);
         } else {
-            for (int i = 0; i < PidsXiamenLayout.METRO.rows().length; i++) {
-                rows.add(metroRow(i,
-                        entryAt(schedules, page * PidsXiamenLayout.METRO.rows().length + i)));
-            }
+            renderMetroRows(matrices, textRenderer, immediate, screen);
         }
-
-        // 编组：只有地铁底图有那条青色带（BRT 底图没有 → 传空表，画家不画）
-        List<String> cars = Collections.emptyList();
-        if (kind == PidsXiamenBlock.Kind.METRO) {
-            final long routeId = schedules.isEmpty() ? 0L : schedules.get(0).routeId;
-            final int count = consistOf(station, routeId);
-            cars = new ArrayList<>(count);
-            for (int i = 1; i <= count; i++) {
-                cars.add(String.valueOf(i));
-            }
-        }
-
-        return new PidsXiamenPainter.Content(
-                kind == PidsXiamenBlock.Kind.BRT ? brtDate(world) : formatIsoDate(world),
-                formatTime(world), rows, cars,
-                Text.translatable("gui.mtrlte.pids.no_data").getString());
     }
 
-    /** 地铁一行：左列「开往 / Bound for」，右列「终点站 / Destination / X 分钟」。 */
-    private static PidsXiamenPainter.Row metroRow(final int index, final ScheduleEntry entry) {
-        final String label = Text.translatable(labelKey(index)).getString();
-        final String labelSub = Text.translatable(labelSubKey(index)).getString();
-        final Route route = entry == null ? null
-                : ClientData.DATA_CACHE.routeIdMap.get(entry.routeId);
-        if (entry == null || route == null) {
-            return PidsXiamenPainter.Row.empty(label, labelSub);
+    /** 地铁：左列「开往 / Bound for」，右列「终点站 / Destination / X 分钟」。 */
+    private void renderMetroRows(final MatrixStack matrices, final TextRenderer textRenderer,
+                                 final VertexConsumerProvider.Immediate immediate, final Screen screen) {
+        final PidsXiamenLayout.Row[] rows = PidsXiamenLayout.METRO.rows();
+        for (int i = 0; i < rows.length; i++) {
+            final PidsXiamenLayout.Row row = rows[i];
+            final PidsXiamenLayout.Rect card = row.card();
+            final ScheduleEntry entry = entryAt(screen, i);
+            final Route route = entry == null ? null : ClientData.DATA_CACHE.routeIdMap.get(entry.routeId);
+
+            // 左列：开往 / 下一班开往 / 第三班开往（+ 英文小字）
+            drawFlow(matrices, textRenderer, immediate, card, row.padRatio(), row.gapRatio(),
+                    line(row.label(), card, Text.translatable(labelKey(i)).getString()),
+                    line(row.labelSub(), card, Text.translatable(labelSubKey(i)).getString()));
+
+            if (entry == null || route == null) {
+                continue;
+            }
+
+            final String[] destination = destinations(route, entry);
+            final Countdown countdown = countdown(entry);
+
+            // 右列：终点站（大）/ 英文（小）/ 倒计时（大数字 + 小单位）
+            drawFlow(matrices, textRenderer, immediate, card, row.padRatio(), row.gapRatio(),
+                    line(row.dest(), card, destination[0]),
+                    line(row.destSub(), card, destination[1]),
+                    countLine(row.count(), row.unit(), card, countdown));
         }
-        final String[] destination = destinations(route, entry);
-        final Countdown countdown = countdown(entry);
-        final String[] unit = units(countdown);
-        return new PidsXiamenPainter.Row(label, labelSub, destination[0], destination[1],
-                "", PidsXiamenLayout.COLOR_WHITE, "",
-                countdown.number(), unit[0], unit[1]);
     }
 
-    /** BRT 一行：「开往XXX站」+「线路号（线路色）约 X 分钟」。 */
-    private static PidsXiamenPainter.Row brtRow(final ScheduleEntry entry) {
-        final Route route = entry == null ? null
-                : ClientData.DATA_CACHE.routeIdMap.get(entry.routeId);
-        if (entry == null || route == null) {
-            return PidsXiamenPainter.Row.empty("", "");
+    /** BRT：第一行「开往XXXX站」，第二行「线路号（线路色）约X 分钟」。 */
+    private void renderBrtRows(final MatrixStack matrices, final TextRenderer textRenderer,
+                               final VertexConsumerProvider.Immediate immediate, final Screen screen) {
+        final PidsXiamenLayout.BrtRow[] rows = PidsXiamenLayout.BRT.rows();
+        for (int i = 0; i < rows.length; i++) {
+            final PidsXiamenLayout.BrtRow row = rows[i];
+            final PidsXiamenLayout.Rect card = row.card();
+            final ScheduleEntry entry = entryAt(screen, i);
+            final Route route = entry == null ? null : ClientData.DATA_CACHE.routeIdMap.get(entry.routeId);
+            if (entry == null || route == null) {
+                continue;
+            }
+
+            final String destination = destinations(route, entry)[0];
+            final String routeName = firstPart(route.name);
+            final Countdown countdown = countdown(entry);
+
+            drawFlow(matrices, textRenderer, immediate, card, row.padRatio(), row.gapRatio(),
+                    line(row.dest(), card, Text.translatable(
+                            "gui.mtrlte.pids.bound_for_station", destination).getString()),
+                    routeLine(row, card, route, routeName, countdown));
         }
-        final String destination = destinations(route, entry)[0];
-        final Countdown countdown = countdown(entry);
-        final String[] unit = units(countdown);
-        return new PidsXiamenPainter.Row("", "",
-                Text.translatable("gui.mtrlte.pids.bound_for_station", destination).getString(),
-                "", firstPart(route.name), routeColor(route),
-                // 「即将进站 / 已到站」这一档没有数字也没有单位 → 「约」也一起省掉
-                unit[0].isEmpty() ? "" : Text.translatable("gui.mtrlte.pids.about").getString(),
-                countdown.number(), unit[0], unit[1]);
     }
 
     /**
-     * 倒计时单位：中文「分钟 / 秒」+ 英文「min / s」<b>两条都给</b>。
+     * BRT 第二行：<b>线路号（线路色）</b> + 「约」小字 + 大数字 + 「分钟」小字（底边对齐）。
      *
-     * <p>为什么两个都给：设计稿上「分钟」和「min」是上下两行小字，中英文读者一眼都能读；
-     * 而且切换语言时两边都在，不会出现「英文模式只剩数字」。
+     * <p>线路号不带引号（旧版用的 {@code route_quoted} 键已经不用了），颜色取 MTR 里这条线路的
+     * {@code route.color}（厦门 1 号线是绿的、2 号线橙的……），取不到才退回白色 ——
+     * 整屏文字全白，只有这一处跟线路色走。
      */
-    private static String[] units(final Countdown countdown) {
-        if (countdown == null || countdown.unit() == null || countdown.unit().isEmpty()) {
-            return new String[]{"", ""};
+    private Line routeLine(final PidsXiamenLayout.BrtRow row, final PidsXiamenLayout.Rect card,
+                           final Route route, final String routeName, final Countdown countdown) {
+        final PidsXiamenLayout.TextStyle routeStyle = row.route();
+        final PidsXiamenLayout.TextStyle about = row.about();
+        final PidsXiamenLayout.TextStyle count = row.count();
+        final PidsXiamenLayout.TextStyle unit = row.unit();
+
+        // 即将进站 / 已到站：没有数字、也没有单位，所以「约」也一起省掉 ——
+        // 否则屏上会读成「1号线 约 即将进站」。这一档只写「线路号 即将进站」，
+        // 状态用倒计时那一档字号（地铁版同样把状态写在大数字的位置上）。
+        if (countdown.unit().isEmpty()) {
+            final float routeSize = size(routeStyle, card);
+            final float stateSize = size(count, card);
+            final PidsXiamenText.Segment[] state = {
+                    new PidsXiamenText.Segment(routeName, routeSize, routeColor(route)),
+                    new PidsXiamenText.Segment(" ", routeSize, PidsXiamenLayout.COLOR_WHITE),
+                    new PidsXiamenText.Segment(countdown.number(), stateSize, count.color())
+            };
+            return new Line(state, Math.max(routeSize, stateSize), card.x(routeStyle.xRatio()),
+                    PidsXiamenLayout.HAlign.LEFT, card.w() * 0.88F);
         }
-        final String minute = Text.translatable("gui.mtrlte.pids.minute").getString();
-        if (minute != null && minute.equals(countdown.unit())) {
-            return new String[]{UNIT_MIN_ZH, UNIT_MIN_EN};
-        }
-        return new String[]{UNIT_SEC_ZH, UNIT_SEC_EN};
+
+        final float height = Math.max(Math.max(size(routeStyle, card), size(count, card)), size(unit, card));
+        final PidsXiamenText.Segment[] segments = {
+                new PidsXiamenText.Segment(routeName, size(routeStyle, card), routeColor(route)),
+                // 「约」前面留一个空格：线路号和「约」之间要断开（「1号线 约 3 分钟」）
+                new PidsXiamenText.Segment(" " + Text.translatable("gui.mtrlte.pids.about").getString(),
+                        size(about, card), about.color()),
+                new PidsXiamenText.Segment(pad(countdown.number()), size(count, card), count.color()),
+                new PidsXiamenText.Segment(padUnit(countdown.unit()), size(unit, card), unit.color())
+        };
+        // 前三段按同一基线左对齐；整体宽度超了就等比缩（drawRun 内做）
+        return new Line(segments, height, card.x(routeStyle.xRatio()),
+                PidsXiamenLayout.HAlign.LEFT, card.w() * 0.88F);
     }
 
-    /** 内容哈希：变了才重画整屏（时钟 / 倒计时是分钟级，一般一分钟一次）。 */
-    private static String hashOf(final PidsXiamenPainter.Content content,
-                                 final BufferedImage ad, final Slide slide) {
-        final StringBuilder out = new StringBuilder(128);
-        out.append(content.date()).append('|').append(content.clock()).append('|')
-                .append(content.placeholder()).append('|').append(content.carNumbers()).append('|');
-        for (final PidsXiamenPainter.Row row : content.rows()) {
-            out.append(row.label()).append(',').append(row.labelSub()).append(',')
-                    .append(row.dest()).append(',').append(row.destSub()).append(',')
-                    .append(row.route()).append(',').append(row.routeColor()).append(',')
-                    .append(row.about()).append(',').append(row.number()).append(',')
-                    .append(row.unitZh()).append(',').append(row.unitEn()).append(';');
+    /** 线路色（ARGB）。MTR 的 {@code route.color} 是 {@code 0xRRGGBB}；没设过（0）= 白色。 */
+    private static int routeColor(final Route route) {
+        if (route == null || (route.color & 0xFFFFFF) == 0) {
+            return PidsXiamenLayout.COLOR_WHITE;
         }
-        out.append('|').append(ad == null ? "noad" : "ad")
-                .append(':').append(slide.index()).append('/').append(slide.count());
-        return out.toString();
+        return 0xFF000000 | (route.color & 0xFFFFFF);
     }
 
-    // ------------------------------------------------------------------ 广告轮播
+    /** 地铁的倒计时行：大数字（白）+ 小单位，底边对齐。 */
+    private Line countLine(final PidsXiamenLayout.TextStyle count, final PidsXiamenLayout.TextStyle unit,
+                           final PidsXiamenLayout.Rect card, final Countdown countdown) {
+        final float countSize = size(count, card);
+        final float unitSize = size(unit, card);
+        final PidsXiamenText.Segment[] segments = {
+                new PidsXiamenText.Segment(countdown.number(), countSize, count.color()),
+                new PidsXiamenText.Segment(padUnit(countdown.unit()), unitSize, unit.color())
+        };
+        return new Line(segments, Math.max(countSize, unitSize),
+                card.x(count.xRatio()), PidsXiamenLayout.HAlign.LEFT, card.w() * 0.55F);
+    }
+
+    // ------------------------------------------------------------------ 广告
 
     /**
      * 这一帧播第几张广告、播到第几个 tick（两面共用一份）。
@@ -496,18 +502,30 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
     /**
      * 广告轮播的节拍：<b>每张广告的时长 = 它自己那条标语滚完的时间</b>（学天津）。
      *
+     * <p>天津的 {@code RenderPIDSTianjin.renderAdvertisement} 是先把当前广告的
+     * {@code text} 交给 {@code ScrollingText} 去滚，等 {@code scrollText(...)} 返回
+     * {@code true}（整条滚完、出了左边缘）才调 {@code nextSlide(...)} 换下一张；
+     * 换图的同时 {@code ScrollingText.changeImage(...)} 把 {@code ticksOffset} 重置，
+     * 新标语从右边缘重新进来。
+     *
+     * <p>这里把同一套时序算成一条<b>无状态</b>的时间线（渲染线程不写任何字段，
+     * 两面屏 / 多块屏 / 存档重进都对得上）：
      * <pre>
      *   第 i 张的时长 dwell[i] = 这张广告的标语「全部滚完」的 tick 数
      *   总周期 total = Σ dwell[i]
      *   t = gameTick mod total  →  落在哪一段就是第几张，段内偏移就是标语相位
      * </pre>
      * 一张广告 = 段长恒为 total = 不轮播；≥2 张才转，且每张的停留时间按它自己那句标语的
-     * 长度自动变（长句多停、短句少停）——「标语全滚完再切下一张」，不会滚到一半突然换图。
+     * 长度自动变（长句多停、短句少停）—— 这就是「标语全滚完再切下一张」。
      *
-     * <p>标语的时长和滚速来自同一份时间表（{@link #planFor}），所以「换图」和「滚完」是同一刻。
+     * <p>{@code adIndex}（方块实体里存的「起播偏移」）不是加在下标上，而是<b>旋转时间线的起点</b>：
+     * 否则「这张图的时长」和「这张图自己的标语」就对不上，标语会被切在半路。
+     *
+     * <p>广告关掉 / 没有广告 / 标语表是空的时候整段不画（只留底图的空白广告区）。
      */
-    private static Slide slideOf(final PidsXiamenBlock.Kind kind, final long gameTick,
-                                 final int adIndex, final List<PidsXiamenAds.Ad> ads) {
+    private static Slide slideOf(final TextRenderer textRenderer, final PidsXiamenBlock.Kind kind,
+                                 final long gameTick, final int adIndex,
+                                 final List<PidsXiamenAds.Ad> ads) {
         if (!PidsXiamenSettings.advertisements()) {
             return Slide.NONE;
         }
@@ -515,18 +533,23 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         if (count <= 0) {
             return Slide.NONE;
         }
+        final PidsXiamenLayout.Rect bar = tickerOf(kind);
+        final float sizeRatio = tickerTextOf(kind).sizeRatio();
+
+        // 时间线按「旋转后的顺序」铺：第 0 段 = ads[adIndex mod count]。
         final PidsXiamenAds.Ad[] order = new PidsXiamenAds.Ad[count];
         final int[] dwell = new int[count];
         long total = 0L;
         for (int slot = 0; slot < count; slot++) {
             final int index = Math.floorMod(adIndex + slot, count);
             order[slot] = ads.get(index);
-            dwell[slot] = dwellTicks(kind, order[slot]);
+            dwell[slot] = dwellTicks(textRenderer, order[slot], bar, sizeRatio);
             total += dwell[slot];
         }
         if (total <= 0L) {
             return Slide.NONE;
         }
+
         long t = Math.floorMod(gameTick, total);
         for (int slot = 0; slot < count; slot++) {
             if (t < dwell[slot]) {
@@ -541,13 +564,70 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         return Slide.NONE;
     }
 
-    /** 一张广告该停多少 tick：它自己的标语滚完的时间（兜底见 {@link PidsXiamenLayout#AD_ADVANCE_TICKS}）。 */
-    private static int dwellTicks(final PidsXiamenBlock.Kind kind, final PidsXiamenAds.Ad ad) {
+    /**
+     * 一张广告该停多少 tick：它自己的标语滚完的时间。
+     *
+     * <p>这张广告没有 {@code text} 时，标语用的是资源包那套（{@link PidsXiamenTicker#messages()}），
+     * 时长就按那一整套滚完来算 —— 两边用的是同一份列表，所以「换图」仍然等于「标语滚完」。
+     * 兜底（标语表空 / 条太窄）用 {@link PidsXiamenLayout#AD_ADVANCE_TICKS}。
+     */
+    private static int dwellTicks(final TextRenderer textRenderer, final PidsXiamenAds.Ad ad,
+                                  final PidsXiamenLayout.Rect bar, final float sizeRatio) {
         if (ad == null) {
             return PidsXiamenLayout.AD_ADVANCE_TICKS;
         }
-        final int ticks = PidsXiamenPainter.tickerSpanTicks(planFor(kind, captionOf(ad)));
+        final List<PidsXiamenTicker.Message> caption = captionOf(ad);
+        final int ticks = PidsXiamenTicker.scrollSpanTicks(textRenderer,
+                caption == null ? PidsXiamenTicker.messages() : caption, bar, sizeRatio);
         return ticks > 0 ? ticks : PidsXiamenLayout.AD_ADVANCE_TICKS;
+    }
+
+    /**
+     * 广告：<b>铺满版式给的矩形，四边贴齐</b>（{@link PidsXiamenLayout#AD_KEEP_ASPECT} 为假时
+     * 直接拉伸；为真时按原图比例缩进去，居中留白 —— 默认是假，也就是「贴边」）。
+     *
+     * <p>贴图走 {@link MoreRenderLayers#getLight}——<b>和底图同一层</b>：beacon 层按贴图原色画、
+     * 不过光照贴图，所以广告和底图一样满亮（用户报的「广告不够亮」就是之前用
+     * {@code getEntityCutoutNoCull} 吃了光照贴图那一档）。天津的广告也是这条层。
+     *
+     * <p>哪一张、播到哪儿由 {@link #slideOf} 定（标语滚完才换）。
+     */
+    private static void drawAdvertisement(final MatrixStack matrices,
+                                          final VertexConsumerProvider vertexConsumers,
+                                          final PidsXiamenBlock.Kind kind, final Slide slide) {
+        final PidsXiamenAds.Ad ad = slide.ad();
+        if (ad == null || ad.image() == null) {
+            return;
+        }
+
+        // 宽高全部由版式推出来（参考图要求「可拉伸」：框多大就铺多大，不写死尺寸）
+        final PidsXiamenLayout.Rect box = adOf(kind);
+        float width = box.w();
+        float height = box.h();
+        if (PidsXiamenLayout.AD_KEEP_ASPECT) {
+            final float boxAspect = width / height;
+            final float imageAspect = PidsXiamenAds.aspectRatio();
+            if (imageAspect > 0.0F) {
+                if (imageAspect > boxAspect) {
+                    height = width / imageAspect;
+                } else {
+                    width = height * imageAspect;
+                }
+            }
+        }
+        drawQuad(matrices,
+                vertexConsumers.getBuffer(MoreRenderLayers.getLight(ad.image(), false)),
+                box.x0() + (box.w() - width) * 0.5F,
+                box.y0() + (box.h() - height) * 0.5F,
+                width, height);
+
+        // 每种屏第一次画广告时打一行：广告矩形、实际画多大、第几张、贴图是否找得到。
+        // 「广告消失」这类问题光看屏分不出「没画」还是「被底图盖住」，有这行就能排除前者。
+        if (AD_LOGGED.add(kind)) {
+            LteLog.LOGGER.info("[lte] pids ad: kind={} box=({},{}..{},{}) index={}/{} tick={} tex={}",
+                    kind, box.x0(), box.y0(), box.x1(), box.y1(),
+                    slide.index(), slide.count(), slide.tick(), ad.image());
+        }
     }
 
     /**
@@ -566,137 +646,84 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         return List.of(new PidsXiamenTicker.Message(text, PidsXiamenLayout.COLOR_WHITE, 0.0F));
     }
 
-    // ------------------------------------------------------------------ 标语
+    // ------------------------------------------------------------------ 排版工具
 
-    /** 这一帧的标语时间表（{@code null} = 没有标语 / 条太窄）。 */
-    private static PidsXiamenPainter.TickerPlan planFor(final PidsXiamenBlock.Kind kind,
-                                                         final List<PidsXiamenTicker.Message> caption) {
-        final PidsXiamenPainter.Assets assets = PidsXiamenAssets.get();
-        final List<PidsXiamenTicker.Message> source = caption == null || caption.isEmpty()
-                ? PidsXiamenTicker.messages() : caption;
-        if (source.isEmpty()) {
-            return null;
+    /** 把一行 {@link Line} 摆进框里：整体垂直居中，行间留 {@code gapRatio × 框高}。 */
+    private void drawFlow(final MatrixStack matrices, final TextRenderer textRenderer,
+                          final VertexConsumerProvider.Immediate immediate,
+                          final PidsXiamenLayout.Rect card, final float padRatio, final float gapRatio,
+                          final Line... lines) {
+        if (lines.length == 0) {
+            return;
         }
-        final float fontPx = PidsXiamenPainter.tickerFontPx(painterKind(kind));
-        final float[] inner = PidsXiamenPainter.tickerInner(painterKind(kind));
-        final float innerWidth = inner[2] - inner[0];
-        final String key = kind + "|" + fontPx + "|" + innerWidth + "|" + source;
-        synchronized (PLANS) {
-            final PidsXiamenPainter.TickerPlan cachedPlan = PLANS.get(key);
-            if (cachedPlan != null) {
-                return cachedPlan;
+        final float gap = card.h() * gapRatio;
+        float total = gap * (lines.length - 1);
+        for (final Line line : lines) {
+            total += line.height();
+        }
+        float y = card.y0() + (card.h() - total) * 0.5F;
+        // 框太矮时从内边距开始，宁可压一点也别把字挤出框
+        y = Math.max(y, card.y0() + card.h() * padRatio);
+        for (final Line line : lines) {
+            if (hasText(line)) {
+                PidsXiamenText.drawRun(matrices, textRenderer, immediate, line.segments(),
+                        line.x(), y, line.height(), line.align(), line.maxWidth(),
+                        Float.NEGATIVE_INFINITY, Float.POSITIVE_INFINITY);
             }
+            y += line.height() + gap;
         }
-        final List<PidsXiamenPainter.TickerMessage> messages = new ArrayList<>(source.size());
-        for (final PidsXiamenTicker.Message message : source) {
-            messages.add(new PidsXiamenPainter.TickerMessage(message.text(), message.color()));
-        }
-        // 速度只有一份：PidsXiamenTicker#pxPerTick(fontPx)（PSD-LCD 吊板用的是同一个函数）
-        final PidsXiamenPainter.TickerPlan plan = PidsXiamenPainter.tickerPlan(messages,
-                assets.cjk, fontPx, innerWidth, PidsXiamenTicker.pxPerTick(fontPx),
-                PidsXiamenTicker.gap());
-        synchronized (PLANS) {
-            PLANS.put(key, plan);
-        }
-        return plan;
     }
 
-    /**
-     * 标语小贴图：只在「滚过一个像素」或「文案换了」时重画 / 重传。
-     *
-     * @return {@code null} = 这一帧没标语（空档 / 表是空的 / 拿不到贴图）
-     */
-    private static PsdLcdTextures.Entry tickerStrip(final String key, final PidsXiamenBlock.Kind kind,
-                                                     final PidsXiamenPainter.TickerPlan plan,
-                                                     final long tick) {
-        if (plan == null) {
-            return null;
+    private static boolean hasText(final Line line) {
+        for (final PidsXiamenText.Segment segment : line.segments()) {
+            if (segment.text() != null && !segment.text().isEmpty()) {
+                return true;
+            }
         }
-        final float[] inner = PidsXiamenPainter.tickerInner(painterKind(kind));
-        final int width = Math.round(inner[2] - inner[0]);
-        final int height = Math.round(inner[3] - inner[1]);
-        final PsdLcdTextures.Entry strip = PsdLcdTextures.acquire(key + "|ticker", width, height);
-        if (strip == null) {
-            return null;
-        }
-        // 文案换了（换广告 / 换资源包）：必须重画，否则相位刚好重合时会继续显示上一句
-        final String signature = plan.messages().toString();
-        if (!signature.equals(strip.hash)) {
-            strip.hash = signature;
-            strip.lastPhasePx = Integer.MIN_VALUE;
-        }
-        final int phase = PidsXiamenPainter.tickerPhaseKey(plan, tick);
-        if (phase != strip.lastPhasePx) {
-            strip.lastPhasePx = phase;
-            PsdLcdTextures.upload(strip,
-                    PidsXiamenPainter.paintTickerStrip(plan, tick, width, height));
-        }
-        return strip;
+        return false;
     }
 
-    // ------------------------------------------------------------------ 编组
-
-    /**
-     * 编组节数：MTR 里「这一站 / 这条线」正在跑的那列车有多少节。
-     *
-     * <p>三条入口（和 PSD-LCD 吊板同一套算法）：
-     * <ol>
-     *   <li>停在这个站、并且跑这条线的那列车；</li>
-     *   <li>停在这个站的任意一列车（跨线车 / 折返车）；</li>
-     *   <li>这条线路上任意一列在跑的车。</li>
-     * </ol>
-     * 三条都落空（单机存档还没发车、或者客户端还没同步列车）时退回 {@value #DEFAULT_CARS} 节，
-     * 并且<b>只 warning 一次</b>（这条路径每 200ms 走一次，不能刷屏）。
-     */
-    private static int consistOf(final Station station, final long routeId) {
-        try {
-            int atStationAny = 0;
-            int onRouteAny = 0;
-            for (final TrainClient train : ClientData.TRAINS) {
-                if (train == null || train.trainCars <= 0) {
-                    continue;
-                }
-                final Route route = train.getThisRoute();
-                final boolean onRoute = routeId > 0L && route != null && route.id == routeId;
-                if (onRoute && train.trainCars > onRouteAny) {
-                    onRouteAny = train.trainCars;
-                }
-                if (!sameStation(train.getThisStation(), station)) {
-                    continue;
-                }
-                if (onRoute) {
-                    return train.trainCars;
-                }
-                atStationAny = Math.max(atStationAny, train.trainCars);
-            }
-            if (atStationAny > 0) {
-                return atStationAny;
-            }
-            if (onRouteAny > 0) {
-                return onRouteAny;
-            }
-        } catch (final Throwable t) {
-            // 列车表正在被服务端包改写：这一帧按「拿不到」处理，下一帧再试。
-        }
-        if (!carsWarned) {
-            carsWarned = true;
-            LteLog.LOGGER.warn("[lte] xiamen pids: no live train at this platform, "
-                    + "falling back to {} cars for the consist strip", DEFAULT_CARS);
-        }
-        return DEFAULT_CARS;
+    /** 单段一行。 */
+    private static Line line(final PidsXiamenLayout.TextStyle style, final PidsXiamenLayout.Rect card,
+                             final String text) {
+        final float size = size(style, card);
+        return new Line(new PidsXiamenText.Segment[]{new PidsXiamenText.Segment(text, size, style.color())},
+                size, card.x(style.xRatio()), style.align(), card.w() * style.maxWidthRatio());
     }
 
-    /** 两个 Station 是不是同一个（按 id；任一为 null 就是 false）。 */
-    private static boolean sameStation(final Station a, final Station b) {
-        return a != null && b != null && a.id == b.id;
+    /** 字号（px）= 框高 × sizeRatio。 */
+    private static float size(final PidsXiamenLayout.TextStyle style, final PidsXiamenLayout.Rect card) {
+        return Math.max(3.0F, card.h() * style.sizeRatio());
     }
 
-    /** 线路色（ARGB）。MTR 的 {@code route.color} 是 {@code 0xRRGGBB}；没设过（0）= 白色。 */
-    private static int routeColor(final Route route) {
-        if (route == null || (route.color & 0xFFFFFF) == 0) {
-            return PidsXiamenLayout.COLOR_WHITE;
-        }
-        return 0xFF000000 | (route.color & 0xFFFFFF);
+    /** 混排行里给「数字」前面留一个空格（参考图里「约 3」是分开的）。 */
+    private static String pad(final String text) {
+        return text == null || text.isEmpty() ? "" : " " + text;
+    }
+
+    /** 单位前面留一个空格（「3 分钟」）；单位为空（即将进站 / 已到站）就不留。 */
+    private static String padUnit(final String unit) {
+        return unit == null || unit.isEmpty() ? "" : " " + unit;
+    }
+
+    // ------------------------------------------------------------------ 版式选择
+
+    private static PidsXiamenLayout.Clock clockOf(final PidsXiamenBlock.Kind kind) {
+        return kind == PidsXiamenBlock.Kind.BRT ? PidsXiamenLayout.BRT.clock() : PidsXiamenLayout.METRO.clock();
+    }
+
+    private static PidsXiamenLayout.Rect adOf(final PidsXiamenBlock.Kind kind) {
+        return kind == PidsXiamenBlock.Kind.BRT ? PidsXiamenLayout.BRT.ad() : PidsXiamenLayout.METRO.ad();
+    }
+
+    private static PidsXiamenLayout.Rect tickerOf(final PidsXiamenBlock.Kind kind) {
+        return kind == PidsXiamenBlock.Kind.BRT
+                ? PidsXiamenLayout.BRT.ticker() : PidsXiamenLayout.METRO.ticker();
+    }
+
+    private static PidsXiamenLayout.TextStyle tickerTextOf(final PidsXiamenBlock.Kind kind) {
+        return kind == PidsXiamenBlock.Kind.BRT
+                ? PidsXiamenLayout.BRT.tickerText() : PidsXiamenLayout.METRO.tickerText();
     }
 
     // ------------------------------------------------------------------ 标签
@@ -717,7 +744,12 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         };
     }
 
-    // ------------------------------------------------------------------ 数据（PSD-LCD 吊板复用）
+    // ------------------------------------------------------------------ 数据
+
+    /** 一帧算一次的东西，两面共用。 */
+    private record Screen(PidsXiamenBlock.Kind kind, List<ScheduleEntry> schedules, int displayPage,
+                          Slide slide, long gameTick, String clock, String dateIso, String dateBrt) {
+    }
 
     /** 倒计时（PSD-LCD 挂板复用，所以是包内可见）。 */
     record Countdown(String number, String unit) {
@@ -740,25 +772,24 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         final boolean minutes = remainingSeconds > 60L;
         return new Countdown(
                 String.valueOf(minutes ? remainingSeconds / 60L : Math.max(0L, remainingSeconds)),
-                Text.translatable(minutes ? "gui.mtrlte.pids.minute" : "gui.mtrlte.pids.second")
-                        .getString());
+                Text.translatable(minutes ? "gui.mtrlte.pids.minute" : "gui.mtrlte.pids.second").getString());
     }
 
-    /** 第 {@code index} 条到站（{@code null} = 没有）。 */
-    private static ScheduleEntry entryAt(final List<ScheduleEntry> schedules, final int index) {
-        return index >= 0 && index < schedules.size() ? schedules.get(index) : null;
+    /** 第 {@code row} 行对应哪条到站（考虑翻页）。 */
+    private static ScheduleEntry entryAt(final Screen screen, final int row) {
+        final int index = row + screen.displayPage() * PidsXiamenLayout.rowsOf(screen.kind());
+        return index >= 0 && index < screen.schedules().size() ? screen.schedules().get(index) : null;
     }
 
     /** 终点站：MTR 给的是「中文|英文」，拆成两行。 */
     static String[] destinations(final Route route, final ScheduleEntry entry) {
         try {
             final String[] parts = ClientData.DATA_CACHE
-                    .getFormattedRouteDestination(route, entry.currentStationIndex, "")
-                    .split("\\|", -1);
+                    .getFormattedRouteDestination(route, entry.currentStationIndex, "").split("\\|", -1);
             final String first = firstPart(parts.length > 0 ? parts[0] : "");
             final String second = parts.length > 1 ? firstPart(parts[1]) : "";
             return new String[]{first, second};
-        } catch (final Throwable t) {
+        } catch (Throwable t) {
             return new String[]{"", ""};
         }
     }
@@ -775,9 +806,8 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
 
     static Station resolveStation(final BlockPos pos) {
         try {
-            return PidsStationResolver.resolve(ClientData.STATIONS, ClientData.DATA_CACHE, pos)
-                    .station();
-        } catch (final Throwable t) {
+            return PidsStationResolver.resolve(ClientData.STATIONS, ClientData.DATA_CACHE, pos).station();
+        } catch (Throwable t) {
             return null;
         }
     }
@@ -800,7 +830,7 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
      * </pre>
      */
     static List<ScheduleEntry> getSchedules(final PidsXiamenBlockEntity entity, final Station station,
-                                            final BlockPos pos, final Map<Long, String> platformIdToName) {
+                                                    final BlockPos pos, final Map<Long, String> platformIdToName) {
         final Map<Long, Platform> stationIdToPlatforms =
                 ClientData.DATA_CACHE.requestStationIdToPlatforms(station.id);
         if (stationIdToPlatforms == null || stationIdToPlatforms.isEmpty()) {
@@ -882,10 +912,9 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
     }
 
     /** BRT 的「MM月DD日星期X」。 */
-    private static String brtDate(final World world) {
+    private static String formatBrtDate(final World world) {
         final LocalDate date = dateNow(world);
-        final String weekday = Text.translatable("gui.mtrlte.pids.weekday."
-                + date.getDayOfWeek().getValue()).getString();
+        final String weekday = Text.translatable("gui.mtrlte.pids.weekday." + date.getDayOfWeek().getValue()).getString();
         return Text.translatable("gui.mtrlte.pids.date_line",
                 date.getMonthValue(), date.getDayOfMonth(), weekday).getString();
     }
@@ -917,6 +946,30 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         }
     }
 
+    /** 单个步骤的隔离：某一步抛异常只让这一步不画，不连累同一面屏的其它步骤。 */
+    private static void step(final String what, final Runnable action) {
+        try {
+            action.run();
+        } catch (Throwable t) {
+            if (!warned) {
+                warned = true;
+                LteLog.LOGGER.error("[lte] xiamen pids: step '{}' failed", what, t);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ 杂项
+
+    @Override
+    public boolean rendersOutsideBoundingBox(final PidsXiamenBlockEntity entity) {
+        return true;
+    }
+
+    @Override
+    public int getRenderDistance() {
+        return 64;
+    }
+
     /** 方块 facing（与天津用同一个属性：{@code HorizontalFacingBlock.FACING}）。 */
     private static final class IBlockFacing {
 
@@ -928,7 +981,7 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         static Direction of(final World world, final BlockPos pos) {
             try {
                 return mtr.block.IBlock.getStatePropertySafe(world, pos, FACING);
-            } catch (final Throwable t) {
+            } catch (Throwable t) {
                 return null;
             }
         }

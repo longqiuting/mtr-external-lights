@@ -179,10 +179,11 @@ public final class PidsXiamenTicker {
     /**
      * 画一条标语（在标语条里）。
      *
-     * @deprecated 厦门 PIDS 的屏幕现在整块由 Java2D 画（{@link PidsXiamenPainter#paintTickerStrip}），
-     *         这条走 MC 字体的路径已经<b>没有调用方</b>了；保留只是为了不破坏已经发出去的 API。
+     * @param matrices   已经到了屏幕平面坐标系（原点 = 屏幕左上角，单位 = 底图像素）
+     * @param bar        标语条矩形（底图像素）
+     * @param sizeRatio  字高 ÷ 标语条高度
+     * @param gameTick   滚动相位的 tick 起点（普通状态 = 世界时间；广告轮播时 = 这张广告已经播了多少 tick）
      */
-    @Deprecated
     public static void draw(final MatrixStack matrices, final TextRenderer textRenderer,
                             final VertexConsumerProvider.Immediate immediate,
                             final PidsXiamenLayout.Rect bar, final float sizeRatio, final long gameTick) {
@@ -192,13 +193,9 @@ public final class PidsXiamenTicker {
     /**
      * 同上，但可以临时指定这一帧要滚的那几条（{@code null} = 资源包那套）。
      *
-     * <p><b>广告轮播时</b>渲染器把「当前这张广告的 {@code text}」传进来 —— 天津的标语就是广告自带的
+     * <p>广告轮播时渲染器把「当前这张广告的 {@code text}」传进来 —— 天津的标语就是广告自带的
      * {@code text}，这样默认那张厦门风景图的标语就是「欢迎乘坐厦门地铁」，勾了别的分类也跟着换。
-     *
-     * @deprecated 同 {@link #draw(MatrixStack, TextRenderer, VertexConsumerProvider.Immediate,
-     *         PidsXiamenLayout.Rect, float, long)}：已经没有调用方。
      */
-    @Deprecated
     public static void draw(final MatrixStack matrices, final TextRenderer textRenderer,
                             final VertexConsumerProvider.Immediate immediate,
                             final PidsXiamenLayout.Rect bar, final float sizeRatio, final long gameTick,
