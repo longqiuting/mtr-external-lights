@@ -69,18 +69,11 @@ import net.minecraft.world.World;
  *   matrices.multiply(rotY(90 − facing.asRotation()))                // +X = facing（屏长方向）
  *   matrices.multiply(rotZ(180))                                     // ← 必须是 Z 轴 180°
  *   matrices.multiply(rotX(+SCREEN_TILT_X))                          // 绕屏长轴倾 22.5°，贴合斜面
- *   matrices.scale(1/256, 1/250.67, 1/261.1)                         // 512×235 px → 2.00×0.9375 格（正好等于模型玻璃 32×15 px）
+ *   matrices.scale(1 / 261.1, …)                                     // 512×235 px → 1.96×0.90 格
  * </pre>
  * {@code rotZ(180)} 不能写 {@code rotY(180)}：后者只镜像左右，还会让 +Y 朝上（文字上下颠倒）。
  * 锚点不能用天津的 {@code (0.5,0.85,0.5)−0.48}（那是它自己那块平板的数），我们的是按
  * {@code pids_xiamen.json} 里 ±22.5° 斜面的几何算出来的（见 {@link PidsXiamenLayout#ANCHOR_OUT}）。
- *
- * <h2>面板可见区域 == 模型玻璃面（不许露黑边）</h2>
- * 模型里那两块 22.5° 斜板的玻璃面是 <b>32 × 15 模型 px</b>（两格各 16 宽、板长 15），
- * 材质是 {@code mtrlte:block/black} —— quad 只要比它小一圈，露出来的就是<b>纯黑</b>，
- * 屏上四条边各挂一条黑线（用户报的「底部一整条黑色」）。
- * 所以 {@link PidsXiamenLayout#SCREEN_SCALE_DIVISOR_X} / {@code _Y} 按「宽 ↔ 32px、高 ↔ 15px」
- * 分别定，锚点也钉在玻璃左上角；离线对账见 {@code tools/pids-xiamen/probe-screen-fit.js}。
  *
  * <h2>两面都画</h2>
  * <p>模型是 V 形双面屏：第一面朝 {@code facing.rotateYClockwise()}，画在本格；第二面朝反方向，
@@ -324,11 +317,8 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(180.0F));
         // 绕屏长轴倾斜，贴合模型上 ±22.5° 的那块斜面（两面同号，因为 +X 也跟着反了）。
         matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(PidsXiamenLayout.SCREEN_TILT_X));
-        // X / Y 分开：底图 512×235 要正好铺满玻璃的 32×15 模型 px（宽高比天生差 2.13%，
-        // 见 PidsXiamenLayout#SCREEN_SCALE_DIVISOR_X）。Z 仍用旧的 261.1 —— 图层偏移按「1px 厚」算。
-        matrices.scale(1.0F / PidsXiamenLayout.SCREEN_SCALE_DIVISOR_X,
-                1.0F / PidsXiamenLayout.SCREEN_SCALE_DIVISOR_Y,
-                1.0F / PidsXiamenLayout.SCREEN_SCALE_DIVISOR);
+        final float inverse = 1.0F / PidsXiamenLayout.SCREEN_SCALE_DIVISOR;
+        matrices.scale(inverse, inverse, inverse);
     }
 
     /**
