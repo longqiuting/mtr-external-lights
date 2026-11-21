@@ -366,26 +366,27 @@ const yOverlap = carsBox.y0 < staBox.y1 && staBox.y0 < carsBox.y1;
 ok(!(xOverlap && yOverlap), '编组行与「当前站」那一列不重叠',
   `车 y ${f(carsBox.y0, 4)}…${f(carsBox.y1, 4)} vs 站 y ${f(staBox.y0, 4)}…${f(staBox.y1, 4)}`);
 
-// ---------------------------------------------------------------- 7b. 编组行 × 分钟列
+// ---------------------------------------------------------------- 7b. 编组行 × 文本列
 
-console.log('\n== 7b. 编组行 vs 「分钟 / min」列（包围盒不相交 + 压缩公式）==');
+console.log('\n== 7b. 编组行 vs 文本列（包围盒不相交 + 按段数压缩 / 降级表）==');
 
 /**
  * 「分钟 / min」那一列的包围盒（占屏宽 / 占排版高）。
  *
- * 中文「分钟」两个全角字：墨迹宽 ≈ 2 × 墨迹高 = 2 × UNITZH_INK（h）⇒ 换成屏宽要 ÷ DESIGN_W；
+ * 中文「分钟」两个全角字：墨迹宽 ≈ 2 × 墨迹高 = 2 × UNITZH_INK（h）⇒ 换成屏宽要 ÷ 内容盒宽高比；
  * 英文「min」按 1.9 × 墨迹高算（m/i/n 的墨迹宽窄相差不大，1.9 是实测值）。
  * 行 1 / 行 2 各一份（行 2 = ROW1_CY + ROW_DY）。
  */
 function unitBox(rowCy) {
-  const zhW = 2.0 * P('UNITZH_INK') / P('DESIGN_W');
-  const enW = 1.9 * P('UNITEN_INK') / P('DESIGN_W');
+  // 用设计稿比例换算（最宽的那一档 = 3 段以上，h = 屏高）：保守估，宁可让守卫线偏右
+  const zhW = 2.0 * P('UNITZH_INK') / P('MIN_CONTENT_ASPECT');
+  const enW = 1.9 * P('UNITEN_INK') / P('MIN_CONTENT_ASPECT');
   const w = Math.max(zhW, enW) + 0.002;
   return {
     x0: P('UNIT_X'),
     x1: P('UNIT_X') + w,
     y0: rowCy + P('UNITZH_TOP'),
-    y1: rowCy + P('ROW_DY') * 0 + P('UNITEN_TOP') + P('UNITEN_INK'),
+    y1: rowCy + P('UNITEN_TOP') + P('UNITEN_INK'),
   };
 }
 const unit1 = unitBox(P('ROW1_CY'));
@@ -393,9 +394,10 @@ const unit2 = unitBox(P('ROW1_CY') + P('ROW_DY'));
 console.log(`  分钟列 行1  x ${f(unit1.x0, 4)}…${f(unit1.x1, 4)}  y ${f(unit1.y0, 4)}…${f(unit1.y1, 4)}`);
 console.log(`  分钟列 行2  x ${f(unit2.x0, 4)}…${f(unit2.x1, 4)}  y ${f(unit2.y0, 4)}…${f(unit2.y1, 4)}`);
 
-// 编组行的**有效**左界 = max(CAR_ROW_X0, CAR_ROW_GUARD_X)；只有这样才能既留在设计稿区域里、
-// 又不压到行 2 的「分钟 / min」（行 2 的单位正好落在编组行的 y 带里）。
-ok(Number.isFinite(guardX), '代码里有 CAR_ROW_GUARD_X（编组行的「分钟列」守卫线）', `${f(guardX, 4)}`);
+// 编组行的**有效**左界 = max(CAR_ROW_X0, CAR_ROW_GUARD_X)。守卫线必须让开的不只是「分钟 / min」，
+// 还有「已到站 / 即将进站」—— 后者左对齐写在 0.3051 起、一直铺到 NUM_COL_R，而第二行的状态文案
+// 正好落在编组行的 y 带里（实机上第 2 行「即将进站」右半被车头盖住就是这个）。
+ok(Number.isFinite(guardX), '代码里有 CAR_ROW_GUARD_X（编组行的文本列守卫线）', `${f(guardX, 4)}`);
 ok(guardX > P('CAR_ROW_X0') && guardX < P('CAR_ROW_X1'),
   '守卫线在编组区域内部（CAR_ROW_X0 < 守卫 < CAR_ROW_X1）',
   `${f(P('CAR_ROW_X0'), 4)} < ${f(guardX, 4)} < ${f(P('CAR_ROW_X1'), 4)}`);
@@ -403,6 +405,14 @@ for (const [name, u] of [['行1', unit1], ['行2', unit2]]) {
   ok(guardX >= u.x1 + 0.004, `守卫线在「分钟 / min」${name} 右缘右侧（留 ≥ 0.004 空档）`,
     `守卫 ${f(guardX, 4)} vs 单位右缘 ${f(u.x1, 4)}`);
 }
+// 状态文案的列（NUM_COL_L … NUM_COL_R）整个在守卫线左边
+const numColL = P('NUM_COL_L');
+const numColR = P('NUM_COL_R');
+ok(guardX >= numColR + 0.004, '守卫线在「已到站 / 即将进站」列右缘右侧（留 ≥ 0.004 空档）',
+  `守卫 ${f(guardX, 4)} vs 状态列右缘 ${f(numColR, 4)}`);
+ok(numColR > P('DEST_COL_R'), '状态列在终点站列右边（两列不会叠）',
+  `${f(P('DEST_COL_R'), 4)} < ${f(numColR, 4)}`);
+ok(numColL >= P('DEST_COL_R'), '状态列左缘 ≥ 终点站列右缘', `${f(numColL, 4)}`);
 
 const carsEff = carsBox;
 for (const [name, u] of [['行1', unit1], ['行2', unit2]]) {
@@ -413,28 +423,53 @@ for (const [name, u] of [['行1', unit1], ['行2', unit2]]) {
     + `车 y ${f(carsEff.y0, 4)}…${f(carsEff.y1, 4)} vs 单位 y ${f(u.y0, 4)}…${f(u.y1, 4)}`);
 }
 
-// 压缩公式：高度不随节数缩，只有宽度 / 间隙被压
+// 压缩公式 / 降级表：**按面板实际段数**解，不是按设计稿宽度。
+//   段数 = 位图宽 ÷ 1040，内容盒高 h = min(屏高, 屏宽 / MIN_CONTENT_ASPECT)
+//   ch = min(CAR_W·h·ratio, 行高·h)，cwNat = ch / ratio，avail = (CAR_ROW_X1 − 守卫)·W − 车头宽
+//   cw = min(cwNat, avail / (n(1+r)))，压到 cwNat×CAR_MIN_SCALE 就锁住并少画几节 + 「…」
 {
   const ratio = P('CARD_PX_H') / P('CARD_PX_W');
   const naturalCh = P('CAR_W') * ratio;                 // h
   const rowH = P('CAR_Y1') - P('CAR_Y0');
   ok(naturalCh <= rowH + 1e-6, '卡片自然高 ≤ 行高（高度不被行槽挤压）',
     `${f(naturalCh, 4)}h ≤ ${f(rowH, 4)}h`);
-  // 行槽宽（屏宽）= CAR_ROW_X1 − 守卫线；车头宽 = 自然高 × 1.035 × (74/180) ÷ DESIGN_W
-  const noseW = naturalCh * P('NOSE_H_RATIO') * (74 / 180) / P('DESIGN_W');
-  const avail = P('CAR_ROW_X1') - Math.max(P('CAR_ROW_X0'), guardX) - noseW;
-  const table = [];
-  for (const n of [4, 6, 8, 13, 16]) {
-    const used = Math.min(P('CAR_W') / P('DESIGN_W'), avail / (n * (1 + P('CAR_GAP_RATIO'))));
-    const rowW = n * used * (1 + P('CAR_GAP_RATIO')) + noseW;   // 屏宽
-    const usedH = used * P('DESIGN_W');                          // 换成 h（和 CAR_W 同单位）
-    table.push(`${n} 节 cw=${f(usedH, 3)}h (${f(usedH / P('CAR_W') * 100, 1)}%)`);
-    ok(rowW <= avail + noseW + 1e-9, `${n} 节：整行（车头 + 卡 + 间隙）不超过行槽宽`,
-      `行宽 ${f(rowW - noseW, 4)} ≤ 槽 ${f(avail, 4)}`);
-    // 高度固定 ⇒ 与 n 无关
-    ok(Math.abs(naturalCh - P('CAR_W') * ratio) < 1e-9, `${n} 节：卡片高仍是 ${f(naturalCh, 4)}h（不随节数缩）`);
+
+  const H = 455;                                        // 位图高（= 227.5px 屏 × 2）
+  const SEG_W = 1040;                                   // 一段的位图宽
+  const minScale = P('CAR_MIN_SCALE');
+  for (const seg of [1, 2, 3, 4]) {
+    const W = seg * SEG_W;
+    const h = Math.min(H, W / P('MIN_CONTENT_ASPECT'));
+    const ch = Math.min(P('CAR_W') * h * ratio, rowH * h);
+    const cwNat = ch / ratio;
+    const noseW = ch * P('NOSE_H_RATIO') * (74 / 180);
+    const left = Math.max(P('CAR_ROW_X0'), guardX) * W;
+    const right = P('CAR_ROW_X1') * W;
+    const avail = right - left - noseW;
+    const cells = [];
+    for (const n of [4, 6, 8]) {
+      let cw = Math.min(cwNat, avail / (n * (1 + P('CAR_GAP_RATIO'))));
+      let shown = n;
+      if (cw < cwNat * minScale) {
+        cw = cwNat * minScale;
+        const slot = cw * (1 + P('CAR_GAP_RATIO'));
+        const ell = cw * P('CAR_ELLIPSIS_W');
+        shown = Math.max(1, Math.min(n, Math.floor((avail - ell - cw * P('CAR_GAP_RATIO')) / slot)));
+      }
+      const gap = cw * P('CAR_GAP_RATIO');
+      const used = shown * cw + (shown - 1) * gap
+        + (shown < n ? gap + cw * P('CAR_ELLIPSIS_W') : 0);
+      cells.push(`${n} 节→${shown}${shown < n ? '+…' : ''} (${f(cw / cwNat * 100, 0)}%)`);
+      ok(used <= avail + 1e-6, `${seg} 段 ${n} 节：整行（卡 + 间隙 + …）不超过行槽宽`,
+        `${f(used, 1)} ≤ ${f(avail, 1)}px`);
+      ok(cw <= cwNat + 1e-9 && cw >= cwNat * minScale - 1e-9,
+        `${seg} 段 ${n} 节：卡片宽在 [下限 ${f(minScale * 100, 0)}%, 自然宽] 之间`,
+        `cw ${f(cw / cwNat * 100, 1)}%`);
+      ok(Math.abs(ch - Math.min(P('CAR_W') * h * ratio, rowH * h)) < 1e-9,
+        `${seg} 段 ${n} 节：卡片高与节数无关`, `${f(ch, 1)}px`);
+    }
+    console.log(`  ${seg} 段（${W}×${H}，h=${f(h, 1)}px，行槽 ${f(avail, 1)}px）：` + cells.join('  |  '));
   }
-  console.log('  压缩表：' + table.join('  |  '));
 }
 
 // ---------------------------------------------------------------- 8. 版式落到位图上（读像素）

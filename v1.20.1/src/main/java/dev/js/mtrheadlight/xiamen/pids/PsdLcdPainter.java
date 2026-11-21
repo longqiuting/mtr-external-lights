@@ -62,8 +62,26 @@ public final class PsdLcdPainter {
 
     // ================================================================ 版式：设计稿比例
 
-    /** 设计稿屏宽（h）—— 5383×779 = 6.910:1。窄屏（1~2 段）按这个比例收窄后上下居中。 */
+    /** 设计稿屏宽（h）—— 5383×779 = 6.910:1。只写来给离线断言对账用，不再参与排版高度（见 {@link #layoutHeight}）。 */
     public static final float DESIGN_W = 6.910F;
+
+    /**
+     * 内容盒**最扁的宽高比**（宽 ÷ 高）：内容盒高 = {@code min(屏高, 屏宽 / 3.9)}。
+     *
+     * <p>版式里「横向位置」全是占屏宽的比例、「字号 / 行高」全是占内容盒高的比例 —— 内容盒
+     * 宽高比就是这两把尺子的换算率。设计稿是 6.91:1（列宽宽松、字号宽松，两边都放得下）。
+     * 屏幕被连成 1 段时只有 2.29:1：如果继续按 6.91:1 摆，内容盒只有屏高的 33%（上下各留
+     * 1/3 屏高的蓝边，字小到看不清）；反过来如果直接用整屏高，列宽只有设计稿的 1/3，站名 /
+     * 徽标 / 编号全部要被压到 62% 以下再截断。
+     *
+     * <p>所以取 3.9:1 作为下限：窄屏时内容盒压缩到 3.9:1 上下居中，字不再跟着缩，列也不至于
+     * 被压到 62% 以下（按 3.9:1 算，1 段屏上最紧的「6号线」徽标也还有 ~100% 的字号余量）。
+     * 2 段（4.57:1）及以上都比它宽 ⇒ 直接用整块高，不留边。
+     *
+     * <p><b>这个数不参与编组行的可用宽度</b>：编组行的每一分宽度都是从面板实际像素宽里减出来的
+     * （{@link #carRow(int, Assets, float, float)}），段数由 {@link #segments(float)} 现算。
+     */
+    public static final float MIN_CONTENT_ASPECT = 3.900F;
 
     // ---- 左卡片（M 标 + 四行）
     private static final float CARD_X0 = 0.0020F;
@@ -179,16 +197,23 @@ public final class PsdLcdPainter {
     /** 编组行最左能到哪（占屏宽）：设计稿量到的行槽左缘（**含**第二行的数字「17」那一列）。 */
     private static final float CAR_ROW_X0 = 0.3158F;
     /**
-     * 编组行的**有效**左界（占屏宽）：{@link #CAR_ROW_X0} 与「分钟 / min」列右缘取大者。
+     * 编组行的**有效**左界（占屏宽）：{@code max(CAR_ROW_X0, CAR_ROW_GUARD_X)} =
+     * <b>0.4392</b>（= {@link #NUM_COL_R} 0.4322 + 0.007 空档）。
      *
-     * <p>为什么必须有这一条：第二行的「分钟 / min」（y = {@code ROW1_CY + ROW_DY + UNITZH_TOP}
-     * ≈ 0.66…0.74）正好落在编组行的 y 带（0.449…0.687）里，而单位列的左缘只有
-     * {@link #UNIT_X} = 0.366 —— 行槽从 0.3158 起就<strong>一定会</strong>压到「分钟」。
-     * 这一列最宽的是中文「分钟」：0.043h 的墨迹高、两个全角字 ⇒ 右缘 ≈ 0.379（屏宽的 0.366 + 0.013）。
-     * 取 0.388 = 0.379 + 一个描边级余量，两块就不会再相交（{@code tools/psd-lcd-fit-check.js} 里
-     * 有「编组行 × 分钟列」的包围盒断言 + 位图左缘的像素断言）。
+     * <p>为什么这么靠右：第二行的「已到站 / 即将进站」是从字数那边左对齐写起的四字文案，
+     * y 带 {@code ROW1_CY + ROW_DY + NUM_TOP … + NUM_INK} = 0.561…0.738 正好落在编组行的
+     * y 带（0.449…0.687）里，x 又一直铺到 {@link #NUM_COL_R} 0.4322 —— 行槽只要从 0.3158
+     * 起就<b>一定</b>会压掉「站」字（实机截图就是这个：第 2 行「即将进站」右半被车头盖住）。
+     *
+     * <p>以前这里只守到 0.388（只让开「分钟 / min」那一列 ~0.379）。数字档位没有单位，
+     * 状态档位又没有数字，两者共用 0.3051…0.4322 这一整块，所以守卫线必须让到状态文案的右缘。
+     * 0.007 的余量 = 描边级。{@code tools/psd-lcd-fit-check.js} 与
+     * {@code tools/psd-lcd/PsdLcdSegments} 都有「状态文案包围盒 × 编组行包围盒不相交」的断言。
+     *
+     * <p>守卫线<b>不随内容变</b>（不因为这一行是数字还是「已到站」而左右跳）：倒计时从
+     * 「3」跳到「已到站」时整行不能跟着平移。
      */
-    private static final float CAR_ROW_GUARD_X = 0.3880F;
+    private static final float CAR_ROW_GUARD_X = 0.4392F;
     private static final float CAR_Y0 = 0.4492F;
     private static final float CAR_Y1 = 0.6870F;
     /** 卡片自然宽（h）。设计稿 4 节卡片是 0.0656 屏宽 = 0.453h，素材比例同一档。 */
@@ -197,9 +222,28 @@ public final class PsdLcdPainter {
     private static final float CAR_GAP_RATIO = 0.1000F;
     /** 车头高 ÷ 卡片高（素材 74×180，圆头朝左）。 */
     private static final float NOSE_H_RATIO = 1.035F;
+    /**
+     * 卡片宽的下限（× 自然宽）：<b>压到 32% 就不再压</b>，改成「少画几节 + 尾部 …」。
+     *
+     * <p>为什么要有下限：卡片高是固定的（只压宽），宽压到 25% 以下就成了一条竖线，编号也糊了；
+     * 而「少画几节」只是丢信息，屏上还是认得出来的车。32% 时卡片 0.67:1（素材是 2.09:1）——
+     * 比正方形略高，车号和座椅花纹都还看得清。
+     *
+     * <p>这个数定在 32% 是量出来的：2 段 + 6 节刚好需要 34%（不降级，6 节全画），
+     * 1 段 + 6 节需要 28.5%（降到下限后放得下 4 节，尾部补 …）—— 正好是用户说的
+     * 「段数少到实在放不下才减少显示节数」。
+     */
+    private static final float CAR_MIN_SCALE = 0.3200F;
+    /** 降级时尾部「…」占位槽的宽 ÷ 卡片宽。 */
+    private static final float CAR_ELLIPSIS_W = 0.5500F;
+    /** 编组节数上限（防呆：真 20 节的编组先截断，不画成一片竖线）。 */
+    private static final int CAR_CAP = 16;
     /** 卡片素材的原始像素尺寸（按比例缩放，绝不拉伸）。 */
     private static final float CARD_PX_W = 2144.0F;
     private static final float CARD_PX_H = 1024.0F;
+    /** 车头素材的原始像素尺寸（没有素材时按它算占位宽，几何不跟着资源走）。 */
+    private static final float NOSE_PX_W = 74.0F;
+    private static final float NOSE_PX_H = 180.0F;
     /** 素材里「车」字的墨迹位置（占卡片宽 / 高的比例）。 */
     private static final float CAR_TEXT_LEFT = 697.0F / CARD_PX_W;
     private static final float CAR_TEXT_INK_H = 205.0F / CARD_PX_H;
@@ -410,26 +454,69 @@ public final class PsdLcdPainter {
     }
 
     /**
-     * 排版高：和面板高一致（面板一段就是 16/7 = 2.29:1）。
+     * 内容盒高（px）：{@code min(屏高, 屏宽 / }
+     * {@link #MIN_CONTENT_ASPECT}{@code )}，见那个常量的注释（为什么窄屏不再按设计稿 6.91:1 压）。
      *
-     * <p>和设计稿 {@link #DESIGN_W}:1 的比例差在 1% 以内时直接用整块高 —— 不留边，位图第一行就是
-     * 内容第一行（3 段 6.857:1 vs 设计稿 6.910:1 只差 0.77%，以前那 0.77% 会变成上下两条底色边）。
-     * 面板明显比设计稿窄（1~2 段）时按设计比例把内容收窄后上下居中，免得左卡片和右侧一组叠在一起。
+     * <p>2 段及以上（宽高比 ≥ 4.57:1）恒等于屏高 —— 位图第一行就是内容第一行，没有上下蓝边；
+     * 1 段（2.29:1）压缩到 3.9:1 后上下居中，既不留 2/3 屏高的空边，也不把列宽压到截断。
      */
     public static float layoutHeight(final float width, final float height) {
-        final float design = width / DESIGN_W;
-        if (Math.abs(design - height) <= height * 0.01F) {
-            return height;
-        }
-        return Math.min(height, Math.max(1.0F, design));
+        final float byWidth = width / MIN_CONTENT_ASPECT;
+        return Math.min(height, Math.max(1.0F, byWidth));
+    }
+
+    /**
+     * 面板的段数（横向连接了几格）：每段位图宽 {@code PX_PER_BLOCK × BITMAP_SCALE} = 1040px。
+     *
+     * <p>版式不再假设「屏一定是设计稿那么宽」：编组行的可用宽度、每个槽能放几节卡片，
+     * 全部按这个段数算出来的实际像素宽来解（见 {@link #carRow(int, Assets, float, float)}）。
+     */
+    public static int segments(final float width) {
+        return Math.max(1, Math.round(
+                width / (PsdLcdLayout.PX_PER_BLOCK * PsdLcdLayout.BITMAP_SCALE)));
     }
 
     // ================================================================ 广告区
 
     /**
+     * 广告区在位图里的矩形（px）：{@code {x0, y0, x1, y1}}。
+     *
+     * <p>左缘 = {@link #AD_X0} × 位图宽（取整到像素），其余三边贴位图边缘（整屏高）。<b>画和断言
+     * 用的是同一个函数</b>，所以「广告画到哪」与「断言说它该在哪」不可能走岔。
+     */
+    public static float[] adRegion(final float width, final float height) {
+        return new float[]{Math.round(AD_X0 * width), 0.0F,
+                Math.round(width), Math.round(height)};
+    }
+
+    /** 广告区左缘（占整条链宽 = 占位图宽）：{@link #AD_X0} 的只读副本，离线报告换算世界四边形时用。 */
+    public static float adLeft() {
+        return AD_X0;
+    }
+
+    /**
+     * 广告图取源的 UV 矩形 {@code {u0, v0, u1, v1}}。
+     *
+     * <p>非等比拉伸铺满整块区域 ⇒ 整张图都要用到，UV 恒为 {@code 0,0,1,1}；这里仍然显式夹到
+     * 0…1（{@link #clamp01}），万一哪天换成「只取广告图的一部分」，越界的 UV 也不会被
+     * 采样到区域外面去。离线断言逐项检查这四个数都在 0…1。
+     */
+    public static float[] adSourceUv() {
+        return new float[]{clamp01(0.0F), clamp01(0.0F), clamp01(1.0F), clamp01(1.0F)};
+    }
+
+    /**
      * 广告区：{@link #AD_X0}（0.7197 屏宽）→ 右边缘，整屏高。
      *
-     * <p>内容铺厦门 PIDS 那套广告图（{@code PidsXiamenAds} 给的那张，按 cover 铺满、超出部分裁掉）。
+     * <p><b>允许非等比拉伸</b>（用户定的）：广告图直接拉伸铺满这块矩形，<b>不再按 cover 保比例</b>
+     * —— 保比例时宽图会裁掉上下、高图会裁掉左右，屏上看着就像「广告没落在它那块区域里」。
+     * 现在图被拉伸到恰好等于区域，四边严丝合缝（允许变形，不允许越界 / 留边）。
+     *
+     * <p><b>严格夹在区内</b>，三重保证：目标矩形一律用 {@link #adRegion}（整数像素）、源 UV 用
+     * {@link #adSourceUv}（夹到 0…1）、画的时候再套一层同矩形的 clip。所以哪怕素材尺寸奇怪、
+     * 或者 Java2D 的插值在边界上多画半个像素，也不会有任何像素落到区域外。
+     * 离线断言（{@code tools/psd-lcd/PsdLcdSegments}）在 1/2/3 段上逐像素检查：区内没有底色、
+     * 区外一圈没有广告色。
      *
      * <p><b>没有广告图 → 整块留空</b>（不画洋红占位块、也不画「广告位」文字）：拿不到内容的那块
      * 就什么都不画，和 PIDS 那边「没广告 = 只留底图空白」一致。以前画的是设计稿里那块洋红
@@ -438,26 +525,31 @@ public final class PsdLcdPainter {
     private static void adBlock(final Graphics2D g, final Content c, final Assets assets,
                                 final BufferedImage ad, final float width, final float height,
                                 final float h, final float offY) {
-        final float x0 = AD_X0 * width;
-        final float x1 = width;
-        if (x1 - x0 < 1.0F) {
+        final float[] region = adRegion(width, height);
+        final float x0 = region[0];
+        final float y0 = region[1];
+        final float x1 = region[2];
+        final float y1 = region[3];
+        if (x1 - x0 < 1.0F || y1 - y0 < 1.0F) {
             return;
         }
         if (ad == null || ad.getWidth() <= 0 || ad.getHeight() <= 0) {
             // 没有广告图 → 整块留空（背景透出，不画占位色块 / 占位文字）
             return;
         }
-        // cover：按大的一边铺满，另一边居中溢出后被裁掉（不拉伸变形、不留边）
-        final float scale = Math.max((x1 - x0) / ad.getWidth(), height / ad.getHeight());
-        final float dw = ad.getWidth() * scale;
-        final float dh = ad.getHeight() * scale;
+        // 源 UV 夹在 0…1（现在恒为整张图）；目标矩形严格等于 adRegion ⇒ 四边 0 误差。
+        final float[] uv = adSourceUv();
         final Shape old = g.getClip();
-        g.clip(new Rectangle2D.Float(x0, 0.0F, x1 - x0, height));
+        g.clip(new Rectangle2D.Float(x0, y0, x1 - x0, y1 - y0));
         try {
-            drawScaled(g, ad, x0 + ((x1 - x0) - dw) * 0.5F, (height - dh) * 0.5F, dw, dh);
+            drawScaled(g, ad, x0, y0, x1 - x0, y1 - y0, uv);
         } finally {
             g.setClip(old);
         }
+    }
+
+    private static float clamp01(final float v) {
+        return v < 0.0F ? 0.0F : (v > 1.0F ? 1.0F : v);
     }
 
     // ================================================================ 左卡片
@@ -484,7 +576,10 @@ public final class PsdLcdPainter {
         // 所以这里按「墨迹」而不是「整张图」对齐 —— 卡片里看到的大小才是对的）。
         final float inkW = 470.0F;
         final float inkH = 376.0F;
-        final float scale = (LOGO_H * h) / inkH;         // 每张图像素 -> 屏幕像素
+        // 宽也要夹在卡片里：窄屏（1 段）时内容盒被压到 3.9:1，卡片只有 0.0975 屏宽，而 M 标
+        // 是按高度定大小的 —— 只按高度算的话墨迹会横出卡片、压到「开往」那一列。取两者小的那个。
+        final float cardInk = (CARD_X1 - CARD_X0) * w - 0.014F * h;
+        final float scale = Math.min((LOGO_H * h) / inkH, cardInk / inkW);
         final float drawW = image.getWidth() * scale;
         final float drawH = image.getHeight() * scale;
         // 墨迹在整张图里的左上角（65,112）：把它摆到 LOGO_CX ± inkW/2、LOGO_TOP
@@ -500,7 +595,8 @@ public final class PsdLcdPainter {
         final Font cjk = assets == null ? null : assets.cjk();
         final Font latin = assets == null ? null : assets.latin();
         final float cx = CARD_TEXT_CX * w;
-        final float maxW = (CARD_X1 - CARD_X0) * w - 0.02F * h;
+        // 卡片内宽再留 10% 余量：窄屏（1 段）时日期正好贴着墨迹宽，居中会顶到左边那条描边上
+        final float maxW = (CARD_X1 - CARD_X0) * w * 0.90F;
         final int white = COLOR_WHITE;
 
         line(g, dashDate(c.date()), latin, "2026-09-23", DATE_TOP * h, DATE_INK * h,
@@ -572,6 +668,12 @@ public final class PsdLcdPainter {
                 line(g, count, digits, "0", cy + NUM_TOP * h, NUM_INK * h,
                         NUM_RIGHT * w, Align.RIGHT, columnWidth(Column.COUNT, w), white);
             }
+            // 「已到站 / 即将进站」这一档没有数字也没有单位：整块 0.3051…0.4322 都归它。
+            // 单位行**不画**（渲染器那边 unitOf() 对状态文案也返回空串；这里再兜一道，
+            // 免得别的调用方传了「分钟 / min」时和状态文案叠在同一列里）。
+            if (state) {
+                return;
+            }
             final float unitX = UNIT_X * w;
             line(g, unitZh, cjk, "分钟", cy + UNITZH_TOP * h, UNITZH_INK * h,
                     unitX, Align.LEFT, 0.045F * w, white);
@@ -631,25 +733,182 @@ public final class PsdLcdPainter {
     }
 
     /**
+     * 编组行的几何：<b>画一次、断言一次，都用这一份</b>（所以不可能出现「画的和量的不是同一个」）。
+     *
+     * <p>所有量都是位图像素；{@code segments} 是面板实际段数（{@link #segments(float)}），
+     * {@code avail} 是这一工况下行槽真正能用的宽度（= {@code boxX1 − rowLeft − 车头宽}）。
+     */
+    public record CarRow(int segments, int declared, int shown, boolean degraded,
+                         float boxX0, float boxX1, float boxY0, float boxY1,
+                         float cardsX0, float cardW, float cardWNat, float gap, float cardH,
+                         float cardY0, float noseX, float noseW, float noseH,
+                         float ellipsisW, float avail) {
+
+        /** 整块（车头 + 卡片 + 「…」）的包围盒：{@code {x0, y0, x1, y1}}。 */
+        public float[] box() {
+            return new float[]{boxX0, boxY0, boxX1, boxY1};
+        }
+    }
+
+    /**
+     * 编组行左界（px）：{@code max(CAR_ROW_X0, CAR_ROW_GUARD_X) × 屏宽}，
+     * 见 {@link #CAR_ROW_GUARD_X}（要让开「已到站 / 即将进站」那一列）。
+     */
+    public static float rowLeft(final float width) {
+        return Math.max(CAR_ROW_X0, CAR_ROW_GUARD_X) * width;
+    }
+
+    /**
+     * 编组行几何：车头 + N 节卡片，节距均匀，整行<b>右缘</b>对齐 {@link #CAR_ROW_X1}。
+     *
+     * <h2>压缩规则（只压宽，不整体等比缩；按面板实际段数解）</h2>
+     * <pre>
+     *   segments = round(屏宽 / 1040)                       ← 面板实际段数（1 / 2 / 3 / …）
+     *   h        = min(屏高, 屏宽 / 3.9)                    ← 内容盒高（见 MIN_CONTENT_ASPECT）
+     *   ch       = min(CAR_W·h·(1024/2144), 行高)           ← 卡片高：固定，与节数无关
+     *   cwNat    = ch ÷ (1024/2144)                         ← 「高度不缩」对应的自然宽
+     *   gap      = cw × CAR_GAP_RATIO                       ← 间隙与卡片同比例缩
+     *   left     = max(CAR_ROW_X0, CAR_ROW_GUARD_X) × 屏宽
+     *   right    = CAR_ROW_X1 × 屏宽
+     *   avail    = right − left − 车头宽                    ← 车头之外能用的宽度（= 本记录里的 avail）
+     *   cw       = min(cwNat, avail ÷ (n × (1 + gapRatio)))
+     * </pre>
+     * 上式里 {@code cw = avail/(n(1+gapRatio))} 时整行正好等于 {@code avail} ⇒ 车头左缘落在
+     * {@code left}、末卡右缘落在 {@code right}，<b>任何节数都不会越界、不会互相压</b>。
+     *
+     * <h2>降级：压到下限就少画几节 + 尾部「…」</h2>
+     * <p>{@code cw < cwNat × CAR_MIN_SCALE(0.32)} 时不再往窄里压（再压就是一条竖线），
+     * 而是把卡片宽锁在下限，算出还能放几节：
+     * <pre>
+     *   cw   = cwNat × 0.32
+     *   slot = cw × (1 + gapRatio)                  ← 一节卡片 + 一个间隙
+     *   ell  = cw × 0.55                            ← 尾部「…」的占位槽
+     *   k    = floor((avail − ell − cw·gapRatio) ÷ slot)   （夹到 1…n）
+     * </pre>
+     * 画前 k 节 + 三个白点（「…」）。所以「1 段 + 6 节」这种工况是 <b>4 节 + …</b>，
+     * 而不是 6 张叠在一起；2 段 / 3 段的 6 节则照常全画（34% / 52% 宽）。
+     *
+     * @param cars 编组节数（渲染器按 MTR 里那列车的实际编组给；&lt;=0 时不画）
+     */
+    public static CarRow carRow(final int cars, final Assets assets, final float width, final float height) {
+        final float h = layoutHeight(width, height);
+        final float rowBottom = CAR_Y0 * h;
+        final float rowTop = CAR_Y1 * h;
+        final float rowH = Math.max(1.0F, rowTop - rowBottom);
+        final float right = CAR_ROW_X1 * width;
+        final float left = rowLeft(width);
+
+        final float ratio = CARD_PX_H / CARD_PX_W;
+        // 卡片高度 = 自然高（只受行高上限约束），**不随节数变小**；压缩只发生在宽度方向上
+        final float ch = Math.max(1.0F, Math.min(CAR_W * h * ratio, rowH));
+        final float cwNat = ch / ratio;
+
+        // 车头：按同一份固定高度算，节数再多也不缩
+        final float noseH = ch * NOSE_H_RATIO;
+        final boolean hasNose = assets != null && assets.nose != null;
+        final float noseAspect = hasNose
+                ? assets.nose.getWidth() / (float) assets.nose.getHeight()
+                : NOSE_PX_W / NOSE_PX_H;
+        final float noseW = hasNose ? noseH * noseAspect : 0.0F;
+
+        final int n = Math.max(1, Math.min(CAR_CAP, cars));
+        final float r = CAR_GAP_RATIO;
+        // 车头之外能用多少宽度（车头 + 一个间隙也在这一行里，间隙按卡片宽算，所以先粗留）
+        final float avail = Math.max(1.0F, right - left - noseW);
+
+        float cw = Math.min(cwNat, avail / (n * (1.0F + r)));
+        int shown = n;
+        boolean degraded = false;
+        if (cw < cwNat * CAR_MIN_SCALE) {
+            // 压到下限还排不下 ⇒ 锁住下限，少画几节，尾部补「…」
+            cw = cwNat * CAR_MIN_SCALE;
+            final float slot = cw * (1.0F + r);
+            final float ell = cw * CAR_ELLIPSIS_W;
+            final int fit = (int) Math.floor((avail - ell - cw * r) / slot);
+            shown = Math.max(1, Math.min(n, fit));
+            degraded = shown < n;
+        }
+        final float gap = cw * r;
+        final float ellipsisW = degraded ? cw * CAR_ELLIPSIS_W : 0.0F;
+
+        // 卡片组（含尾部「…」）右缘贴 right，车头挂在首卡左边
+        final float cardsW = shown * cw + (shown - 1) * gap
+                + (degraded ? gap + ellipsisW : 0.0F);
+        final float cardsX0 = right - cardsW;
+        final float cardY0 = rowBottom + (rowH - ch) * 0.5F;
+        final float noseX = cardsX0 - gap - noseW;
+        // 包围盒：车头比卡片高，别漏掉它上下那半格
+        final float noseY0 = cardY0 + (ch - noseH) * 0.5F;
+        final float boxX0 = hasNose ? Math.min(noseX, cardsX0) : cardsX0;
+        final float boxY0 = hasNose ? Math.min(cardY0, noseY0) : cardY0;
+        final float boxY1 = hasNose ? Math.max(cardY0 + ch, noseY0 + noseH) : cardY0 + ch;
+        return new CarRow(segments(width), n, shown, degraded, boxX0, right, boxY0, boxY1,
+                cardsX0, cw, cwNat, gap, ch, cardY0, noseX, noseW, noseH, ellipsisW, avail);
+    }
+
+    /**
+     * 编组行在位图上的包围盒（px）：{@code {x0, y0, x1, y1}}（已经算上窄屏的 {@code offY}）。
+     *
+     * <p>就是 {@link #carRow} 画出来的那一块 —— 离线断言拿它和状态文案的包围盒判「0 像素重叠」。
+     * 编组不画（没有编组 / 没有素材）时返回空数组。
+     */
+    public static float[] carsBox(final int cars, final Assets assets,
+                                  final float width, final float height) {
+        if (cars <= 0 || assets == null) {
+            return new float[0];
+        }
+        final CarRow row = carRow(cars, assets, width, height);
+        final float offY = (height - layoutHeight(width, height)) * 0.5F;
+        return new float[]{row.boxX0(), offY + row.boxY0(), row.boxX1(), offY + row.boxY1()};
+    }
+
+    /** 一行字的墨迹上沿 / 墨迹高（h 单位）：按列名给，和 {@link #row} / {@link #station} 画的那一份一致。 */
+    private static float[] columnInkBand(final Column column) {
+        return switch (column) {
+            case DEST_ZH -> new float[]{DEST_TOP, DEST_INK};
+            case DEST_EN -> new float[]{DESTEN_TOP, DESTEN_INK};
+            case STATION_ZH -> new float[]{STA_ZH_TOP, STA_ZH_INK};
+            case STATION_EN -> new float[]{STA_EN_TOP, STA_EN_INK};
+            case COUNT, COUNT_STATE -> new float[]{NUM_TOP, NUM_INK};
+        };
+    }
+
+    /**
+     * 某一列文字在位图上的**墨迹包围盒**（px）：{@code {x0, y0, x1, y1}}。
+     *
+     * <p>和 {@link #line} 画出来的完全同一份算术（同一个 {@link #fitColumn}、同一个 ink 度量、
+     * 同一个「缩过就垂直居中」规则），所以断言量到的就是屏上那一块。
+     * {@code row} 只对「到站」那几列有意义（0 = 第一行、1 = 第二行，y 跟着 {@link #ROW1_CY} +
+     * {@link #ROW_DY} 走）；当前站两列是绝对位置，{@code row} 不起作用。
+     *
+     * @return 空数组 = 这一列没画字
+     */
+    public static float[] textBox(final Column column, final int row, final String text,
+                                 final Assets assets, final float width, final float height) {
+        if (text == null || text.isEmpty()) {
+            return new float[0];
+        }
+        final Fitted fitted = fitColumn(column, text, assets, width, height);
+        final float h = layoutHeight(width, height);
+        final float offY = (height - h) * 0.5F;
+        final float inkH = inkHeight(fitted.font(), fitted.text());
+        final float[] band = columnInkBand(column);
+        // 当前站两列是绝对 y（station() 里直接用 STA_*_TOP），到站那几列挂在行的中线上
+        final boolean absolute = column == Column.STATION_ZH || column == Column.STATION_EN;
+        final float bandTop = absolute
+                ? band[0] * h
+                : (ROW1_CY + Math.max(0, row) * ROW_DY) * h + band[0] * h;
+        final float top = fitted.shrunk() ? bandTop + (band[1] * h - inkH) * 0.5F : bandTop;
+        final float x0 = inkLeft(column, fitted, width);
+        return new float[]{x0, offY + top, x0 + inkWidth(fitted.font(), fitted.text()),
+                offY + top + inkH};
+    }
+
+    /**
      * 编组行：车头（行首独立占位）+ N 节卡片，节距均匀，整行**右缘**对齐 {@link #CAR_ROW_X1}。
      *
-     * <h2>压缩规则（用户定的：只压宽，不整体等比缩）</h2>
-     * <p>节数多的时候，<b>卡片高度、车头宽高、车上的编号字号一律不动</b>，只把「卡片宽 + 卡片间隙」
-     * 压窄（卡片因此被横向压扁一点，这是允许的）。以前是 {@code ch = cw × 素材宽高比}，
-     * 卡片一变窄就整体缩小 —— 8 节时车头和字都缩成一条线，认不出来。
-     *
-     * <pre>
-     *   ch   = min(CAR_W·h·(1024/2144), 行高)           ← 固定，与节数 n 无关
-     *   cw₀  = ch / (1024/2144)                          ← 「高度不缩」对应的自然宽度
-     *   gap  = cw × CAR_GAP_RATIO                        ← 间隙与卡片同比例缩
-     *   槽宽 = 右缘 − max(CAR_ROW_X0, CAR_ROW_GUARD_X) − 车头宽
-     *   整行 = 车头 + gap + n·cw + (n−1)·gap = 车头 + n·cw·(1+gapRatio)
-     *   ⇒ cw = min(cw₀, 槽宽 / (n × (1 + CAR_GAP_RATIO)))
-     * </pre>
-     *
-     * <p>上式里 {@code cw = 槽宽 / (n·(1+gapRatio))} 时整行宽度正好等于槽宽 ⇒ 车头左缘落在
-     * 槽的左界上、卡片右缘落在 {@link #CAR_ROW_X1}，<b>任何节数都不会越界</b>。
-     * 左界取 {@link #CAR_ROW_GUARD_X}（「分钟 / min」列的右缘），免得第二行的单位被编组压住。
+     * <p>几何全部由 {@link #carRow(int, Assets, float, float)} 算（画与断言同一份），这里只管落笔：
+     * 卡片高度不变、宽度可压；压到 {@link #CAR_MIN_SCALE} 下限就少画几节并在尾部写「…」。
      */
     private static void cars(final Graphics2D g, final Content c, final Assets assets,
                              final float w, final float h) {
@@ -657,59 +916,50 @@ public final class PsdLcdPainter {
         if (numbers == null || numbers.isEmpty() || assets == null) {
             return;
         }
-        // 编组节数由渲染器按 MTR 里那列车的实际编组给（拿不到 → 列表为空 → 整行不画）；
-        // 上限 16 只是防呆（真出现 20 节的编组，卡片会窄到看不清，不如截断）。
-        final int n = Math.min(16, numbers.size());
-
-        final float rowBottom = CAR_Y0 * h;
-        final float rowTop = CAR_Y1 * h;
-        final float rowH = rowTop - rowBottom;
-        final float right = CAR_ROW_X1 * w;
-        final float left = Math.max(CAR_ROW_X0, CAR_ROW_GUARD_X) * w;
-
-        final float ratio = CARD_PX_H / CARD_PX_W;
-        // 卡片高度 = 自然高（只受行高上限约束），**不随节数变小**
-        final float ch = Math.max(1.0F, Math.min(CAR_W * h * ratio, rowH));
-        // 高度定了，自然宽度也就定了；压缩只发生在宽度方向上
-        final float naturalW = ch / ratio;
-
-        // 车头：按同一份固定高度算，节数再多也不缩
-        final float noseH = ch * NOSE_H_RATIO;
-        final float noseW = assets.nose == null ? 0.0F
-                : noseH * (assets.nose.getWidth() / (float) assets.nose.getHeight());
-
-        final float avail = Math.max(1.0F, right - left - noseW);
-        final float cw = Math.min(naturalW, avail / (n * (1.0F + CAR_GAP_RATIO)));
-        final float gap = cw * CAR_GAP_RATIO;
-
-        // 竖直：整行在行槽里居中（高度不缩，所以 y0 与节数无关）
-        final float y0 = rowBottom + (rowH - ch) * 0.5F;
-        // 水平：卡片右缘对齐 right，车头挂在首卡左边（车头宽度固定，不跟着缩）
-        final float cardsW = n * cw + (n - 1) * gap;
-        final float x0 = right - cardsW;
-
-        if (assets.nose != null && noseW > 0.0F) {
-            // 车头（线路前进方向）：紧贴第一节车卡的左边，尺寸不缩
-            drawScaled(g, assets.nose, x0 - gap - noseW, y0 + (ch - noseH) * 0.5F, noseW, noseH);
+        final CarRow row = carRow(numbers.size(), assets, w, h);
+        if (assets.nose != null && row.noseW() > 0.0F) {
+            drawScaled(g, assets.nose, row.noseX(),
+                    row.cardY0() + (row.cardH() - row.noseH()) * 0.5F, row.noseW(), row.noseH());
         }
-
-        for (int i = 0; i < n; i++) {
+        for (int i = 0; i < row.shown(); i++) {
             // 首尾车 = 单雪花素材，中间车 = 双雪花素材（素材自己画好座椅 / 雪花）
-            final BufferedImage card = (i == 0 || i == n - 1) ? assets.carEnd : assets.carMiddle;
-            final float cx = x0 + i * (cw + gap);
+            final BufferedImage card = (i == 0 || i == row.shown() - 1)
+                    ? assets.carEnd : assets.carMiddle;
+            final float cx = row.cardsX0() + i * (row.cardW() + row.gap());
             if (card != null) {
                 // 宽度可压、高度不变 ⇒ 卡片被横向压扁（用户允许）
-                drawScaled(g, card, cx, y0, cw, ch);
+                drawScaled(g, card, cx, row.cardY0(), row.cardW(), row.cardH());
             }
             // 车号：素材上只有「车 ❄」，编号由这里补在「车」的左边。
             // 字号按**固定**的片高算（CAR_TEXT_INK_H），不跟卡片宽走 —— 节数再多编号也一样大。
             final String number = numbers.get(i);
             if (number != null && !number.isEmpty()) {
-                final float inkH = ch * CAR_TEXT_INK_H;
-                final float textRight = Math.max(cx + cw * 0.02F, cx + cw * CAR_TEXT_LEFT - cw * 0.025F);
-                final float inkCy = y0 + ch * CAR_TEXT_CY;
+                final float inkH = row.cardH() * CAR_TEXT_INK_H;
+                final float textRight = Math.max(cx + row.cardW() * 0.02F,
+                        cx + row.cardW() * CAR_TEXT_LEFT - row.cardW() * 0.025F);
+                final float inkCy = row.cardY0() + row.cardH() * CAR_TEXT_CY;
                 line(g, number, assets.cjk(), "1", inkCy - inkH * 0.5F, inkH,
                         textRight, Align.RIGHT, 0.0F, COLOR_WHITE);
+            }
+        }
+        if (row.degraded() && row.ellipsisW() > 0.0F) {
+            // 尾部「…」：三个白点，占满它自己那一槽、和车号同一条中线 —— 不压上一张卡、也不越出 right。
+            // 为什么不画 U+2026：那是**字体字形**，SimHei / 资源包字体里经常缺这个码位（缺了就画成
+            // 一个白方块），而且墨迹高只有小圆点、按 inkHeight 反推字号会算出一个巨大的字。三个
+            // 圆点是纯几何，任何字体 / 任何分辨率下都一样。
+            final float lastRight = row.cardsX0()
+                    + (row.shown() - 1) * (row.cardW() + row.gap()) + row.cardW();
+            final float ellX0 = lastRight + row.gap();
+            final float ellX1 = ellX0 + row.ellipsisW();
+            final float d = Math.max(1.5F, Math.min(row.cardH() * 0.13F, row.ellipsisW() * 0.22F));
+            final float step = d * 1.9F;
+            final float total = d + 2.0F * step;
+            final float cy = row.cardY0() + row.cardH() * CAR_TEXT_CY;
+            float dx = (ellX0 + ellX1) * 0.5F - total * 0.5F;
+            g.setColor(argb(COLOR_WHITE));
+            for (int i = 0; i < 3; i++) {
+                g.fill(new java.awt.geom.Ellipse2D.Float(dx, cy - d * 0.5F, d, d));
+                dx += step;
             }
         }
     }
@@ -929,6 +1179,39 @@ public final class PsdLcdPainter {
             chh /= 2;
         }
         g.drawImage(current, Math.round(x), Math.round(y), Math.round(w), Math.round(h), null);
+    }
+
+    /**
+     * 同上面那个，但只取源图的 {@code uv} 那块（{@code {u0, v0, u1, v1}}，先夹到 0…1）并
+     * <b>拉伸</b>到目标矩形上 —— 目标宽高比和素材不一致是<b>允许</b>的（广告要的非等比拉伸）。
+     *
+     * <p>为什么不做逐级减半：那是给 2144×1024 的卡片素材缩到 100px 用的；广告是放大 / 近似 1:1，
+     * 减半只会多一道重采样。直接用 8 参数 {@code drawImage} 一次画准，边界由调用方的 clip 兜住。
+     */
+    private static void drawScaled(final Graphics2D g, final BufferedImage src,
+                                   final float x, final float y, final float w, final float h,
+                                   final float[] uv) {
+        if (src == null || w < 1.0F || h < 1.0F) {
+            return;
+        }
+        if (uv == null || uv.length < 4) {
+            drawScaled(g, src, x, y, w, h);
+            return;
+        }
+        final int iw = src.getWidth();
+        final int ih = src.getHeight();
+        final float u0 = clamp01(Math.min(uv[0], uv[2]));
+        final float v0 = clamp01(Math.min(uv[1], uv[3]));
+        final float u1 = clamp01(Math.max(uv[0], uv[2]));
+        final float v1 = clamp01(Math.max(uv[1], uv[3]));
+        final int sx0 = Math.round(u0 * iw);
+        final int sy0 = Math.round(v0 * ih);
+        final int sx1 = Math.max(sx0 + 1, Math.round(u1 * iw));
+        final int sy1 = Math.max(sy0 + 1, Math.round(v1 * ih));
+        final int dx0 = Math.round(x);
+        final int dy0 = Math.round(y);
+        g.drawImage(src, dx0, dy0, dx0 + Math.round(w), dy0 + Math.round(h),
+                sx0, sy0, sx1, sy1, null);
     }
 
     // ================================================================ 文字

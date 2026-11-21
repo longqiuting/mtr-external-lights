@@ -425,6 +425,25 @@ public final class PsdLcdLayout {
                 (SCREEN_FACE_Z_PX - FACE_GAP_PX - liftPx) / 16.0F);
     }
 
+    /**
+     * 广告区在世界里的四边形：同一个屏幕平面、同一条 y 带（{@code fy 0…1} 整条），
+     * 只在铺开轴上取 {@code [fx0, 1]} 那一段 —— 屏幕位图里广告就是那块矩形
+     * （{@link dev.js.mtrheadlight.xiamen.pids.PsdLcdPainter#adRegion}），所以它的世界四边形
+     * <b>必然</b>是窗口四边形的一份子：同一个 {@link #planeQuad}、同一个 z、同一个 y 带，
+     * 差别只有 start/end。四边都夹在 {@code [0,1]} 里，越界不可能发生。
+     *
+     * <p>顶点顺序与 {@link #windowQuad} 一致：左上 → 左下 → 右下 → 右上。
+     *
+     * @param totalPx 整条链在阅读轴上的总宽（16 分之格，= 段数 × 16）
+     * @param fx0     广告区左缘（占整条链的比例，= {@code AD_X0} 0.7197）；右缘恒为 1
+     * @param cut     这一格剪过没有（决定 y 带；广告区跟着窗口那一档走）
+     */
+    public static float[][] adQuad(final Face facing, final float totalPx, final float fx0,
+                                   final boolean cut) {
+        final float left = Math.max(0.0F, Math.min(1.0F, fx0));
+        return bandQuad(facing, totalPx, left, 1.0F, 0.0F, 1.0F, cut, 0.0F);
+    }
+
     // ================================================================ 一块面板上的四边形
 
     /**
