@@ -611,7 +611,7 @@ public final class PsdLcdPainter {
         final float inkH = Math.max(1.0F, box[3] - box[1]);
         // 宽也要夹在卡片里：窄屏（1 段）时内容盒被压到 3.9:1，卡片只有 0.0975 屏宽，而 M 标
         // 是按高度定大小的 —— 只按高度算的话墨迹会横出卡片、压到「开往」那一列。取两者小的那个。
-        final float cardInk = (CARD_X1 - CARD_X0) * w - 0.032F * h;  // 左右也要留白：窄屏(1 段)时标志会贴到卡片两侧描边
+        final float cardInk = (CARD_X1 - CARD_X0) * w - 0.0365F * h;  // 左右也要留白：窄屏(1 段)时标志会贴到卡片两侧描边
         final float scale = Math.min((LOGO_H * h) / inkH, cardInk / inkW);
         final float drawW = image.getWidth() * scale;
         final float drawH = image.getHeight() * scale;
