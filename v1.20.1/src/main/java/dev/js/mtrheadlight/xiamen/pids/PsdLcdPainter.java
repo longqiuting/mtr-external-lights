@@ -95,8 +95,8 @@ public final class PsdLcdPainter {
     private static final float CARD_TEXT_CX = 0.0477F;
     /** M 标志：墨迹中线 + 墨迹上沿 + 墨迹高（等比缩放，不拉伸）。 */
     private static final float LOGO_CX = 0.0499F;
-    private static final float LOGO_TOP = 0.0295F;
-    private static final float LOGO_H = 0.3350F;
+    private static final float LOGO_TOP = 0.0405F;
+    private static final float LOGO_H = 0.2980F;
 
     private static final float DATE_TOP = 0.4223F;
     private static final float DATE_INK = 0.0436F;
