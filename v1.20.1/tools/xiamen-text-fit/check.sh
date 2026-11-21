@@ -34,6 +34,7 @@ rm -rf "$OUT/xiamen-text-fit-classes"/*
     "$MODW/src/main/java/dev/js/mtrheadlight/xiamen/pids/PsdLcdLayout.java" \
     "$MODW/src/main/java/dev/js/mtrheadlight/xiamen/pids/PidsXiamenLayout.java" \
     "$MODW/src/main/java/dev/js/mtrheadlight/xiamen/pids/TextFit.java" \
+    "$MODW/src/main/java/dev/js/mtrheadlight/xiamen/pids/PidsXiamenColumns.java" \
     "$MODW/src/main/java/dev/js/mtrheadlight/xiamen/pids/ArrivalCountdown.java" \
     "$MODW/src/main/java/dev/js/mtrheadlight/xiamen/pids/PsdLcdPainter.java" \
     "$MODW/tools/xiamen-text-fit/FitCheck.java"

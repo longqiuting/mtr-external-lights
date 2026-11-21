@@ -155,13 +155,145 @@ public final class PsdLcdPreview {
         write(new File(out, "psd_lcd_compare.png"), compare);
 
         System.out.println();
+        System.out.println("== 到站行：动态标签列 + 列内居中（中英双语，长标签 + 长站名） ==");
+        arrivalScreens(assets, out);
+
+        System.out.println();
         System.out.println("预览：");
         for (final String name : new String[]{"psd_lcd_with_line.png", "psd_lcd_no_line.png",
-                "psd_lcd_compare.png"}) {
+                "psd_lcd_compare.png", "psd_lcd_arrivals_zh.png", "psd_lcd_arrivals_en.png",
+                "psd_lcd_arrivals_compare.png"}) {
             final File file = new File(out, name);
             if (file.exists()) {
                 System.out.println("  " + file.getPath());
             }
+        }
+        if (arrivalFailures > 0) {
+            System.out.println("到站行断言失败 " + arrivalFailures + " 条");
+            System.exit(1);
+        }
+    }
+
+    /** 到站行断言失败条数（> 0 → 退出码 1）。 */
+    private static int arrivalFailures;
+
+    /**
+     * 中英双语各一张整屏：<b>长标签</b>（下一趟开往 / Next train）+ <b>长站名</b>。
+     *
+     * <p>断言四件事（全部走 {@link PsdLcdPainter#arrivalColumns} / {@code fitColumn}，和屏上同一份）：
+     * <ol>
+     *   <li>每条标签的墨迹右缘 + 4px ≤ 站名墨迹左缘（两行、中英都算）；</li>
+     *   <li>两行站名的列几何是同一份：{@code nameX} / {@code nameRight} 差 0px；</li>
+     *   <li>站名墨迹右缘 ≤ 列右缘 {@code DEST_COL_R}（不压「分钟 / min」与数字列）；</li>
+     *   <li>长站名不越界：墨迹左缘 ≥ {@code nameX}、右缘 ≤ {@code nameRight}、字号只缩不放。</li>
+     * </ol>
+     */
+    private static void arrivalScreens(final PsdLcdPainter.Assets assets, final File out) throws IOException {
+        // 中文版 / 英文版：{tag, 标签1, 标签1英文, 标签2, 标签2英文, 站名1, 站名1英文}
+        final String[][] versions = {
+                {"zh", "开往", "Bound for", "下一趟开往", "Next train",
+                        "厦门北站附属客运中心东广场", "Xiamen North Railway Station Huangcuo Bus Terminal"},
+                {"en", "To", "Bound for", "Next", "Next train",
+                        "厦门北站附属客运中心东广场站",
+                        "Xiamen North Railway Station Huangcuo Bus Terminal"},
+        };
+        final BufferedImage[] images = new BufferedImage[versions.length];
+        final float h = PsdLcdPainter.layoutHeight(W, H);
+        for (int i = 0; i < versions.length; i++) {
+            final String[] v = versions[i];
+            final PsdLcdPainter.Content content = new PsdLcdPainter.Content(
+                    "2026-11-20", "星期五", "Friday", "18:42",
+                    v[1], v[2], v[5], v[6], "3",
+                    v[3], v[4], "第一码头枢纽站", "No.1 Wharf Junction", "9",
+                    "分钟", "min",
+                    "分钟", "min",
+                    "6号线", "Line 6", 0xFFE8322E,
+                    "董任", "Dongren",
+                    java.util.Arrays.asList("1", "2", "3", "4", "5", "6"),
+                    "注：此处按线路实际运营车辆读取编组",
+                    "欢迎乘坐厦门地铁，本次列车开往华侨大学站，请先下后上",
+                    "广告位");
+            images[i] = PsdLcdPainter.paint(content, assets, null, W, H);
+            write(new File(out, "psd_lcd_arrivals_" + v[0] + ".png"), images[i]);
+
+            final PsdLcdPainter.ArrivalColumns cols = PsdLcdPainter.arrivalColumns(
+                    v[1], v[2], v[3], v[4], assets, W, H);
+            System.out.printf("  [%s] 屏 %d×%d h=%.1f  labelX %.1f  labelW %.1f  gap %.1f  "
+                            + "nameX %.1f  nameRight %.1f  nameW %.1f%n",
+                    v[0], W, H, h, cols.labelX(), cols.labelW(), cols.gap(),
+                    cols.nameX(), cols.nameRight(), cols.nameW());
+
+            // 两行：标签（中 + 英）、站名（中 + 英）
+            final String[][] rows = {{v[1], v[2], v[5], v[6]}, {v[3], v[4], "第一码头枢纽站", "No.1 Wharf Junction"}};
+            for (int r = 0; r < rows.length; r++) {
+                final String[] row = rows[r];
+                final float labelZhRight = PsdLcdPainter.labelInkRight(row[0], true, assets, W, H, cols);
+                final float labelEnRight = PsdLcdPainter.labelInkRight(row[1], false, assets, W, H, cols);
+                final PsdLcdPainter.Fitted zhName = PsdLcdPainter.fitColumn(
+                        PsdLcdPainter.Column.DEST_ZH, row[2], assets, W, H, cols);
+                final PsdLcdPainter.Fitted enName = PsdLcdPainter.fitColumn(
+                        PsdLcdPainter.Column.DEST_EN, row[3], assets, W, H, cols);
+                final float zhLeft = PsdLcdPainter.inkLeft(PsdLcdPainter.Column.DEST_ZH, zhName, W, cols);
+                final float enLeft = PsdLcdPainter.inkLeft(PsdLcdPainter.Column.DEST_EN, enName, W, cols);
+                final float zhRight = PsdLcdPainter.inkRight(PsdLcdPainter.Column.DEST_ZH, zhName, W, cols);
+                final float enRight = PsdLcdPainter.inkRight(PsdLcdPainter.Column.DEST_EN, enName, W, cols);
+                System.out.printf("      行%d 标签右缘 中 %.1f / 英 %.1f；站名 左 %.1f / 右 %.1f（中 %.1fpx%s，"
+                                + "英 %.1fpx%s）；间隙 中 %.1f / 英 %.1f%n",
+                        r + 1, labelZhRight, labelEnRight, zhLeft, zhRight,
+                        zhName.size(), zhName.truncated() ? " 截断" : "",
+                        enName.size(), enName.truncated() ? " 截断" : "",
+                        zhLeft - labelZhRight, enLeft - labelEnRight);
+
+                checkGap(zhLeft - labelZhRight, "行" + (r + 1) + " 中文标签 → 站名间隙");
+                checkGap(enLeft - labelEnRight, "行" + (r + 1) + " 英文标签 → 站名间隙");
+                checkInside(cols.nameRight() - zhRight, "行" + (r + 1) + " 中文站名右缘 → 列右缘");
+                checkInside(cols.nameRight() - enRight, "行" + (r + 1) + " 英文站名右缘 → 列右缘");
+                checkInside(zhLeft - cols.nameX(), "行" + (r + 1) + " 中文站名左缘 → 列左缘");
+                checkInside(enLeft - cols.nameX(), "行" + (r + 1) + " 英文站名左缘 → 列左缘");
+            }
+            // 两行列几何同一份（差 0px）
+            final PsdLcdPainter.ArrivalColumns again = PsdLcdPainter.arrivalColumns(
+                    v[1], v[2], v[3], v[4], assets, W, H);
+            if (!again.equals(cols)) {
+                arrivalFailures++;
+                System.out.println("    ✗ 两行站名列左/右缘不一致：" + again + " vs " + cols);
+            }
+        }
+
+        // 中英并排（上 = 中文标签，下 = 英文标签）
+        final BufferedImage compare = new BufferedImage(W, H * 2 + 88, BufferedImage.TYPE_INT_RGB);
+        final Graphics2D g = compare.createGraphics();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                    RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g.setColor(new Color(0x18, 0x18, 0x20));
+            g.fillRect(0, 0, compare.getWidth(), compare.getHeight());
+            g.setFont(LABEL);
+            g.setColor(Color.WHITE);
+            g.drawString("中文：开往 / 下一趟开往（5 字长标签）+ 长站名 —— 标签列按实测宽，站名在列内居中", 12, 32);
+            g.drawImage(images[0], 0, 38, null);
+            g.setColor(new Color(0xFF, 0xD0, 0x60));
+            g.drawString("英文：To / Next + Bound for / Next train + 长站名 —— 同一套列几何", 12, H + 72);
+            g.drawImage(images[1], 0, H + 78, null);
+        } finally {
+            g.dispose();
+        }
+        write(new File(out, "psd_lcd_arrivals_compare.png"), compare);
+    }
+
+    /** 间隙断言：标签墨迹右缘 → 站名墨迹左缘至少 4px。 */
+    private static void checkGap(final float slack, final String what) {
+        if (slack < 4.0F - 1e-3F) {
+            arrivalFailures++;
+            System.out.printf("    ✗ %s：%.2f px（要求 ≥ 4px）%n", what, slack);
+        }
+    }
+
+    /** 列内断言：站名墨迹必须在该列里（允许 0.5px 的浮点 / 抗锯齿余量）。 */
+    private static void checkInside(final float slack, final String what) {
+        if (slack < -0.5F) {
+            arrivalFailures++;
+            System.out.printf("    ✗ %s：越界 %.2f px%n", what, -slack);
         }
     }
 

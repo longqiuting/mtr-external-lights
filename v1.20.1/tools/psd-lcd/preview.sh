@@ -26,6 +26,7 @@ mkdir -p "$OUT/psd-lcd-classes"
     "$MODW/src/main/java/dev/js/mtrheadlight/xiamen/XiamenStripPainter.java" \
     "$MODW/src/main/java/dev/js/mtrheadlight/xiamen/pids/PsdLcdTypeface.java" \
     "$MODW/src/main/java/dev/js/mtrheadlight/xiamen/pids/TextFit.java" \
+    "$MODW/src/main/java/dev/js/mtrheadlight/xiamen/pids/PidsXiamenColumns.java" \
     "$MODW/src/main/java/dev/js/mtrheadlight/xiamen/pids/PsdLcdLayout.java" \
     "$MODW/src/main/java/dev/js/mtrheadlight/xiamen/pids/PsdLcdPainter.java" \
     "$MODW/tools/psd-lcd/PsdLcdPreview.java"

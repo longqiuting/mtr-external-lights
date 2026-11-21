@@ -118,7 +118,27 @@ public final class PsdLcdPainter {
     private static final float LBLEN_TOP = 0.0398F;
     private static final float LBLEN_INK = 0.0411F;
 
-    /** 终点站列中线（中文 / 英文都居中在这条线上）。 */
+    /**
+     * 标签列 → 终点站列的固定间隙 ÷ <b>站名字高</b>（和 PIDS 共用同一份规则：
+     * {@link PidsXiamenColumns#LABEL_GAP_RATIO}）。
+     *
+     * <p>为什么两列之间必须有一段「几何上的间隙」：以前标签按 {@code LBL_X + 0.10·屏宽} 画、
+     * 站名固定居中在 {@link #DEST_CX}，两者没有任何共同的列边界。「下一趟开往」是 5 个全角字，
+     * 一长就压到站名上 —— 实机截图里中英两行都糊成「下一趟开往第一码头」「Next trainfirst warf」。
+     * 现在标签列宽由**实测**得出（{@link #arrivalColumns}），站名从标签列右缘 + 这个间隙起。
+     */
+    public static final float LABEL_GAP_RATIO = PidsXiamenColumns.LABEL_GAP_RATIO;
+
+    /** 间隙下限（px）：屏再小、字再小也不许贴合；离线断言按「间隙 ≥ 4px」判。 */
+    public static final float MIN_LABEL_GAP_PX = 4.0F;
+
+    /**
+     * 终点站列**设计稿**中线（占屏宽）。
+     *
+     * <p><b>绘制不再无条件居中对齐到这条线</b>：站名现在在「标签列右缘 + 间隙 … {@link #DEST_COL_R}」
+     * 这一列里居中（见 {@link #arrivalColumns}），所以短站名的中线会随标签列宽左右移动。
+     * 这个常量保留下来是给 {@code tools/psd-lcd-fit-check.js} 对照设计稿、以及不带列几何的老调用方用的。
+     */
     private static final float DEST_CX = 0.2212F;
     private static final float DEST_TOP = -0.0976F;
     private static final float DEST_INK = 0.1014F;
@@ -166,13 +186,20 @@ public final class PsdLcdPainter {
     // 量法与实测宽度见 tools/xiamen-text-fit 的运行输出。
 
     /**
-     * 终点站列左缘（占屏宽）：左标签列最宽的一行墨迹右缘 + 间距。
+     * 终点站列**设计稿**左缘（占屏宽）：左标签列最宽的一行墨迹右缘 + 间距。
      * 「下一班开往」= 0.1545、「Third train」= 0.1569 → 0.1569 + 0.006。
+     *
+     * <p><b>绘制不再用这个数</b>：站名列起点由实测标签列宽现算
+     * （{@code nameX = LBL_X·屏宽 + labelW + gap}，见 {@link #arrivalColumns}），
+     * 出厂中英文标签算出来正好落在这一带（≈ 0.163 屏宽）。留作设计稿对照。
      */
     private static final float DEST_COL_L = 0.1629F;
     /**
      * 终点站列右缘（占屏宽）：时间/数字列左缘 − 间距。两位数「23」墨迹宽 0.0349、右缘
      * {@link #NUM_RIGHT} = 0.34 ⇒ 数字列左缘 0.3051 → 0.3051 − 0.007。
+     *
+     * <p>这一条<b>仍然生效</b>：站名在「{@code nameX} … 这里」的列内居中，长站名缩到 62% 再截断，
+     * 所以它绝对不会越过这条线去压数字 / 分钟那一列。
      */
     private static final float DEST_COL_R = 0.2981F;
 
@@ -435,10 +462,12 @@ public final class PsdLcdPainter {
             logo(g, assets, width, h);
             cardTexts(g, c, assets, width, h);
 
-            // ---- 两行到站
-            row(g, c, assets, width, h, ROW1_CY, c.boundLabel(), c.boundSub(),
+            // ---- 两行到站（列几何一次解出：标签列宽 = 四条标签实测最宽值，两行共用）
+            final ArrivalColumns arrivalCols = arrivalColumns(c.boundLabel(), c.boundSub(),
+                    c.nextLabel(), c.nextSub(), assets, width, h);
+            row(g, c, assets, width, h, ROW1_CY, arrivalCols, c.boundLabel(), c.boundSub(),
                     c.dest1(), c.dest1En(), c.count1(), c.unitZh(), c.unitEn());
-            row(g, c, assets, width, h, ROW1_CY + ROW_DY, c.nextLabel(), c.nextSub(),
+            row(g, c, assets, width, h, ROW1_CY + ROW_DY, arrivalCols, c.nextLabel(), c.nextSub(),
                     c.dest2(), c.dest2En(), c.count2(), c.unitZh2(), c.unitEn2());
 
             // ---- 右侧一组
@@ -658,15 +687,145 @@ public final class PsdLcdPainter {
         return date == null ? "" : date.replace('-', '\u2013').replace('/', '\u2013');
     }
 
+    // ================================================================ 一行到站的列几何
+
+    /**
+     * 两行到站共用的列几何（px）：
+     * {@code [labelX, labelX+labelW] → gap → [nameX, nameRight]}。
+     *
+     * @param labelX    标签列左缘（左对齐）
+     * @param labelW    标签列宽 = 四条标签实测宽的最大值（两行、中英共用）
+     * @param gap       标签列 → 站名列的固定间隙
+     * @param nameX     站名列起点
+     * @param nameRight 站名列右缘（= 数字列左缘 − 间距，见 {@link #DEST_COL_R}）
+     */
+    public record ArrivalColumns(float labelX, float labelW, float gap, float nameX, float nameRight) {
+
+        /** 标签列右缘（墨迹可达的最右处）。 */
+        public float labelRight() {
+            return this.labelX + this.labelW;
+        }
+
+        /** 站名列可用宽（交给 {@link TextFit#fitFontSize} 反解字号）。 */
+        public float nameW() {
+            return Math.max(0.0F, this.nameRight - this.nameX);
+        }
+
+        /** 站名列中线 —— 站名<b>在这一列里</b>居中（不再是无条件对齐设计稿中线）。 */
+        public float nameCenter() {
+            return this.nameX + this.nameW() * 0.5F;
+        }
+    }
+
+    /**
+     * 解出两行到站的列几何：<b>先量四条标签，再定语站名从哪起</b>。
+     *
+     * <pre>
+     *   labelX    = LBL_X × 屏宽
+     *   labelW    = max(开往, Bound for, 下一趟开往, Next train 在各自名义字号下的实测宽)  ← 两行共用
+     *   gap       = 站名字高（DEST_INK × h）× {@value #LABEL_GAP_RATIO}，不低于 {@value #MIN_LABEL_GAP_PX}px
+     *   nameX     = labelX + labelW + gap
+     *   nameRight = DEST_COL_R × 屏宽
+     *   nameW     = nameRight − nameX                     ← 交给 TextFit（只缩不放，下限 62%）
+     * </pre>
+     *
+     * <p><b>两行必须共用同一份</b>（所以这个方法一次收四条标签）：只要某一行按自己的标签宽算起点，
+     * 两行站名的列就会错开十几 px。绘制（{@link #row}）和离线断言
+     * （{@code tools/xiamen-text-fit}）调的是同一个函数，所以断言量的就是屏上那一次。
+     *
+     * <p>标签自己也被压在 {@code labelW} 这一列里（{@link #fitLabel}）—— 哪怕某个语言把标签
+     * 翻得特别长，它也只会在标签列里缩字 / 截断，<b>绝不会</b>再压到站名上。
+     */
+    public static ArrivalColumns arrivalColumns(final String label1, final String sub1,
+                                                final String label2, final String sub2,
+                                                final Assets assets, final float width,
+                                                final float height) {
+        final Assets a = assets == null ? new Assets() : assets;
+        final float h = layoutHeight(width, height);
+        final Font zh = labelZhFont(a, h);
+        final Font en = labelEnFont(a, h);
+        final List<PidsXiamenColumns.Label> labels = new java.util.ArrayList<>(4);
+        final List<TextFit.Metrics> metrics = new java.util.ArrayList<>(4);
+        addLabel(labels, metrics, label1, zh);
+        addLabel(labels, metrics, sub1, en);
+        addLabel(labels, metrics, label2, zh);
+        addLabel(labels, metrics, sub2, en);
+        final float labelX = LBL_X * width;
+        final float labelW = PidsXiamenColumns.labelWidth(labels, metrics);
+        final float gap = Math.max(MIN_LABEL_GAP_PX, PidsXiamenColumns.gap(DEST_INK * h));
+        final float nameRight = DEST_COL_R * width;
+        return new ArrivalColumns(labelX, labelW, gap,
+                Math.min(labelX + labelW + gap, nameRight), nameRight);
+    }
+
+    /**
+     * 出厂标签（开往 / Bound for / 下一趟开往 / Next train）的那一份列几何。
+     *
+     * <p>离线断言 / {@link #textBox} 不带自定义文案时用它；中文这一档就是渲染器实际传进来的那四条，
+     * 所以和屏上完全一致。
+     */
+    public static ArrivalColumns arrivalColumns(final Assets assets, final float width, final float height) {
+        return arrivalColumns("开往", "Bound for", "下一趟开往", "Next train",
+                assets, width, height);
+    }
+
+    /** 把一条标签连同它的量字函数追加进表里（空串 / 没有字体就跳过）。 */
+    private static void addLabel(final List<PidsXiamenColumns.Label> labels,
+                                 final List<TextFit.Metrics> metrics,
+                                 final String text, final Font nominal) {
+        if (text == null || text.isEmpty() || nominal == null) {
+            return;
+        }
+        labels.add(new PidsXiamenColumns.Label(text, nominal.getSize2D()));
+        metrics.add((t, size) -> inkWidth(nominal.deriveFont(Math.max(1.0F, size)), t));
+    }
+
+    /**
+     * 标签列一行的排版结果（绘制与断言同一函数）：名义字号按「开往 / Bound for」的墨迹高反推，
+     * 列宽上限 = {@link ArrivalColumns#labelW()}。
+     *
+     * @param chinese {@code true} = 中文那一行（黑体 + 大一号），{@code false} = 英文那一行
+     */
+    public static Fitted fitLabel(final String text, final boolean chinese, final Assets assets,
+                                  final float width, final float height, final ArrivalColumns cols) {
+        final Assets a = assets == null ? new Assets() : assets;
+        final float h = layoutHeight(width, height);
+        final Font base = chinese ? labelZhFont(a, h) : labelEnFont(a, h);
+        final String ref = chinese ? "开往" : "Bound for";
+        final float inkH = (chinese ? LBLZH_INK : LBLEN_INK) * h;
+        final float maxW = cols == null ? 0.0F : cols.labelW();
+        return fitToColumn(text, base, ref, inkH, maxW);
+    }
+
+    /** 标签的墨迹右缘（px，左对齐）—— 离线断言判「标签不压站名」用。 */
+    public static float labelInkRight(final String text, final boolean chinese, final Assets assets,
+                                      final float width, final float height, final ArrivalColumns cols) {
+        final float labelX = cols == null ? LBL_X * width : cols.labelX();
+        final Fitted fitted = fitLabel(text, chinese, assets, width, height, cols);
+        return labelX + inkWidth(fitted.font(), fitted.text());
+    }
+
+    /** 标签列中文那一行的名义字体（「开往」的墨迹高 → 字号）；和 {@link #line} 里反推的是同一个。 */
+    private static Font labelZhFont(final Assets a, final float h) {
+        return fit(a.cjk(), "开往", LBLZH_INK * h);
+    }
+
+    /** 标签列英文那一行的名义字体（「Bound for」的墨迹高 → 字号）。 */
+    private static Font labelEnFont(final Assets a, final float h) {
+        return fit(a.latin(), "Bound for", LBLEN_INK * h);
+    }
+
     // ================================================================ 一行到站
 
     /**
-     * 一行到站：标签列（左对齐）+ 终点站（中线居中）+ 大数字（右对齐）+ 单位列。
+     * 一行到站：标签列（左对齐，宽 = 实测标签列宽）+ 终点站（列内居中）+ 大数字（右对齐）+ 单位列。
      *
-     * @param cyH 这一行的中线（h）
+     * @param cyH  这一行的中线（h）
+     * @param cols 两行共用的列几何（{@link #arrivalColumns}）—— 标签列宽 / 间隙 / 站名列边界
      */
     private static void row(final Graphics2D g, final Content c, final Assets assets,
                             final float w, final float h, final float cyH,
+                            final ArrivalColumns cols,
                             final String label, final String labelSub, final String dest,
                             final String destEn, final String count,
                             final String unitZh, final String unitEn) {
@@ -683,19 +842,20 @@ public final class PsdLcdPainter {
             return;
         }
 
-        final float labelX = LBL_X * w;
+        // 标签列：左缘 LBL_X、宽 = 四条标签的实测最宽值（cols.labelW）。
+        // 标签被压在自己这一列里 —— 再长也只在列内缩字 / 截断，绝不会压到站名上。
         line(g, label, cjk, "开往", cy + LBLZH_TOP * h, LBLZH_INK * h,
-                labelX, Align.LEFT, 0.10F * w, white);
+                cols.labelX(), Align.LEFT, cols.labelW(), white);
         line(g, labelSub, latin, "Bound for", cy + LBLEN_TOP * h, LBLEN_INK * h,
-                labelX, Align.LEFT, 0.10F * w, white);
+                cols.labelX(), Align.LEFT, cols.labelW(), white);
 
-        // 终点站：列宽 = 标签列右缘 … 时间/数字列左缘（见 DEST_COL_L / DEST_COL_R）。
-        // 长站名只缩不放（下限 62%），缩到底才截断 —— 绝不压进右边那一列。
-        final float destMaxW = columnWidth(Column.DEST_ZH, w);
+        // 终点站：在 [nameX, nameRight] 这一列里居中（不再无条件对齐设计稿中线 DEST_CX）。
+        // 短站名居中在列里；长站名只缩不放（下限 62%），缩到底才截断 —— 绝不压进右边那一列。
+        final float nameW = Math.max(1.0F, cols.nameW());
         line(g, dest, cjk, "华侨大学", cy + DEST_TOP * h, DEST_INK * h,
-                DEST_CX * w, Align.CENTER, destMaxW, white);
+                cols.nameCenter(), Align.CENTER, nameW, white);
         line(g, destEn, latin, "Huaqiao University", cy + DESTEN_TOP * h, DESTEN_INK * h,
-                DEST_CX * w, Align.CENTER, columnWidth(Column.DEST_EN, w), white);
+                cols.nameCenter(), Align.CENTER, nameW, white);
 
         // 大数字 / 到站状态：
         //   · 数字：右缘贴 NUM_RIGHT，左界是两位数字的墨迹左缘（只缩不截断）；
@@ -709,8 +869,17 @@ public final class PsdLcdPainter {
                         columnAnchor(Column.COUNT_STATE, w), Align.LEFT,
                         columnWidth(Column.COUNT_STATE, w), white);
             } else {
-                line(g, count, digits, "0", cy + NUM_TOP * h, NUM_INK * h,
-                        NUM_RIGHT * w, Align.RIGHT, columnWidth(Column.COUNT, w), white);
+                // 三位数（如秒数模式的 120）比两位宽，数字列只有 0.0419W：
+                // 先按真实列宽把字号压下来（不截断），再交给 line() —— line() 自己还有 0.62 下限，
+                // 不先压就会右对齐后往左溢出到终点站那一列。
+                final float numColW = columnWidth(Column.COUNT, w);
+                float numInk = NUM_INK * h;
+                final float natW = inkWidth(digits.deriveFont(numInk), count);
+                if (natW > numColW && natW > 0.0F) {
+                    numInk *= Math.max(0.42F, numColW / natW);
+                }
+                line(g, count, digits, "0", cy + NUM_TOP * h, numInk,
+                        NUM_RIGHT * w, Align.RIGHT, numColW, white);
             }
             // 「已到站 / 即将进站」这一档没有数字也没有单位：整块 0.3051…0.4322 都归它。
             // 单位行**不画**（渲染器那边 unitOf() 对状态文案也返回空串；这里再兜一道，
@@ -932,7 +1101,9 @@ public final class PsdLcdPainter {
         if (text == null || text.isEmpty()) {
             return new float[0];
         }
-        final Fitted fitted = fitColumn(column, text, assets, width, height);
+        // 列几何与绘制同一份（标签列宽实测），否则「断言说站名在哪」和「屏上画在哪」会错开。
+        final ArrivalColumns cols = arrivalColumns(assets, width, height);
+        final Fitted fitted = fitColumn(column, text, assets, width, height, cols);
         final float h = layoutHeight(width, height);
         final float offY = (height - h) * 0.5F;
         final float inkH = inkHeight(fitted.font(), fitted.text());
@@ -943,7 +1114,7 @@ public final class PsdLcdPainter {
                 ? band[0] * h
                 : (ROW1_CY + Math.max(0, row) * ROW_DY) * h + band[0] * h;
         final float top = fitted.shrunk() ? bandTop + (band[1] * h - inkH) * 0.5F : bandTop;
-        final float x0 = inkLeft(column, fitted, width);
+        final float x0 = inkLeft(column, fitted, width, cols);
         return new float[]{x0, offY + top, x0 + inkWidth(fitted.font(), fitted.text()),
                 offY + top + inkH};
     }
@@ -1344,6 +1515,21 @@ public final class PsdLcdPainter {
         };
     }
 
+    /**
+     * 带列几何的版本 —— <b>绘制 / 断言都走这个</b>：终点站两列用
+     * {@link ArrivalColumns#nameW()}（= 标签列右缘 + 间隙 … {@link #DEST_COL_R}），
+     * 其余列和不带的版本一致。
+     *
+     * <p>不带 {@code cols} 的老版本对终点站用的是设计稿中线 {@link #DEST_CX} 左右各取一半，
+     * 那是「标签列宽写死」时代的列；现在标签列宽是实测的，两者会差十几 px，别混用。
+     */
+    public static float columnWidth(final Column column, final float width, final ArrivalColumns cols) {
+        if (cols != null && (column == Column.DEST_ZH || column == Column.DEST_EN)) {
+            return cols.nameW();
+        }
+        return columnWidth(column, width);
+    }
+
     /** 这一列的水平锚点（px）：居中列给中线、右对齐列给右缘、左对齐列给左缘。 */
     public static float columnAnchor(final Column column, final float width) {
         return switch (column) {
@@ -1352,6 +1538,17 @@ public final class PsdLcdPainter {
             case COUNT -> NUM_RIGHT * width;
             case COUNT_STATE -> NUM_COL_L * width;
         };
+    }
+
+    /**
+     * 带列几何的版本：终点站两列的「中线」= {@link ArrivalColumns#nameCenter()}（列内居中），
+     * 不再是无条件对齐设计稿中线 {@link #DEST_CX}。
+     */
+    public static float columnAnchor(final Column column, final float width, final ArrivalColumns cols) {
+        if (cols != null && (column == Column.DEST_ZH || column == Column.DEST_EN)) {
+            return cols.nameCenter();
+        }
+        return columnAnchor(column, width);
     }
 
     /** 这一列的对齐方式。 */
@@ -1376,6 +1573,16 @@ public final class PsdLcdPainter {
         };
     }
 
+    /** 带列几何的版本（终点站两列按列内居中反推左缘）。离线断言用。 */
+    public static float columnLeft(final Column column, final float width, final ArrivalColumns cols) {
+        final float anchor = columnAnchor(column, width, cols);
+        return switch (columnAlign(column)) {
+            case LEFT -> anchor;
+            case RIGHT -> anchor - columnWidth(column, width, cols);
+            case CENTER -> anchor - columnWidth(column, width, cols) * 0.5F;
+        };
+    }
+
     /** 这一列文字能到的最右缘（px）。离线断言用它判「右缘 ≤ 列右缘」。 */
     public static float columnRight(final Column column, final float width) {
         final float anchor = columnAnchor(column, width);
@@ -1383,6 +1590,16 @@ public final class PsdLcdPainter {
             case RIGHT -> anchor;
             case LEFT -> anchor + columnWidth(column, width);
             case CENTER -> anchor + columnWidth(column, width) * 0.5F;
+        };
+    }
+
+    /** 带列几何的版本。 */
+    public static float columnRight(final Column column, final float width, final ArrivalColumns cols) {
+        final float anchor = columnAnchor(column, width, cols);
+        return switch (columnAlign(column)) {
+            case RIGHT -> anchor;
+            case LEFT -> anchor + columnWidth(column, width, cols);
+            case CENTER -> anchor + columnWidth(column, width, cols) * 0.5F;
         };
     }
 
@@ -1397,9 +1614,27 @@ public final class PsdLcdPainter {
         };
     }
 
+    /** 带列几何的版本：终点站两列按列内居中的中线反推墨迹左缘。离线断言用。 */
+    public static float inkLeft(final Column column, final Fitted fitted, final float width,
+                                final ArrivalColumns cols) {
+        final float anchor = columnAnchor(column, width, cols);
+        final float w = inkWidth(fitted.font(), fitted.text());
+        return switch (columnAlign(column)) {
+            case LEFT -> anchor;
+            case RIGHT -> anchor - w;
+            case CENTER -> anchor - w * 0.5F;
+        };
+    }
+
     /** 这一列文字的墨迹右缘（px）。 */
     public static float inkRight(final Column column, final Fitted fitted, final float width) {
         return inkLeft(column, fitted, width) + inkWidth(fitted.font(), fitted.text());
+    }
+
+    /** 带列几何的版本。 */
+    public static float inkRight(final Column column, final Fitted fitted, final float width,
+                                 final ArrivalColumns cols) {
+        return inkLeft(column, fitted, width, cols) + inkWidth(fitted.font(), fitted.text());
     }
 
     /**
@@ -1410,6 +1645,14 @@ public final class PsdLcdPainter {
      */
     public static Fitted fitColumn(final Column column, final String text, final Assets assets,
                                    final float width, final float height) {
+        return fitColumn(column, text, assets, width, height, arrivalColumns(assets, width, height));
+    }
+
+    /**
+     * 带列几何的版本（绘制 / 断言同一函数）：终点站两列的宽度 = {@link ArrivalColumns#nameW()}。
+     */
+    public static Fitted fitColumn(final Column column, final String text, final Assets assets,
+                                   final float width, final float height, final ArrivalColumns cols) {
         final Assets a = assets == null ? new Assets() : assets;
         final float h = layoutHeight(width, height);
         final Font base;
@@ -1448,7 +1691,7 @@ public final class PsdLcdPainter {
             }
         }
         final boolean mayTruncate = column != Column.COUNT;
-        return fitToColumn(text, base, ref, inkH, columnWidth(column, width), mayTruncate);
+        return fitToColumn(text, base, ref, inkH, columnWidth(column, width, cols), mayTruncate);
     }
 
     /**

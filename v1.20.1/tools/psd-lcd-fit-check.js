@@ -230,6 +230,9 @@ if (process.argv.includes('--no-preview') || !javac || !javaBin) {
   fs.mkdirSync(OUT_DIR, { recursive: true });
   const sources = [
     path.join(PAINTER_DIR, 'PsdLcdPainter.java'),
+    path.join(PAINTER_DIR, 'PidsXiamenColumns.java'),
+    path.join(PAINTER_DIR, 'TextFit.java'),
+    path.join(PAINTER_DIR, 'PsdLcdLayout.java'),
     path.join(PAINTER_DIR, 'PsdLcdTypeface.java'),
     path.join(PAINTER_DIR, '..', 'XiamenStripPainter.java'),
     path.join(REPO, 'tools/psd-lcd/PsdLcdPreview.java'),

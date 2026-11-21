@@ -75,6 +75,10 @@ public final class FitCheck {
         checkPsdLcd(assets);
 
         System.out.println();
+        System.out.println("== PSD-LCD 到站行：标签列（实测宽）+ 站名列（列内居中）==");
+        checkArrivalColumns(assets);
+
+        System.out.println();
         System.out.println("== 到站档位：已到站 / 不出现 0秒 ==");
         checkArrived(mod);
 
@@ -236,12 +240,19 @@ public final class FitCheck {
         for (int segments = 1; segments <= 13; segments++) {
             final float w = PsdLcdLayout.PX_PER_BLOCK * segments;
             final float h = PsdLcdLayout.HEIGHT_PX;
+            // 列几何与绘制同一份（终点站两列的宽度 = 实测标签列之后剩下的那一列）
+            final PsdLcdPainter.ArrivalColumns cols = PsdLcdPainter.arrivalColumns(assets, w, h);
 
-            // 名义字号：用「放得下的短字」量（这一档 size == nominal，因为只缩不放）
-            final float destNominal = PsdLcdPainter.fitColumn(PsdLcdPainter.Column.DEST_ZH,
-                    "华侨大学", assets, w, h).size();
-            final float staNominal = PsdLcdPainter.fitColumn(PsdLcdPainter.Column.STATION_ZH,
-                    "董任", assets, w, h).size();
+            // 名义字号：必须用「一定放得下的单字」量 —— 用 4 字站名量会量到**缩过之后**的字号
+            // （1 段那档列只有 ~49px，4 个字本来就放不下），再拿去断言「只缩不放」就成了假通过。
+            final float destNominalZh = PsdLcdPainter.fitColumn(PsdLcdPainter.Column.DEST_ZH,
+                    "一", assets, w, h, cols).size();
+            final float destNominalEn = PsdLcdPainter.fitColumn(PsdLcdPainter.Column.DEST_EN,
+                    "a", assets, w, h, cols).size();
+            final float staNominalZh = PsdLcdPainter.fitColumn(PsdLcdPainter.Column.STATION_ZH,
+                    "一", assets, w, h, cols).size();
+            final float staNominalEn = PsdLcdPainter.fitColumn(PsdLcdPainter.Column.STATION_EN,
+                    "a", assets, w, h, cols).size();
 
             final List<String> texts = new ArrayList<>();
             texts.addAll(NAMES_ZH);
@@ -253,28 +264,27 @@ public final class FitCheck {
                         ? PsdLcdPainter.Column.DEST_EN : PsdLcdPainter.Column.DEST_ZH;
                 final PsdLcdPainter.Column staColumn = latin
                         ? PsdLcdPainter.Column.STATION_EN : PsdLcdPainter.Column.STATION_ZH;
-                final float destNom = latin
-                        ? PsdLcdPainter.fitColumn(PsdLcdPainter.Column.DEST_EN, "Dongren", assets, w, h).size()
-                        : destNominal;
-                final float staNom = latin
-                        ? PsdLcdPainter.fitColumn(PsdLcdPainter.Column.STATION_EN, "Dongren", assets, w, h).size()
-                        : staNominal;
 
-                psdCase("终点站", destColumn, text, assets, w, h, destNom, segments);
-                psdCase("当前站", staColumn, text, assets, w, h, staNom, segments);
+                psdCase("终点站", destColumn, text, assets, w, h,
+                        latin ? destNominalEn : destNominalZh, segments, cols);
+                psdCase("当前站", staColumn, text, assets, w, h,
+                        latin ? staNominalEn : staNominalZh, segments, cols);
                 cases += 2;
             }
 
             // 倒计时数字 / 状态文案
+            final float countNominal = PsdLcdPainter.fitColumn(PsdLcdPainter.Column.COUNT,
+                    "0", assets, w, h, cols).size();
+            final float stateNominal = PsdLcdPainter.fitColumn(PsdLcdPainter.Column.COUNT_STATE,
+                    "一", assets, w, h, cols).size();
             for (final String count : new String[]{"0", "3", "17", "99", "120"}) {
                 psdCase("数字", PsdLcdPainter.Column.COUNT, count, assets, w, h,
-                        PsdLcdPainter.fitColumn(PsdLcdPainter.Column.COUNT, "0", assets, w, h).size(), segments);
+                        countNominal, segments, cols);
                 cases++;
             }
             for (final String state : new String[]{"已到站", "即将进站", "Arrived", "Arriving"}) {
                 psdCase("状态", PsdLcdPainter.Column.COUNT_STATE, state, assets, w, h,
-                        PsdLcdPainter.fitColumn(PsdLcdPainter.Column.COUNT_STATE, "已到站", assets, w, h).size(),
-                        segments);
+                        stateNominal, segments, cols);
                 cases++;
             }
         }
@@ -284,17 +294,18 @@ public final class FitCheck {
         System.out.println("  明细（3 段视口 1560×227.5）：");
         final float w3 = PsdLcdLayout.PX_PER_BLOCK * 3;
         final float h3 = PsdLcdLayout.HEIGHT_PX;
+        final PsdLcdPainter.ArrivalColumns cols3 = PsdLcdPainter.arrivalColumns(assets, w3, h3);
         for (final String text : new String[]{"华侨大学", "第一码头枢纽站", "厦门北站附属客运中心"}) {
             final PsdLcdPainter.Column col = PsdLcdPainter.Column.DEST_ZH;
-            final PsdLcdPainter.Fitted f = PsdLcdPainter.fitColumn(col, text, assets, w3, h3);
+            final PsdLcdPainter.Fitted f = PsdLcdPainter.fitColumn(col, text, assets, w3, h3, cols3);
             System.out.printf("    终点站 \"%s\"：%.1fpx%s  右缘 %.2f ≤ 列右缘 %.2f（数字列左缘 %.2f）%n",
                     text, f.size(), f.truncated() ? "（截断）" : "",
-                    PsdLcdPainter.inkRight(col, f, w3), PsdLcdPainter.columnRight(col, w3),
-                    PsdLcdPainter.columnLeft(PsdLcdPainter.Column.COUNT, w3));
+                    PsdLcdPainter.inkRight(col, f, w3, cols3), PsdLcdPainter.columnRight(col, w3, cols3),
+                    PsdLcdPainter.columnAnchor(PsdLcdPainter.Column.COUNT_STATE, w3));
         }
         for (final String text : new String[]{"董任", "第一码头枢纽站", "厦门北站附属客运中心"}) {
             final PsdLcdPainter.Column col = PsdLcdPainter.Column.STATION_ZH;
-            final PsdLcdPainter.Fitted f = PsdLcdPainter.fitColumn(col, text, assets, w3, h3);
+            final PsdLcdPainter.Fitted f = PsdLcdPainter.fitColumn(col, text, assets, w3, h3, cols3);
             System.out.printf("    当前站 \"%s\"：%.1fpx%s  左缘 %.2f ≥ %.2f，右缘 %.2f ≤ %.2f%n",
                     text, f.size(), f.truncated() ? "（截断）" : "",
                     PsdLcdPainter.inkLeft(col, f, w3), PsdLcdPainter.columnLeft(col, w3),
@@ -305,23 +316,24 @@ public final class FitCheck {
     /** 一列一文本一视口：三件事一起断言。 */
     private static void psdCase(final String what, final PsdLcdPainter.Column column, final String text,
                                 final PsdLcdPainter.Assets assets, final float w, final float h,
-                                final float nominal, final int segments) {
-        final PsdLcdPainter.Fitted fitted = PsdLcdPainter.fitColumn(column, text, assets, w, h);
+                                final float nominal, final int segments,
+                                final PsdLcdPainter.ArrivalColumns cols) {
+        final PsdLcdPainter.Fitted fitted = PsdLcdPainter.fitColumn(column, text, assets, w, h, cols);
         if (text == null || text.isEmpty()) {
             return;
         }
-        final float left = PsdLcdPainter.inkLeft(column, fitted, w);
-        final float right = PsdLcdPainter.inkRight(column, fitted, w);
+        final float left = PsdLcdPainter.inkLeft(column, fitted, w, cols);
+        final float right = PsdLcdPainter.inkRight(column, fitted, w, cols);
         final String tag = what + " \"" + text + "\" @" + segments + " 段";
 
         // 1) 只缩不放
         check(fitted.size() <= nominal + 0.01F,
                 "PSD-LCD 放大了字号：" + tag + " " + fitted.size() + " > " + nominal);
         // 2) 右缘 ≤ 列右缘（= 时间/数字列左缘 − 间距），左缘 ≥ 列左缘
-        check(right <= PsdLcdPainter.columnRight(column, w) + TOL,
-                "PSD-LCD 右缘越界：" + tag + " " + right + " > " + PsdLcdPainter.columnRight(column, w));
-        check(left >= PsdLcdPainter.columnLeft(column, w) - TOL,
-                "PSD-LCD 左缘越界：" + tag + " " + left + " < " + PsdLcdPainter.columnLeft(column, w));
+        check(right <= PsdLcdPainter.columnRight(column, w, cols) + TOL,
+                "PSD-LCD 右缘越界：" + tag + " " + right + " > " + PsdLcdPainter.columnRight(column, w, cols));
+        check(left >= PsdLcdPainter.columnLeft(column, w, cols) - TOL,
+                "PSD-LCD 左缘越界：" + tag + " " + left + " < " + PsdLcdPainter.columnLeft(column, w, cols));
         // 3) 截断只发生在「缩到下限仍放不下」之后，且尾部是省略号
         if (fitted.truncated()) {
             check(fitted.text().endsWith(TextFit.ELLIPSIS), "PSD-LCD 截断没加省略号：" + tag);
@@ -332,6 +344,151 @@ public final class FitCheck {
         if (column == PsdLcdPainter.Column.COUNT) {
             // 数字不截断（截成「1…」没有意义），且右缘永远贴 NUM_RIGHT
             check(!fitted.truncated(), "PSD-LCD 把数字截断了：" + tag + " → " + fitted.text());
+        }
+    }
+
+    // ================================================================ 到站行（标签列 / 站名列）
+
+    /**
+     * 两行到站的全部离线断言（1…13 段 × 中/英两套标签 × 长站名）。
+     *
+     * <ol>
+     *   <li>标签墨迹右缘 ≤ 站名列起点（{@code nameX}），且标签 → 站名墨迹间隙 ≥ 4px；</li>
+     *   <li>两行站名用<b>同一份</b>列几何：{@code nameX} / {@code nameRight} 差 0px（同一文本在两个视口
+     *       排版出来的左/右缘也完全相等）；</li>
+     *   <li>站名墨迹右缘 ≤ {@code DEST_COL_R}（= 数字列左缘 − 间距），不压「分钟 / min」也不压数字；</li>
+     *   <li>长站名不越界：左缘 ≥ {@code nameX}、右缘 ≤ {@code nameRight}、字号 ≤ 名义（只缩不放）。</li>
+     * </ol>
+     */
+    private static void checkArrivalColumns(final PsdLcdPainter.Assets assets) {
+        System.out.printf("  屏：%d 段 = %.0f×%.1f px … 13 段 = %.0f×%.1f px；间隙 = 站名字高 × %.2f（≥ %.0fpx）%n",
+                (int) PsdLcdLayout.PX_PER_BLOCK, PsdLcdLayout.PX_PER_BLOCK, PsdLcdLayout.HEIGHT_PX,
+                PsdLcdLayout.PX_PER_BLOCK * 13, PsdLcdLayout.HEIGHT_PX,
+                PsdLcdPainter.LABEL_GAP_RATIO, PsdLcdPainter.MIN_LABEL_GAP_PX);
+
+        // 中文客户端的标签 / 英文客户端的标签（渲染器实际传给画家的是这两套）
+        final String[][] labelSets = {
+                {"开往", "Bound for", "下一趟开往", "Next train"},
+                {"To", "Bound for", "Next", "Next train"},
+        };
+
+        int combos = 0;
+        float worstGap = Float.MAX_VALUE;
+        String worstGapText = "";
+        for (int segments = 1; segments <= 13; segments++) {
+            final float w = PsdLcdLayout.PX_PER_BLOCK * segments;
+            final float h = PsdLcdLayout.HEIGHT_PX;
+            for (final String[] set : labelSets) {
+                // 第一行 / 第二行各自解一次 —— 两次结果必须逐字段相同（= 两行共用一份列几何）
+                final PsdLcdPainter.ArrivalColumns row1 = PsdLcdPainter.arrivalColumns(
+                        set[0], set[1], set[2], set[3], assets, w, h);
+                final PsdLcdPainter.ArrivalColumns row2 = PsdLcdPainter.arrivalColumns(
+                        set[0], set[1], set[2], set[3], assets, w, h);
+                final String tag = segments + " 段";
+                check(row1.equals(row2),
+                        "PSD-LCD 两行站名列不一致（" + tag + "，" + set[0] + "）：" + row1 + " vs " + row2);
+                check(row1.nameX() == row2.nameX() && row1.nameRight() == row2.nameRight(),
+                        "PSD-LCD 两行站名左/右缘差不是 0px（" + tag + "）："
+                                + (row1.nameX() - row2.nameX()) + " / " + (row1.nameRight() - row2.nameRight()));
+                check(Math.abs(row1.labelRight() + row1.gap() - row1.nameX()) < 0.01F,
+                        "PSD-LCD 站名列起点 ≠ 标签列右缘 + 间隙（" + tag + "）："
+                                + row1.labelRight() + " + " + row1.gap() + " vs " + row1.nameX());
+                check(row1.gap() >= PsdLcdPainter.MIN_LABEL_GAP_PX - 1e-4F,
+                        "PSD-LCD 标签 ↔ 站名间隙小于下限（" + tag + "）：" + row1.gap());
+                check(row1.nameW() > 0.0F, "PSD-LCD 站名列宽度 ≤ 0（" + tag + "）：" + row1.nameW());
+                // 站名列整个在「数字 / 状态」列左边（= 不压分钟列）：设计稿留 0.007 屏宽的空档，
+                // 1 段那档只有 3.6px，所以这里只要求「严格在左边」，不套 4px（4px 是标签 ↔ 站名的要求）
+                final float countStateLeft = PsdLcdPainter.columnAnchor(PsdLcdPainter.Column.COUNT_STATE, w);
+                check(row1.nameRight() <= countStateLeft - 1.0F,
+                        "PSD-LCD 站名列右缘压到数字列（" + tag + "）："
+                                + row1.nameRight() + " > " + (countStateLeft - 1.0F));
+
+                // 标签：墨迹不越过标签列右缘，且出厂标签一个都不该被截断
+                for (int r = 0; r < 2; r++) {
+                    final String zh = set[r * 2];
+                    final String en = set[r * 2 + 1];
+                    final float zhRight = PsdLcdPainter.labelInkRight(zh, true, assets, w, h, row1);
+                    final float enRight = PsdLcdPainter.labelInkRight(en, false, assets, w, h, row1);
+                    check(zhRight <= row1.labelRight() + TOL,
+                            "PSD-LCD 中文标签越出标签列（" + tag + "，" + zh + "）：" + zhRight
+                                    + " > " + row1.labelRight());
+                    check(enRight <= row1.labelRight() + TOL,
+                            "PSD-LCD 英文标签越出标签列（" + tag + "，" + en + "）：" + enRight
+                                    + " > " + row1.labelRight());
+                    check(!PsdLcdPainter.fitLabel(zh, true, assets, w, h, row1).truncated(),
+                            "PSD-LCD 出厂中文标签被截断（" + tag + "）：" + zh);
+                    check(!PsdLcdPainter.fitLabel(en, false, assets, w, h, row1).truncated(),
+                            "PSD-LCD 出厂英文标签被截断（" + tag + "）：" + en);
+                }
+
+                // 站名：每个长站名都在列内，且离标签 ≥ 4px
+                for (final String name : NAMES_ZH) {
+                    final PsdLcdPainter.Fitted f = PsdLcdPainter.fitColumn(
+                            PsdLcdPainter.Column.DEST_ZH, name, assets, w, h, row1);
+                    final float left = PsdLcdPainter.inkLeft(PsdLcdPainter.Column.DEST_ZH, f, w, row1);
+                    final float right = PsdLcdPainter.inkRight(PsdLcdPainter.Column.DEST_ZH, f, w, row1);
+                    final float gap = left - PsdLcdPainter.labelInkRight(set[2], true, assets, w, h, row1);
+                    if (gap < worstGap) {
+                        worstGap = gap;
+                        worstGapText = name + " @" + tag;
+                    }
+                    check(left >= row1.nameX() - TOL, "PSD-LCD 站名左缘越界（" + tag + "，" + name + "）："
+                            + left + " < " + row1.nameX());
+                    check(right <= row1.nameRight() + TOL, "PSD-LCD 站名右缘越界（" + tag + "，" + name + "）："
+                            + right + " > " + row1.nameRight());
+                    check(gap >= PsdLcdPainter.MIN_LABEL_GAP_PX - TOL,
+                            "PSD-LCD 标签压到站名（" + tag + "，" + set[2] + " → " + name
+                                    + "）：间隙 " + gap + "px");
+                    combos++;
+                }
+                for (final String name : NAMES_EN) {
+                    final PsdLcdPainter.Fitted f = PsdLcdPainter.fitColumn(
+                            PsdLcdPainter.Column.DEST_EN, name, assets, w, h, row1);
+                    final float left = PsdLcdPainter.inkLeft(PsdLcdPainter.Column.DEST_EN, f, w, row1);
+                    final float right = PsdLcdPainter.inkRight(PsdLcdPainter.Column.DEST_EN, f, w, row1);
+                    final float gap = left - PsdLcdPainter.labelInkRight(set[3], false, assets, w, h, row1);
+                    if (gap < worstGap) {
+                        worstGap = gap;
+                        worstGapText = name + " @" + tag;
+                    }
+                    check(left >= row1.nameX() - TOL, "PSD-LCD 英文站名左缘越界（" + tag + "，" + name + "）："
+                            + left + " < " + row1.nameX());
+                    check(right <= row1.nameRight() + TOL, "PSD-LCD 英文站名右缘越界（" + tag + "，" + name + "）："
+                            + right + " > " + row1.nameRight());
+                    check(gap >= PsdLcdPainter.MIN_LABEL_GAP_PX - TOL,
+                            "PSD-LCD 英文标签压到站名（" + tag + "，" + set[3] + " → " + name
+                                    + "）：间隙 " + gap + "px");
+                    combos++;
+                }
+            }
+        }
+        System.out.printf("  %d 段 × %d 套标签 × 长站名（%d 组）：标签右缘 ≤ 列右缘、"
+                        + "间隙 ≥ %.0fpx、站名在列内、两行左/右缘差 0px%n",
+                13, labelSets.length, combos, PsdLcdPainter.MIN_LABEL_GAP_PX);
+        System.out.printf("  最紧的一处：%s，间隙 %.2f px%n", worstGapText, worstGap);
+
+        // 报告用明细：1 段（最窄）/ 2 段 / 3 段 / 设计稿比例
+        for (final float[] view : new float[][]{{PsdLcdLayout.PX_PER_BLOCK, PsdLcdLayout.HEIGHT_PX},
+                {PsdLcdLayout.PX_PER_BLOCK * 2, PsdLcdLayout.HEIGHT_PX},
+                {PsdLcdLayout.PX_PER_BLOCK * 3, PsdLcdLayout.HEIGHT_PX},
+                {3072.0F, 448.0F}}) {
+            final PsdLcdPainter.ArrivalColumns cols = PsdLcdPainter.arrivalColumns(
+                    "开往", "Bound for", "下一趟开往", "Next train", assets, view[0], view[1]);
+            System.out.printf("  %.0f×%.0f：labelX %.1f  labelW %.1f（下一趟开往 %.1f）  gap %.1f  "
+                            + "nameX %.1f  nameRight %.1f  nameW %.1f%n",
+                    view[0], view[1], cols.labelX(), cols.labelW(),
+                    PsdLcdPainter.labelInkRight("下一趟开往", true, assets, view[0], view[1], cols)
+                            - cols.labelX(),
+                    cols.gap(), cols.nameX(), cols.nameRight(), cols.nameW());
+            for (final String name : new String[]{"第一码头枢纽站", "厦门北站附属客运中心东广场"}) {
+                final PsdLcdPainter.Fitted f = PsdLcdPainter.fitColumn(
+                        PsdLcdPainter.Column.DEST_ZH, name, assets, view[0], view[1], cols);
+                System.out.printf("    终点站 \"%s\"：%.1fpx%s  墨迹 %.2f…%.2f（列 %.2f…%.2f）%n",
+                        name, f.size(), f.truncated() ? " 截断" : "",
+                        PsdLcdPainter.inkLeft(PsdLcdPainter.Column.DEST_ZH, f, view[0], cols),
+                        PsdLcdPainter.inkRight(PsdLcdPainter.Column.DEST_ZH, f, view[0], cols),
+                        cols.nameX(), cols.nameRight());
+            }
         }
     }
 
