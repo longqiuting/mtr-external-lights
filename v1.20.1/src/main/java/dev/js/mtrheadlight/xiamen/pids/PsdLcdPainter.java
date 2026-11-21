@@ -572,22 +572,66 @@ public final class PsdLcdPainter {
             return;
         }
         final BufferedImage image = assets.logo;
-        // 等比：以墨迹高为准（xiamen_logo.png 的白色墨迹在 600×600 里是 470×376，四周有留白，
-        // 所以这里按「墨迹」而不是「整张图」对齐 —— 卡片里看到的大小才是对的）。
-        final float inkW = 470.0F;
-        final float inkH = 376.0F;
+        // 墨迹框**运行期量**，不写死。
+        // 旧版把 600×600 的 M 标量到的「墨迹 470×376、左上 65,112」写死成常量：
+        // 一旦资源包把 logo 换成别家的图（同样 600×600、但墨迹大小/位置不同），
+        // 缩放和锚点就全错 —— 表现就是「标志偏大 / 偏出卡片」。
+        // 现在按 alpha 扫出真实墨迹框，原版图与资源包图都按自己的墨迹对齐。
+        final int[] box = inkBox(image);
+        final float inkW = Math.max(1.0F, box[2] - box[0]);
+        final float inkH = Math.max(1.0F, box[3] - box[1]);
         // 宽也要夹在卡片里：窄屏（1 段）时内容盒被压到 3.9:1，卡片只有 0.0975 屏宽，而 M 标
         // 是按高度定大小的 —— 只按高度算的话墨迹会横出卡片、压到「开往」那一列。取两者小的那个。
         final float cardInk = (CARD_X1 - CARD_X0) * w - 0.014F * h;
         final float scale = Math.min((LOGO_H * h) / inkH, cardInk / inkW);
         final float drawW = image.getWidth() * scale;
         final float drawH = image.getHeight() * scale;
-        // 墨迹在整张图里的左上角（65,112）：把它摆到 LOGO_CX ± inkW/2、LOGO_TOP
-        final float inkLeftInImage = 65.0F * scale;
-        final float inkTopInImage = 112.0F * scale;
+        final float inkLeftInImage = box[0] * scale;
+        final float inkTopInImage = box[1] * scale;
         final float x = LOGO_CX * w - (inkW * scale) * 0.5F - inkLeftInImage;
         final float y = LOGO_TOP * h - inkTopInImage;
         drawScaled(g, image, x, y, drawW, drawH);
+    }
+
+    /**
+     * 量出一张图的**墨迹框**（alpha &gt; 1/8 的像素组成的包围盒），返回 {@code [x0, y0, x1, y1]}。
+     *
+     * <p>没有 alpha 通道（整张不透明）时退化为「与左上角像素颜色不同」的包围盒；
+     * 全透明/全同色则返回整张图，至少不会算出 0 尺寸。
+     */
+    private static int[] inkBox(final BufferedImage image) {
+        final int iw = image.getWidth();
+        final int ih = image.getHeight();
+        int x0 = iw;
+        int y0 = ih;
+        int x1 = -1;
+        int y1 = -1;
+        final boolean hasAlpha = image.getColorModel().hasAlpha();
+        final int corner = image.getRGB(0, 0);
+        for (int y = 0; y < ih; y++) {
+            for (int x = 0; x < iw; x++) {
+                final int argb = image.getRGB(x, y);
+                final boolean ink = hasAlpha ? ((argb >>> 24) > 31) : (argb != corner);
+                if (ink) {
+                    if (x < x0) {
+                        x0 = x;
+                    }
+                    if (y < y0) {
+                        y0 = y;
+                    }
+                    if (x > x1) {
+                        x1 = x;
+                    }
+                    if (y > y1) {
+                        y1 = y;
+                    }
+                }
+            }
+        }
+        if (x1 < 0 || y1 < 0) {
+            return new int[]{0, 0, iw, ih};
+        }
+        return new int[]{x0, y0, x1 + 1, y1 + 1};
     }
 
     private static void cardTexts(final Graphics2D g, final Content c, final Assets assets,
