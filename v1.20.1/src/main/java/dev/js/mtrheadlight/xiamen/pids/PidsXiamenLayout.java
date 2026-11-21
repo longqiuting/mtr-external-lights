@@ -196,17 +196,23 @@ public final class PidsXiamenLayout {
     /**
      * 地铁的竖排框（三个）。
      *
-     * @param card     框
-     * @param padRatio 上下内边距 ÷ 框高
-     * @param gapRatio 行间距 ÷ 框高
-     * @param label    左列大标签（开往 / 下一班开往 / 第三班开往）
-     * @param labelSub 左列小标签（Bound for / Next train / Third train）
-     * @param dest     右列终点站（大）
-     * @param destSub  右列终点站（小，英文）
-     * @param count    右列倒计时数字（大，强调色）
-     * @param unit     右列倒计时单位（小），跟在 {@code count} 后面同一行
+     * <p><b>右列（站名 / 倒计时）的 x 不在这里</b>：它由 {@link PidsXiamenColumns} 按
+     * 「标签列实测宽 + 固定间隙」算出来，三行共用同一个起点（写死两个 x 时标签一长就压到站名上）。
+     * 所以右列 {@link TextStyle#xRatio()} / {@link TextStyle#maxWidthRatio()} 都是 0（不使用），
+     * 只有字号、颜色、对齐有意义；预算由渲染器按 {@link PidsXiamenColumns.Columns#nameW()} 给。
+     *
+     * @param card         框
+     * @param padRatio     上下内边距 ÷ 框高
+     * @param gapRatio     行间距 ÷ 框高
+     * @param labelXInset  标签列左缘距框左缘多少 px（左列 x = card.x0 + 本值）
+     * @param label        左列大标签（开往 / 下一班开往 / 第三班开往）
+     * @param labelSub     左列小标签（Bound for / Next train / Third train）
+     * @param dest         右列终点站（大）
+     * @param destSub      右列终点站（小，英文）
+     * @param count        右列倒计时数字（大，强调色）
+     * @param unit         右列倒计时单位（小），跟在 {@code count} 后面同一行
      */
-    public record Row(Rect card, float padRatio, float gapRatio,
+    public record Row(Rect card, float padRatio, float gapRatio, float labelXInset,
                       TextStyle label, TextStyle labelSub,
                       TextStyle dest, TextStyle destSub,
                       TextStyle count, TextStyle unit) {
@@ -267,16 +273,15 @@ public final class PidsXiamenLayout {
     };
 
     private static Row metroRow(final Rect card) {
-        // 左列 x = 16px（框左边 +9），右列 x = 76px（框左边 +69）—— 参考图量出来的。
-        final float labelX = 9.0F / card.w();
-        final float contentX = 69.0F / card.w();
-        return new Row(card, 0.07F, 0.05F,
-                new TextStyle(0.18F, COLOR_WHITE, labelX, HAlign.LEFT, 0.34F),
-                new TextStyle(0.105F, COLOR_WHITE, labelX, HAlign.LEFT, 0.34F),
-                new TextStyle(0.27F, COLOR_WHITE, contentX, HAlign.LEFT, 0.55F),
-                new TextStyle(0.125F, COLOR_WHITE, contentX, HAlign.LEFT, 0.55F),
+        // 左列左缘距框左缘 9px（参考图量出来的）。右列的 x **不在这里**：
+        // 由 PidsXiamenColumns 按「三行里最宽的标签 + 固定间隙」算，三行共用。
+        return new Row(card, 0.07F, 0.05F, 9.0F,
+                new TextStyle(0.18F, COLOR_WHITE, 0, HAlign.LEFT, 0),
+                new TextStyle(0.105F, COLOR_WHITE, 0, HAlign.LEFT, 0),
+                new TextStyle(0.27F, COLOR_WHITE, 0, HAlign.LEFT, 0),
+                new TextStyle(0.125F, COLOR_WHITE, 0, HAlign.LEFT, 0),
                 // 倒计时也是白的（整屏只有 BRT 的线路号带颜色）
-                new TextStyle(0.36F, COLOR_WHITE, contentX, HAlign.LEFT, 0.32F),
+                new TextStyle(0.36F, COLOR_WHITE, 0, HAlign.LEFT, 0),
                 new TextStyle(0.16F, COLOR_WHITE, 0, HAlign.LEFT, 0));
     }
 
@@ -337,13 +342,13 @@ public final class PidsXiamenLayout {
 
     // ================================================================ 选一套
 
-    /** 这块屏（地铁 / BRT）用哪一套。 */
-    public static Object of(final PidsXiamenBlock.Kind kind) {
-        return kind == PidsXiamenBlock.Kind.BRT ? BRT : METRO;
-    }
-
-    /** 这块屏有几个到站框。 */
-    public static int rowsOf(final PidsXiamenBlock.Kind kind) {
-        return kind == PidsXiamenBlock.Kind.BRT ? BRT.rows().length : METRO.rows().length;
+    /**
+     * 这块屏有几个到站框。
+     *
+     * <p>参数是 {@code boolean} 而不是 {@code PidsXiamenBlock.Kind}：本类必须**零 MC 依赖**，
+     * 这样离线断言 / 预览（{@code tools/pids-columns}）能直接编译它，量到的就是游戏里那套常量。
+     */
+    public static int rowsOf(final boolean brt) {
+        return brt ? BRT.rows().length : METRO.rows().length;
     }
 }

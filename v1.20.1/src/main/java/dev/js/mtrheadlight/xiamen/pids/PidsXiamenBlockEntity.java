@@ -72,7 +72,7 @@ public class PidsXiamenBlockEntity extends IPIDS.TileEntityPIDS {
 
     @Override
     public int getMaxArrivals() {
-        return PidsXiamenLayout.rowsOf(this.kind);
+        return PidsXiamenLayout.rowsOf(this.kind == PidsXiamenBlock.Kind.BRT);
     }
 
     @Override

@@ -470,13 +470,48 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         }
     }
 
-    /** 地铁：左列「开往 / Bound for」，右列「终点站 / Destination / X 分钟」。 */
+    /**
+     * 地铁：左列「开往 / Bound for」，右列「终点站 / Destination / X 分钟」。
+     *
+     * <h2>列几何：标签列是<b>量的</b>，不是写死的</h2>
+     * <p>以前左列固定 {@code x0+9}、右列固定 {@code x0+69}：标签一长（「下一班开往」5 个全角字，
+     * 名义宽 ≈ 55.7px）就顶到站名上，屏上是「下一班开往第一码头」粘成一句；英文
+     * {@code Next train / first warf} 同样黏在一起。现在：
+     * <ol>
+     *   <li>把三行 × 中/英两档标签全部量一遍，取最大宽 = 标签列宽（{@link PidsXiamenColumns}）；</li>
+     *   <li>站名列起点 = 标签列右缘 + 站名字高 × 0.6 的固定间隙（≈9px，0.35 只有 5px、实机仍粘连） —— <b>三行共用这一个起点</b>；</li>
+     *   <li>站名列可用宽 = 名字列右缘（框右内缘 − 同一间隙，也就是数字行左缘那一侧的边界）− 起点，
+     *       交给 {@link TextFit#fit} 反解字号（只缩不放，缩到 62% 才截断）。</li>
+     * </ol>
+     * 标签自己也不再被 {@code 0.34×框宽} 的旧上限压着缩字 —— 预算就是它自己量出来的宽。
+     */
     private void renderMetroRows(final MatrixStack matrices, final TextRenderer textRenderer,
                                  final VertexConsumerProvider.Immediate immediate, final Screen screen) {
         final PidsXiamenLayout.Row[] rows = PidsXiamenLayout.METRO.rows();
+        final TextFit.Metrics metrics = metrics(textRenderer);
+
+        // ① 三行共用一套标签列宽：先把所有标签（中 + 英）在各自名义字号下量出来。
+        final List<PidsXiamenColumns.Label> labels = new ArrayList<>();
+        float rowGlyph = 0.0F;
+        for (int i = 0; i < rows.length; i++) {
+            final PidsXiamenLayout.Row row = rows[i];
+            labels.add(new PidsXiamenColumns.Label(Text.translatable(labelKey(i)).getString(),
+                    size(row.label(), row.card())));
+            labels.add(new PidsXiamenColumns.Label(Text.translatable(labelSubKey(i)).getString(),
+                    size(row.labelSub(), row.card())));
+            // 间隙跟「站名」那一档字高走（比标签大），否则缩到方块屏上仍读成粘连
+            rowGlyph = Math.max(rowGlyph, size(row.dest(), row.card()));
+        }
+
+        // ② 每行算一次列几何（三行的框 x0..x1 相同，所以算出来的 nameX 逐个相等；
+        //    gap 同时用在两处：标签列右侧、站名列右缘内侧）。
+        final float labelW = PidsXiamenColumns.labelWidth(metrics, labels);
+        final float gap = PidsXiamenColumns.gap(rowGlyph);
         for (int i = 0; i < rows.length; i++) {
             final PidsXiamenLayout.Row row = rows[i];
             final PidsXiamenLayout.Rect card = row.card();
+            final PidsXiamenColumns.Columns cols = PidsXiamenColumns.of(
+                    card.x0() + row.labelXInset(), labelW, rowGlyph, card.x1() - gap);
             final ScheduleEntry entry = entryAt(screen, i);
             final Route route = entry == null ? null : ClientData.DATA_CACHE.routeIdMap.get(entry.routeId);
 
@@ -486,19 +521,24 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
                 continue;
             }
 
-            // 左列：开往 / 下一班开往 / 第三班开往（+ 英文小字）
+            // 左列：开往 / 下一班开往 / 第三班开往（+ 英文小字）—— 预算 = 量出来的标签列宽
             drawFlow(matrices, textRenderer, immediate, card, row.padRatio(), row.gapRatio(),
-                    line(row.label(), card, Text.translatable(labelKey(i)).getString()),
-                    line(row.labelSub(), card, Text.translatable(labelSubKey(i)).getString()));
+                    line(row.label(), card, Text.translatable(labelKey(i)).getString(),
+                            cols.labelX(), cols.labelW()),
+                    line(row.labelSub(), card, Text.translatable(labelSubKey(i)).getString(),
+                            cols.labelX(), cols.labelW()));
 
             final String[] destination = destinations(route, entry);
             final Countdown countdown = countdown(entry);
 
-            // 右列：终点站（大）/ 英文（小）/ 倒计时（大数字 + 小单位）
+            // 右列：终点站（大）/ 英文（小）/ 倒计时（大数字 + 小单位）—— x 与预算都来自列几何
             drawFlow(matrices, textRenderer, immediate, card, row.padRatio(), row.gapRatio(),
-                    fittedLine(row.dest(), card, destination[0], textRenderer),
-                    fittedLine(row.destSub(), card, destination[1], textRenderer),
-                    countLine(row.count(), row.unit(), card, countdown));
+                    fittedLine(row.dest(), card, destination[0], textRenderer,
+                            cols.nameX(), cols.nameW()),
+                    fittedLine(row.destSub(), card, destination[1], textRenderer,
+                            cols.nameX(), cols.nameW()),
+                    countLine(row.count(), row.unit(), card, countdown,
+                            cols.nameX(), cols.nameW()));
         }
     }
 
@@ -577,9 +617,15 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         return 0xFF000000 | (route.color & 0xFFFFFF);
     }
 
-    /** 地铁的倒计时行：大数字（白）+ 小单位，底边对齐。 */
+    /**
+     * 地铁的倒计时行：大数字（白）+ 小单位，底边对齐。
+     *
+     * <p>它和站名<b>同一列竖排</b>，所以 x 与预算跟站名共用一份（{@link PidsXiamenColumns}）——
+     * 「即将进站 / 已到站」这种四字状态文案也锁在同一条右界里，不会往右顶出框。
+     */
     private Line countLine(final PidsXiamenLayout.TextStyle count, final PidsXiamenLayout.TextStyle unit,
-                           final PidsXiamenLayout.Rect card, final Countdown countdown) {
+                           final PidsXiamenLayout.Rect card, final Countdown countdown,
+                           final float x, final float maxWidth) {
         final float countSize = size(count, card);
         final float unitSize = size(unit, card);
         final PidsXiamenText.Segment[] segments = {
@@ -587,7 +633,7 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
                 new PidsXiamenText.Segment(padUnit(countdown.unit()), unitSize, unit.color())
         };
         return new Line(segments, Math.max(countSize, unitSize),
-                card.x(count.xRatio()), PidsXiamenLayout.HAlign.LEFT, card.w() * 0.55F);
+                x, PidsXiamenLayout.HAlign.LEFT, maxWidth);
     }
 
     // ------------------------------------------------------------------ 广告
@@ -790,12 +836,20 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         return false;
     }
 
-    /** 单段一行。 */
+    /** 单段一行（x / 预算按样式里的比例算；BRT 用这个）。 */
     private static Line line(final PidsXiamenLayout.TextStyle style, final PidsXiamenLayout.Rect card,
                              final String text) {
+        return line(style, card, text, card.x(style.xRatio()), card.w() * style.maxWidthRatio());
+    }
+
+    /**
+     * 单段一行（x 与预算由调用方给 —— 地铁左列用它，x = 标签列左缘、预算 = 标签列宽）。
+     */
+    private static Line line(final PidsXiamenLayout.TextStyle style, final PidsXiamenLayout.Rect card,
+                             final String text, final float x, final float maxWidth) {
         final float size = size(style, card);
         return new Line(new PidsXiamenText.Segment[]{new PidsXiamenText.Segment(text, size, style.color())},
-                size, card.x(style.xRatio()), style.align(), card.w() * style.maxWidthRatio());
+                size, x, style.align(), maxWidth);
     }
 
     /**
@@ -824,13 +878,24 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
      */
     private static Line fittedLine(final PidsXiamenLayout.TextStyle style, final PidsXiamenLayout.Rect card,
                                    final String text, final TextRenderer textRenderer) {
+        return fittedLine(style, card, text, textRenderer,
+                card.x(style.xRatio()), card.w() * style.maxWidthRatio());
+    }
+
+    /**
+     * 同上，但 x 与预算由调用方给：地铁右列用这一版 ——
+     * x = 站名列起点（标签列右缘 + 固定间隙），预算 = 站名列右缘 − 起点。
+     * 这两个数都来自 {@link PidsXiamenColumns}，不再是 {@code 0.55 × 框宽} 这种写死值。
+     */
+    private static Line fittedLine(final PidsXiamenLayout.TextStyle style, final PidsXiamenLayout.Rect card,
+                                   final String text, final TextRenderer textRenderer,
+                                   final float x, final float maxWidth) {
         final float nominal = size(style, card);
-        final float maxWidth = card.w() * style.maxWidthRatio();
         final TextFit.Fitted fitted = TextFit.fit(text, metrics(textRenderer),
                 nominal, maxWidth, TextFit.MIN_SCALE);
         return new Line(new PidsXiamenText.Segment[]{
                 new PidsXiamenText.Segment(fitted.text(), fitted.size(), style.color())},
-                fitted.size(), card.x(style.xRatio()), style.align(), maxWidth);
+                fitted.size(), x, style.align(), maxWidth);
     }
 
     /** 字号（px）= 框高 × sizeRatio。 */
@@ -935,7 +1000,8 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
 
     /** 第 {@code row} 行对应哪条到站（考虑翻页）。 */
     private static ScheduleEntry entryAt(final Screen screen, final int row) {
-        final int index = row + screen.displayPage() * PidsXiamenLayout.rowsOf(screen.kind());
+        final int index = row + screen.displayPage()
+                * PidsXiamenLayout.rowsOf(screen.kind() == PidsXiamenBlock.Kind.BRT);
         return index >= 0 && index < screen.schedules().size() ? screen.schedules().get(index) : null;
     }
 
@@ -1156,7 +1222,8 @@ public class PidsXiamenRenderer extends BlockEntityRendererMapper<PidsXiamenBloc
         if (tick >= nextLogTick) {
             nextLogTick = tick + LOG_INTERVAL_TICKS;
             LteLog.LOGGER.info("[lte] pids draw halves=1 faces={} kind={} pos={} facing={} partner={} rows={}",
-                    partner ? 2 : 1, kind, pos, facing, partner, PidsXiamenLayout.rowsOf(kind));
+                    partner ? 2 : 1, kind, pos, facing, partner,
+                    PidsXiamenLayout.rowsOf(kind == PidsXiamenBlock.Kind.BRT));
         }
     }
 
